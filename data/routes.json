@@ -1,0 +1,32 @@
+[
+  {
+    "id": "rt_camp",
+    "name": "명문 캠프",
+    "description": "다음 시즌 훈련 효율 +20%, 부상률 +5%p",
+    "effects": [
+      { "type": "modifier", "key": "trainingEfficiency", "amount": 0.2, "duration": "season" },
+      { "type": "modifier", "key": "injuryRate", "amount": 0.05, "duration": "season" }
+    ],
+    "forcedFriendly": false,
+    "guaranteedSeasonStartEvent": false
+  },
+  {
+    "id": "rt_expedition",
+    "name": "원정",
+    "description": "다음 시즌 시작 전 고난도 친선전 1회 강제. 승리하면 유물 3개 중 1개 선택",
+    "effects": [],
+    "forcedFriendly": true,
+    "guaranteedSeasonStartEvent": false
+  },
+  {
+    "id": "rt_hotspring",
+    "name": "온천 휴양",
+    "description": "전원 체력 100·컨디션 최고 단계로 회복. 다음 시즌 시작 이벤트 1회 확정",
+    "effects": [
+      { "type": "stamina", "target": "team", "amount": 100 },
+      { "type": "condition", "amount": 4 }
+    ],
+    "forcedFriendly": false,
+    "guaranteedSeasonStartEvent": true
+  }
+]

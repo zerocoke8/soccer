@@ -1,0 +1,931 @@
+[
+  {
+    "id": "ev_night_training",
+    "trigger": "random",
+    "supportId": null, "bondAtLeast": null, "routeId": null, "characterId": null,
+    "weight": 2, "minTurnIndex": 0, "seasons": [1, 2, 3], "once": true,
+    "title": "야간 특훈",
+    "text": "소등 시간이 지났는데 {player}가 감독실 문을 두드립니다.\n\"감독님, 오늘 밤만 슈팅 연습을 더 하고 싶어요. 아무도 없을 때 조용히요.\"\n눈이 진지합니다. 하지만 몸은 이미 충분히 지쳐 보입니다.",
+    "choices": [
+      {
+        "text": "허락한다",
+        "preview": "{player} 슈팅 +30 / 30%: 체력 -40, 부상 2턴",
+        "effects": [
+          { "type": "stat", "target": "player", "stat": "shoot", "amount": 30 },
+          { "type": "random", "chance": 0.3,
+            "then": [ { "type": "stamina", "target": "player", "amount": -40 },
+                      { "type": "injury", "target": "player", "turns": 2 } ],
+            "else": [] }
+        ],
+        "resultText": "{player}의 슈팅이 눈에 띄게 날카로워졌습니다."
+      },
+      {
+        "text": "쉬라고 한다",
+        "preview": "팀 컨디션 +1",
+        "effects": [ { "type": "condition", "amount": 1 } ],
+        "resultText": "{player}가 아쉬워하며 숙소로 돌아갑니다. 다음 날 팀 전체가 개운하게 일어났습니다."
+      }
+    ]
+  },
+  {
+    "id": "ev_secret_dribble",
+    "trigger": "random",
+    "supportId": null, "bondAtLeast": null, "routeId": null, "characterId": null,
+    "weight": 2, "minTurnIndex": 2, "seasons": [1, 2, 3], "once": true,
+    "title": "비밀 특훈",
+    "text": "{player}가 훈련장 뒤편 자갈밭에서 혼자 드리블 연습을 하고 있었습니다.\n\"여기서 하면 발끝 감각이 확 달라져요. 근데... 좀 위험하긴 하죠.\"\n계속하게 둘지, 정규 훈련으로 돌릴지 정해야 합니다.",
+    "choices": [
+      {
+        "text": "계속하게 둔다",
+        "preview": "{player} 드리블 +40 / 30%: 부상 2턴",
+        "effects": [
+          { "type": "stat", "target": "player", "stat": "dribble", "amount": 40 },
+          { "type": "random", "chance": 0.3,
+            "then": [ { "type": "injury", "target": "player", "turns": 2 } ],
+            "else": [] }
+        ],
+        "resultText": "{player}의 발끝 감각이 눈에 띄게 좋아졌습니다."
+      },
+      {
+        "text": "정규 훈련으로 돌린다",
+        "preview": "{player} 드리블 +10, 체력 -10",
+        "effects": [
+          { "type": "stat", "target": "player", "stat": "dribble", "amount": 10 },
+          { "type": "stamina", "target": "player", "amount": -10 }
+        ],
+        "resultText": "{player}가 얌전히 잔디로 돌아왔습니다."
+      }
+    ]
+  },
+  {
+    "id": "ev_scout_temptation",
+    "trigger": "random",
+    "supportId": null, "bondAtLeast": null, "routeId": null, "characterId": null,
+    "weight": 1, "minTurnIndex": 4, "seasons": [1, 2, 3], "once": true,
+    "title": "스카우트의 유혹",
+    "text": "낯선 스카우트가 라커룸 앞까지 찾아왔습니다.\n\"감독님 팀, 소문이 좋더군요. 우리 클럽의 유물을 하나 드리겠습니다. 대신 선수들과 잠깐 이야기만 하게 해 주시죠.\"\n선수들이 흔들릴지도 모릅니다.",
+    "choices": [
+      {
+        "text": "제안을 받는다",
+        "preview": "유물 3택 / 서포트 전원 유대 -15",
+        "effects": [
+          { "type": "bond", "target": "all", "amount": -15 },
+          { "type": "relic" }
+        ],
+        "resultText": "스카우트가 낡은 상자를 열어 보입니다. 선수들 사이에 묘한 기류가 흐릅니다."
+      },
+      {
+        "text": "정중히 거절한다",
+        "preview": "팀워크 +10, 서포트 전원 유대 +5",
+        "effects": [
+          { "type": "teamwork", "amount": 10 },
+          { "type": "bond", "target": "all", "amount": 5 }
+        ],
+        "resultText": "감독이 문 앞을 지키는 모습에 선수들이 조용히 웃었습니다."
+      }
+    ]
+  },
+  {
+    "id": "ev_spirit_pact",
+    "trigger": "random",
+    "supportId": null, "bondAtLeast": null, "routeId": null, "characterId": "ch_spirit_keeper",
+    "weight": 1, "minTurnIndex": 3, "seasons": [1, 2, 3], "once": true,
+    "title": "정령의 계약",
+    "text": "밤중에 훈련장 연못이 빛나고 있습니다. {player}가 물 위에 서서 말합니다.\n\"감독님, 호수의 어른들이 힘을 나눠 주겠대요. 다만 팀 모두가 조금씩 기운을 내놓아야 해요.\"\n물이 감독의 발목까지 차오릅니다.",
+    "choices": [
+      {
+        "text": "계약을 맺는다",
+        "preview": "런 동안 슛 위력 +5% / 전원 체력 -15",
+        "effects": [
+          { "type": "modifier", "key": "shootPower", "amount": 0.05, "duration": "run" },
+          { "type": "stamina", "target": "team", "amount": -15 }
+        ],
+        "resultText": "물기둥이 솟아 선수들을 감쌉니다. 몸은 무거워졌지만 공이 이상하게 가볍습니다."
+      },
+      {
+        "text": "사양한다",
+        "preview": "팀 컨디션 +1",
+        "effects": [ { "type": "condition", "amount": 1 } ],
+        "resultText": "연못이 조용히 가라앉습니다. {player}가 대신 팀에 맑은 물을 나눠 주었습니다."
+      }
+    ]
+  },
+  {
+    "id": "ev_rain_practice",
+    "trigger": "random",
+    "supportId": null, "bondAtLeast": null, "routeId": null, "characterId": null,
+    "weight": 2, "minTurnIndex": 0, "seasons": [1, 2], "once": false,
+    "title": "빗속 훈련",
+    "text": "아침부터 굵은 비가 내립니다. 잔디는 진흙탕이 되었고 선수들은 눈치를 봅니다.\n수비진이 먼저 나섭니다. \"이런 날 몸싸움 연습이 제일 잘 돼요.\"",
+    "choices": [
+      {
+        "text": "강행한다",
+        "preview": "전원 피지컬 +8, DF 수비 +8, 전원 체력 -15 / 30%: 랜덤 선수 부상 1턴",
+        "effects": [
+          { "type": "stat", "target": "team", "stat": "physical", "amount": 8 },
+          { "type": "stat", "target": "position:DF", "stat": "defense", "amount": 8 },
+          { "type": "stamina", "target": "team", "amount": -15 },
+          { "type": "random", "chance": 0.3,
+            "then": [ { "type": "injury", "target": "randomPlayer", "turns": 1 } ],
+            "else": [] }
+        ],
+        "resultText": "진흙을 뒤집어쓴 선수들이 웃으며 돌아왔습니다."
+      },
+      {
+        "text": "실내에서 쉬게 한다",
+        "preview": "전원 체력 +10",
+        "effects": [ { "type": "stamina", "target": "team", "amount": 10 } ],
+        "resultText": "창밖의 비를 보며 선수들이 모처럼 늦잠을 잤습니다."
+      }
+    ]
+  },
+  {
+    "id": "ev_local_kids",
+    "trigger": "random",
+    "supportId": null, "bondAtLeast": null, "routeId": null, "characterId": null,
+    "weight": 2, "minTurnIndex": 0, "seasons": [1, 2, 3], "once": false,
+    "title": "마을 아이들",
+    "text": "울타리 너머로 마을 아이들이 매달려 있습니다.\n\"저희랑 한 판만 해요! 진짜 선수들이랑!\"\n{player}가 이미 공을 들고 웃고 있습니다.",
+    "choices": [
+      {
+        "text": "함께 놀아준다",
+        "preview": "팀워크 +8, 전원 체력 -5",
+        "effects": [
+          { "type": "teamwork", "amount": 8 },
+          { "type": "stamina", "target": "team", "amount": -5 }
+        ],
+        "resultText": "아이들의 환호 속에서 선수들이 오랜만에 축구를 즐겼습니다."
+      },
+      {
+        "text": "응원만 부탁한다",
+        "preview": "스킬 힌트: 함성 Lv1",
+        "effects": [ { "type": "hint", "skill": "sk_rally_cry", "level": 1 } ],
+        "resultText": "아이들이 울타리 밖에서 목이 터지도록 응원합니다. 저 함성, 경기장에서도 쓸 수 있을 것 같습니다."
+      }
+    ]
+  },
+  {
+    "id": "ev_old_ball",
+    "trigger": "random",
+    "supportId": null, "bondAtLeast": null, "routeId": null, "characterId": null,
+    "weight": 2, "minTurnIndex": 1, "seasons": [1, 2, 3], "once": false,
+    "title": "낡은 공",
+    "text": "창고 정리 중 낡은 가죽 공이 나왔습니다. 옛 클럽 선수들의 서명이 빛바래 있습니다.\n{player}가 공을 들고 이리저리 돌려봅니다. \"이거 아직 쓸 수 있어요.\"",
+    "choices": [
+      {
+        "text": "공을 살펴본다",
+        "preview": "랜덤 스킬 힌트 Lv1",
+        "effects": [ { "type": "hint", "skill": "random", "level": 1 } ],
+        "resultText": "서명 옆에 적힌 낙서에서 옛 선수의 기술을 읽어냈습니다."
+      },
+      {
+        "text": "기념품으로 판다",
+        "preview": "스킬 포인트 +15",
+        "effects": [ { "type": "skillPoints", "amount": 15 } ],
+        "resultText": "마을 수집가가 기꺼이 값을 쳐주었습니다."
+      }
+    ]
+  },
+  {
+    "id": "ev_treaty_inspector",
+    "trigger": "random",
+    "supportId": null, "bondAtLeast": null, "routeId": null, "characterId": null,
+    "weight": 1, "minTurnIndex": 2, "seasons": [1, 2, 3], "once": true,
+    "title": "조약 감독관 방문",
+    "text": "조약 리그의 감독관이 예고 없이 찾아왔습니다.\n\"신생 클럽 실태 조사입니다. 협조해 주시면 다음 상대의 공식 기록을 열람하게 해 드리죠.\"\n하루 훈련이 통째로 날아갈 분위기입니다.",
+    "choices": [
+      {
+        "text": "성실히 협조한다",
+        "preview": "이번 시즌 상대 의도 공개 +1단계 / 전원 체력 -10",
+        "effects": [
+          { "type": "modifier", "key": "intentReveal", "amount": 1, "duration": "season" },
+          { "type": "stamina", "target": "team", "amount": -10 }
+        ],
+        "resultText": "감독관이 두꺼운 기록철을 두고 갔습니다. 상대의 습관이 훤히 보입니다."
+      },
+      {
+        "text": "짧게 끝낸다",
+        "preview": "스킬 포인트 +10",
+        "effects": [ { "type": "skillPoints", "amount": 10 } ],
+        "resultText": "감독관은 못마땅해했지만, 남은 시간을 전술 연구에 썼습니다."
+      }
+    ]
+  },
+  {
+    "id": "ev_giant_appetite",
+    "trigger": "random",
+    "supportId": null, "bondAtLeast": null, "routeId": null, "characterId": "ch_giant_striker",
+    "weight": 1, "minTurnIndex": 1, "seasons": [1, 2, 3], "once": true,
+    "title": "거인의 식욕",
+    "text": "식당에서 비명이 들립니다. {player}가 팀 전체의 저녁을 혼자 먹어버렸습니다.\n\"...배가 고파서. 요즘 몸이 계속 크는 것 같아요.\"\n영양사가 감독을 쳐다봅니다.",
+    "choices": [
+      {
+        "text": "마음껏 먹게 한다",
+        "preview": "{player} 피지컬 +20, 체력 +20 / 30%: 드리블 -10",
+        "effects": [
+          { "type": "stat", "target": "player", "stat": "physical", "amount": 20 },
+          { "type": "stamina", "target": "player", "amount": 20 },
+          { "type": "random", "chance": 0.3,
+            "then": [ { "type": "stat", "target": "player", "stat": "dribble", "amount": -10 } ],
+            "else": [] }
+        ],
+        "resultText": "{player}의 몸이 한층 단단해졌습니다. 주방은 초과 근무에 들어갔습니다."
+      },
+      {
+        "text": "식단을 관리한다",
+        "preview": "{player} 드리블 +10, 팀워크 +5",
+        "effects": [
+          { "type": "stat", "target": "player", "stat": "dribble", "amount": 10 },
+          { "type": "teamwork", "amount": 5 }
+        ],
+        "resultText": "{player}가 시무룩하게 채소를 씹습니다. 동료들이 몰래 빵을 나눠 주었습니다."
+      }
+    ]
+  },
+  {
+    "id": "ev_wolf_moon",
+    "trigger": "random",
+    "supportId": null, "bondAtLeast": null, "routeId": null, "characterId": "ch_wolf_winger",
+    "weight": 1, "minTurnIndex": 2, "seasons": [1, 2, 3], "once": true,
+    "title": "달밤의 질주",
+    "text": "보름달이 뜬 밤, {player}가 울타리를 넘어 언덕으로 달려 나갑니다.\n\"감독님도 같이 뛰실래요? 달이 밝을 땐 발이 멈추질 않아요.\"\n초원 저편까지 한참을 달릴 기세입니다.",
+    "choices": [
+      {
+        "text": "함께 달린다",
+        "preview": "{player} 드리블 +25, 체력 -25 / 35%: 부상 1턴",
+        "effects": [
+          { "type": "stat", "target": "player", "stat": "dribble", "amount": 25 },
+          { "type": "stamina", "target": "player", "amount": -25 },
+          { "type": "random", "chance": 0.35,
+            "then": [ { "type": "injury", "target": "player", "turns": 1 } ],
+            "else": [] }
+        ],
+        "resultText": "새벽까지 달린 {player}의 발놀림이 한결 가벼워졌습니다."
+      },
+      {
+        "text": "불러들인다",
+        "preview": "서포트 전원 유대 +5, 팀 컨디션 +1",
+        "effects": [
+          { "type": "bond", "target": "all", "amount": 5 },
+          { "type": "condition", "amount": 1 }
+        ],
+        "resultText": "{player}가 투덜대며 돌아와 모두와 늦은 밤 차를 마셨습니다."
+      }
+    ]
+  },
+  {
+    "id": "ev_elf_letter",
+    "trigger": "random",
+    "supportId": null, "bondAtLeast": null, "routeId": null, "characterId": "ch_elf_playmaker",
+    "weight": 1, "minTurnIndex": 3, "seasons": [1, 2, 3], "once": true,
+    "title": "고향의 편지",
+    "text": "{player}가 숲에서 온 편지를 들고 한참을 서 있습니다.\n\"...고향 경계전에서 졌대요. 숲 가장자리를 내줘야 한다고요.\"\n조용히 편지를 접습니다. 오늘 훈련에 집중할 수 있을까요.",
+    "choices": [
+      {
+        "text": "하루 쉬게 한다",
+        "preview": "{player} 체력 +30, 패스 +10",
+        "effects": [
+          { "type": "stamina", "target": "player", "amount": 30 },
+          { "type": "stat", "target": "player", "stat": "pass", "amount": 10 }
+        ],
+        "resultText": "{player}가 숲을 향해 앉아 하루를 보냈습니다. 돌아온 눈빛이 맑습니다."
+      },
+      {
+        "text": "훈련으로 잊게 한다",
+        "preview": "{player} 패스 +20, 체력 -10",
+        "effects": [
+          { "type": "stat", "target": "player", "stat": "pass", "amount": 20 },
+          { "type": "stamina", "target": "player", "amount": -10 }
+        ],
+        "resultText": "{player}의 패스가 어느 때보다 정확했습니다. 고향에 보여주고 싶었던 모양입니다."
+      }
+    ]
+  },
+  {
+    "id": "ev_captain_speech",
+    "trigger": "random",
+    "supportId": null, "bondAtLeast": null, "routeId": null, "characterId": "ch_human_captain",
+    "weight": 1, "minTurnIndex": 1, "seasons": [1, 2, 3], "once": true,
+    "title": "주장의 연설",
+    "text": "훈련 시작 전, {player}가 감독에게 다가옵니다.\n\"오늘은 제가 선수들에게 한마디 하고 싶습니다. 감독님 말씀 전에요.\"\n무슨 말을 할지는 짐작이 가지 않습니다.",
+    "choices": [
+      {
+        "text": "맡긴다",
+        "preview": "팀워크 +15 / 25%: 컨디션 -1, 아니면 컨디션 +1",
+        "effects": [
+          { "type": "teamwork", "amount": 15 },
+          { "type": "random", "chance": 0.25,
+            "then": [ { "type": "condition", "amount": -1 } ],
+            "else": [ { "type": "condition", "amount": 1 } ] }
+        ],
+        "resultText": "{player}의 연설이 끝나자 선수들이 조용히 서로를 쳐다보았습니다."
+      },
+      {
+        "text": "내가 직접 한다",
+        "preview": "팀워크 +8",
+        "effects": [ { "type": "teamwork", "amount": 8 } ],
+        "resultText": "감독의 짧은 말에 {player}가 먼저 박수를 쳤습니다."
+      }
+    ]
+  },
+  {
+    "id": "ev_cat_prank",
+    "trigger": "random",
+    "supportId": null, "bondAtLeast": null, "routeId": null, "characterId": "ch_cat_trickster",
+    "weight": 1, "minTurnIndex": 0, "seasons": [1, 2, 3], "once": true,
+    "title": "고양이의 장난",
+    "text": "훈련용 공 스무 개가 전부 지붕 위에 올라가 있습니다.\n{player}가 꼬리를 흔들며 시치미를 뗍니다. \"바람이 세더라고요.\"\n선수들이 웃음을 참고 있습니다.",
+    "choices": [
+      {
+        "text": "웃어넘긴다",
+        "preview": "팀 컨디션 +1, 서포트 전원 유대 +3",
+        "effects": [
+          { "type": "condition", "amount": 1 },
+          { "type": "bond", "target": "all", "amount": 3 }
+        ],
+        "resultText": "모두가 지붕을 올려다보며 한바탕 웃었습니다. 공은 {player}가 내려왔습니다."
+      },
+      {
+        "text": "벌 훈련을 시킨다",
+        "preview": "{player} 드리블 +15, 체력 -20 / 팀워크 -5",
+        "effects": [
+          { "type": "stat", "target": "player", "stat": "dribble", "amount": 15 },
+          { "type": "stamina", "target": "player", "amount": -20 },
+          { "type": "teamwork", "amount": -5 }
+        ],
+        "resultText": "{player}가 공 스무 개를 드리블로 한 바퀴씩 돌았습니다. 동료들은 조금 미안해했습니다."
+      }
+    ]
+  },
+  {
+    "id": "ev_summon_letter",
+    "trigger": "random",
+    "supportId": null, "bondAtLeast": null, "routeId": null, "characterId": null,
+    "weight": 1, "minTurnIndex": 3, "seasons": [1, 2], "once": true,
+    "title": "연맹의 격려",
+    "text": "종족 연맹에서 신생 클럽 격려 서신이 도착했습니다.\n\"기념으로 소정의 지원을 드립니다. 원하는 형태를 골라 주십시오.\"",
+    "choices": [
+      {
+        "text": "호출권으로 받는다",
+        "preview": "호출권 +1",
+        "effects": [ { "type": "summonTicket", "amount": 1 } ],
+        "resultText": "선수를 원하는 훈련 칸으로 부를 수 있는 호출권을 받았습니다."
+      },
+      {
+        "text": "포인트로 받는다",
+        "preview": "스킬 포인트 +25",
+        "effects": [ { "type": "skillPoints", "amount": 25 } ],
+        "resultText": "스킬 포인트가 클럽 금고에 쌓였습니다."
+      }
+    ]
+  },
+  {
+    "id": "ev_wandering_healer",
+    "trigger": "random",
+    "supportId": null, "bondAtLeast": null, "routeId": null, "characterId": null,
+    "weight": 1, "minTurnIndex": 3, "seasons": [1, 2, 3], "once": false,
+    "title": "떠돌이 치유사",
+    "text": "약초 냄새를 풍기는 치유사가 정문에 서 있습니다.\n\"다친 선수가 있으면 봐 드리죠. 없으면 약초라도 사 가시고요.\"",
+    "choices": [
+      {
+        "text": "치료를 부탁한다",
+        "preview": "전원 부상 회복, 전원 체력 +10",
+        "effects": [
+          { "type": "heal", "target": "team" },
+          { "type": "stamina", "target": "team", "amount": 10 }
+        ],
+        "resultText": "치유사의 손이 닿자 붓기가 가라앉았습니다. 절뚝이던 선수가 뛰어나갑니다."
+      },
+      {
+        "text": "약초만 산다",
+        "preview": "전원 체력 +25",
+        "effects": [ { "type": "stamina", "target": "team", "amount": 25 } ],
+        "resultText": "쓴 약초차를 마신 선수들이 밤새 푹 잤습니다."
+      }
+    ]
+  },
+  {
+    "id": "ev_hot_streak",
+    "trigger": "random",
+    "supportId": null, "bondAtLeast": null, "routeId": null, "characterId": null,
+    "weight": 2, "minTurnIndex": 2, "seasons": [1, 2, 3], "once": false,
+    "title": "뜨거운 기세",
+    "text": "훈련장 공기가 다릅니다. 패스가 착착 맞고 슛이 구석에 꽂힙니다.\n{player}가 소리칩니다. \"감독님, 오늘 한 세트만 더!\"",
+    "choices": [
+      {
+        "text": "밀어붙인다",
+        "preview": "전원 주 스탯 +6, 전원 체력 -10",
+        "effects": [
+          { "type": "stat", "target": "team", "stat": "main", "amount": 6 },
+          { "type": "stamina", "target": "team", "amount": -10 }
+        ],
+        "resultText": "해가 진 뒤에야 훈련이 끝났습니다. 모두 만족스러운 얼굴입니다."
+      },
+      {
+        "text": "기세를 아껴둔다",
+        "preview": "팀 컨디션 +1",
+        "effects": [ { "type": "condition", "amount": 1 } ],
+        "resultText": "좋은 감각을 안고 일찍 마쳤습니다. 내일이 기다려집니다."
+      }
+    ]
+  },
+  {
+    "id": "ev_storm",
+    "trigger": "random",
+    "supportId": null, "bondAtLeast": null, "routeId": null, "characterId": null,
+    "weight": 1, "minTurnIndex": 4, "seasons": [2, 3], "once": false,
+    "title": "폭풍우",
+    "text": "폭풍우가 지붕을 두드립니다. 밖에서는 아무것도 할 수 없습니다.\n좁은 실내 훈련장이 하나 있긴 합니다. 바닥이 미끄럽습니다.",
+    "choices": [
+      {
+        "text": "실내 훈련을 강행한다",
+        "preview": "전원 피지컬 +6, 전원 체력 -10 / 20%: 랜덤 선수 부상 1턴",
+        "effects": [
+          { "type": "stat", "target": "team", "stat": "physical", "amount": 6 },
+          { "type": "stamina", "target": "team", "amount": -10 },
+          { "type": "random", "chance": 0.2,
+            "then": [ { "type": "injury", "target": "randomPlayer", "turns": 1 } ],
+            "else": [] }
+        ],
+        "resultText": "천둥소리에 맞춰 뛰었습니다. 바닥이 미끄러워 몇 번 넘어졌습니다."
+      },
+      {
+        "text": "하루 쉰다",
+        "preview": "전원 체력 +20, 팀워크 +3",
+        "effects": [
+          { "type": "stamina", "target": "team", "amount": 20 },
+          { "type": "teamwork", "amount": 3 }
+        ],
+        "resultText": "난로 앞에서 카드 게임을 하며 하루가 지나갔습니다."
+      }
+    ]
+  },
+  {
+    "id": "ev_market_day",
+    "trigger": "random",
+    "supportId": null, "bondAtLeast": null, "routeId": null, "characterId": null,
+    "weight": 2, "minTurnIndex": 0, "seasons": [1, 2, 3], "once": false,
+    "title": "장날",
+    "text": "마을에 큰 장이 섰습니다. 서포터들이 선수들을 데리고 나가고 싶어 합니다.\n{player}는 이미 지갑을 챙겼습니다.",
+    "choices": [
+      {
+        "text": "다 함께 나간다",
+        "preview": "서포트 전원 유대 +8, 전원 체력 +5",
+        "effects": [
+          { "type": "bond", "target": "all", "amount": 8 },
+          { "type": "stamina", "target": "team", "amount": 5 }
+        ],
+        "resultText": "군것질과 수다로 하루가 갔습니다. 돌아오는 길에 모두 웃고 있었습니다."
+      },
+      {
+        "text": "{player}만 보낸다",
+        "preview": "{player} 랜덤 스탯 +12",
+        "effects": [ { "type": "stat", "target": "player", "stat": "random", "amount": 12 } ],
+        "resultText": "{player}가 장터 골목에서 뭔가를 배워 왔습니다. 무엇인지는 말해주지 않습니다."
+      }
+    ]
+  },
+  {
+    "id": "ev_rival_letter",
+    "trigger": "random",
+    "supportId": null, "bondAtLeast": null, "routeId": null, "characterId": null,
+    "weight": 1, "minTurnIndex": 2, "seasons": [1, 2, 3], "once": true,
+    "title": "라이벌의 도발",
+    "text": "다음 경계전 상대 클럽에서 편지가 왔습니다.\n\"신생 클럽 여러분, 잔디는 우리가 깔아 드리겠습니다. 넘어지기 편하게.\"\n선수들이 편지를 돌려 보고 있습니다.",
+    "choices": [
+      {
+        "text": "게시판에 붙인다",
+        "preview": "이번 시즌 훈련 효율 +10% / 팀 컨디션 -1",
+        "effects": [
+          { "type": "modifier", "key": "trainingEfficiency", "amount": 0.1, "duration": "season" },
+          { "type": "condition", "amount": -1 }
+        ],
+        "resultText": "이를 악문 선수들이 훈련장으로 뛰어나갔습니다. 웃음은 사라졌지만 땀은 늘었습니다."
+      },
+      {
+        "text": "조용히 태워버린다",
+        "preview": "팀워크 +5",
+        "effects": [ { "type": "teamwork", "amount": 5 } ],
+        "resultText": "\"경기장에서 답하자.\" 감독의 말에 모두 고개를 끄덕였습니다."
+      }
+    ]
+  },
+  {
+    "id": "ev_relic_ruins",
+    "trigger": "random",
+    "supportId": null, "bondAtLeast": null, "routeId": null, "characterId": null,
+    "weight": 1, "minTurnIndex": 6, "seasons": [1, 2, 3], "once": true,
+    "title": "옛 경기장 유적",
+    "text": "원정 연습 중 대전쟁 이전의 경기장 유적을 발견했습니다.\n무너진 관중석 아래로 라커룸 입구가 보입니다. {player}가 먼저 들여다봅니다.\n\"뭔가 있어요. 근데 천장이 좀...\"",
+    "choices": [
+      {
+        "text": "탐험한다",
+        "preview": "60%: 유물 3택 / 40%: 랜덤 선수 부상 1턴, 전원 체력 -10",
+        "effects": [
+          { "type": "random", "chance": 0.6,
+            "then": [ { "type": "relic" } ],
+            "else": [ { "type": "injury", "target": "randomPlayer", "turns": 1 },
+                      { "type": "stamina", "target": "team", "amount": -10 } ] }
+        ],
+        "resultText": "먼지를 뒤집어쓰고 유적에서 나왔습니다."
+      },
+      {
+        "text": "지나간다",
+        "preview": "전원 체력 +10",
+        "effects": [ { "type": "stamina", "target": "team", "amount": 10 } ],
+        "resultText": "유적을 뒤로하고 그늘에서 쉬었습니다. {player}가 자꾸 뒤를 돌아봅니다."
+      }
+    ]
+  },
+
+  {
+    "id": "ev_sp_harr_60",
+    "trigger": "support",
+    "supportId": "sp_coach_harr", "bondAtLeast": 60, "routeId": null, "characterId": null,
+    "weight": 1, "minTurnIndex": 0, "seasons": [1, 2, 3], "once": true,
+    "title": "하르의 눈",
+    "text": "{support}가 {player}를 골대 앞에 세웁니다.\n\"골키퍼를 보지 마. 골키퍼가 못 보는 곳을 봐. 슛은 발이 아니라 눈으로 차는 거다.\"\n공이 구석 그물에 꽂힙니다.",
+    "choices": [
+      {
+        "text": "가르침을 새긴다",
+        "preview": "스킬 힌트: 파워 슛 Lv2, {player} 슈팅 +10",
+        "effects": [
+          { "type": "hint", "skill": "sk_power_shot", "level": 2 },
+          { "type": "stat", "target": "player", "stat": "shoot", "amount": 10 }
+        ],
+        "resultText": "{player}의 시선이 달라졌습니다. {support}가 만족스럽게 고개를 끄덕입니다."
+      }
+    ]
+  },
+  {
+    "id": "ev_sp_wind_dancer_60",
+    "trigger": "support",
+    "supportId": "sp_wind_dancer", "bondAtLeast": 60, "routeId": null, "characterId": null,
+    "weight": 1, "minTurnIndex": 0, "seasons": [1, 2, 3], "once": true,
+    "title": "바람의 스텝",
+    "text": "{support}가 음악도 없이 잔디 위에서 춤을 춥니다.\n\"{player}, 따라 해봐. 드리블은 상대를 속이는 게 아니라 바람에 몸을 맡기는 거야.\"",
+    "choices": [
+      {
+        "text": "스텝을 따라 한다",
+        "preview": "스킬 힌트: 폭발 드리블 Lv1, {player} 드리블 +10",
+        "effects": [
+          { "type": "hint", "skill": "sk_burst_dribble", "level": 1 },
+          { "type": "stat", "target": "player", "stat": "dribble", "amount": 10 }
+        ],
+        "resultText": "{player}의 발이 잔디를 스치듯 움직입니다."
+      },
+      {
+        "text": "팀 전원이 배운다",
+        "preview": "전원 드리블 +5, 전원 체력 -5",
+        "effects": [
+          { "type": "stat", "target": "team", "stat": "dribble", "amount": 5 },
+          { "type": "stamina", "target": "team", "amount": -5 }
+        ],
+        "resultText": "훈련장이 잠시 무도회장이 되었습니다. {support}가 즐거워합니다."
+      }
+    ]
+  },
+  {
+    "id": "ev_sp_elder_sage_60",
+    "trigger": "support",
+    "supportId": "sp_elder_sage", "bondAtLeast": 60, "routeId": null, "characterId": null,
+    "weight": 1, "minTurnIndex": 0, "seasons": [1, 2, 3], "once": true,
+    "title": "빈 공간의 강의",
+    "text": "{support}가 칠판에 점 일곱 개를 찍습니다.\n\"공은 여기 없다. 공이 갈 곳이 여기다. {player}, 네가 서야 할 자리는 어디지?\"\n한참 만에 {player}가 손을 뻗습니다.",
+    "choices": [
+      {
+        "text": "깊이 파고든다",
+        "preview": "스킬 힌트: 연계의 달인 Lv2",
+        "effects": [ { "type": "hint", "skill": "sk_chain_master", "level": 2 } ],
+        "resultText": "{player}가 칠판 앞에서 밤을 새웠습니다. 연계의 원리가 손에 잡히기 시작합니다."
+      },
+      {
+        "text": "팀 전체에 강의를 부탁한다",
+        "preview": "전원 패스 +8",
+        "effects": [ { "type": "stat", "target": "team", "stat": "pass", "amount": 8 } ],
+        "resultText": "{support}의 강의가 세 시간을 넘겼습니다. 모두 졸았지만 패스는 좋아졌습니다."
+      }
+    ]
+  },
+  {
+    "id": "ev_sp_iron_captain_60",
+    "trigger": "support",
+    "supportId": "sp_iron_captain", "bondAtLeast": 60, "routeId": null, "characterId": null,
+    "weight": 1, "minTurnIndex": 0, "seasons": [1, 2, 3], "once": true,
+    "title": "철벽의 유산",
+    "text": "{support}가 낡은 정강이 보호대를 꺼냅니다.\n\"이걸 차고 스무 시즌을 뛰었지. 한 번도 크게 안 다쳤어. 비결은 장비가 아니라 자세다.\"\n{player}에게 태클 자세를 하나하나 고쳐줍니다.",
+    "choices": [
+      {
+        "text": "자세를 배운다",
+        "preview": "스킬 힌트: 바위 방벽 Lv1, DF 전원 수비 +8",
+        "effects": [
+          { "type": "hint", "skill": "sk_stone_shield", "level": 1 },
+          { "type": "stat", "target": "position:DF", "stat": "defense", "amount": 8 }
+        ],
+        "resultText": "수비진의 자세가 낮고 단단해졌습니다."
+      }
+    ]
+  },
+  {
+    "id": "ev_sp_mountain_monk_60",
+    "trigger": "support",
+    "supportId": "sp_mountain_monk", "bondAtLeast": 60, "routeId": null, "characterId": null,
+    "weight": 1, "minTurnIndex": 0, "seasons": [1, 2, 3], "once": true,
+    "title": "산의 호흡",
+    "text": "{support}가 새벽에 선수들을 산 중턱으로 데려갔습니다.\n\"숨을 세어라. 넷에 들이쉬고, 여섯에 내쉬고. 몸은 그 뒤에 따라온다.\"\n{player}가 가장 먼저 호흡을 맞춥니다.",
+    "choices": [
+      {
+        "text": "호흡법을 익힌다",
+        "preview": "전원 피지컬 +6, 전원 체력 +10",
+        "effects": [
+          { "type": "stat", "target": "team", "stat": "physical", "amount": 6 },
+          { "type": "stamina", "target": "team", "amount": 10 }
+        ],
+        "resultText": "산에서 내려온 선수들의 발걸음이 가볍습니다."
+      },
+      {
+        "text": "{player}만 집중 지도",
+        "preview": "스킬 힌트: 큰 경기 체질 Lv1, {player} 피지컬 +12",
+        "effects": [
+          { "type": "hint", "skill": "sk_big_game", "level": 1 },
+          { "type": "stat", "target": "player", "stat": "physical", "amount": 12 }
+        ],
+        "resultText": "{support}가 {player}에게 큰 경기 전 마음을 다스리는 법을 전해주었습니다."
+      }
+    ]
+  },
+  {
+    "id": "ev_sp_bard_lumi_60",
+    "trigger": "support",
+    "supportId": "sp_bard_lumi", "bondAtLeast": 60, "routeId": null, "characterId": null,
+    "weight": 1, "minTurnIndex": 0, "seasons": [1, 2, 3], "once": true,
+    "title": "클럽의 노래",
+    "text": "{support}가 새 노래를 들고 왔습니다. 우리 클럽의 노래라고 합니다.\n\"후렴은 다 같이 불러야 해. {player}, 네가 선창해.\"\n{player}의 얼굴이 새빨개집니다.",
+    "choices": [
+      {
+        "text": "다 같이 부른다",
+        "preview": "팀 컨디션 +1, 팀워크 +8, 스킬 힌트: 함성 Lv1",
+        "effects": [
+          { "type": "condition", "amount": 1 },
+          { "type": "teamwork", "amount": 8 },
+          { "type": "hint", "skill": "sk_rally_cry", "level": 1 }
+        ],
+        "resultText": "음정은 엉망이었지만 노래는 훈련장을 가득 채웠습니다."
+      }
+    ]
+  },
+  {
+    "id": "ev_sp_street_striker_60",
+    "trigger": "support",
+    "supportId": "sp_street_striker", "bondAtLeast": 60, "routeId": null, "characterId": null,
+    "weight": 1, "minTurnIndex": 0, "seasons": [1, 2, 3], "once": true,
+    "title": "내기 한 판",
+    "text": "{support}가 {player}에게 공을 던집니다.\n\"열 번 차서 나보다 많이 넣으면 비법 하나 준다. 지면... 오늘 저녁은 네가 사고.\"\n골목 축구의 전설이 씩 웃습니다.",
+    "choices": [
+      {
+        "text": "내기를 받는다",
+        "preview": "50%: {player} 슈팅 +25 / 50%: {player} 슈팅 +5, 컨디션 -1",
+        "effects": [
+          { "type": "random", "chance": 0.5,
+            "then": [ { "type": "stat", "target": "player", "stat": "shoot", "amount": 25 } ],
+            "else": [ { "type": "stat", "target": "player", "stat": "shoot", "amount": 5 },
+                      { "type": "condition", "amount": -1 } ] }
+        ],
+        "resultText": "골목의 승부가 끝났습니다. 저녁 값은 누가 냈을까요."
+      },
+      {
+        "text": "정중히 사양한다",
+        "preview": "스킬 힌트: 언더독 정신 Lv1",
+        "effects": [ { "type": "hint", "skill": "sk_underdog", "level": 1 } ],
+        "resultText": "\"쫄았냐?\" {support}가 웃으며 대신 뒷골목에서 이기는 법을 이야기해 주었습니다."
+      }
+    ]
+  },
+  {
+    "id": "ev_sp_river_scholar_60",
+    "trigger": "support",
+    "supportId": "sp_river_scholar", "bondAtLeast": 60, "routeId": null, "characterId": null,
+    "weight": 1, "minTurnIndex": 0, "seasons": [1, 2, 3], "once": true,
+    "title": "기록의 수식",
+    "text": "{support}가 두꺼운 노트를 펼칩니다. 지난 경기들의 패스 경로가 화살표로 빽빽합니다.\n\"{player}, 네 패스는 여기서 항상 0.3초가 느려. 그리고 상대 골키퍼는 여기서 항상 왼쪽으로 기울어.\"",
+    "choices": [
+      {
+        "text": "수식을 배운다",
+        "preview": "스킬 힌트: 스루 패스 Lv1",
+        "effects": [ { "type": "hint", "skill": "sk_through_pass", "level": 1 } ],
+        "resultText": "{player}가 노트를 빌려 갔습니다. 다음 날 패스 타이밍이 달라져 있었습니다."
+      },
+      {
+        "text": "노트를 클럽에 기부받는다",
+        "preview": "스킬 포인트 +20",
+        "effects": [ { "type": "skillPoints", "amount": 20 } ],
+        "resultText": "{support}의 기록이 클럽 전술 자료가 되었습니다."
+      }
+    ]
+  },
+
+  {
+    "id": "ev_season1_open",
+    "trigger": "seasonStart",
+    "supportId": null, "bondAtLeast": null, "routeId": null, "characterId": null,
+    "weight": 1, "minTurnIndex": 0, "seasons": [1], "once": true,
+    "title": "지방 조약 리그 개막",
+    "text": "시즌 {season}. 지방 조약 리그가 열립니다.\n신생 클럽의 첫 시즌, 관중은 스무 명 남짓입니다. 선수들이 감독을 바라봅니다.\n첫 말을 무엇으로 시작할까요.",
+    "choices": [
+      {
+        "text": "\"우리는 이기러 왔다.\"",
+        "preview": "팀워크 +5, 전원 주 스탯 +3",
+        "effects": [
+          { "type": "teamwork", "amount": 5 },
+          { "type": "stat", "target": "team", "stat": "main", "amount": 3 }
+        ],
+        "resultText": "선수들의 등이 곧게 펴졌습니다."
+      },
+      {
+        "text": "\"우선 즐기자.\"",
+        "preview": "팀 컨디션 +1",
+        "effects": [ { "type": "condition", "amount": 1 } ],
+        "resultText": "긴장이 풀린 선수들이 웃으며 잔디로 나갔습니다."
+      }
+    ]
+  },
+  {
+    "id": "ev_season2_camp",
+    "trigger": "seasonStart",
+    "supportId": null, "bondAtLeast": null, "routeId": null, "characterId": null,
+    "weight": 1, "minTurnIndex": 0, "seasons": [2], "once": true,
+    "title": "종족 연맹컵 합숙",
+    "text": "시즌 {season}, 종족 연맹컵. 다른 종족의 클럽들이 한자리에 모입니다.\n연맹에서 개막 전 합숙 시설을 내주었습니다. 서포터들도 함께 머물 수 있습니다.\n{player}가 짐을 다 싸놓고 기다립니다.",
+    "choices": [
+      {
+        "text": "합숙을 실시한다",
+        "preview": "전원 주 스탯 +5, 서포트 전원 유대 +5 / 전원 체력 -15",
+        "effects": [
+          { "type": "stat", "target": "team", "stat": "main", "amount": 5 },
+          { "type": "bond", "target": "all", "amount": 5 },
+          { "type": "stamina", "target": "team", "amount": -15 }
+        ],
+        "resultText": "사흘간의 합숙이 끝났습니다. 피곤하지만 팀이 한 덩어리가 된 느낌입니다."
+      },
+      {
+        "text": "평소대로 준비한다",
+        "preview": "전원 체력 +10",
+        "effects": [ { "type": "stamina", "target": "team", "amount": 10 } ],
+        "resultText": "익숙한 훈련장에서 차분하게 시즌을 열었습니다."
+      }
+    ]
+  },
+  {
+    "id": "ev_season3_final",
+    "trigger": "seasonStart",
+    "supportId": null, "bondAtLeast": null, "routeId": null, "characterId": null,
+    "weight": 1, "minTurnIndex": 0, "seasons": [3], "once": true,
+    "title": "대륙 경계전 진출",
+    "text": "시즌 {season}. 대륙 경계전. 이번 시즌 끝의 경기 결과로 국경선이 그어집니다.\n조약 리그 관리관이 계약서를 내밀며 묻습니다. \"클럽의 각오를 한 줄로 적어 주십시오.\"",
+    "choices": [
+      {
+        "text": "\"마지막까지 배운다.\"",
+        "preview": "이번 시즌 스킬 포인트 획득 +20%",
+        "effects": [ { "type": "modifier", "key": "skillPointGain", "amount": 0.2, "duration": "season" } ],
+        "resultText": "관리관이 고개를 끄덕이며 계약서에 도장을 찍었습니다."
+      },
+      {
+        "text": "\"우리는 하나다.\"",
+        "preview": "팀워크 +10",
+        "effects": [ { "type": "teamwork", "amount": 10 } ],
+        "resultText": "선수들이 계약서 아래에 한 명씩 이름을 적었습니다."
+      }
+    ]
+  },
+
+  {
+    "id": "ev_prematch_s1",
+    "trigger": "preMatch",
+    "supportId": null, "bondAtLeast": null, "routeId": null, "characterId": null,
+    "weight": 1, "minTurnIndex": 0, "seasons": [1], "once": true,
+    "title": "첫 경계전 전야",
+    "text": "내일은 시즌 {season}의 경계전입니다. 클럽의 첫 공식 경기.\n숙소 복도에서 {player}가 잠을 못 이루고 서성입니다.\n\"감독님, 내일 이기면 정말 마을 땅이 늘어나는 거예요?\"",
+    "choices": [
+      {
+        "text": "마지막 가벼운 훈련",
+        "preview": "전원 주 스탯 +4, 전원 체력 -10",
+        "effects": [
+          { "type": "stat", "target": "team", "stat": "main", "amount": 4 },
+          { "type": "stamina", "target": "team", "amount": -10 }
+        ],
+        "resultText": "달빛 아래 마지막 패스 연습. 모두 공이 손에 익은 채로 잠들었습니다."
+      },
+      {
+        "text": "일찍 재운다",
+        "preview": "전원 체력 +15, 팀 컨디션 +1",
+        "effects": [
+          { "type": "stamina", "target": "team", "amount": 15 },
+          { "type": "condition", "amount": 1 }
+        ],
+        "resultText": "감독의 이야기를 들으며 {player}도 결국 잠들었습니다."
+      }
+    ]
+  },
+  {
+    "id": "ev_prematch_s2",
+    "trigger": "preMatch",
+    "supportId": null, "bondAtLeast": null, "routeId": null, "characterId": null,
+    "weight": 1, "minTurnIndex": 0, "seasons": [2], "once": true,
+    "title": "연맹컵 결승 전야",
+    "text": "시즌 {season} 경계전 전날. 상대 클럽의 연습 경기가 근처 경기장에서 열린다는 소식입니다.\n지금 가면 볼 수 있습니다. 하지만 선수들은 쉬어야 합니다.",
+    "choices": [
+      {
+        "text": "코치진과 정찰을 간다",
+        "preview": "이번 경기 상대 의도 공개 +1단계",
+        "effects": [ { "type": "modifier", "key": "intentReveal", "amount": 1, "duration": "season" } ],
+        "resultText": "상대 선수들의 버릇을 노트 세 장에 적어 왔습니다."
+      },
+      {
+        "text": "선수들과 함께 남는다",
+        "preview": "전원 체력 +10, 팀워크 +5",
+        "effects": [
+          { "type": "stamina", "target": "team", "amount": 10 },
+          { "type": "teamwork", "amount": 5 }
+        ],
+        "resultText": "조용한 저녁. 선수들이 서로의 어깨를 두드렸습니다."
+      }
+    ]
+  },
+  {
+    "id": "ev_prematch_s3",
+    "trigger": "preMatch",
+    "supportId": null, "bondAtLeast": null, "routeId": null, "characterId": null,
+    "weight": 1, "minTurnIndex": 0, "seasons": [3], "once": true,
+    "title": "대륙 경계전 전야",
+    "text": "시즌 {season}, 마지막 경계전 전날. 경기장 밖에 두 나라의 깃발이 나란히 걸렸습니다.\n내일 저 깃발 중 하나가 내려갑니다.\n{player}가 묻습니다. \"감독님, 우린 어떻게 싸우죠?\"",
+    "choices": [
+      {
+        "text": "\"공격이다. 전부 쏟아라.\"",
+        "preview": "이번 경기 슛 위력 +5%, 전원 체력 -5",
+        "effects": [
+          { "type": "modifier", "key": "shootPower", "amount": 0.05, "duration": "season" },
+          { "type": "stamina", "target": "team", "amount": -5 }
+        ],
+        "resultText": "선수들이 밤늦게까지 슈팅 감각을 다듬었습니다."
+      },
+      {
+        "text": "\"평소처럼. 그게 우리다.\"",
+        "preview": "팀 컨디션 +1",
+        "effects": [ { "type": "condition", "amount": 1 } ],
+        "resultText": "{player}가 웃었습니다. 모두가 편안한 얼굴로 잠들었습니다."
+      }
+    ]
+  },
+
+  {
+    "id": "ev_route_camp",
+    "trigger": "route",
+    "supportId": null, "bondAtLeast": null, "routeId": "rt_camp", "characterId": null,
+    "weight": 1, "minTurnIndex": 0, "seasons": [1, 2, 3], "once": false,
+    "title": "명문 캠프 도착",
+    "text": "대륙에서 이름난 훈련 캠프에 도착했습니다. 잔디가 유리처럼 고르고, 장비가 반짝입니다.\n{player}가 입을 다물지 못합니다. \"여기서 훈련하면 안 늘 수가 없겠어요.\"",
+    "choices": [
+      {
+        "text": "짐을 푼다",
+        "preview": "전원 피지컬 +5",
+        "effects": [ { "type": "stat", "target": "team", "stat": "physical", "amount": 5 } ],
+        "resultText": "첫날부터 캠프의 트레이너들이 선수들을 몰아붙였습니다."
+      }
+    ]
+  },
+  {
+    "id": "ev_route_expedition",
+    "trigger": "route",
+    "supportId": null, "bondAtLeast": null, "routeId": "rt_expedition", "characterId": null,
+    "weight": 1, "minTurnIndex": 0, "seasons": [1, 2, 3], "once": false,
+    "title": "원정길",
+    "text": "덜컹거리는 마차로 사흘. 낯선 땅의 강팀과 맞붙기 위한 원정입니다.\n{player}가 창밖을 보며 말합니다. \"저 산 너머가 상대 나라래요.\"",
+    "choices": [
+      {
+        "text": "각오를 다진다",
+        "preview": "팀워크 +5, 전원 체력 -5",
+        "effects": [
+          { "type": "teamwork", "amount": 5 },
+          { "type": "stamina", "target": "team", "amount": -5 }
+        ],
+        "resultText": "좁은 마차 안에서 선수들이 서로의 어깨에 기대 잠들었습니다."
+      }
+    ]
+  },
+  {
+    "id": "ev_route_hotspring",
+    "trigger": "route",
+    "supportId": null, "bondAtLeast": null, "routeId": "rt_hotspring", "characterId": null,
+    "weight": 1, "minTurnIndex": 0, "seasons": [1, 2, 3], "once": false,
+    "title": "온천 휴양",
+    "text": "산속 온천 마을. 뜨거운 물에서 김이 오르고, 선수들은 이미 탕에 들어가 있습니다.\n서포터들도 온천복을 입고 나타났습니다. {player}가 손을 흔듭니다.",
+    "choices": [
+      {
+        "text": "함께 몸을 담근다",
+        "preview": "서포트 전원 유대 +5",
+        "effects": [ { "type": "bond", "target": "all", "amount": 5 } ],
+        "resultText": "온천 김 속에서 시즌의 피로가 녹아내렸습니다."
+      }
+    ]
+  }
+]

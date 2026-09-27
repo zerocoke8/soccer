@@ -1,0 +1,125 @@
+{
+  "turnsPerSeason": 8,
+  "seasons": 3,
+  "statCap": 1000,
+  "defaultSquad": {
+    "formation": "2-2-2",
+    "slots": {
+      "GK": "ch_spirit_keeper",
+      "DF1": "ch_dwarf_wall",
+      "DF2": "ch_human_captain",
+      "MF1": "ch_elf_playmaker",
+      "MF2": "ch_human_runner",
+      "FW1": "ch_wolf_winger",
+      "FW2": "ch_giant_striker"
+    }
+  },
+  "defaultSupports": [
+    "sp_coach_harr",
+    "sp_wind_dancer",
+    "sp_elder_sage",
+    "sp_iron_captain",
+    "sp_mountain_monk",
+    "sp_bard_lumi"
+  ],
+  "defaultTactics": {
+    "attack": "balanced",
+    "shootTiming": "breakAll",
+    "defense": "balanced",
+    "tension": "clutch",
+    "duelPicker": "best"
+  },
+  "training": {
+    "mainGain": 56,
+    "subGain": 20,
+    "freeTrainRatio": 0.35,
+    "staminaCost": 20,
+    "crowdBonusPerExtraPlayer": 0.05,
+    "failRateByStamina": [[60, 0.02], [40, 0.10], [20, 0.25], [0, 0.45]],
+    "failStatLoss": 5,
+    "injuryChanceOnFail": 0.5,
+    "injuryTurns": 2,
+    "bondPerTraining": 12,
+    "friendshipThreshold": 80,
+    "teamworkPerExtraPlayer": 2,
+    "subStatMap": {
+      "shoot": "dribble",
+      "dribble": "pass",
+      "pass": "shoot",
+      "defense": "physical",
+      "physical": "defense"
+    },
+    "slotWeights": {
+      "GK": { "shoot": 2, "dribble": 3, "pass": 15, "defense": 40, "physical": 40 },
+      "DF": { "shoot": 5, "dribble": 10, "pass": 20, "defense": 40, "physical": 25 },
+      "MF": { "shoot": 15, "dribble": 25, "pass": 35, "defense": 15, "physical": 10 },
+      "FW": { "shoot": 35, "dribble": 30, "pass": 15, "defense": 5, "physical": 15 }
+    }
+  },
+  "rest": { "stamina": 40, "conditionUpChance": 0.3 },
+  "outing": { "condition": 1, "bond": 10, "teamStamina": 10 },
+  "meeting": { "teamwork": 10 },
+  "friendly": {
+    "staminaCost": 30,
+    "possessions": 6,
+    "skillPointsWin": 30,
+    "skillPointsLoss": 15,
+    "relicChanceOnWin": 0.3
+  },
+  "goalMatch": { "possessions": [8, 10, 12], "skillPointsWin": 50, "skillPointsLoss": 25 },
+  "condition": {
+    "start": 2,
+    "trainingMult": [0.8, 0.9, 1.0, 1.1, 1.2],
+    "matchMult": [0.9, 0.95, 1.0, 1.05, 1.1]
+  },
+  "aptitudeMult": { "A": 1.0, "B": 0.9, "C": 0.75 },
+  "eventChancePerTurn": 0.6,
+  "summonTicketsPerSeason": 1,
+  "youthSubstitute": { "stats": 120, "style": "power" },
+  "elementResonance": {
+    "minPlayers": 3,
+    "strongPlayers": 4,
+    "strongMult": 1.5,
+    "bonus": {
+      "fire": { "shootPower": 0.05 },
+      "water": { "staminaCost": -0.10 },
+      "wind": { "passAttack": 0.05 },
+      "earth": { "defense": 0.05 },
+      "lightning": { "tensionGain": 0.20 }
+    }
+  },
+  "rating": {
+    "skillValue": 10,
+    "teamworkWeight": 0.5,
+    "thresholds": { "S": 700, "A": 600, "B": 500, "C": 400, "D": 300, "E": 200, "F": 100, "G": 0 },
+    "capByLosses": ["S", "A", "B", "C"]
+  },
+  "match": {
+    "styleAdv": 1.25,
+    "styleDis": 0.8,
+    "readBonus": 1.5,
+    "minP": 0.1,
+    "maxP": 0.9,
+    "actionCoef": {
+      "dribble": 2.2,
+      "pass": 2.2,
+      "shoot": 1.5,
+      "midrangeShoot": 1.0,
+      "tackle": 1.0,
+      "intercept": 1.0,
+      "block": 1.0,
+      "save": 1.0
+    },
+    "passChainBonus": 0.1,
+    "coverBonusPerExtraDefender": 0.1,
+    "teamworkPassBonusPer100": 0.1,
+    "staminaCost": { "dribble": 8, "pass": 4, "shoot": 5, "defend": 4 },
+    "staminaMax": 100,
+    "lowStaminaThreshold": 0.2,
+    "lowStaminaMult": 0.8,
+    "tension": { "duelWin": 10, "steal": 15, "save": 15, "goal": 20, "max": 100, "start": 20 },
+    "extraTimePossessions": 2,
+    "penaltyShots": 5,
+    "aiRevealForOpponent": "partial"
+  }
+}

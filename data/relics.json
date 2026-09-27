@@ -1,0 +1,72 @@
+[
+  {
+    "id": "rl_captain_band",
+    "name": "낡은 주장 완장",
+    "rarity": "SR",
+    "description": "목표 경기(경계전)에서 팀 컨디션 +1단계",
+    "modifiers": { "goalMatchCondition": 1 }
+  },
+  {
+    "id": "rl_odd_boots",
+    "name": "짝짝이 축구화",
+    "rarity": "R",
+    "description": "드리블 성공 시 10% 확률로 경기 체력 +5",
+    "modifiers": { "dribbleStaminaRefund": 0.1 }
+  },
+  {
+    "id": "rl_coach_notebook",
+    "name": "감독의 수첩",
+    "rarity": "SSR",
+    "description": "상대 의도가 한 단계 더 공개됨",
+    "modifiers": { "intentReveal": 1 }
+  },
+  {
+    "id": "rl_cracked_trophy",
+    "name": "금 간 트로피",
+    "rarity": "SR",
+    "description": "훈련 효율 +15%, 휴식 효과 -30%",
+    "modifiers": { "trainingEfficiency": 0.15, "restEffect": -0.3 }
+  },
+  {
+    "id": "rl_treaty_seal",
+    "name": "조약의 인장",
+    "rarity": "R",
+    "description": "경계전 패배 시 보상 감소가 절반으로 줄어든다",
+    "modifiers": { "lossPenaltyHalf": 1 }
+  },
+  {
+    "id": "rl_flame_pendant",
+    "name": "불꽃 펜던트",
+    "rarity": "SR",
+    "description": "경기에서 슛 위력 +5%",
+    "modifiers": { "shootPower": 0.05 }
+  },
+  {
+    "id": "rl_stone_greaves",
+    "name": "바위 각반",
+    "rarity": "R",
+    "description": "경기에서 수비 판정 +5%, 대신 경기 체력 소모 +5%",
+    "modifiers": { "defense": 0.05, "staminaCost": 0.05 }
+  },
+  {
+    "id": "rl_lightning_charm",
+    "name": "번개 부적",
+    "rarity": "SR",
+    "description": "경기에서 텐션 획득 +20%",
+    "modifiers": { "tensionGain": 0.2 }
+  },
+  {
+    "id": "rl_sages_ledger",
+    "name": "현자의 장부",
+    "rarity": "SSR",
+    "description": "스킬 포인트 획득 +30%, 힌트 확률 +10%p",
+    "modifiers": { "skillPointGain": 0.3, "hintRate": 0.1 }
+  },
+  {
+    "id": "rl_bond_bracelet",
+    "name": "우정의 팔찌",
+    "rarity": "R",
+    "description": "훈련 시 서포트 유대 상승 +3",
+    "modifiers": { "bondGain": 3 }
+  }
+]

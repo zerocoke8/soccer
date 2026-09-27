@@ -1,4 +1,4 @@
-# 웹 프로토타입 아키텍처 & 모듈 계약 (v1)
+# 웹 프로토타입 아키텍처 & 모듈 계약 (v1.2 — 리뷰 수정 반영)
 
 > 이 문서는 **구현 계약**이다. 각 모듈을 만드는 사람(에이전트)은 서로의 코드를 보지 않고 이 문서만 보고 작업한다.
 > 여기 적힌 함수 시그니처·데이터 스키마·수치 키는 그대로 지켜야 한다. 필요한 것이 빠져 있으면 **추가는 하되 기존 것을 바꾸지 않는다.**
@@ -251,7 +251,7 @@ modifier 키는 §6.7 목록만 사용.
   ]
 }
 ```
-- 스탯 가이드 (선수당 합): 시즌1 목표 1400~1500, 시즌2 1900~2000, 시즌3 2500~2600. 친선전은 같은 시즌 목표팀보다 5% 낮게. `tools/sim.mjs` 결과로 조정한다.
+- 스탯 가이드 (선수당 합, `tools/sim.mjs` 로 튠한 v1.1 값): 시즌1 목표 1400~1450, 시즌2 2180~2250, 시즌3 2840~2950. 친선전은 같은 시즌 목표팀보다 4~6% 낮게. (초안 1400~1500 / 1900~2000 / 2500~2600 은 시즌2·3 승률이 목표를 크게 넘겨 상향.)
 - 시즌3 팀은 원소 공명(같은 원소 3명+)과 스킬 2~3개 보유.
 
 ### 4.7 routes.json (3개)
@@ -260,11 +260,12 @@ modifier 키는 §6.7 목록만 사용.
 { "id": "rt_camp", "name": "명문 캠프", "description": "다음 시즌 훈련 효율 +20%, 부상률 +5%p",
   "effects": [ { "type": "modifier", "key": "trainingEfficiency", "amount": 0.2, "duration": "season" },
                { "type": "modifier", "key": "injuryRate", "amount": 0.05, "duration": "season" } ],
-  "forcedFriendly": false }
+  "forcedFriendly": false,
+  "guaranteedSeasonStartEvent": false }   // true 면 다음 시즌 seasonStart 이벤트 확정 (온천)
 ```
-3개: 명문 캠프 / 원정(`forcedFriendly: true`, 승리 시 `relic` 효과는 run.js가 처리) / 온천 휴양(전원 체력 100·컨디션 4, `seasonStart` 이벤트 1개 확정).
+3개: 명문 캠프 / 원정(`forcedFriendly: true`, 승리 시 `relic` 효과는 run.js가 처리) / 온천 휴양(전원 체력 100·컨디션 4, `guaranteedSeasonStartEvent: true` 로 `seasonStart` 이벤트 1개 확정).
 
-### 4.8 config.json (엔진(육성) 소유, 초기값 아래)
+### 4.8 config.json (엔진(육성) 소유. 아래는 v1.1 튠 값 — 실제 기준은 `data/config.json`)
 
 ```jsonc
 {
@@ -274,11 +275,11 @@ modifier 키는 §6.7 목록만 사용.
   "defaultSupports": ["sp_…" ×6],
   "defaultTactics": { "attack": "balanced", "shootTiming": "breakAll", "defense": "balanced", "tension": "clutch", "duelPicker": "best" },
   "training": {
-    "mainGain": 14, "subGain": 5, "freeTrainRatio": 0.2, "staminaCost": 20,
+    "mainGain": 56, "subGain": 20, "freeTrainRatio": 0.35, "staminaCost": 20,   // 초안 14/5/0.2 → sim 튠 (24턴 후 avgStat ≈ 480 = B)
     "crowdBonusPerExtraPlayer": 0.05,
     "failRateByStamina": [[60, 0.02], [40, 0.10], [20, 0.25], [0, 0.45]],
     "failStatLoss": 5, "injuryChanceOnFail": 0.5, "injuryTurns": 2,
-    "bondPerTraining": 7, "friendshipThreshold": 80, "teamworkPerExtraPlayer": 2,
+    "bondPerTraining": 12, "friendshipThreshold": 80, "teamworkPerExtraPlayer": 2,   // 초안 7 → 12 (우정 훈련 ≥ 3회/런)
     "subStatMap": { "shoot": "dribble", "dribble": "pass", "pass": "shoot", "defense": "physical", "physical": "defense" },
     "slotWeights": {
       "GK": { "shoot": 2,  "dribble": 3,  "pass": 15, "defense": 40, "physical": 40 },
@@ -304,7 +305,7 @@ modifier 키는 §6.7 목록만 사용.
     "capByLosses": ["S", "A", "B", "C"] },
   "match": {
     "styleAdv": 1.25, "styleDis": 0.8, "readBonus": 1.5, "minP": 0.1, "maxP": 0.9,
-    "actionCoef": { "dribble": 1.0, "pass": 1.0, "shoot": 1.0, "midrangeShoot": 0.7, "tackle": 1.0, "intercept": 1.0, "block": 1.0, "save": 1.0 },
+    "actionCoef": { "dribble": 1.8, "pass": 1.8, "shoot": 1.5, "midrangeShoot": 1.0, "tackle": 1.0, "intercept": 1.0, "block": 1.0, "save": 1.0 },   // 초안 전부 1.0/0.7 → 골 ≈ 1.5/경기
     "passChainBonus": 0.1, "coverBonusPerExtraDefender": 0.1, "teamworkPassBonusPer100": 0.1,
     "staminaCost": { "dribble": 8, "pass": 4, "shoot": 5, "defend": 4 }, "staminaMax": 100,
     "lowStaminaThreshold": 0.2, "lowStaminaMult": 0.8,
@@ -348,10 +349,12 @@ modifier 키는 §6.7 목록만 사용.
   "lastMatchResult": null,    // finishMatch 가 채움 (UI 결과 표시용)
   "pendingRelicChoices": null,   // [relicId ×3]
   "pendingRoutes": null,         // [routeId ×3]
-  "record": { "goalMatches": [ { "season": 1, "opponentId": "…", "win": true, "home": 2, "away": 1 } ], "friendlies": [], "losses": 0 },
+  "record": { "goalMatches": [ { "season": 1, "opponentId": "…", "win": true, "home": 2, "away": 1, "penalties": { "home": 4, "away": 3 } } ], "friendlies": [], "losses": 0 },
+  //   goalMatches[].penalties 는 승부차기로 끝났을 때만 (v1.2 추가). 목표 경기는 무승부가 없으므로 UI 는 동점 스코어에 PK 결과를 붙여 표시
   "usedEventIds": [],
   "log": [ { "turnIndex": 0, "text": "…" } ],
-  "rating": null              // finalize 후 { score, grade, cappedGrade, breakdown }
+  "rating": null,             // finalize 후 { score, grade, cappedGrade, breakdown }
+  "queue": []                 // (v1.1 추가) 이벤트/경기/유물/루트 대기 뒤에 이어 처리할 내부 단계 목록. 순수 문자열 배열
 }
 ```
 
@@ -367,13 +370,15 @@ export function getPhase(state)   // state.phase
 
 export function getTurnView(state, data)
 // → {
-//   season, turn, turnIndex, turnsUntilMatch, nextMatch: { opponentName, element, style(주요), intentReveal, possessions },
+//   season, turn, turnIndex, turnsUntilMatch, nextMatch: { opponentName, element, style(주요), intentReveal, baseIntentReveal, possessions },
+//     nextMatch.intentReveal 은 실제 경기와 같은 값(상대 기본값 + getModifier("intentReveal") 단계 상승, none→partial→full). 기본값은 baseIntentReveal (v1.2)
 //   condition, teamwork, skillPoints, summonTickets,
 //   players: [ { id, name, slot, position, aptitude, stamina, injuredTurns, stats, portraitColor, mainStat } ],
 //   slots: [ { type, players: [playerId], supports: [ { id, name, type, bond, friendship: bool, hint: bool } ],
 //             preview: { perPlayer: [ { playerId, gains: { [stat]: n }, staminaCost, failRate } ], freePlayers: [ { playerId, gains } ],
 //                        totalGain, maxFailRate, friendship: bool, bondGain: [ { supportId, amount } ] } } ],
 //   recommendedSlot: "shoot",
+//   recommendedAction: "train" | "rest",   // (v1.1 추가) 팀 평균 체력 < 40 또는 추천 칸 실패율 ≥ 25% 면 "rest"
 //   canOuting: bool (friend 타입 서포트 보유 여부와 무관하게 항상 true; friend 있으면 friendSupportId 제공), friendSupportId,
 //   shop: [ { skillId, name, cost, discountedCost, hintLevel, eligiblePlayerIds } ],     // 힌트 보유 스킬만
 //   relics: [relicId], modifiers: [...], log: 최근 20개
@@ -388,14 +393,14 @@ export function applyAction(state, data, action)
 // 반환: state
 
 export function resolveEvent(state, data, choiceIndex)   // phase "event" → 효과 적용, 결과 텍스트를 log에 → 다음 phase
-export function getEventView(state, data)   // { title, text(치환 완료), choices: [ { text, preview } ], player?, support? }
+export function getEventView(state, data)   // { eventId, trigger, title, text(치환 완료), choices: [ { text, preview } ], player: { id, name, portraitColor, slot, position }|null, support: { id, name, portraitColor, type, bond }|null }
 
 export function getMatchSetup(state, data)  // phase "match" → { home: TeamSnapshot, away: TeamSnapshot, possessions, seed, rules, kind, opponentName }
 export function finishMatch(state, data, matchResult)
 // 기록·스킬 포인트·유물 선택(승리 시 3개 → phase "relic") → 시즌 끝이면 route(시즌1,2) 또는 finished(시즌3) → 아니면 다음 턴
 // matchResult = match.getResult() 반환값. 선수별 경기 체력은 훈련 체력에 영향 없음(분리).
 
-export function chooseRelic(state, data, relicId)   // phase "relic" → 다음 phase
+export function chooseRelic(state, data, relicId)   // phase "relic" → 다음 phase. 선택지가 비어 있으면 relicId null 로 건너뛰기 허용
 export function chooseRoute(state, data, routeId)   // phase "route" → 효과 적용, 다음 시즌 시작(호출권 +1, 시즌 modifier 만료, seasonStart 이벤트)
 
 export function finalizeRun(state, data)  // phase "finished" 에서 rating 채움 → { rating, registeredTeam }
@@ -404,7 +409,7 @@ export function finalizeRun(state, data)  // phase "finished" 에서 rating 채�
 export function buildTeamSnapshot(state, data)              // 우리 팀 → TeamSnapshot (부상 선수는 유스로 교체)
 export function buildOpponentSnapshot(opponent, data)        // opponents.json 항목 → TeamSnapshot
 export function getModifier(state, key)                      // 활성 modifier 합 (없으면 0)
-export function getEffectiveStats(state, playerId)          // 스탯 × 적성 배율 (경기용)
+export function getEffectiveStats(state, playerId, data?)   // 스탯 × 적성 배율 (경기용). data 생략 시 배율 {A:1, B:0.9, C:0.75}
 ```
 
 ### 5.2 TeamSnapshot (run → match)
@@ -444,7 +449,7 @@ failRate = failRateByStamina 구간값(현재 체력) + getModifier("injuryRate"
 - 팀워크 += teamworkPerExtraPlayer × (n−1).
 - 다른 칸 선수: 자기 칸 주 스탯 += round(mainGain(그 선수 기준, eff 없이 trainingMult만) × freeTrainRatio). 체력 소모 없음.
 - 주 스탯(`main`) 정의: GK/DF → defense, MF → pass, FW → shoot.
-- 부상자: `injuredTurns`가 매 턴 종료 시 −1. 부상 중엔 배치되지 않고 훈련 없음.
+- 부상자: `injuredTurns` = **앞으로 결장하는 턴 시작 배치 횟수**. 매 턴 시작 배치(`beginTurn`)에서 제외된 직후 −1 (턴 종료 시가 아님 — 종료 시 감소면 부상이 난 그 턴에 바로 1 줄어 `turns:1` 이 무효가 된다). `turns:1` → 다음 배치 1회 결장, 훈련 실패(`injuryTurns` 2) → 2회 결장. 목표 경기 직전(preMatch) 부상은 경기에서 유스 대체 후 다음 시즌 배치에서 소진(경기는 배치가 아니라 카운트하지 않음). 부상 중엔 배치되지 않고 훈련 없음.
 
 ### 6.3 휴식 — 전원 체력 += rest.stamina × (1 + getModifier("restEffect")); conditionUpChance로 컨디션 +1.
 ### 6.4 외출 — friend 서포트 있으면 그 카드 유대 += outing.bond, 컨디션 += 1, 그 카드의 미발생 support 이벤트 중 조건 충족한 것을 즉시 발생. 없으면 컨디션 +1, 전원 체력 += outing.teamStamina.
@@ -517,7 +522,8 @@ export function getMatchView(state, data, humanSide = "home")
 //     needsDecision: null | "attack" | "defense",        // humanSide 차례이고 아직 선택 안 했을 때
 //     actions: [ { action, enabled, label, hint: "vs 태클에 약함" } ],
 //     skills:  [ { skillId, name, tension, enabled, description, kind } ],   // 현재 당사자(우리 선수)의 active/unique
-//     intent:  null | { level: "full"|"partial"|"none", candidates: [action] },  // 상대 선택 공개 정보
+//     intent:  null | { level: "full"|"partial"|"none", candidates: [action], countered?: true },  // 상대 선택 공개 정보
+//              countered: 상대 AI 가 이번 듀얼에 reveal 스킬을 써서 우리 선택에 맞춰 카운터한다 → level "none", candidates [] (커밋 액션은 판정 시 바뀌므로 공개하지 않음) (v1.2)
 //     tension: { home, away }, players: { home: [ { id, name, slot, stamina, staminaMax, isCarrier, isDefender } ], away: [...] },
 //     recentEvents: 마지막 6개, phase, finished, result }
 export function step(state, data, decision = null)
@@ -597,10 +603,14 @@ export function decideDefense(state, data, side)  // → { action, skillId|null 
 
 ## 9. 테스트 & 시뮬 (test/, tools/)
 
+- 실행: `npm test` = `node --test test/rng.test.mjs test/run.test.mjs test/match.test.mjs test/ui.smoke.test.mjs` (디렉터리/glob 인자는 Node 버전마다 달라 파일을 명시). 공용 로더·자동 진행 드라이버는 `test/helpers.mjs`.
 - `test/rng.test.mjs`: 같은 seed 동일 시퀀스, getState/fromState 복원.
 - `test/run.test.mjs`: 기본 편성으로 createRun → 24턴을 항상 `train` (추천 칸) + 자동 경기로 완주. phase 전이 검증, 스탯 ≤ cap, 체력 0~100, JSON roundtrip 후 동일 진행(결정성), 모든 이벤트 효과 타입이 throw 없이 적용(전 이벤트 강제 실행), 모든 스킬 id 참조 유효, 유물/루트 modifier가 실제 수치에 반영.
 - `test/match.test.mjs`: 결정성(같은 seed 2회 = 같은 결과), 포제션 수 준수, 승부차기 종료, 1-FW 포메이션에서 pass 규칙, 모든 active effect 발동 경로 1회 이상, 체력 0 이하 없음, NaN 없음.
-- `tools/sim.mjs`: `node tools/sim.mjs --runs 300 --seed 1` → 기본 편성·기본 전술로 자동 완주. 출력: 시즌별 목표 경기 승률, 평균 최종 스탯, 평가 등급 분포, 런당 부상 수, 우정 훈련 발생 수, 평균 경기 골 수. 목표: 시즌1 승률 70~80%, 시즌2 50~60%, 시즌3 35~45%, 등급 중앙값 B, 런당 부상 0.5~1.5, 우정 훈련 ≥ 3.
+- `test/ui.smoke.test.mjs`: index.html 참조 경로·상대 경로 검사 + (jsdom 이 있으면) app.js 부트 → start → 편성 → 기본 편성으로 런 시작 → 훈련 1회 클릭-스루. jsdom 은 devDependency (`npm i` 후 실행, 없으면 skip).
+- `tools/sim.mjs`: `node tools/sim.mjs --runs 300 --seed 1 [--policy smart|train] [--json]` → 기본 편성·기본 전술로 자동 완주 (smart: 추천 칸 훈련, 휴식 추천 시 휴식, 살 수 있는 스킬은 미팅 구매, 이벤트 0번, 유물 첫 번째, 루트 순환). 출력: 시즌별 목표 경기 승률, 평균 최종 스탯, 평가 등급 분포, 런당 부상 수, 우정 훈련 발생 수, 평균 경기 골 수. 목표: 시즌1 승률 70~80%, 시즌2 50~60%, 시즌3 35~45%, 등급 중앙값 B, 런당 부상 0.5~1.5, 우정 훈련 ≥ 3.
+  - v1.1 결과 (300런, seed 1): 승률 79.0 / 60.7 / 44.3%, 등급 B 263·C 36·A 1 (중앙값 B), 부상 1.43, 우정 훈련 4.1, 골 1.49/경기 (우리 0.84 / 상대 0.65), 승부차기 18%.
+  - v1.2 결과 (부상 카운트 수정 후, config 변경 없음 — 300런): seed 1 승률 75.7 / 53.3 / 40.3%, seed 2 81.3 / 57.0 / 47.0%, 등급 중앙값 B, 부상 1.45, 유스 대체 슬롯 0.58/런 (v1.1 0.26 — 부상이 약속된 기간만큼 실제로 결장하게 되어 증가).
 
 ---
 
@@ -613,3 +623,43 @@ export function decideDefense(state, data, side)  // → { action, skillId|null 
 - 스킬 `positions` 제한은 **현재 슬롯 포지션** 기준.
 - 이벤트 텍스트 치환은 `getEventView`에서만. 데이터에는 `{player}` 그대로.
 - 모든 `data` 배열 조회는 id → 항목 Map을 함수 시작에 만들어 쓰거나 `find`; 없으면 명확한 에러 메시지로 throw.
+
+---
+
+## 11. 통합 노트 (v1.1)
+
+4개 모듈(데이터 / 육성 엔진 / 경기 엔진 / UI)을 계약만 보고 만든 뒤 통합하면서 확정·추가된 사항. 기존 시그니처는 바꾸지 않았고 전부 **추가**다.
+
+### 11.1 계약에 추가된 것 (구현이 기준)
+- `RunState.queue: string[]` — 대기 phase 뒤의 후속 단계. 저장/복원은 JSON 그대로.
+- `routes.json` 항목의 `guaranteedSeasonStartEvent: boolean` (온천만 true). `seasonStart` 이벤트는 기본적으로 `eventChancePerTurn` 확률로 발생하고, 온천 뒤에는 확정.
+- `getTurnView().recommendedAction` ("train" | "rest"). `recommendedSlot` 은 기대값 휴리스틱(성공률×상승치 − 실패율×(스탯 손실+부상 기회비용) + 자율 훈련 + 우정 20 + 서포트 장당 6 + 소외 선수 가중). UI 의 "추천" 배지와 sim 정책이 이것을 쓴다.
+- `getTurnView()` 추가 필드: `phase, turnsPerSeason, summon, formation, tactics, supports, hints, record, lastMatchResult`, `slots[].label`, `preview.eff/teamworkGain`, `shop[].kind/description/positions/canAfford`. `getMatchSetup()` 에 `reason, opponentId, rules{allowDraw, extraTime, penalties, isGoalMatch, possessions}`.
+- `getEventView().support.bond`, `getEventView().eventId/trigger`.
+- `getEffectiveStats(state, playerId, data?)` — data 가 있으면 `config.aptitudeMult` 사용.
+- 스냅샷 `modifiers` 에 `dribbleStaminaRefund` 포함(7키). 유스 선수는 `id "youth_<slot>"`, `isYouth true`, 공명 계산에서 제외. 상대 스냅샷에 `id/role/season` 추가, `opponent.teamwork` 가 없으면 시즌별 25/50/75.
+- 유물의 modifier 는 `chooseRelic` 시 `state.modifiers` 에 `untilSeason null, source "relic:<id>"` 로 복사된다 (`getModifier` 만으로 조회 가능).
+- match: `createMatch({ …, humanSide = "home" })`, `step(state, data, decision, humanSide?)`, `getMatchView(state, data, humanSide = state.humanSide)`. `MatchState` 에 `stage("regular"|"extraTime"|"penalties"), humanSide, penalties, duel.effects{home,away}`. `getResult()` 에 `homeName, awayName, possessionsPlayed, stage, seed, provisional?`. `decision = { skillId }` 만 보내면 스킬만 발동하고 결정 대기 유지(reveal 흐름). events type: info, kickoff, counter, duel, turnover, save, goal, skill, cutin, extraTime, penalties, penalty, end.
+- match 판정 세부: styleMult 는 유리한 쪽 ×styleAdv, 불리한 쪽 ×styleDis 를 각각 적용. 체력 소모 계수 (1 − physical/2000) 는 모든 액션·수비에 적용. 액티브 스킬은 듀얼당 팀 1개. 승부차기는 shoot×actionCoef.shoot vs GK defense×actionCoef.save.
+- (v1.2) `getAttackActions(state, side, data?)` / `getDefenseActions(state, side, data?)`: `data` 를 주면 힌트 문구의 배율을 config 에서 계산한다 — 중거리 슛 "위력 ×(actionCoef.midrangeShoot / actionCoef.shoot)", 수비 "수읽기 ×readBonus". `getMatchView` 가 data 를 넘긴다. data 없이 부르면(ai.js) 숫자 없는 문구.
+- (v1.2) 상대 AI 가 reveal 스킬을 커밋한 듀얼: `duel.revealToHome` 과 `getMatchView().intent` 는 `{ level: "none", candidates: [], countered: true }`. 사람 측이 `{ skillId }` 단독으로 reveal 을 쓴 경우에도 상대가 countered 면 full 공개로 바꾸지 않는다. UI 는 "상대가 우리 의도를 읽고 있음" 으로 표시하고, reveal 스킬 버튼은 토글 대신 `{ skillId }` 단독 결정을 즉시 보낸다.
+- (v1.2) `finishMatch` 는 `matchResult.penalties` 가 있으면 `record.goalMatches[]` 항목에 `penalties {home, away}` 를 기록한다.
+- ai: 의도 예측·수비 가중치 등 §7.8 에 없던 수치는 `js/engine/ai.js` 머리말 참고.
+
+### 11.2 데이터 결정
+- `sk_tide_wall`(SR GK 고유)은 passive `save 1.15` — "SR=active" 규칙의 승인된 예외.
+- friend 카드(`sp_bard_lumi`)의 `specialtyRate` 는 무시되고 균등 배치된다.
+- **우리 팀 원소 공명은 프로토타입 8명으로는 불가능** (모든 원소가 최대 2명). 공명은 시즌3 상대 팀(불 4 / 물 5)만 보유. 편성 화면의 공명 미리보기는 캐릭터가 늘어나면 의미가 생긴다.
+- `ev_night_training` / `ev_secret_dribble` 의 부상 확률 0.5 → 0.3 (자동 진행 기준 런당 부상 0.5~1.5 목표).
+- 상대 스탯: 초안 대비 시즌1 ×0.97, 시즌2 ×1.13, 시즌3 ×1.13 (10 단위 반올림). 자동 진행이 시즌2·3 에 컨디션 3.5~3.8·팀워크 66~94·유물 1~2개를 들고 가기 때문.
+
+### 11.3 밸런스 튠 요약 (data/config.json)
+| 키 | 초안 | v1.1 | 이유 |
+|---|---|---|---|
+| training.mainGain / subGain / freeTrainRatio | 14 / 5 / 0.2 | 56 / 20 / 0.35 | 초안은 24턴 후 avgStat 238→294 (D). 등급 중앙값 B 목표 |
+| training.bondPerTraining | 7 | 12 | 우정 훈련 0.9회 → 4.1회/런 |
+| match.actionCoef dribble/pass/shoot/midrangeShoot | 1.0/1.0/1.0/0.7 | 1.8/1.8/1.5/1.0 | 골 0.9 → 1.5/경기, 승부차기 31% → 18% |
+
+### 11.4 검증
+- `npm test`: 45 테스트 (rng 8, run 18, match 16, ui 2 + jsdom 클릭-스루) 전부 통과. v1.2 추가: 부상 카운트 타이밍(3 케이스), nextMatch.intentReveal modifier 반영, record.goalMatches.penalties, 힌트 배율 config 연동, 상대 reveal countered. 결정성(같은 seed·JSON roundtrip), 전 이벤트×전 선택지 강제 적용(효과 13종), 전 스킬 id 참조, 유물/루트 modifier 반영, 24턴 완주(실제 match.js), 승부차기, 2-3-1 패스 규칙, 액티브 8종 수동 발동, 전술 반영.
+- `python -m http.server` 로 서빙 시 index.html · css · js · data 전부 200, 참조는 모두 `./` 상대 경로.
