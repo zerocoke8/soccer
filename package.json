@@ -1,0 +1,13 @@
+{
+  "name": "soccer-prototype",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Roguelike soccer raising game - web prototype (no build step)",
+  "scripts": {
+    "test": "node --test test/",
+    "sim": "node tools/sim.mjs --runs 300 --seed 1",
+    "serve": "python -m http.server 8080"
+  },
+  "engines": { "node": ">=18" }
+}
