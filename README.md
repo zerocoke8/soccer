@@ -15,6 +15,8 @@
 npm run serve        # python -m http.server 8080  →  http://localhost:8080
 ```
 
+경기 화면 방향(테스트): 창 폭 ≥ 900 · 높이 ≥ 500 이고 가로가 길면 가로(home 골 왼쪽), 아니면 세로. 경기 화면 컨트롤 줄의 ⇄ 버튼(저장됨, 창이 가로를 담을 수 있을 때만) 또는 URL `?orient=land|port` 로 바꾼다. 경기 밖 화면은 세로 그대로 ([ARCHITECTURE §13.9](docs/ARCHITECTURE.md)).
+
 ## 테스트 · 밸런스 시뮬
 
 ```bash
@@ -22,6 +24,7 @@ npm i                # devDependency(jsdom) 설치 — UI 스모크 테스트용
 npm test             # node --test (rng · run · match · layout · ui 스모크, 68 테스트)
 npm run sim          # node tools/sim.mjs --runs 300 --seed 1  (시즌별 승률·등급 분포·부상·우정 훈련·골)
 node tools/shot.mjs <출력폴더>   # 로컬 Chrome으로 경기 화면 시나리오 스크린샷 (puppeteer-core, 390×844)
+node tools/shot.mjs <출력폴더> --land   # 같은 시나리오를 가로 경기 화면으로 (1280×720)
 ```
 
 밸런스 목표(자동 진행): 시즌1 승률 70~80% / 시즌2 50~60% / 시즌3 35~45%, 등급 중앙값 B, 런당 부상 0.5~1.5, 우정 훈련 3회 이상. 현재 값과 튠 이력은 [docs/ARCHITECTURE.md §9·§11](docs/ARCHITECTURE.md) 참고.

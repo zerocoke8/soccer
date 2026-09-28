@@ -222,6 +222,8 @@ export function render() {
   const root = document.getElementById('app');
   if (!root) return;
   root.replaceChildren();
+  // 가로 경기 화면의 넓은 프레임(§13.9)은 renderMatch 가 다시 켠다 — 다른 화면은 420px 세로 프레임
+  root.classList.remove('match-land');
   const ctx = makeCtx();
   try {
     if (store.screen === 'setup') { renderSetup(root, ctx); return; }
@@ -241,6 +243,7 @@ export function render() {
   } catch (e) {
     console.error(e);
     toast(errMsg(e), 'error');
+    root.classList.remove('match-land'); // 경기 화면이 도중에 실패해도 오류 패널은 세로 프레임에
     root.replaceChildren(errorPanel(e));
   }
 }

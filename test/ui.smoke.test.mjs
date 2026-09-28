@@ -93,6 +93,8 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
     window.close();
   });
 
+  // 경기 화면 방향: jsdom 창(1024×768)은 기본 규칙으로 가로가 된다 → 아래 세로 화면 검사는 저장값으로 세로 고정 (가로는 맨 끝 블록, §13.9)
+  window.localStorage.setItem("soccer.orient", "port");
   await import(pathToFileURL(path.join(ROOT, "js/ui/app.js")).href);
   const doc = window.document;
 
@@ -459,6 +461,91 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
     assert.equal(S.store.match.version, 3, "새 경기");
     assert.equal(S.store.match.events.length < prep.matchState.events.length || S.store.match.possession === 1, true, "처음부터");
     assert.equal(JSON.parse(window.localStorage.getItem("soccer.match")).version, 3, "저장도 새 경기");
+    S.actions.resetToStart();
+  }
+
+  // §13.9 가로 경기 화면: 저장값 land → .match-screen.land + #app.match-land, home 골 왼쪽 · away 골 오른쪽 (필드 y → 화면 x).
+  // ⇄ 버튼 = 저장 + 다시 그리기 (경기 상태 · 받는 선수 선택 유지), 연출 중이면 비트가 끝난 뒤. 다른 화면은 넓은 프레임 해제
+  {
+    window.localStorage.setItem("soccer.orient", "land");
+    const { scr: sL, view: vL } = inject("08_cross_decision");
+    const app = doc.getElementById("app");
+    assert.ok(sL.classList.contains("land") && sL.dataset.orient === "land", "가로 경기 화면");
+    assert.ok(app.classList.contains("match-land"), "넓은 프레임");
+    const pos = (el) => {
+      const m = /translate\(\s*([-\d.]+)px,\s*([-\d.]+)px\)/.exec(el?.style.transform || "");
+      return m ? [Number(m[1]), Number(m[2])] : null;
+    };
+    const gkId = (side) => S.store.match[side].players.find((p) => p.position === "GK").id;
+    const hg = pos(sL.querySelector(`.tok[data-side="home"][data-id="${gkId("home")}"]`));
+    const ag = pos(sL.querySelector(`.tok[data-side="away"][data-id="${gkId("away")}"]`));
+    assert.ok(hg && ag && hg[0] < ag[0], `home GK ${hg} 는 away GK ${ag} 왼쪽`);
+    const toks = [...sL.querySelectorAll(".tok:not(.gone)")].map((el) => ({ fx: Number(el.dataset.x), fy: Number(el.dataset.y), p: pos(el) }));
+    assert.equal(toks.length, 14);
+    for (const a of toks) {
+      for (const b of toks) {
+        if (b.fy - a.fy > 0.5) assert.ok(a.p[0] < b.p[0], `필드 y 가 클수록 오른쪽 (${a.fy} → ${b.fy})`);
+        if (b.fx - a.fx > 0.5) assert.ok(a.p[1] < b.p[1], `필드 x 가 클수록 아래 (${a.fx} → ${b.fx})`);
+      }
+    }
+    const carrier = sL.querySelector(`.tok[data-side="home"][data-id="${vL.carrier.id}"]`);
+    assert.ok(pos(sL.querySelector(".m-ball"))[0] > pos(carrier)[0], "공은 공격 방향(오른쪽) 앞");
+    assert.equal(sL.querySelector(".zone.z1").style.left, "0%", "구역 = 세로 줄 (우리 박스 왼쪽)");
+    assert.equal(sL.querySelector(".zone.z5").style.width, "16%");
+    const cb = sL.querySelector('button[data-action="cross"]');
+    cb.dispatchEvent(new window.Event("pointerdown", { bubbles: true }));
+    assert.ok(sL.querySelector(".g-arrow path.ar-cross"), "가로에서도 크로스 포물선 화살표");
+    cb.dispatchEvent(new window.Event("pointerleave"));
+    // 기본이 아닌 크로스 후보 탭 → 전환 뒤에도 유지
+    const other = vL.receivers.cross.candidates.find((id) => id !== vL.receivers.cross.defaultId);
+    sL.querySelector(`.tok[data-side="home"][data-id="${other}"]`).click();
+    assert.equal(sL.querySelector('button[data-action="cross"]').dataset.receiver, other, "가로에서 받는 선수 탭");
+    const snap = JSON.stringify(S.store.match);
+    const ob = sL.querySelector(".match-controls .orient-btn");
+    assert.ok(ob && /세로/.test(ob.textContent), "전환 버튼 (⇄ 세로)");
+    ob.click();
+    const sP = doc.querySelector(".match-screen");
+    assert.ok(sP && sP !== sL && !sP.classList.contains("land"), "세로로 다시 그림");
+    assert.ok(!app.classList.contains("match-land"), "프레임 원래대로");
+    assert.equal(JSON.stringify(S.store.match), snap, "전환은 경기 상태를 바꾸지 않는다");
+    assert.equal(window.localStorage.getItem("soccer.orient"), "port", "고른 방향 저장");
+    assert.equal(sP.querySelector('button[data-action="cross"]').dataset.receiver, other, "받는 선수 선택 유지");
+    assert.equal(ui.busy, false);
+    // 다시 가로 → 결정(크로스) → 연출 중 전환은 비트가 끝난 뒤
+    sP.querySelector(".match-controls .orient-btn").click();
+    const sL2 = doc.querySelector(".match-screen");
+    assert.ok(sL2.classList.contains("land") && app.classList.contains("match-land"), "다시 가로");
+    sL2.querySelector('button[data-action="cross"]').click();
+    assert.equal(ui.busy, true, "비트 연출 중");
+    sL2.querySelector(".match-controls .orient-btn").click();
+    assert.equal(doc.querySelector(".match-screen"), sL2, "연출 중에는 전환을 미룬다");
+    assert.ok(sL2.querySelector(".match-controls .orient-btn").classList.contains("active"), "전환 대기 표시");
+    assert.ok(await until(() => doc.querySelector(".match-screen") !== sL2, 5000), "비트가 끝나면 전환");
+    assert.ok(!doc.querySelector(".match-screen").classList.contains("land") && !ui.busy, "세로로 이어 감");
+    S.actions.resetToStart();
+    assert.ok(!app.classList.contains("match-land"), "다른 화면은 넓은 프레임 해제");
+    // 좁은 창(폰 390×844): 저장값 land 여도 세로, 세로 화면에 ⇄ 없음 (가로가 안 들어가는 창에서 가로를 골라 갇히지 않게)
+    ui.orient = null;
+    window.localStorage.setItem("soccer.orient", "land");
+    window.innerWidth = 390;
+    window.innerHeight = 844;
+    try {
+      const { scr: sN } = inject("08_cross_decision");
+      assert.ok(!sN.classList.contains("land") && !app.classList.contains("match-land"), "좁은 창은 저장값 land 여도 세로");
+      assert.equal(sN.querySelector(".match-controls .orient-btn"), null, "좁은 창의 세로 화면에는 ⇄ 없음");
+      const ctl = sN.querySelector(".match-controls");
+      assert.ok([...ctl.childNodes].every((n) => n.nodeType === 1) && !/null|undefined/.test(ctl.textContent), `컨트롤 줄에 빈 자리 글자 없음: ${ctl.textContent}`);
+      // 창이 넓어지면(resize) 저장값대로 가로, 가로 화면에는 "⇄ 세로"
+      window.innerWidth = 1024;
+      window.innerHeight = 768;
+      window.dispatchEvent(new window.Event("resize"));
+      const sW = doc.querySelector(".match-screen");
+      assert.ok(sW !== sN && sW.classList.contains("land") && app.classList.contains("match-land"), "넓어지면 저장값대로 가로");
+      assert.ok(/세로/.test(sW.querySelector(".match-controls .orient-btn")?.textContent ?? ""), "가로 화면 ⇄ 세로");
+    } finally {
+      window.innerWidth = 1024;
+      window.innerHeight = 768;
+    }
     S.actions.resetToStart();
   }
 

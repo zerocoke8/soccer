@@ -1,10 +1,12 @@
 // test/layout.test.mjs — ARCHITECTURE §12.2 · §12.4 · §13.6 (js/ui/layout.js computeLayout)
 // 합성 view (4 포메이션 × 공격 팀 2 × 단계 4 × 모든 carrier/defender/receiver 조합) + 실제 엔진 경기의 매 view.
 // v0.3: 받는 선수 후보 전원(view.receivers 패스+크로스)이 receiver 역할로 도착 구역에 선다. resolvePreview 는 receivers·필살기 변형도 고른다.
+// §13.9: 픽셀 변환 fieldToScreen/screenToField (세로·가로), 가로 필드 비율 범위의 겹침·규칙 위치.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   computeLayout, resolvePreview, receiverCandidates, ZONES, SHAPE, LANES, X_MIN, X_MAX, HIGHLIGHTS, RECEIVER_INSET, zoneFor, zoneAtY, tokenDistance, withJosa,
+  fieldToScreen, screenToField,
 } from "../js/ui/layout.js";
 import { loadData, clone, run, match } from "./helpers.mjs";
 
@@ -1009,5 +1011,77 @@ test("UI 실제 범위 (aspect 0.74–1.3, tokenSize 0.085–0.09): 합성 view 
   for (const turn of ["home", "away"]) {
     const pv = { ...base, phase: "penalties", stage: "penalties", penalties: { home: 1, away: 1, turn, taken: { home: 2, away: 2 }, suddenDeath: false } };
     for (const [aspect, tokenSize] of UI_RANGE) assertRangeInvariants(pv, computeLayout(pv, { aspect, tokenSize }), aspect, tokenSize, `pen ${turn} @${aspect}`);
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* §13.9 가로 경기 화면: 픽셀 변환 · 가로 필드 비율                         */
+/* ------------------------------------------------------------------ */
+
+test("fieldToScreen / screenToField: 세로 = 기존 식, 가로 = 세로 그림을 시계 방향 90° (home 골 왼쪽), 왕복 = 원래 좌표", () => {
+  const W = 340;
+  const H = 470;
+  const pts = [[0, 0], [100, 100], [50, 50], [6, 96], [94, 4], [37.3, 72.8], [12.5, 0.5]];
+  // 세로: 이전 match.js 의 PX = x/100·W, PY = (100 − y)/100·H 와 비트 단위로 같다 (기본값도 세로)
+  for (const [x, y] of pts) {
+    assert.deepEqual(fieldToScreen(x, y, W, H, "port"), [(x / 100) * W, ((100 - y) / 100) * H]);
+    assert.deepEqual(fieldToScreen(x, y, W, H), fieldToScreen(x, y, W, H, "port"));
+  }
+  // 가로 (W = 필드 요소 폭 = 골↔골 방향): home 골(y 0) → 왼쪽 끝, away 골(y 100) → 오른쪽 끝, x 0 → 위
+  const LW = 840;
+  const LH = 560;
+  assert.equal(fieldToScreen(50, 0, LW, LH, "land")[0], 0, "home 골 = 왼쪽");
+  assert.equal(fieldToScreen(50, 100, LW, LH, "land")[0], LW, "away 골 = 오른쪽");
+  assert.equal(fieldToScreen(0, 50, LW, LH, "land")[1], 0, "x 0 = 위 (세로 화면의 왼쪽)");
+  assert.equal(fieldToScreen(100, 50, LW, LH, "land")[1], LH, "x 100 = 아래");
+  assert.deepEqual(fieldToScreen(25, 75, LW, LH, "land"), [0.75 * LW, 0.25 * LH]);
+  // 회전이지 거울상이 아니다: 세로 화면에서 위(away 골) → 가로 화면 오른쪽, 세로 화면 오른쪽(x 100) → 가로 화면 아래
+  const [px, py] = fieldToScreen(80, 90, 100, 100, "port");
+  const [lx, ly] = fieldToScreen(80, 90, 100, 100, "land");
+  assert.deepEqual([lx, ly].map((v) => Math.round(v * 1e9) / 1e9), [100 - py, px].map((v) => Math.round(v * 1e9) / 1e9), "시계 방향 90°: (sx, sy) → (H − sy, sx)");
+  for (const orient of ["port", "land"]) {
+    const [w, hh] = orient === "land" ? [LW, LH] : [W, H];
+    for (const [x, y] of pts) {
+      const [sx, sy] = fieldToScreen(x, y, w, hh, orient);
+      const back = screenToField(sx, sy, w, hh, orient);
+      assert.ok(Math.abs(back.x - x) < 1e-9 && Math.abs(back.y - y) < 1e-9, `${orient} 왕복 (${x}, ${y}) → ${JSON.stringify(back)}`);
+    }
+  }
+});
+
+// 가로 화면 실제 범위: aspect = 필드 폭/길이 = 요소 높이/폭 (1.4~1.75 → 0.571~0.714, 프레임이 440px 바닥인 폭 900~959 창은 1.25 까지 → 0.8), tokenSize = (토큰 px + 4) / 요소 높이
+// (1280×720 ≈ 0.714/0.077, 1366×768 ≈ 0.70/0.075, 1920×1080 ≈ 0.667/0.055, 3440×1440 ≈ 0.59/0.04, 낮고 넓은 창 0.571/0.084, 작은 창 1000×700 ≈ 0.714/0.086, 900×500 ≈ 0.8/0.082)
+const LAND_RANGE = [[0.571, 0.084], [0.59, 0.04], [0.62, 0.08], [0.667, 0.055], [0.7, 0.075], [0.714, 0.077], [0.714, 0.086], [0.75, 0.08], [0.8, 0.083]];
+
+test("가로 화면 범위 (aspect 0.57–0.8, tokenSize 0.04–0.087): 합성 view · 실제 경기 · 승부차기 — 겹침 없음, 규칙 위치 불변식", () => {
+  for (const [aspect, tokenSize] of LAND_RANGE) {
+    for (const { where, view } of allSyntheticViews()) {
+      if (!/^(2-3-1 vs 1-3-2|1-3-2 vs 2-3-1|3-1-2 vs 3-1-2|2-2-2 vs 2-2-2)/.test(where)) continue;
+      assertRangeInvariants(view, computeLayout(view, { aspect, tokenSize }), aspect, tokenSize, `${where} @${aspect}/${tokenSize}`);
+    }
+  }
+  const homes = ["2-2-2", "3-1-2", "1-3-2"].map((f) => homeSnap(f));
+  let views = 0;
+  for (const [i, home] of homes.entries()) {
+    for (const seed of [1, 2, 3, 4]) {
+      const away = seed % 2 ? asAway(home, "미러") : run.buildOpponentSnapshot(data.opponents[(seed + i) % data.opponents.length], data);
+      const ms = match.createMatch({ data, seed: `land${i}|${seed}`, home, away, possessions: 8, kind: "goal" });
+      for (let g = 0; ; g++) {
+        const view = match.getMatchView(ms, data);
+        views++;
+        for (const [aspect, tokenSize] of LAND_RANGE) {
+          assertRangeInvariants(view, computeLayout(view, { aspect, tokenSize }), aspect, tokenSize, `land ${i}/${seed} #${g} ${view.phase} @${aspect}`);
+        }
+        if (match.isFinished(ms)) break;
+        match.step(ms, data, null);
+        if (g > 3000) throw new Error("guard");
+      }
+    }
+  }
+  assert.ok(views > 200, `views ${views}`);
+  const base = makeView({ homeF: "2-2-2", awayF: "2-2-2", atk: "home", step: 3, carrierId: "h_FW1", defenderId: null });
+  for (const turn of ["home", "away"]) {
+    const pv = { ...base, phase: "penalties", stage: "penalties", penalties: { home: 1, away: 1, turn, taken: { home: 2, away: 2 }, suddenDeath: false } };
+    for (const [aspect, tokenSize] of LAND_RANGE) assertRangeInvariants(pv, computeLayout(pv, { aspect, tokenSize }), aspect, tokenSize, `land pen ${turn} @${aspect}`);
   }
 });

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // tools/shot.mjs — 경기 화면 스크린샷 도구 (ARCHITECTURE §12.4). npm test 에는 넣지 않는다.
 //
-//   node tools/shot.mjs <outDir> [--only 03,05_penalties] [--width 390 --height 844] [--dpr 2]
+//   node tools/shot.mjs <outDir> [--only 03,05_penalties] [--width 390 --height 844] [--dpr 2] [--land]
 //                       [--run-seed 1] [--settle 600] [--no-freeze] [--list]
 //
 // 1) 내장 정적 서버(node:http, 포트 0)로 프로젝트 루트를 띄운다.
@@ -11,6 +11,8 @@
 // 4) 시나리오마다 파일 경로, document.scrollingElement.scrollHeight, 캡처 시점 상태 확인, pageerror/console.error 를 출력.
 //
 // 자동 진행 끄기(수동 시나리오): URL 에 ?auto=0 을 붙이고, UI 가 그걸 지원하지 않으면(v0.1) "자동 ON" 버튼을 눌러 끈다.
+// 화면 방향(§13.9): URL 에 항상 orient 를 붙인다. --land → orient=land + 뷰포트 기본 1280×720 DPR 1 데스크톱(터치 없음),
+// 없으면 orient=port (창 크기 기본 규칙과 무관하게 세로 — 07 데스크톱 1280×900 도 세로 그대로라 이전 캡처와 비교된다).
 // 타이머 고정(기본 ON): 페이지의 setTimeout/setInterval 중 지연 ≥ 100ms 인 것을 캡처 동안 보류한다 → 자동 진행이
 // 캡처 전에 다음 듀얼로 넘어가지 않는다. 짧은 타이머·requestAnimationFrame·CSS 트랜지션은 그대로 돈다.
 // 패스 클릭 시나리오(06)는 클릭 직전에 고정을 푼다 (비트 연출 타이머가 돌아야 하므로). --no-freeze 로 끌 수 있다.
@@ -51,8 +53,9 @@ function usage() {
   return [
     "usage: node tools/shot.mjs <outDir> [options]",
     "  --only a,b        시나리오 이름 또는 접두어 (예: 03,05_penalties)",
-    "  --width N         폰 뷰포트 폭 (기본 390)   --height N  폰 뷰포트 높이 (기본 844)",
-    "  --dpr N           폰 deviceScaleFactor (기본 2). 데스크톱(07)은 1280×900 DPR 1 고정",
+    "  --width N         뷰포트 폭 (기본 390, --land 면 1280)   --height N  뷰포트 높이 (기본 844, --land 면 720)",
+    "  --dpr N           deviceScaleFactor (기본 2, --land 면 1). 데스크톱(07)은 1280×900 DPR 1 고정",
+    "  --land            가로 경기 화면 (URL orient=land, 데스크톱 뷰포트 · 터치 없음). 없으면 orient=port",
     "  --run-seed S      런 seed (기본 1)",
     "  --settle MS       경기 화면 진입 후 캡처까지 대기 (기본 600)",
     "  --no-freeze       페이지 타이머 고정을 끈다",
@@ -64,14 +67,15 @@ function usage() {
 }
 
 export function parseArgs(argv) {
-  const out = { outDir: null, only: null, width: 390, height: 844, dpr: 2, runSeed: 1, settle: 600, freeze: true, list: false, help: false };
+  const out = { outDir: null, only: null, width: null, height: null, dpr: null, land: false, runSeed: 1, settle: 600, freeze: true, list: false, help: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const next = () => argv[++i];
     if (a === "--only") out.only = String(next() || "").split(",").map((x) => x.trim()).filter(Boolean);
-    else if (a === "--width") out.width = parseInt(next(), 10) || 390;
-    else if (a === "--height") out.height = parseInt(next(), 10) || 844;
-    else if (a === "--dpr") out.dpr = Number(next()) || 2;
+    else if (a === "--width") out.width = parseInt(next(), 10) || null;
+    else if (a === "--height") out.height = parseInt(next(), 10) || null;
+    else if (a === "--dpr") out.dpr = Number(next()) || null;
+    else if (a === "--land") out.land = true;
     else if (a === "--run-seed") { const v = next(); out.runSeed = /^\d+$/.test(v) ? Number(v) : v; }
     else if (a === "--settle") out.settle = Math.max(0, parseInt(next(), 10) || 0);
     else if (a === "--no-freeze") out.freeze = false;
@@ -81,6 +85,11 @@ export function parseArgs(argv) {
     else if (!out.outDir) out.outDir = a;
     else throw new Error(`인자가 너무 많습니다: ${a}`);
   }
+  // 뷰포트 기본값: 세로 = 폰 390×844 DPR 2 (터치), 가로(--land) = 데스크톱 1280×720 DPR 1. 직접 준 값이 이긴다
+  const def = out.land ? { width: 1280, height: 720, dpr: 1 } : { width: 390, height: 844, dpr: 2 };
+  out.width = out.width ?? def.width;
+  out.height = out.height ?? def.height;
+  out.dpr = out.dpr ?? def.dpr;
   return out;
 }
 
@@ -297,7 +306,7 @@ async function newContext(browser) {
 }
 
 async function runScenario(browser, baseUrl, sc, prepared, opts) {
-  const vp = sc.viewport || { width: opts.width, height: opts.height, deviceScaleFactor: opts.dpr, isMobile: true, hasTouch: true };
+  const vp = sc.viewport || { width: opts.width, height: opts.height, deviceScaleFactor: opts.dpr, isMobile: !opts.land, hasTouch: !opts.land };
   const out = { name: sc.name, file: path.join(opts.outDir, `${sc.name}.png`), errors: [], notes: [], viewport: vp };
   const ctxB = await newContext(browser);
   const page = await ctxB.newPage();
@@ -313,7 +322,10 @@ async function runScenario(browser, baseUrl, sc, prepared, opts) {
 
     await page.setViewport(vp);
     await page.evaluateOnNewDocument(FREEZE_SCRIPT);
-    const url = `${baseUrl}/index.html${sc.auto === false ? "?auto=0" : ""}`;
+    const q = new URLSearchParams();
+    if (sc.auto === false) q.set("auto", "0");
+    q.set("orient", opts.land ? "land" : "port");
+    const url = `${baseUrl}/index.html?${q}`;
     await page.goto(url, { waitUntil: "load" });
     await page.evaluate((runJson, matchJson) => {
       localStorage.setItem("soccer.run", runJson);
@@ -524,7 +536,7 @@ async function main() {
 
   const server = await startServer(ROOT);
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
-  console.log(`· 서버 ${baseUrl}  브라우저 ${browserInfo.path} (${browserInfo.source})`);
+  console.log(`· 서버 ${baseUrl}  브라우저 ${browserInfo.path} (${browserInfo.source})  방향 ${args.land ? "가로(orient=land)" : "세로(orient=port)"} · 뷰포트 ${args.width}×${args.height} DPR ${args.dpr}`);
 
   let browser;
   const results = [];

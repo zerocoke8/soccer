@@ -5,6 +5,7 @@
 //
 // 순수 함수 모듈: DOM · window · 난수 없음. Node 에서 그대로 import 해 테스트한다 (test/layout.test.mjs).
 // 좌표는 % 단위. x: 0 = 왼쪽 … 100 = 오른쪽, y: 0 = home 골(화면 아래) … 100 = away 골(화면 위).
+// (가로 화면은 이 필드 좌표를 그대로 두고 픽셀 변환만 90° 돌린다 — fieldToScreen, §13.9)
 //
 // 엔진 v0.2 필드(zone / attackStep / attackDir / remaining / receiverPreview / lastBeat)가 없어도 동작한다.
 // 있으면 view 값을 쓰고, 없으면 attackingSide + lineIndex(+ players, recentEvents)로 직접 계산한다.
@@ -76,6 +77,23 @@ export function zoneFor(attackingSide, lineIndex) {
 export function zoneAtY(y) {
   for (const z of ZONES) if (y < z.to) return z.id;
   return 5;
+}
+
+/**
+ * 필드 좌표(%) → 필드 요소 안 픽셀 [sx, sy] (ARCHITECTURE §13.9). W·H = 필드 요소의 픽셀 폭·높이.
+ * - orient "port"(세로, 기본): home 골 아래 · away 골 위. sx = x/100·W, sy = (100 − y)/100·H
+ * - orient "land"(가로): 세로 그림을 시계 방향으로 90° 돌린 것 (거울상 아님) — home 골 왼쪽 · away 골 오른쪽,
+ *   세로 화면의 왼쪽(x = 0)이 가로 화면의 위. sx = y/100·W, sy = x/100·H
+ */
+export function fieldToScreen(x, y, W, H, orient = "port") {
+  if (orient === "land") return [(y / 100) * W, (x / 100) * H];
+  return [(x / 100) * W, ((100 - y) / 100) * H];
+}
+
+/** fieldToScreen 의 역변환: 픽셀 [sx, sy] → 필드 좌표 { x, y } (%) */
+export function screenToField(sx, sy, W, H, orient = "port") {
+  if (orient === "land") return { x: (sy / H) * 100, y: (sx / W) * 100 };
+  return { x: (sx / W) * 100, y: 100 - (sy / H) * 100 };
 }
 
 /** 두 토큰 중심 거리 (필드 폭 % 단위; 세로는 aspect = 폭/높이 로 환산) */
@@ -187,7 +205,8 @@ export function receiverCandidates(view) {
 
 /**
  * @param {object} view match.getMatchView(...) 반환값
- * @param {{ aspect?: number, tokenSize?: number }} [opts] aspect = 필드 폭/높이 (기본 0.8), tokenSize = 필드 폭 대비 토큰 지름 (기본 0.075)
+ * @param {{ aspect?: number, tokenSize?: number }} [opts] aspect = 필드 폭/높이 (기본 0.8), tokenSize = 필드 폭 대비 토큰 지름 (기본 0.075).
+ *   폭 = x 방향(골과 나란한 쪽) 픽셀, 높이 = y 방향(골↔골) 픽셀 — 가로 화면이면 폭 = 요소 높이, 높이 = 요소 폭 (§13.9)
  * @returns {{
  *   mode: "play"|"penalties",
  *   ball: {x:number,y:number},

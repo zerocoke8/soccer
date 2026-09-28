@@ -747,6 +747,9 @@ ul { margin: 0; padding: 0; list-style: none; }
 .match-controls .speed { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
 .match-controls .speed .btn { border: none; border-radius: 0; min-width: 38px; padding: 4px 6px; }
 .match-controls .speed .btn + .btn { border-left: 1px solid var(--border); }
+/* 가로 ↔ 세로 (§13.9): 세로 화면은 아이콘만 (24px — 개입 버튼이 "직접 선택 중" 한 줄 폭 94px 을 지킨다), 가로 화면은 "⇄ 세로" */
+.match-controls .orient-btn { flex: none; min-width: 0; padding: 4px 4px; font-size: 14px; white-space: nowrap; color: var(--muted); }
+.match-controls .orient-btn.active { color: var(--accent-2); } /* 연출 뒤 전환 대기 */
 .match-screen .match-log {
   flex: 1 1 0; min-height: 59px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px;
   padding: 4px; font-size: 11px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
@@ -789,6 +792,82 @@ ul { margin: 0; padding: 0; list-style: none; }
 .cut.side-away { animation-name: cut-life-away; }
 @keyframes cut-life-away { 0% { opacity: 0; transform: translateX(60px); } 12% { opacity: 1; transform: translateX(0); } 82% { opacity: 1; transform: translateX(-6px); } 100% { opacity: 0; transform: translateX(-40px); } }
 @keyframes cut-face { 0% { transform: skewY(4deg) scale(.4); } 20% { transform: skewY(4deg) scale(1.12); } 30% { transform: skewY(4deg) scale(1); } }
+
+/* ---- 가로 경기 화면 (테스트 — ARCHITECTURE §13.9) ----
+   #app.match-land = 넓은 프레임 (경기 화면만, 다른 화면은 420px 세로 프레임). 규칙은 전부 .match-land / .match-screen.land 아래 — 세로 화면은 그대로.
+   grid 2단: 위 줄 = 상황 배너(필드 위) · 스코어(패널 위), 왼쪽 = 공격 진행 트랙(가로 줄) + 필드, 오른쪽 = 정보 · 액션 · 스킬 · 컨트롤 · 로그(남은 높이, 내부 스크롤).
+   필드 비율 길이:폭 = 1.4~1.75 (프레임이 440px 바닥인 폭 900~959 창은 1.25 까지): 영역이 더 넓으면 폭을 줄여 가운데, 더 높으면 높이를 줄여 위에 붙인다 (컨테이너 단위 cqw/cqh). 필드 픽셀 크기는 match.js 가 잰다.
+   창이 필드 폭에 비해 높으면(16:10 · 4:3 · 1280×1024 …) 필드 아래가 비지 않게 프레임 높이를 필드에 맞춰 줄이고 창 가운데에 둔다 (로그가 짧아진다). */
+.app.match-land {
+  max-width: none;
+  --side-w: clamp(404px, 30vw, 420px); /* 컨트롤 줄: 개입 "직접 선택 중" 한 줄(94px) + "⇄ 세로" 가 들어가는 폭 */
+}
+/* 폭 = 창 폭 − 32px, 단 프레임 높이 × 1.9 까지 — 그보다 넓으면 필드(길이:폭 ≤ 1.75)가 못 쓰는 빈 폭만 는다 (1920×1080 → 1888, 1280×720 → 1248)
+   높이(--land-h) = min(화면 높이, max(440px, 필드 칸 폭 ÷ 1.4 + 92px)). 필드 칸 폭 = 프레임 폭 − 테두리 2 − 좌우 여백 24 − 간격 12 − 패널,
+   92px = 위아래 여백 18 + 배너 줄 48 + 줄 간격 6 + 트랙 16 + 4. 440px = 오른쪽 패널(고정 부분 약 290px) + 로그 7줄 (1024×768 → 485, 1280×1024 → 668, 1920×1080 → 화면 높이 그대로) */
+@media (min-width: 480px) {
+  .app.match-land {
+    --fw: min(calc(100vw - 32px), calc((var(--screen-h) + 2px) * 1.9));
+    --land-h: min(var(--screen-h), max(440px, calc((var(--fw) - 38px - var(--side-w)) / 1.4 + 92px)));
+    max-width: var(--fw); border-radius: 22px;
+    min-height: 0; max-height: none; margin-top: max(0px, calc((var(--screen-h) - var(--land-h)) / 2));
+  }
+  .app.match-land > .match-screen.land { height: var(--land-h); }
+}
+.match-screen.land {
+  display: grid; gap: 6px 12px; overflow: hidden; padding: 8px 12px 10px;
+  grid-template-columns: minmax(0, 1fr) var(--side-w);
+  grid-template-rows: minmax(48px, auto) auto auto auto auto minmax(0, 1fr);
+  grid-template-areas:
+    "banner hud"
+    "pitch  info"
+    "pitch  acts"
+    "pitch  skills"
+    "pitch  ctl"
+    "pitch  log";
+}
+.match-screen.land > .mh { grid-area: hud; }
+.match-screen.land > .m-banner { grid-area: banner; align-self: center; height: 36px; line-height: 34px; font-size: 15px; border-radius: 10px; }
+.match-screen.land > .pitch-row {
+  grid-area: pitch; height: auto; min-width: 0; min-height: 0; container-type: size;
+  flex-direction: column; align-items: center; justify-content: flex-start; gap: 4px; /* 남는 높이는 아래로 (트랙·필드가 배너 바로 밑) */
+}
+.match-screen.land > .m-info { grid-area: info; }
+.match-screen.land > .action-grid { grid-area: acts; }
+.match-screen.land > .skill-row { grid-area: skills; }
+.match-screen.land > .match-controls { grid-area: ctl; }
+.match-screen.land .match-controls .orient-btn { padding: 4px 8px; font-size: 12px; }
+.match-screen.land > .match-log { grid-area: log; min-height: 0; }
+/* 필드 폭(화면 가로) = min(영역 폭, (영역 높이 − 트랙 20px) × 1.75), 높이 = min(영역 높이 − 20px, 폭 ÷ 1.25)
+   보통은 프레임 높이(--land-h)가 필드 칸 폭 ÷ 1.4 에 맞춰져 있어 비율 1.4 이상. 1.25 는 프레임이 440px 바닥에 걸려 필드 칸이 남을 때만
+   (가로가 되는 창 중 폭 900~959, 그리고 ?orient=land 로 강제한 더 작은 창): 남는 높이를 필드가 채운다 (1.4 로 묶으면 900×500 에서 필드 아래 43px 가 빈다 → 1.25 면 6px, 960 이상은 그대로) */
+.match-screen.land .m-track, .match-screen.land .pitch { --pw: min(100cqw, calc((100cqh - 20px) * 1.75)); flex: none; width: var(--pw); }
+.match-screen.land .pitch { height: min(calc(100cqh - 20px), calc(var(--pw) / 1.25)); }
+/* 공격 진행 트랙: 필드 위 가로 줄 (칸 = 구역 폭, match.js updateTrack 이 left/width) */
+.match-screen.land .m-track { height: 16px; }
+.match-screen.land .m-track::before { left: 0; right: 0; top: 7px; bottom: auto; width: auto; height: 2px; }
+.match-screen.land .trk { top: 0; bottom: 0; right: auto; margin: 0; max-height: none; transition: left .3s, width .3s, background .3s; }
+/* 구역 = 세로 줄 (home 골 왼쪽), 하프라인 세로, 박스·골문·스폿은 양 끝 (.top = away 골 = 오른쪽, .bottom = home 골 = 왼쪽) */
+.match-screen.land .zone { top: 0; bottom: 0; right: auto; }
+.match-screen.land .zone + .zone { border-top: none; border-left: 1px dashed rgba(255, 255, 255, .07); }
+.match-screen.land .pl-half { left: 50%; right: auto; top: 0; bottom: 0; width: 1px; height: auto; }
+.match-screen.land .pl-circle { width: auto; height: 24%; }
+.match-screen.land .pl-box { top: 20%; bottom: auto; width: 16%; height: 60%; }
+.match-screen.land .pl-box.top { left: auto; right: -1px; }
+.match-screen.land .pl-box.bottom { left: -1px; right: auto; }
+.match-screen.land .pl-goal { top: 37%; bottom: auto; width: 4px; height: 26%; }
+.match-screen.land .pl-goal.top { left: auto; right: 0; border-radius: 3px 0 0 3px; }
+.match-screen.land .pl-goal.bottom { left: 0; border-radius: 0 3px 3px 0; }
+.match-screen.land .pl-spot.top { top: 50%; left: 90%; }
+.match-screen.land .pl-spot.bottom { top: 50%; left: 10%; }
+/* 뚫린 선수는 자기 골 쪽으로: home = 왼쪽, away = 오른쪽 */
+.match-screen.land .tok.chase-down::after { content: "◀"; }
+.match-screen.land .tok.chase-up::after { content: "▶"; }
+.match-screen.land .zone-name { font-size: 10px; }
+/* 가로: 구역이 세로 기둥이라 폭이 좁다 (박스 = 필드 길이 16%) → 강조 문구는 구역 이름 아랫줄에 (좁은 창에서 겹침 방지) */
+.match-screen.land .zone-hl { font-size: 11px; top: 16px; }
+.match-screen.land .goal-fx { font-size: 60px; }
+.match-screen.land .cut-band { justify-content: center; padding: 22px 40px; }
 
 /* 미니 카드 (토큰 탭) */
 .mini-card { display: flex; flex-direction: column; gap: 10px; }
