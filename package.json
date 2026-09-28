@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Roguelike soccer raising game - web prototype (no build step)",
   "scripts": {
-    "test": "node --test test/rng.test.mjs test/run.test.mjs test/match.test.mjs test/ui.smoke.test.mjs",
+    "test": "node --test test/rng.test.mjs test/run.test.mjs test/match.test.mjs test/layout.test.mjs test/ui.smoke.test.mjs",
     "sim": "node tools/sim.mjs --runs 300 --seed 1",
     "serve": "python -m http.server 8080"
   },

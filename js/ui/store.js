@@ -6,6 +6,24 @@ export const KEYS = {
   teams: 'soccer.teams',
 };
 
+// 경기 화면 URL 파라미터 (테스트·스크린샷용): ?auto=0 → 자동 꺼진 채 시작, ?speed=1|2|4 → 배속. 모듈 로드 시 한 번 읽는다.
+function urlMatchPrefs() {
+  try {
+    const search = globalThis.location && typeof globalThis.location.search === 'string' ? globalThis.location.search : '';
+    const q = new URLSearchParams(search);
+    const out = {};
+    const a = q.get('auto');
+    if (a === '0' || a === 'false' || a === 'off') out.auto = false;
+    else if (a === '1' || a === 'true' || a === 'on') out.auto = true;
+    const sp = Number(q.get('speed'));
+    if (sp === 1 || sp === 2 || sp === 4) out.speed = sp;
+    return out;
+  } catch (_) {
+    return {};
+  }
+}
+const URL_PREFS = urlMatchPrefs();
+
 export const store = {
   data: null,          // { config, characters, supports, events, skills, relics, opponents, routes }
   screen: 'start',     // 'start' | 'setup' | 'run'
@@ -15,11 +33,12 @@ export const store = {
   final: null,         // finalizeRun 결과 { rating, registeredTeam, seed }
   registered: false,   // 이번 런의 팀 등록 여부
   matchUi: {
-    auto: true,
-    speed: 1,
+    auto: URL_PREFS.auto ?? true,
+    speed: URL_PREFS.speed ?? 1,
     intervene: false,
     selectedSkillId: null,
-    timer: null,
+    timer: null,        // 다음 step 예약 (setTimeout id; app.js render() 가 clearInterval 로 지운다 — 같은 id 풀)
+    busy: false,        // 비트 연출 중 (읽기 전용 표시: 테스트·도구용)
     resultShown: false,
   },
 };
@@ -72,6 +91,7 @@ export function resetMatchUi() {
   const ui = store.matchUi;
   if (ui.timer) { try { clearInterval(ui.timer); } catch (_) { /* ignore */ } }
   ui.timer = null;
+  ui.busy = false;
   ui.intervene = false;
   ui.selectedSkillId = null;
   ui.resultShown = false;

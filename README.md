@@ -19,8 +19,9 @@ npm run serve        # python -m http.server 8080  →  http://localhost:8080
 
 ```bash
 npm i                # devDependency(jsdom) 설치 — UI 스모크 테스트용. 없어도 엔진 테스트는 돌아간다
-npm test             # node --test test/*.test.mjs (rng · run · match · ui 스모크, 45 테스트)
+npm test             # node --test (rng · run · match · layout · ui 스모크, 68 테스트)
 npm run sim          # node tools/sim.mjs --runs 300 --seed 1  (시즌별 승률·등급 분포·부상·우정 훈련·골)
+node tools/shot.mjs <출력폴더>   # 로컬 Chrome으로 경기 화면 시나리오 스크린샷 (puppeteer-core, 390×844)
 ```
 
 밸런스 목표(자동 진행): 시즌1 승률 70~80% / 시즌2 50~60% / 시즌3 35~45%, 등급 중앙값 B, 런당 부상 0.5~1.5, 우정 훈련 3회 이상. 현재 값과 튠 이력은 [docs/ARCHITECTURE.md §9·§11](docs/ARCHITECTURE.md) 참고.

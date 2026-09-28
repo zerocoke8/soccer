@@ -12,6 +12,11 @@
  *  - decision = { action, skillId? }. action 없이 skillId 만 주면 스킬만 먼저 발동하고
  *    결정 대기를 유지한다 (reveal 스킬로 의도를 본 뒤 액션을 고르는 흐름).
  *
+ * v0.2 위치 표현 (ARCHITECTURE §12.1): zoneOf / ZONE_NAMES, 비트 이벤트의 위치 필드(seq, zone, toZone, step,
+ * toStep, attackingSide, toAttackingSide), getMatchView 의 zone / attackStep / attackDir / remaining /
+ * receiverPreview / outcomes / outcomesBySkill / receiverPreviewBySkill / lastBeat.
+ * 유일한 규칙 변경: 패스 수신자 결정적(pickReceiver, 동률 → 슬롯 순서).
+ *
  * 순수 로직. 난수는 state.rngState 로만 (함수 단위로 createRngFromState → getState 저장).
  */
 
@@ -50,6 +55,52 @@ export const ACTION_LABEL = {
 export const REVEAL_LEVELS = ["none", "partial", "full"];
 const STYLE_BEATS = { power: "technique", technique: "speed", speed: "power" };
 const MAX_AUTO_STEPS = 20000;
+
+/**
+ * 경기장 5구역 (ARCHITECTURE §12.1, GDD v0.4 §9.2). 항상 home 시점 고정: Z1 = home 골 앞, Z5 = away 골 앞.
+ */
+export const ZONE_NAMES = { 1: "우리 박스", 2: "우리 진영", 3: "중원", 4: "상대 진영", 5: "상대 박스" };
+/** 위치 필드(seq, zone, toZone, step, toStep, attackingSide, toAttackingSide)를 가진 "비트" 이벤트 타입 */
+export const BEAT_TYPES = ["kickoff", "counter", "duel", "turnover", "save", "goal", "penalty"];
+/** 공 위치(도착 구역 · 역습 시작 구역)를 바꾸는 액티브 스킬 effect — 역할별. getMatchView.outcomesBySkill 대상 */
+const POSITION_EFFECT = { attack: "extraLine", defense: "steal" };
+
+/**
+ * 공격 팀과 lineIndex(= 공격 단계 0..3) → 공 구역 1..5.
+ * home: lineIndex + 2 (0→Z2 … 3→Z5), away: 4 − lineIndex (0→Z4 … 3→Z1).
+ */
+export function zoneOf(attackingSide, lineIndex) {
+  const line = clamp(Math.round(num(lineIndex, 0)), 0, 3);
+  if (attackingSide === "home") return line + 2;
+  if (attackingSide === "away") return 4 - line;
+  throw new Error(`match.zoneOf: attackingSide 잘못됨: ${attackingSide}`);
+}
+
+/** §7.5 역습 시작 lineIndex: 턴오버가 난 line → 공을 얻은 팀의 시작 line. steal 이면 +1 (최대 2) */
+function counterStartLine(line, steal) {
+  let s = line === 0 ? 2 : line === 1 ? 1 : 0;
+  if (steal) s = Math.min(2, s + 1);
+  return s;
+}
+
+/** 돌파(드리블/패스 성공) 후 lineIndex. extraLine 이면 DF 라인 전까지 한 라인 더 (최대 3) */
+function advanceLine(line, extraLine) {
+  let n = line + 1;
+  if (extraLine && n < 3) n += 1;
+  return Math.min(3, n);
+}
+
+/** 비트 이벤트 위치 필드. step/toStep 은 각각 그 시점 공격 팀(attackingSide / toAttackingSide) 기준 lineIndex */
+function beatPos(atkSide, step, toSide, toStep) {
+  return {
+    attackingSide: atkSide,
+    step,
+    zone: zoneOf(atkSide, step),
+    toAttackingSide: toSide,
+    toStep,
+    toZone: zoneOf(toSide, toStep),
+  };
+}
 
 /* ------------------------------------------------------------------ */
 /* 공용 헬퍼 (ai.js 도 사용)                                              */
@@ -152,8 +203,11 @@ function bestOf(cands, scoreFn, rng) {
   return rng.pick(ties);
 }
 
+/** 이벤트 추가. seq = 이벤트 배열 인덱스 (단조 증가). skills.js 가 직접 넣는 skill/cutin 이벤트에는 seq 가 없다 */
 function pushEvent(state, ev) {
-  state.events.push(Object.assign({ possession: state.possession }, ev));
+  const e = Object.assign({ possession: state.possession, seq: state.events.length }, ev);
+  state.events.push(e);
+  return e;
 }
 
 function incr(obj, key) {
@@ -277,15 +331,42 @@ function pickStarter(team, lineIndex, rng) {
 
 /**
  * 패스 수신자: newLine 1 → MF(드리블+패스 최고), 2·3 → FW(슛 최고). carrier 제외. 없으면 null.
- * rng 없으면 동률은 첫 선수 (getMatchView 용, 난수 소비 없음).
+ * v0.2 (ARCHITECTURE §12.1-4): 결정적 — 난수를 쓰지 않고, 동률이면 team.players 순서(슬롯 순서)의 첫 선수.
+ * 실제 판정(resolveDuel)과 미리보기(getMatchView.receiverPreview / outcomes)가 같은 함수를 쓴다.
  */
-function pickReceiver(team, newLine, excludeId, rng) {
+function pickReceiver(team, newLine, excludeId) {
   const line = Math.min(3, newLine);
   const pos = line <= 1 ? "MF" : "FW";
   const scoreFn = line <= 1 ? (p) => stat(p, "dribble") + stat(p, "pass") : (p) => stat(p, "shoot");
   const cands = team.players.filter((p) => p.position === pos && p.id !== excludeId);
   if (!cands.length) return null;
-  return bestOf(cands, scoreFn, rng);
+  return bestOf(cands, scoreFn, null);
+}
+
+/**
+ * 지금 공격 팀이 패스에 성공하면 공을 받을 선수와 도착 line (resolveDuel 과 같은 규칙). pass 가 규칙상 불가능하면 null.
+ * 이미 커밋된 공격 팀 extraLine 효과는 반영한다 (판정 때 그대로 적용되므로). forceExtraLine = 아직 커밋 전인
+ * extraLine 스킬을 함께 쓴다고 가정한 변형 (getMatchView.receiverPreviewBySkill).
+ * @returns {{ player: object, line: number }|null}
+ */
+function passReceiverNow(state, forceExtraLine = false) {
+  if (!state || state.finished || state.phase === "penalties" || !state.ball) return null;
+  const atk = state.attackingSide;
+  const team = state[atk];
+  const line = num(state.ball.lineIndex, 0);
+  if (!team || line >= 3) return null;
+  const carrier = findPlayer(team, state.ball.carrierId);
+  if (!carrier) return null;
+  if (!pickReceiver(team, line + 1, carrier.id)) return null; // getAttackActions 의 pass 가능 조건과 동일
+  const fx = state.duel && state.duel.effects && state.duel.effects[atk];
+  const newLine = advanceLine(line, forceExtraLine || !!(fx && fx.extraLine));
+  return { player: pickReceiver(team, newLine, carrier.id) || carrier, line: newLine };
+}
+
+/** passReceiverNow 결과 → view 용 { id, name, side, step, zone } (step/zone = 패스가 도착하는 단계·구역) */
+function receiverView(info, side) {
+  if (!info) return null;
+  return { id: info.player.id, name: info.player.name, side, step: info.line, zone: zoneOf(side, info.line) };
 }
 
 function pickDefender(linePlayers, carrier, tactics, rng) {
@@ -311,7 +392,11 @@ function startPossession(state, data, side, lineIndex, reason) {
     reason === "kickoff"
       ? `${team.name} 킥오프 — ${carrier.name} 시작`
       : `${team.name} 역습! ${carrier.name}, 상대 ${LINE_LABELS[state.ball.lineIndex]}부터 공격`;
-  pushEvent(state, { type: reason === "kickoff" ? "kickoff" : "counter", side, playerId: carrier.id, text });
+  const line = state.ball.lineIndex;
+  pushEvent(state, {
+    type: reason === "kickoff" ? "kickoff" : "counter", side, playerId: carrier.id, text,
+    ...beatPos(side, line, side, line),
+  });
   setupDuel(state, data);
 }
 
@@ -487,7 +572,7 @@ export function getAttackActions(state, side, data = null) {
   const team = state[side];
   const carrier = findPlayer(team, state.ball && state.ball.carrierId);
   const isAtk = state.attackingSide === side && !!carrier && !state.finished;
-  const receiver = isAtk && line < 3 ? pickReceiver(team, line + 1, carrier.id, null) : null;
+  const receiver = isAtk && line < 3 ? pickReceiver(team, line + 1, carrier.id) : null;
   const dribbleOn = isAtk && line < 3;
   const passOn = isAtk && line < 3 && !!receiver;
   const shootOn = isAtk && line >= 2;
@@ -701,20 +786,17 @@ function resolveDuel(state, data) {
       incr(state.stats[atkSide].playerGoals, carrier.id);
       addTension(state, m, atkSide, num(m.tension && m.tension.goal, 20), modsA);
       pushEvent(state, {
-        type: "goal", side: atkSide, success: true, playerId: carrier.id, action, defAction, p,
+        type: "goal", side: atkSide, success: true, playerId: carrier.id, defenderId: defender.id, action, defAction, p,
         text: `${carrier.name}, ${aLabel}… 골!!! (${pc}%)  [${state.home.name} ${state.score.home} : ${state.score.away} ${state.away.name}]`,
+        ...beatPos(atkSide, line, defSide, 0),
       });
       state.rngState = rng.getState();
       endPossession(state, data, defSide, 0, "kickoff");
       return;
     }
 
-    let newLine = line + 1;
-    if (fxA.extraLine) {
-      if (newLine >= 3) state.ball.extraLine = true; // DF 라인 돌파 후 → 슛 위력 +20%
-      else newLine += 1;
-    }
-    newLine = Math.min(3, newLine);
+    const newLine = advanceLine(line, !!fxA.extraLine);
+    if (fxA.extraLine && line + 1 >= 3) state.ball.extraLine = true; // DF 라인 돌파 후 → 슛 위력 +20%
 
     if (action === "dribble") {
       state.ball.lineIndex = newLine;
@@ -726,9 +808,10 @@ function resolveDuel(state, data) {
       pushEvent(state, {
         type: "duel", side: atkSide, success: true, playerId: carrier.id, defenderId: defender.id, action, defAction, p,
         text: `${carrier.name}, 드리블 돌파 성공! ${defender.name}의 ${dLabel} 제침 (${pc}%)${extra}`,
+        ...beatPos(atkSide, line, atkSide, newLine),
       });
     } else {
-      const receiver = pickReceiver(atkTeam, newLine, carrier.id, rng) || carrier;
+      const receiver = pickReceiver(atkTeam, newLine, carrier.id) || carrier;
       state.ball.lineIndex = newLine;
       state.ball.carrierId = receiver.id;
       state.ball.chain = num(state.ball.chain) + 1;
@@ -736,6 +819,7 @@ function resolveDuel(state, data) {
       pushEvent(state, {
         type: "duel", side: atkSide, success: true, playerId: carrier.id, receiverId: receiver.id, defenderId: defender.id, action, defAction, p,
         text: `${carrier.name} → ${receiver.name}, 패스 성공! ${defender.name}의 ${dLabel} 통과 (${pc}%) 연계 ${state.ball.chain}${extra}`,
+        ...beatPos(atkSide, line, atkSide, newLine),
       });
     }
     state.rngState = rng.getState();
@@ -747,14 +831,14 @@ function resolveDuel(state, data) {
   state.stats[defSide].duelsWon += 1;
   incr(state.stats[defSide].playerDuelWins, defender.id);
   addTension(state, m, defSide, isGK ? num(m.tension && m.tension.save, 15) : num(m.tension && m.tension.steal, 15), modsD);
+  const startLine = counterStartLine(line, !!fxD.steal);
   pushEvent(state, {
     type: isGK ? "save" : "turnover", side: atkSide, success: false, playerId: carrier.id, defenderId: defender.id, action, defAction, p,
     text: isGK
       ? `${defender.name}, 세이브! ${carrier.name}의 슛 막아냄 (${pc}%)`
       : `${defender.name}, ${dLabel}!${readTag} ${carrier.name}의 ${aLabel} 차단 (${pc}%)`,
+    ...beatPos(atkSide, line, defSide, startLine),
   });
-  let startLine = line === 0 ? 2 : line === 1 ? 1 : 0;
-  if (fxD.steal) startLine = Math.min(2, startLine + 1);
   state.rngState = rng.getState();
   endPossession(state, data, defSide, startLine, "counter");
 }
@@ -858,9 +942,11 @@ function penaltyKick(state, data) {
   if (success) pen[side] += 1;
   pen.kicks.push({ side, playerId: shooter.id, success, p });
   state.stats[side].shots += 1;
-  pushEvent(state, {
+  // 위치: 키커가 노리는 박스 (home → Z5, away → Z1). toZone = 다음 키커의 박스 (종료되면 아래에서 그대로 둔다)
+  const kickEv = pushEvent(state, {
     type: "penalty", side, success, playerId: shooter.id, defenderId: gk.id, p,
     text: `승부차기 ${pen.taken[side]}번 ${shooter.name}: ${success ? "골!" : `${gk.name} 세이브!`} (${pct(p)}%) [${pen.home}-${pen.away}]`,
+    ...beatPos(side, 3, opp, 3),
   });
   pen.turn = opp;
 
@@ -877,7 +963,10 @@ function penaltyKick(state, data) {
   } else if (th === ta && pen.home !== pen.away) {
     over = true;
   }
-  if (over) finishMatch(state, data);
+  if (over) {
+    Object.assign(kickEv, { toAttackingSide: side, toStep: 3, toZone: kickEv.zone });
+    finishMatch(state, data);
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -1048,8 +1137,147 @@ function playersView(team, state, side, m) {
   }));
 }
 
+/* ------------------------------------------------------------------ */
+/* 위치 표현 (ARCHITECTURE §12.1) — 전부 읽기 전용, 난수 없음              */
+/* ------------------------------------------------------------------ */
+
+function lastBeatEvent(state) {
+  const evs = state.events || [];
+  for (let i = evs.length - 1; i >= 0; i--) if (BEAT_TYPES.includes(evs[i].type)) return evs[i];
+  return null;
+}
+
+/** 구역 이름을 viewer 시점으로 (ZONE_NAMES 는 home 시점). */
+function zoneNameFor(zone, viewer) {
+  return ZONE_NAMES[viewer === "away" ? 6 - zone : zone];
+}
+
+/**
+ * 공(posSide 가 공격, 단계 step)과 목표 골 사이에 남은(뚫리지 않은) 수비. POS_BY_LINE.slice(step) 기준.
+ * @returns {{ lines: string[], gk: boolean, counts: Object<string, number>, text: string }}
+ */
+function remainingDefense(state, posSide, step) {
+  const defTeam = state[otherSide(posSide)];
+  const players = (defTeam && defTeam.players) || [];
+  const lines = [];
+  const counts = {};
+  for (const pos of POS_BY_LINE.slice(clamp(step, 0, 3))) {
+    if (pos === "GK") continue;
+    const n = players.filter((p) => p.position === pos).length;
+    if (n > 0) {
+      lines.push(pos);
+      counts[pos] = n;
+    }
+  }
+  const gk = players.some((p) => p.position === "GK");
+  const parts = lines.map((pos) => `${pos} ${counts[pos]}`);
+  if (gk) parts.push("GK");
+  return { lines, gk, counts, text: `남은 수비: ${parts.length ? parts.join(" + ") : "없음"}` };
+}
+
+/** 우리(viewer) 공격이 step 단계에 들어설 때의 한 줄: { place, tail } */
+function advanceText(step) {
+  if (step >= 3) return { place: "상대 박스 진입", tail: "슈팅 찬스" };
+  if (step === 2) return { place: "상대 진영 진입", tail: "중거리 슛 가능" };
+  return { place: "중원 진입", tail: null };
+}
+
+/** 상대 역습(시작 단계 start, 구역 zone) 한 줄 — viewer 시점 */
+function oppCounterText(start, zone, viewer) {
+  return start === 0 ? "공 뺏김 — 상대 빌드업부터" : `상대 역습 — ${zoneNameFor(zone, viewer)}부터`;
+}
+
+/**
+ * 결정 대기 중인 사람 측 액션별 결과 미리보기 (ARCHITECTURE §12.1-2).
+ * zone = 그 비트 직후 공 구역. 규칙은 resolveDuel 과 같은 헬퍼(advanceLine / counterStartLine / pickReceiver)를 쓴다.
+ * 스킬: 이번 결정과 함께 고를 스킬은 알 수 없으므로 기본 outcomes 에는 반영하지 않는다 (extraFx = 그 스킬을 함께 쓴다고
+ * 가정한 변형 — getMatchView.outcomesBySkill). 이미 커밋된(발동 이벤트가 나간) extraLine / steal 은 판정에 그대로 적용되므로 반영한다.
+ * 수비 역할의 fail 은 "상대가 드리블/패스로 돌파" 기준. 단 공개된 의도로 상대 슛이 확정이면 실점 결과로 계산하고,
+ * 파이널 서드(line 2)에서 슛 가능성이 남아 있으면 label 에 실점 위험을 덧붙인다.
+ */
+function buildOutcomes(state, human, role, actions, intent, extraFx = null) {
+  const opp = otherSide(human);
+  const line = num(state.ball.lineIndex, 0);
+  const fx = (state.duel && state.duel.effects) || {};
+  const fxH = Object.assign({}, fx[human] || {}, extraFx || {});
+  const fxO = fx[opp] || {};
+  const out = {};
+  const enabled = actions.filter((a) => a.enabled);
+  if (!enabled.length) return null;
+
+  if (role === "attack") {
+    const team = state[human];
+    const carrier = findPlayer(team, state.ball.carrierId);
+    const next = advanceLine(line, !!fxH.extraLine);
+    const oppStart = counterStartLine(line, !!fxO.steal);
+    const oppZone = zoneOf(opp, oppStart);
+    const lost = { zone: oppZone, attackingSide: opp, step: oppStart, label: oppCounterText(oppStart, oppZone, human) };
+    for (const a of enabled) {
+      if (a.action === "shoot") {
+        const failLabel = line >= 3
+          ? (oppStart === 0 ? "세이브 → 상대 골킥" : `세이브 → 상대 역습, ${zoneNameFor(oppZone, human)}부터`)
+          : (oppStart === 0 ? "막히면 → 상대 빌드업부터" : `막히면 → 상대 역습, ${zoneNameFor(oppZone, human)}부터`);
+        out.shoot = {
+          success: { zone: zoneOf(opp, 0), attackingSide: opp, step: 0, goal: true, label: "골! → 상대 킥오프" },
+          fail: Object.assign({}, lost, { label: failLabel }),
+        };
+      } else if (a.action === "dribble" || a.action === "pass") {
+        const adv = advanceText(next);
+        const success = { zone: zoneOf(human, next), attackingSide: human, step: next, label: "" };
+        if (a.action === "pass") {
+          const r = (carrier && (pickReceiver(team, next, carrier.id) || carrier)) || null;
+          if (r) success.receiver = { id: r.id, name: r.name, side: human };
+          success.label = `${r ? r.name + "에게 연결" : "패스 연결"} — ${adv.place}${adv.tail ? ", " + adv.tail : ""}`;
+        } else {
+          success.label = adv.tail ? `${adv.place} — ${adv.tail}` : adv.place;
+        }
+        out[a.action] = { success, fail: Object.assign({}, lost) };
+      }
+    }
+    return out;
+  }
+
+  // 수비 역할: success = 막음(우리 역습), fail = 뚫림
+  const ourStart = counterStartLine(line, !!fxH.steal);
+  const ourZone = zoneOf(human, ourStart);
+  const stopLabel = ourStart === 0
+    ? "막으면 — 우리 공격, 빌드업부터"
+    : `막으면 — 우리 역습, ${zoneNameFor(ourZone, human)}부터`;
+  const oppNext = advanceLine(line, !!fxO.extraLine);
+  const known = intent && !intent.countered && Array.isArray(intent.candidates) ? intent.candidates : null;
+  const shootKnown = line >= 2 && !!known && intent.level === "full" && known.length === 1 && known[0] === "shoot";
+  const shootPossible = line >= 2 && !shootKnown && !(known && known.length > 0 && !known.includes("shoot"));
+  let fail;
+  if (shootKnown) {
+    fail = { zone: zoneOf(human, 0), attackingSide: human, step: 0, goal: true, conceded: true, label: "뚫리면 — 실점 → 우리 킥오프" };
+  } else {
+    const breach = oppNext >= 3
+      ? "뚫리면 — 우리 박스 슈팅 위기"
+      : oppNext === 2 ? "뚫리면 — 우리 진영 위험, 중거리 슛 가능" : "뚫리면 — 상대 중원 진입";
+    fail = {
+      zone: zoneOf(opp, oppNext), attackingSide: opp, step: oppNext,
+      label: shootPossible ? `${breach} · 중거리 슛이면 실점` : breach,
+    };
+    if (shootPossible) fail.goalRisk = true;
+  }
+  for (const a of enabled) {
+    out[a.action] = {
+      success: { zone: ourZone, attackingSide: human, step: ourStart, label: stopLabel },
+      fail: Object.assign({}, fail),
+    };
+  }
+  return out;
+}
+
 /**
  * UI용 뷰 (상태 변경 없음, 난수 소비 없음).
+ * v0.2 추가 필드 (§12.1):
+ *  zone 1..5 (home 시점; 승부차기 = 키커가 노리는 박스, 종료 후 = 마지막 비트 구역), attackStep 0..3, attackDir "up"|"down",
+ *  remaining { lines, gk, counts, text }, receiverPreview null|{ id, name, side, step, zone } (step/zone = 패스 도착 단계·구역),
+ *  outcomes null|{ [action]: { success, fail } } — Outcome = { zone, attackingSide, step, label, goal?, conceded?, goalRisk?, receiver? },
+ *  outcomesBySkill null|{ [skillId]: outcomes } · receiverPreviewBySkill null|{ [skillId]: receiverPreview|null } — 결정 대기 중
+ *  사람 측 스킬 중 위치를 바꾸는 것(공격 extraLine / 수비 steal)을 함께 쓸 때의 변형,
+ *  lastBeat null|비트 이벤트 사본, penalties.kickerSide/kickerId/keeperId.
  */
 export function getMatchView(state, data, humanSide = undefined) {
   const m = matchCfg(data);
@@ -1117,7 +1345,57 @@ export function getMatchView(state, data, humanSide = undefined) {
   else lineLabel = `${role === "attack" ? "상대" : "우리"} ${LINE_LABELS[line]} ${role === "attack" ? "돌파" : "수비"}`;
 
   const pen = state.penalties;
+
+  // --- 위치 표현 (§12.1) ---
+  const beat = lastBeatEvent(state);
+  let posSide = atk;
+  let attackStep = clamp(line, 0, 3);
+  let kicker = null;
+  if (pen && (state.phase === "penalties" || (state.finished && state.stage === "penalties"))) {
+    // 승부차기: 다음 키커(종료 후엔 마지막 키커)가 노리는 박스
+    const last = pen.kicks && pen.kicks.length ? pen.kicks[pen.kicks.length - 1] : null;
+    const kSide = state.finished && last ? last.side : pen.turn;
+    const order = (pen.order && pen.order[kSide]) || [];
+    const kId = state.finished && last ? last.playerId : order.length ? order[pen.taken[kSide] % order.length] : null;
+    const gkP = state[otherSide(kSide)].players.find((p) => p.position === "GK");
+    kicker = { side: kSide, kickerId: kId, keeperId: gkP ? gkP.id : null };
+    posSide = kSide;
+    attackStep = 3;
+  } else if (state.finished && beat && (beat.attackingSide === "home" || beat.attackingSide === "away")) {
+    // 경기 종료 후: 마지막 비트가 일어난 위치 유지
+    posSide = beat.attackingSide;
+    attackStep = clamp(num(beat.step, attackStep), 0, 3);
+  }
+  const zone = zoneOf(posSide, attackStep);
+  const receiverPreview = receiverView(passReceiverNow(state), atk);
+  const outcomes = need && duel ? buildOutcomes(state, human, role, actions, intent) : null;
+  // 위치를 바꾸는 스킬(공격 extraLine / 수비 steal)을 이번 결정과 함께 쓸 때의 미리보기 (§12.1-2 보강).
+  // 사람이 스킬을 토글하면 UI 가 이 값으로 바꿔 그린다 → 미리보기 = 실제. 자동 진행 중에는 사람 측 AI 가 step 안에서
+  // 이 스킬을 쓸 수 있으므로, 수신자가 달라지는 변형이 있으면 UI 는 receiverPreview 를 확정 표시하지 않는다.
+  let outcomesBySkill = null;
+  let receiverPreviewBySkill = null;
+  if (outcomes) {
+    for (const s of skills) {
+      if (!s.enabled || s.effect !== POSITION_EFFECT[role]) continue;
+      if (!outcomesBySkill) outcomesBySkill = {};
+      outcomesBySkill[s.skillId] = buildOutcomes(state, human, role, actions, intent, { [s.effect]: true });
+      if (role === "attack") {
+        if (!receiverPreviewBySkill) receiverPreviewBySkill = {};
+        receiverPreviewBySkill[s.skillId] = receiverView(passReceiverNow(state, true), atk);
+      }
+    }
+  }
+
   return {
+    zone,
+    attackStep,
+    attackDir: posSide === "home" ? "up" : "down",
+    remaining: remainingDefense(state, posSide, attackStep),
+    receiverPreview,
+    outcomes,
+    outcomesBySkill,
+    receiverPreviewBySkill,
+    lastBeat: beat ? Object.assign({}, beat) : null,
     score: { home: state.score.home, away: state.score.away },
     possession: Math.min(state.possession, state.possessionsTotal),
     possessionsTotal: state.possessionsTotal,
@@ -1147,6 +1425,14 @@ export function getMatchView(state, data, humanSide = undefined) {
     phase: state.phase,
     finished: !!state.finished,
     result: state.result,
-    penalties: pen ? { home: pen.home, away: pen.away, turn: pen.turn, taken: { home: pen.taken.home, away: pen.taken.away }, suddenDeath: pen.suddenDeath } : null,
+    penalties: pen
+      ? {
+        home: pen.home, away: pen.away, turn: pen.turn, taken: { home: pen.taken.home, away: pen.taken.away }, suddenDeath: pen.suddenDeath,
+        // v0.2 추가: 레이아웃용 — 다음 키커(종료 후엔 마지막 키커)와 그 상대 GK
+        kickerSide: kicker ? kicker.side : pen.turn,
+        kickerId: kicker ? kicker.kickerId : null,
+        keeperId: kicker ? kicker.keeperId : null,
+      }
+      : null,
   };
 }

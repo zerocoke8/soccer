@@ -29,7 +29,7 @@ export const STAT_LABELS = { shoot: '슈팅', dribble: '드리블', pass: '패�
 export const STAT_SHORT = { shoot: '슈', dribble: '드', pass: '패', defense: '수', physical: '피' };
 export const POSITION_LABELS = { GK: '골키퍼', DF: '수비', MF: '미드필더', FW: '공격' };
 export const ELEMENT_LABELS = { fire: '불', water: '물', wind: '바람', earth: '땅', lightning: '번개' };
-export const ELEMENT_ICONS = { fire: '🔥', water: '💧', wind: '🌪', earth: '🪨', lightning: '⚡' };
+export const ELEMENT_ICONS = { fire: '🔥', water: '💧', wind: '🌪', earth: '⛰️', lightning: '⚡' };
 export const STYLE_LABELS = { power: '파워', speed: '스피드', technique: '테크닉' };
 export const RACE_LABELS = { human: '인간', elf: '엘프', dwarf: '드워프', beast: '수인', spirit: '정령', giant: '거인' };
 export const RARITY_LABELS = { R: 'R', SR: 'SR', SSR: 'SSR' };
@@ -51,6 +51,12 @@ export const MATCH_PHASE_LABELS = {
   extraTime: '연장', penalties: '승부차기', finished: '종료',
 };
 export const LINE_LABELS = ['FW 라인', 'MF 라인', 'DF 라인', 'GK · 슛'];
+// v0.2 경기 화면 (GDD v0.4 §9.2·9.5): 공격 단계 ①~④ = lineIndex 0..3, 토큰 역할(js/ui/layout.js)
+export const ATTACK_STEP_LABELS = ['빌드업', '중원', '파이널 서드', '슈팅'];
+export const TOKEN_ROLE_LABELS = {
+  carrier: '공 소유', defender: '듀얼 수비', cover: '커버', receiver: '패스 후보',
+  broken: '뚫림 (공 뒤)', support: '지원', gk: '골키퍼',
+};
 
 export const CONDITION_LABELS = ['최악', '나쁨', '보통', '좋음', '최상'];
 

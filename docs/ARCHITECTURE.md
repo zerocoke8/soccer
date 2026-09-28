@@ -685,7 +685,7 @@ export function decideDefense(state, data, side)  // → { action, skillId|null 
    attackStep,      // 0..3 = lineIndex (① 빌드업 … ④ 슈팅)
    attackDir,       // "up" (home 공격) | "down" (away 공격)
    remaining,       // { lines: ["MF","DF"], gk: true, text: "남은 수비: MF 2 + DF 2 + GK" } — 공과 목표 골 사이에 남은(뚫리지 않은) 수비. POS_BY_LINE.slice(lineIndex) 기준, 인원수 포함
-   receiverPreview, // null | { id, name, side } — 지금 패스가 성공하면 받을 선수. pass 가 불가능하면 null. 실제 판정과 반드시 동일 (§12.1-4)
+   receiverPreview, // null | { id, name, side, step, zone } — 지금 패스가 성공하면 받을 선수와 도착 단계·구역. pass 가 불가능하면 null. 실제 판정과 반드시 동일 (§12.1-4)
    outcomes,        // null | { [action]: { success: Outcome, fail: Outcome } } — 사람 측이 고를 수 있는 액션(actions[] 의 action)마다
                     // Outcome = { zone, attackingSide, goal?: true, label }
                     //   공격 역할 예: dribble.success = { zone: 다음 단계 구역, attackingSide: 우리, label: "상대 박스 진입 — 슈팅 찬스" }
@@ -693,7 +693,11 @@ export function decideDefense(state, data, side)  // → { action, skillId|null 
                     //                 shoot.success = { zone, goal: true, label: "골!" }, shoot.fail(세이브/블록) = { zone: 상대 빌드업 구역, label: "세이브 → 상대 골킥" }
                     //   수비 역할 예: tackle.success(= 막음) = { zone: 우리 역습 시작 구역, attackingSide: 우리, label: "막으면 — 우리 역습, 중원부터" }
                     //                 tackle.fail(= 뚫림) = { zone: 상대 다음 단계 구역, attackingSide: 상대, label: "뚫리면 — 상대 슈팅" }
-                    //   스킬 효과(extraLine, steal)는 반영하지 않는다(기본 규칙 기준). needsDecision 이 아니면 null
+                    //   이번 결정과 함께 고를 스킬(extraLine, steal)은 반영하지 않는다(기본 규칙 기준, 이미 커밋된 효과는 반영). needsDecision 이 아니면 null
+   outcomesBySkill,        // (수정 라운드) null | { [skillId]: outcomes } — 결정 대기 중 사람 측이 쓸 수 있는(enabled) 위치 스킬
+                           //   (공격 extraLine / 수비 steal)을 액션과 함께 쓸 때의 outcomes. 키 = 기본 outcomes 와 같다
+   receiverPreviewBySkill, // (수정 라운드) null | { [skillId]: receiverPreview|null } — 공격 extraLine 스킬을 쓸 때의 수신자
+                           //   (line 0 + 라인 브레이커 + 패스 → MF 가 아니라 FW, 상대 진영). UI 는 스킬을 토글하면 이 값으로 그린다
    lastBeat,        // null | 가장 최근의 "비트 이벤트" (아래 3번) 사본. UI 연출 트리거
    ```
 3. **이벤트에 위치 필드** — type 이 `kickoff | counter | duel | turnover | save | goal | penalty` 인 이벤트에 추가:
@@ -713,6 +717,12 @@ export const SHAPE = {            // 공격 방향 기준 세로 % (0 = 공격 �
   atk: { GK: [4, 6, 8, 10], DF: [26, 34, 44, 50], MF: [46, 52, 62, 70], FW: [60, 68, 78, 86] },
   def: { FW: [32, 42, 58, 68], MF: [52, 54, 64, 78], DF: [70, 72, 76, 86], GK: [96, 96, 96, 97] },
 };
+export const RECEIVER_INSET = 2;   // (수정 라운드) 패스 후보: 도착 구역 시작 + 2
+export function resolvePreview(view, { skillId = null, deciding = true } = {})
+// (수정 라운드) 화면에 그릴 receiverPreview · outcomes 를 고른 view 사본 (view 불변, 바꿀 것이 없으면 view 그대로).
+//  deciding=true (사람이 고르는 중): skillId 가 receiverPreviewBySkill / outcomesBySkill 에 있으면 그 변형.
+//  deciding=false (자동 진행 중): 사람 측 공격이고 스킬 변형 중 수신자가 기본과 다른 것이 있으면 receiverPreview = null
+//   (사람 측 AI 가 step() 안에서 라인 브레이커를 쓸 수 있어 확정할 수 없다). 상대 공격은 AI 가 먼저 커밋해 정확 → 그대로.
 export function computeLayout(view, opts = {})
 // view = match.getMatchView(...) 반환값. opts: { aspect = 0.8 (필드 폭/높이), tokenSize = 0.075 (필드 폭 대비 지름) }
 // → {
@@ -732,7 +742,16 @@ export function computeLayout(view, opts = {})
 - 가로: 라인 인원 1 → [50], 2 → [30, 70], 3 → [20, 50, 80] (slot 순서). 공 가진 선수 x = 자기 라인 x. 듀얼 수비수 x = carrier x.
 - **겹침 방지**: 모든 토큰 쌍의 거리 ≥ tokenSize (필드 폭 기준, 세로는 aspect 로 환산). 가까우면 가로로 밀어낸다(세로 좌표는 유지 → 규칙 위치 보존). 결과 x 는 [6, 94] 로 clamp. 단 carrier–defender 쌍은 마주보는 연출이라 세로 간격을 우선 확보한다(세로 최소 간격 = tokenSize 환산값, 수비수를 자기 골 쪽으로 민다 — 여전히 공과 자기 골 사이).
 - 포제션 사이(`phase` 가 possessionEnd, 또는 duel 없음): view.attackStep/attackingSide 기준으로 같은 규칙.
-- 승부차기(`phase === "penalties"`): 공 = 노리는 박스의 페널티 스폿(y 10 또는 90, x 50), 키커 = 공 옆, 상대 GK = 골문, 나머지 12명 = 박스 밖 반원(y 30±6 또는 70±6)에 `support`.
+- (수정 라운드) **패스 후보**: `fy = max(SHAPE.atk[pos][step], ZONES[도착 구역].from + RECEIVER_INSET)` — 도착 단계 = `receiverPreview.step` (없으면 step+1). ③ 단계 FW 후보 78 → 86 (상대 박스). SHAPE 표는 그대로.
+- (수정 라운드) **경기 종료 view** (`finished`, 승부차기 아님): 엔진은 종료 시 다음 포제션을 시작하지 않아 view.carrier / attackingSide 가 판정 전(공을 잃은 쪽)이다 → `lastBeat` 로 판정 뒤 모습을 그린다.
+  turnover = 뺏은 수비수(`defenderId`)가 carrier, 공을 얻은 팀(`toAttackingSide`)의 `toStep` 모양 · zone = `toZone`.
+  save = GK 가 carrier, 공은 GK 자리(자기 골문 앞, zone = 슛한 박스), GK 팀의 `toStep` 모양.
+  goal = carrier 없음, 공은 골문 안(공격 방향 99.5, x 58), 상대 GK 는 반대로 다이브(x 38), 득점자는 슛한 자리(support).
+  defender/receiver 없음, highlight 없음, banner "경기 종료", remainingText "" (남은 수비 문구 없음), zone = 공 구역. lastBeat 가 없으면 마지막 상태 그대로.
+  위치 필드가 없는 옛 저장 이벤트는 §7.5 로 대신 (turnover line 0/1/2 → 역습 2/1/0, save → 0).
+- (수정 라운드) **좁고 높은 필드** (aspect ≳ 1.05): 듀얼 수비수를 `ball + minDy` 로 밀다 97(골문)을 넘으면 먼저 공(= carrier)을 자기 골 쪽으로 당긴다 — 하한 = max(공 구역 시작, 뚫린 수비 라인 좌표) + 0.5, 그래도 모자라면 수비수를 99.5 까지. 기본 범위(aspect ≤ 1)에서는 공 = SHAPE.ball 그대로.
+- (수정 라운드) 가로로 놓을 자리가 없으면(`findFreeX` null) 규칙 방향으로만 세로를 1.5%씩(최대 8회) 민다 — 뚫린 라인·공격 팀 support/GK 는 자기 골 쪽, 남은 수비·패스 후보는 공격 방향 골 쪽 → 공 앞/뒤 관계 유지. 그래도 없으면 겹침 허용.
+- 승부차기(`phase === "penalties"`): 공 = 노리는 박스의 페널티 스폿(y 10 또는 90, x 50), 키커 = 공 옆, 상대 GK = 골문, 나머지 12명 = 박스 밖 반원(y 30±6 또는 70±6)에 `support`. (수정 라운드) 반원에 겹치지 않는 자리가 모자라면(좁고 높은 필드) 같은 띠 안 두 줄 지그재그(64 / 76).
 - 결정적: 같은 view → 같은 결과. 난수 금지.
 
 ### 12.3 UI (js/ui/screens/match.js 재작성 + css/style.css 경기 부분)
@@ -740,9 +759,13 @@ export function computeLayout(view, opts = {})
 - **한 화면**: 390×844 에서 결정 대기 상태로 페이지 세로 스크롤이 생기지 않는다 (로그는 내부 스크롤 가능, 최근 4줄). 필드는 화면 세로의 55~60%.
 - **필드**: 세로 5구역 밴드(구역 이름 작게), 하프라인, 양 골문·박스. 토큰은 절대 좌표 `transform: translate(...)` + `transition` (재배치 애니메이션). 공은 별도 요소.
 - **토큰**: 지름 ≈ 필드 폭 7.5%. home = 원형 + 파랑 링(#4da3ff), away = 둥근 사각 + 빨강 링(#ff5d5d) (색 + 모양 이중 구분). 안쪽 portraitColor + 이름 첫 글자. 아래 체력 바(≤20% 빨강). 이름 라벨은 carrier / defender / receiver 만. broken = opacity 0.45. 유스 = 작은 "유". 탭 → 미니 카드(이름·포지션·스타일·원소·스탯 5·체력·스킬).
-- **비트 연출** (GDD §9.4): step() 결과로 새 `lastBeat.seq` 가 생기면 ① 액션 연출(공 이동: 드리블=carrier 와 함께, 패스=receiver 로, 슛=골문으로, 실패=defender 로) → ② computeLayout 새 좌표로 전원 재배치 → ③ 결과 한 줄. 1x = 이동 0.4s + 액션 0.5s + 결과 0.3s ≈ 1.2s. 2x·4x 비례. `prefers-reduced-motion` 이면 트랜지션 최소화. 연출 중에는 다음 step 을 호출하지 않는다(비트 큐). setInterval 대신 비트 완료 후 다음 step 을 예약하는 루프.
+- **비트 연출** (GDD §9.4): step() 결과로 새 `lastBeat.seq` 가 생기면 ① 액션 연출(공 이동: 드리블=carrier 와 함께, 패스=receiver 로, 슛=골문으로, 실패=defender 로) → ② computeLayout 새 좌표로 전원 재배치 → ③ 결과 한 줄. (수정 라운드) 1x = 액션 0.8s + 재배치 0.65s + 결과 0.95s ≈ 2.4s (턴오버·세이브 +0.25s, 골 +0.9s, 컷인 +0.9s) — 1.2s 로는 자동 1x 목표 경기 중앙 23초로 GDD 40~60초에 못 미쳤다. 새 값: 목표 경기(8포제션) 중앙 약 42초, 친선(6) 약 31초. 2x·4x 비례. `prefers-reduced-motion` 이면 트랜지션 최소화. 연출 중에는 다음 step 을 호출하지 않는다(비트 큐). setInterval 대신 비트 완료 후 다음 step 을 예약하는 루프.
+- (수정 라운드) 결과 한 줄(pill): 다음 비트가 시작되면(animateBeat) 걷는다. 수명 = max(0.9s, (결과 + 액션) × 배속 계수), CSS 페이드 길이(`--t-pop`)도 같은 값. 자리는 공 옆 좌/우·위/아래 → 필드 가운데 띠 중 토큰(가중치: 듀얼 당사자·패스 후보 2, 보통 1, 뚫린 선수 0.35)을 덜 가리는 곳.
+- (수정 라운드) 이름 라벨 · 의도 말풍선 · 미리보기 글자(도착 구역 · 차단 액션 이름)는 후보 자리(라벨: 선호 위/아래 × 가운데/좌/우 → 반대편 → 옆, 말풍선: 위 좌우 → 옆 → 아래) 중 이웃 토큰·공·이미 놓은 글자와 겹치지 않는 첫 자리. 미리보기 글자는 토큰 위 층(`svg.pitch-svg.top`).
+- (수정 라운드) 비트 연출 중 컨트롤(자동·배속·개입) 클릭은 컨트롤과 정보 줄만 다시 그린다 (스코어·로그는 연출 단계가 갱신). 연출 중 resize 는 미뤘다가 비트가 끝날 때 새 크기로 다시 배치. 비트가 끝날 때(finishBeat) 항상 현재 view 로 다시 배치(자동/개입 전환·resize 반영).
+- (수정 라운드) 자동 토글은 켜든 끄든 개입(intervene)을 해제한다. 개입 버튼 강조·문구는 자동 ON 이고 개입 중일 때만.
 - **위기·찬스**: `highlight` 구역 색 (danger 주황 / crisis 빨강 점멸 / chance 금색 / shotChance 금색 점멸), 필드 위 상황 배너(`banner`, 구역이 바뀔 때만 갱신), 필드 왼쪽 공격 진행 트랙 4칸, 남은 수비 텍스트.
-- **결정 대기(수동)** 에서만: 액션 버튼마다 `outcomes` 두 줄(성공/실패 label). 버튼 누르고 있기(pointerdown) / hover → 필드 위 SVG 화살표(드리블 = 다음 구역으로, 패스 = receiverPreview 토큰으로 점선, 슛 = 골문으로, 수비 액션 = 상대 carrier 앞 차단 표시). 자동 진행 중에는 미리보기·화살표를 그리지 않는다.
+- **결정 대기(수동)** 에서만: 액션 버튼마다 `outcomes` 두 줄(성공/실패 label). (수정 라운드) 위치 스킬(라인 브레이커·소매치기)을 토글하면 `resolvePreview(view, { skillId, deciding: true })` 의 변형으로 버튼 문구·화살표·패스 후보 토큰을 바꾼다. 자동 진행 중에는 `resolvePreview(view, { deciding: false })` 로 확정할 수 없는 패스 후보를 그리지 않는다. 버튼 누르고 있기(pointerdown) / hover → 필드 위 SVG 화살표(드리블 = 다음 구역으로, 패스 = receiverPreview 토큰으로 점선, 슛 = 골문으로, 수비 액션 = 상대 carrier 앞 차단 표시). 자동 진행 중에는 미리보기·화살표를 그리지 않는다.
 - **의도 표시**: 상대 듀얼 토큰 위 말풍선(아이콘) + 정보 줄 텍스트(기존 문구 유지: 확정 / 2지선다 / 비공개 / countered).
 - **유지할 기존 기능**: 자동 토글(기본 ON), 배속 1x/2x/4x, 개입(다음 결정 비트에서 재배치까지 보여준 뒤 멈춤), 결과 스킵, 스킬 버튼(reveal 은 `{skillId}` 단독 즉시 전송), 컷인 배너, 연장·승부차기 표시, 결과 모달, `finishMatch` 정확히 1회, localStorage 저장/이어하기.
 
@@ -755,5 +778,6 @@ export function computeLayout(view, opts = {})
   - 모든 토큰 쌍 겹침 없음 (§12.2 기준), 좌표 범위 [0, 100].
   - 실제 경기(여러 seed, step 반복)에서 매 view 마다 위 불변식 검사.
   - 승부차기 레이아웃.
+- (수정 라운드) `test/layout.test.mjs` 추가: 경기 종료 모습(합성 3종 + 실제 300경기), 패스 후보 = 도착 구역(양 팀·extraLine), resolvePreview, 자동 진행 중 그린 패스 후보 = 실제 수신자(라인 브레이커 편성), UI 실제 범위(aspect 0.74~1.3 · tokenSize 0.0866~0.09, 합성·실제·승부차기) 겹침 없음·규칙 위치. `test/match.test.mjs`: 스킬 변형 미리보기 = 실제(1-3-2 울릭 DF1 + 소매치기). `test/ui.smoke.test.mjs`: 연출 중 배속 클릭 시 스코어·로그 그대로, 자동 OFF → 개입 해제, 종료 모습의 carrier.
 - `test/match.test.mjs` 추가: zoneOf 표, 많은 seed 에서 **패스 성공 시 실제 수신자 = 직전 view.receiverPreview**, **판정 후 공 구역 = 직전 view.outcomes[선택 액션].success/fail.zone** (사람 측 결정을 넣어 진행; 스킬 미사용), 이벤트 seq 단조 증가·zone 필드 존재, getMatchView 가 상태를 바꾸지 않음(JSON 동일).
 - `tools/shot.mjs` (신규): puppeteer-core(devDependency, 설치됨) + 로컬 Chrome(`C:/Program Files/Google/Chrome/Application/chrome.exe`) 또는 Edge, `CHROME_PATH` 로 덮어쓰기; 없으면 안내 후 exit 0. 내장 정적 서버로 앱을 띄우고, Node 에서 엔진으로 만든 run/match 상태를 localStorage(`soccer.run`, `soccer.match`)에 주입한 뒤 시작 화면의 "이어하기" 버튼으로 진입 (app.js `continueRun` 은 run.phase === "match" 이고 match.seed === run.pendingMatch.seed 일 때 저장된 경기를 복원한다 → 주입 시 pendingMatch.seed 를 맞출 것). 시나리오별 PNG (390×844, deviceScaleFactor 2): 우리 빌드업 / 우리 파이널 서드 수동 결정(자동 끄고 미리보기 + 액션 버튼 hover 화살표) / **상대 ④ 슈팅(회귀)** / 상대 ③ 위험 / 승부차기 / 패스 비트 연출 중간 프레임 / 데스크톱 1280×900. 각 시나리오의 페이지 scrollHeight 와 콘솔 에러를 출력. 사용: `node tools/shot.mjs <outDir>`. (도구 스크립트는 반드시 프로젝트 안에 둬야 puppeteer-core 가 resolve 된다.)

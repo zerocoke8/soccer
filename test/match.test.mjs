@@ -3,6 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { loadData, clone, run, match } from "./helpers.mjs";
 import { STATS } from "../js/engine/training.js";
+import { createRng } from "../js/engine/rng.js";
 
 const data = loadData();
 const cfg = data.config;
@@ -578,4 +579,498 @@ test("상대 AI 의 reveal 스킬: 의도는 countered(level none) 로 표시되
     }
   }
   assert.ok(checked >= 1, "상대 reveal 듀얼을 찾지 못함");
+});
+
+/* ------------------------------------------------------------------ */
+/* v0.2 — 경기 화면 위치 표현 (ARCHITECTURE §12.1, §12.4)                */
+/* ------------------------------------------------------------------ */
+
+const BEAT_TYPES = ["kickoff", "counter", "duel", "turnover", "save", "goal", "penalty"];
+const RESOLVE_TYPES = ["duel", "turnover", "save", "goal"];
+const OPP_POOL = ["op_s1_ironhoof", "op_s2_silverleaf", "op_s3_emberthrone", "op_f1_riverside", "op_f2_thunderclaw", "op_f3_frostveil"];
+
+/** 미러 팀 (동점 → 연장 → 승부차기 경로를 자주 만든다) */
+function mirrorOf(home) {
+  const away = clone(home);
+  away.side = "away"; away.name = "미러 클럽";
+  away.players.forEach((p) => { p.id = "q_" + p.id; });
+  return away;
+}
+
+/**
+ * 사람 측(home) 결정을 스킬 없이 무작위로 넣으며 한 경기를 끝까지 진행한다 (away = AI, 스킬 자유).
+ * hooks.before(ms, view) — step 전, hooks.after({ before, decision, fresh, after, ms }) — step 후.
+ */
+function playManual(ms, pickRng, hooks = {}) {
+  let guard = 0;
+  while (!match.isFinished(ms)) {
+    if (++guard > 3000) throw new Error("playManual guard");
+    const before = match.getMatchView(ms, data);
+    if (hooks.before) hooks.before(ms, before);
+    let decision = null;
+    if (before.needsDecision) {
+      const en = before.actions.filter((a) => a.enabled);
+      decision = { action: pickRng.pick(en).action };
+    }
+    const n0 = ms.events.length;
+    match.step(ms, data, decision);
+    const after = match.getMatchView(ms, data);
+    if (hooks.after) hooks.after({ before, decision, fresh: ms.events.slice(n0), after, ms });
+  }
+  return ms;
+}
+
+test("v0.2 zoneOf: home = lineIndex+2, away = 4−lineIndex, ZONE_NAMES, 역습 = 뺏은 그 구역", () => {
+  const table = { home: [2, 3, 4, 5], away: [4, 3, 2, 1] };
+  for (const side of ["home", "away"]) for (let l = 0; l < 4; l++) assert.equal(match.zoneOf(side, l), table[side][l], `${side} ${l}`);
+  assert.deepEqual(match.ZONE_NAMES, { 1: "우리 박스", 2: "우리 진영", 3: "중원", 4: "상대 진영", 5: "상대 박스" });
+  assert.throws(() => match.zoneOf("north", 0), /attackingSide/);
+  // §7.5 표를 구역으로 쓰면: 턴오버가 난 구역 = 역습 시작 구역 (line 0→2, 1→1, 2→0)
+  for (const [lost, start] of [[0, 2], [1, 1], [2, 0]]) {
+    assert.equal(match.zoneOf("home", lost), match.zoneOf("away", start));
+    assert.equal(match.zoneOf("away", lost), match.zoneOf("home", start));
+  }
+});
+
+test("v0.2 receiverPreview: pass 가능할 때만 존재, 패스 성공 시 실제 수신자 = 직전 view.receiverPreview (양 팀, 220 seed)", () => {
+  const homes = [homeSnapshot(1.0), homeSnapshot(1.4), homeSnapshot(1.9)];
+  const checked = { home: 0, away: 0 };
+  let nullChecked = 0;
+  for (let seed = 1; seed <= 220; seed++) {
+    const home = homes[seed % homes.length];
+    const away = oppSnapshot(OPP_POOL[seed % OPP_POOL.length]);
+    const ms = match.createMatch({ data, seed, home, away, possessions: 8, kind: "goal" });
+    playManual(ms, createRng("recv" + seed), {
+      before(state, v) {
+        if (state.phase !== "decision") {
+          assert.equal(v.receiverPreview, null, "승부차기/종료 중 receiverPreview 없음");
+          return;
+        }
+        const passOn = state.ball.lineIndex < 3 && match.getAttackActions(state, state.attackingSide).find((a) => a.action === "pass").enabled;
+        assert.equal(!!v.receiverPreview, passOn, `receiverPreview 존재 = pass 가능 (line ${state.ball.lineIndex})`);
+        if (!passOn) nullChecked++;
+        if (v.receiverPreview) {
+          assert.equal(v.receiverPreview.side, state.attackingSide);
+          assert.notEqual(v.receiverPreview.id, state.ball.carrierId);
+          assert.ok(state[state.attackingSide].players.some((p) => p.id === v.receiverPreview.id));
+        }
+      },
+      after({ before, fresh }) {
+        for (const e of fresh) {
+          if (e.type === "duel" && e.action === "pass" && e.success) {
+            assert.ok(before.receiverPreview, "패스 성공인데 직전 미리보기가 없음");
+            assert.equal(e.receiverId, before.receiverPreview.id, `seed ${seed}: 실제 수신자 = 미리보기`);
+            checked[e.side]++;
+          }
+        }
+      },
+    });
+  }
+  assert.ok(checked.home > 100 && checked.away > 100, `검증한 패스 성공 수 ${JSON.stringify(checked)}`);
+  assert.ok(nullChecked > 0);
+});
+
+test("v0.2 pickReceiver 결정적: 동률이면 team.players 순서의 첫 선수 (미리보기 = 실제)", () => {
+  const home = homeSnapshot(1.2);
+  const mfs = home.players.filter((p) => p.position === "MF");
+  assert.ok(mfs.length >= 2);
+  for (const p of mfs) { p.stats.dribble = 300; p.stats.pass = 300; }
+  const away = oppSnapshot("op_s1_ironhoof");
+  let passed = 0;
+  for (let seed = 1; seed <= 80 && passed < 3; seed++) {
+    const ms = match.createMatch({ data, seed, home, away, possessions: 8, kind: "goal" });
+    const v = match.getMatchView(ms, data);
+    assert.equal(ms.ball.lineIndex, 0);
+    assert.equal(v.receiverPreview.id, mfs[0].id, "동률 MF → 슬롯 순서 첫 선수");
+    assert.ok(v.outcomes.pass.success.label.includes(mfs[0].name));
+    assert.equal(v.outcomes.pass.success.receiver.id, mfs[0].id);
+    const n0 = ms.events.length;
+    match.step(ms, data, { action: "pass" });
+    const ev = ms.events.slice(n0).find((e) => RESOLVE_TYPES.includes(e.type));
+    if (ev.success) {
+      assert.equal(ev.receiverId, mfs[0].id);
+      passed++;
+    }
+  }
+  assert.ok(passed > 0, "패스 성공 케이스를 찾지 못함");
+});
+
+test("v0.2 outcomes: 판정 후 공 구역·공격 팀 = 직전 view.outcomes[선택].success/fail (사람 결정, 스킬 미사용, 150 seed)", () => {
+  const homes = [homeSnapshot(1.0), homeSnapshot(1.4), homeSnapshot(1.9)];
+  const counts = { attack: { success: 0, fail: 0 }, defense: { success: 0, fail: 0 } };
+  const seenActions = new Set();
+  let viewChecked = 0;
+  for (let seed = 1; seed <= 150; seed++) {
+    const home = homes[seed % homes.length];
+    const away = oppSnapshot(OPP_POOL[seed % OPP_POOL.length]);
+    const ms = match.createMatch({ data, seed, home, away, possessions: 8, kind: "goal" });
+    playManual(ms, createRng("out" + seed), {
+      after({ before, decision, fresh, after }) {
+        if (!before.needsDecision) {
+          assert.equal(before.outcomes, null, "결정 대기가 아니면 outcomes null");
+          return;
+        }
+        const role = before.needsDecision;
+        const enabled = before.actions.filter((a) => a.enabled).map((a) => a.action).sort();
+        assert.deepEqual(Object.keys(before.outcomes).sort(), enabled, "outcomes 키 = 선택 가능한 액션");
+        for (const [a, o] of Object.entries(before.outcomes)) {
+          for (const k of ["success", "fail"]) {
+            const x = o[k];
+            assert.ok(Number.isInteger(x.zone) && x.zone >= 1 && x.zone <= 5, `${a}.${k}.zone ${x.zone}`);
+            assert.ok(x.attackingSide === "home" || x.attackingSide === "away");
+            assert.ok(Number.isInteger(x.step) && x.step >= 0 && x.step <= 3);
+            assert.equal(match.zoneOf(x.attackingSide, x.step), x.zone);
+            assert.ok(typeof x.label === "string" && x.label.length > 0 && !/undefined|NaN|null/.test(x.label), x.label);
+          }
+          if (role === "attack" && a === "pass") {
+            assert.ok(o.success.label.includes(before.receiverPreview.name), "패스 성공 label 에 수신자 이름");
+            assert.equal(o.success.receiver.id, before.receiverPreview.id);
+          }
+          if (role === "defense") {
+            assert.match(o.success.label, /^막으면/);
+            assert.match(o.fail.label, /^뚫리면/);
+          }
+        }
+        const ev = fresh.find((e) => RESOLVE_TYPES.includes(e.type));
+        assert.ok(ev, "판정 이벤트");
+        assert.equal(ev.zone, before.zone, "판정 이벤트 zone = 직전 view.zone");
+        assert.equal(ev.step, before.attackStep);
+        const humanWon = role === "attack" ? ev.success : !ev.success;
+        const o = before.outcomes[decision.action];
+        const exp = o[humanWon ? "success" : "fail"];
+        if (role === "defense" && ev.action === "shoot") {
+          assert.ok(o.fail.goalRisk || o.fail.goal, "상대 슛이 가능했으면 fail label 에 실점 위험 표시");
+          if (ev.success && !exp.goal) return; // 돌파 기준 미리보기 — 예고된 위험(중거리 슛 실점)은 비교 제외
+        }
+        assert.equal(ev.toZone, exp.zone, `seed ${seed} ${role} ${decision.action} ${humanWon ? "success" : "fail"}: 이벤트 toZone`);
+        assert.equal(ev.toAttackingSide, exp.attackingSide);
+        assert.equal(ev.toStep, exp.step);
+        if (exp.goal) assert.equal(ev.type, "goal");
+        if (!after.finished && after.phase === "decision") {
+          assert.equal(after.zone, exp.zone, `seed ${seed}: 판정 후 view.zone = outcomes.zone`);
+          assert.equal(after.attackingSide, exp.attackingSide);
+          assert.equal(after.attackStep, exp.step);
+          viewChecked++;
+        }
+        counts[role][humanWon ? "success" : "fail"]++;
+        seenActions.add(decision.action);
+      },
+    });
+  }
+  for (const r of ["attack", "defense"]) for (const k of ["success", "fail"]) assert.ok(counts[r][k] > 50, `${r}.${k} ${counts[r][k]}`);
+  for (const a of ["dribble", "pass", "shoot", "tackle", "intercept", "block"]) assert.ok(seenActions.has(a), `액션 ${a} 검증됨`);
+  assert.ok(viewChecked > 500, `view 비교 ${viewChecked}`);
+});
+
+test("v0.2 outcomes 문구: 공격 역습 구역·세이브·골, 수비 막으면/뚫리면·중거리 실점 위험", () => {
+  const home = homeSnapshot(1.2);
+  const away = oppSnapshot("op_s3_emberthrone"); // 의도 비공개 → line 2 수비에서 슛 가능성 남음
+  const ms = match.createMatch({ data, seed: 9, home, away, possessions: 8, kind: "goal" });
+  ms.duel.effects.away = { ...ms.duel.effects.away, steal: false };
+  // 공격 line 0: 드리블 성공 = 중원(Z3), 실패 = 상대 역습 우리 진영(Z2)부터
+  const v0 = match.getMatchView(ms, data);
+  assert.equal(v0.outcomes.dribble.success.zone, 3);
+  assert.equal(v0.outcomes.dribble.success.label, "중원 진입");
+  assert.equal(v0.outcomes.dribble.fail.zone, 2);
+  assert.equal(v0.outcomes.dribble.fail.attackingSide, "away");
+  assert.equal(v0.outcomes.dribble.fail.label, "상대 역습 — 우리 진영부터");
+  // 공격 line 1: 성공 = 상대 진영(Z4), 실패 = 상대 역습 중원(Z3)부터
+  const s1 = clone(ms); s1.ball.lineIndex = 1;
+  const v1 = match.getMatchView(s1, data);
+  assert.equal(v1.outcomes.dribble.success.label, "상대 진영 진입 — 중거리 슛 가능");
+  assert.equal(v1.outcomes.dribble.fail.label, "상대 역습 — 중원부터");
+  // 공격 line 2: 성공 = 상대 박스(Z5), 실패 = 상대 빌드업(Z4), 중거리 슛 성공 = 골 → 상대 킥오프(Z4)
+  const s2 = clone(ms); s2.ball.lineIndex = 2;
+  const v2 = match.getMatchView(s2, data);
+  assert.equal(v2.outcomes.dribble.success.zone, 5);
+  assert.equal(v2.outcomes.dribble.success.label, "상대 박스 진입 — 슈팅 찬스");
+  assert.equal(v2.outcomes.dribble.fail.label, "공 뺏김 — 상대 빌드업부터");
+  assert.deepEqual(
+    { zone: v2.outcomes.shoot.success.zone, goal: v2.outcomes.shoot.success.goal, side: v2.outcomes.shoot.success.attackingSide },
+    { zone: 4, goal: true, side: "away" },
+  );
+  assert.equal(v2.outcomes.shoot.success.label, "골! → 상대 킥오프");
+  assert.equal(v2.outcomes.shoot.fail.label, "막히면 → 상대 빌드업부터");
+  // line 3: 슛만, 실패 = 세이브 → 상대 골킥
+  const s3g = clone(ms); s3g.ball.lineIndex = 3;
+  const v3 = match.getMatchView(s3g, data);
+  assert.deepEqual(Object.keys(v3.outcomes), ["shoot"]);
+  assert.equal(v3.outcomes.shoot.fail.label, "세이브 → 상대 골킥");
+  assert.equal(v3.outcomes.shoot.fail.zone, 4);
+  // 상대 steal 스킬이 이미 커밋돼 있으면 역습이 한 구역 더 깊다 (판정에 그대로 적용되는 공개 정보)
+  const s4 = clone(ms); s4.ball.lineIndex = 1; s4.duel.effects.away.steal = true;
+  const v4 = match.getMatchView(s4, data);
+  assert.equal(v4.outcomes.dribble.fail.zone, 2, "line 1 + steal → 상대 line 2 = 우리 진영");
+  assert.equal(v4.outcomes.dribble.fail.label, "상대 역습 — 우리 진영부터");
+  // 수비: 상대 공격 상태를 찾아 line 별 문구 확인
+  const seen = new Set();
+  for (let seed = 1; seed <= 40 && seen.size < 3; seed++) {
+    const m2 = match.createMatch({ data, seed, home, away, possessions: 8, kind: "goal" });
+    let guard = 0;
+    while (!match.isFinished(m2) && guard++ < 400) {
+      const v = match.getMatchView(m2, data);
+      if (v.needsDecision === "defense" && !m2.duel.effects.away.extraLine) {
+        const L = m2.ball.lineIndex;
+        seen.add(L);
+        const o = v.outcomes.tackle;
+        const expStart = L === 0 ? 2 : L === 1 ? 1 : 0;
+        assert.equal(o.success.zone, match.zoneOf("home", expStart));
+        assert.equal(o.success.attackingSide, "home");
+        assert.equal(o.fail.zone, match.zoneOf("away", L + 1));
+        assert.equal(o.fail.attackingSide, "away");
+        if (L === 0) {
+          assert.equal(o.success.label, "막으면 — 우리 역습, 상대 진영부터");
+          assert.equal(o.fail.label, "뚫리면 — 상대 중원 진입");
+        }
+        if (L === 1) {
+          assert.equal(o.success.label, "막으면 — 우리 역습, 중원부터");
+          assert.equal(o.fail.label, "뚫리면 — 우리 진영 위험, 중거리 슛 가능");
+        }
+        if (L === 2) {
+          assert.equal(o.success.label, "막으면 — 우리 공격, 빌드업부터");
+          assert.equal(o.fail.zone, 1);
+          assert.equal(o.fail.label, "뚫리면 — 우리 박스 슈팅 위기 · 중거리 슛이면 실점");
+          assert.equal(o.fail.goalRisk, true);
+          assert.ok(v.outcomes.block, "line 2 에서는 block 도 선택 가능");
+        } else {
+          assert.equal(o.fail.goalRisk, undefined);
+          assert.equal(v.outcomes.block, undefined, "line 0·1 block 비활성 → outcomes 없음");
+        }
+      }
+      match.step(m2, data, null);
+    }
+  }
+  assert.deepEqual([...seen].sort(), [0, 1, 2]);
+  // 의도가 full 로 "shoot" 확정이면 fail = 실점, full 로 슛이 아님이 확정이면 실점 위험 문구 없음
+  let line2 = null;
+  for (let seed = 1; seed <= 60 && !line2; seed++) {
+    const m3 = match.createMatch({ data, seed, home, away, possessions: 8, kind: "goal" });
+    let guard = 0;
+    while (!match.isFinished(m3) && guard++ < 400) {
+      if (match.getMatchView(m3, data).needsDecision === "defense" && m3.ball.lineIndex === 2 && !m3.duel.effects.away.reveal) { line2 = m3; break; }
+      match.step(m3, data, null);
+    }
+  }
+  assert.ok(line2, "line 2 수비 상황을 찾지 못함");
+  const shot = clone(line2);
+  shot.duel.awayChoice.action = "shoot";
+  shot.duel.revealToHome = { level: "full", candidates: ["shoot"] };
+  const vs = match.getMatchView(shot, data);
+  assert.deepEqual(vs.intent.candidates, ["shoot"]);
+  assert.equal(vs.outcomes.tackle.fail.goal, true);
+  assert.equal(vs.outcomes.tackle.fail.zone, match.zoneOf("home", 0));
+  assert.equal(vs.outcomes.tackle.fail.attackingSide, "home");
+  assert.equal(vs.outcomes.tackle.fail.label, "뚫리면 — 실점 → 우리 킥오프");
+  const drib = clone(line2);
+  drib.duel.awayChoice.action = "dribble";
+  drib.duel.revealToHome = { level: "partial", candidates: ["pass", "dribble"] };
+  const vd = match.getMatchView(drib, data);
+  assert.equal(vd.outcomes.tackle.fail.label, "뚫리면 — 우리 박스 슈팅 위기", "공개 후보에 슛이 없으면 실점 위험 문구 없음");
+  assert.equal(vd.outcomes.tackle.fail.goalRisk, undefined);
+});
+
+test("v0.2 이벤트 위치 필드: seq = 배열 인덱스(단조 증가), 비트 이벤트 zone/toZone/step/toStep/attackingSide, 연속성, lastBeat", () => {
+  const base = homeSnapshot(1.0);
+  let penaltyBeats = 0;
+  let beats = 0;
+  for (let seed = 1; seed <= 60; seed++) {
+    const mirror = seed % 2 === 0;
+    const away = mirror ? mirrorOf(base) : oppSnapshot(OPP_POOL[seed % OPP_POOL.length]);
+    const ms = match.createMatch({ data, seed, home: base, away, possessions: 8, kind: "goal" });
+    let guard = 0;
+    while (!match.isFinished(ms) && guard++ < 3000) {
+      match.step(ms, data, null);
+      const v = match.getMatchView(ms, data);
+      const last = [...ms.events].reverse().find((e) => BEAT_TYPES.includes(e.type));
+      assert.deepEqual(v.lastBeat, last, "lastBeat = 마지막 비트 이벤트 사본");
+      assert.notEqual(v.lastBeat, last, "사본 (참조 아님)");
+    }
+    let prevSeq = -1;
+    ms.events.forEach((e, i) => {
+      if (e.type === "skill" || e.type === "cutin") return; // skills.js 가 직접 넣는 이벤트
+      assert.equal(e.seq, i, `seq = 인덱스 (${e.type})`);
+      assert.ok(e.seq > prevSeq);
+      prevSeq = e.seq;
+    });
+    const beatsOf = ms.events.filter((e) => BEAT_TYPES.includes(e.type));
+    for (const e of beatsOf) {
+      beats++;
+      for (const k of ["zone", "toZone"]) assert.ok(Number.isInteger(e[k]) && e[k] >= 1 && e[k] <= 5, `${e.type}.${k}=${e[k]}`);
+      for (const k of ["step", "toStep"]) assert.ok(Number.isInteger(e[k]) && e[k] >= 0 && e[k] <= 3, `${e.type}.${k}=${e[k]}`);
+      assert.ok(e.attackingSide === "home" || e.attackingSide === "away");
+      assert.ok(e.toAttackingSide === "home" || e.toAttackingSide === "away");
+      assert.equal(e.zone, match.zoneOf(e.attackingSide, e.step));
+      assert.equal(e.toZone, match.zoneOf(e.toAttackingSide, e.toStep));
+      assert.ok(e.playerId, `${e.type}.playerId`);
+      if (e.type === "kickoff" || e.type === "counter") {
+        assert.equal(e.zone, e.toZone);
+        assert.equal(e.attackingSide, e.side);
+        if (e.type === "kickoff") assert.equal(e.step, 0);
+      }
+      if (RESOLVE_TYPES.includes(e.type)) {
+        assert.equal(e.attackingSide, e.side);
+        assert.ok(e.defenderId, `${e.type}.defenderId`);
+        if (e.type === "duel") { assert.equal(e.toAttackingSide, e.attackingSide); assert.ok(e.toStep > e.step); }
+        else assert.notEqual(e.toAttackingSide, e.attackingSide, "턴오버/세이브/골 → 공격 팀 교대");
+      }
+      if (e.type === "penalty") {
+        penaltyBeats++;
+        assert.equal(e.zone, e.side === "home" ? 5 : 1);
+        assert.equal(e.step, 3);
+      }
+    }
+    // 연속성: 판정 비트의 toZone = 다음 비트(듀얼/킥오프/역습)의 zone
+    for (let i = 0; i + 1 < beatsOf.length; i++) {
+      const a = beatsOf[i];
+      const b = beatsOf[i + 1];
+      if (!RESOLVE_TYPES.includes(a.type) || b.type === "penalty") continue;
+      assert.equal(b.zone, a.toZone, `seed ${seed}: ${a.type}.toZone → ${b.type}.zone`);
+      assert.equal(b.attackingSide, a.toAttackingSide);
+    }
+  }
+  assert.ok(beats > 1000);
+  assert.ok(penaltyBeats > 0, "승부차기 비트가 한 번은 있어야 함");
+});
+
+test("v0.2 getMatchView: 매 상태에서 상태 불변(JSON 동일, 난수 미소비) + zone/attackStep/attackDir/remaining 일관, 회귀: 상대 슈팅 단계 = 우리 박스", () => {
+  const base = homeSnapshot(1.0);
+  let sawAwayShot = 0;
+  let sawPen = 0;
+  let sawFinished = 0;
+  for (let seed = 1; seed <= 30; seed++) {
+    const away = seed % 3 === 0 ? mirrorOf(base) : oppSnapshot(OPP_POOL[seed % OPP_POOL.length]);
+    const ms = match.createMatch({ data, seed, home: base, away, possessions: 8, kind: "goal" });
+    const check = () => {
+      const before = JSON.stringify(ms);
+      const v = match.getMatchView(ms, data);
+      match.getMatchView(ms, data, "home");
+      assert.equal(JSON.stringify(ms), before, "getMatchView 는 상태를 바꾸지 않는다");
+      assert.ok(v.zone >= 1 && v.zone <= 5);
+      assert.ok(v.attackDir === "up" || v.attackDir === "down");
+      assert.ok(typeof v.remaining.text === "string" && v.remaining.text.startsWith("남은 수비: "));
+      assert.equal(v.remaining.gk, true);
+      assert.ok(v.remaining.text.endsWith("GK"));
+      if (ms.phase === "decision") {
+        const L = ms.ball.lineIndex;
+        assert.equal(v.zone, match.zoneOf(ms.attackingSide, L));
+        assert.equal(v.attackStep, L);
+        assert.equal(v.attackDir, ms.attackingSide === "home" ? "up" : "down");
+        const defTeam = ms[ms.attackingSide === "home" ? "away" : "home"];
+        const expLines = match.POS_BY_LINE.slice(L).filter((p) => p !== "GK" && defTeam.players.some((x) => x.position === p));
+        assert.deepEqual(v.remaining.lines, expLines);
+        for (const p of expLines) assert.equal(v.remaining.counts[p], defTeam.players.filter((x) => x.position === p).length);
+        if (ms.attackingSide === "away" && L === 3) {
+          // v0.1 버그 회귀: 상대가 우리 박스에서 슛 직전 → 공은 Z1(우리 박스), 남은 수비는 우리 GK 하나
+          sawAwayShot++;
+          assert.equal(v.zone, 1);
+          assert.equal(v.attackDir, "down");
+          assert.deepEqual(v.remaining.lines, []);
+          assert.equal(v.remaining.text, "남은 수비: GK");
+          assert.equal(v.receiverPreview, null);
+          assert.equal(v.needsDecision, null);
+          assert.equal(v.outcomes, null);
+        }
+      } else if (ms.phase === "penalties") {
+        sawPen++;
+        assert.equal(v.zone, ms.penalties.turn === "home" ? 5 : 1);
+        assert.equal(v.attackStep, 3);
+        assert.equal(v.penalties.kickerSide, ms.penalties.turn);
+        assert.ok(ms[ms.penalties.turn].players.some((p) => p.id === v.penalties.kickerId));
+        const gk = ms[ms.penalties.turn === "home" ? "away" : "home"].players.find((p) => p.position === "GK");
+        assert.equal(v.penalties.keeperId, gk.id);
+        assert.equal(v.remaining.text, "남은 수비: GK");
+      }
+      if (ms.finished) {
+        sawFinished++;
+        assert.equal(v.zone, v.lastBeat.zone, "종료 후 마지막 비트 구역 유지");
+      }
+    };
+    check();
+    let guard = 0;
+    while (!match.isFinished(ms) && guard++ < 3000) {
+      match.step(ms, data, null);
+      check();
+    }
+  }
+  assert.ok(sawAwayShot > 0, "상대 슈팅 단계 상태를 한 번은 검사해야 함");
+  assert.ok(sawPen > 0, "승부차기 상태를 한 번은 검사해야 함");
+  assert.equal(sawFinished, 30);
+});
+
+test("v0.2 스킬 변형 미리보기: 라인 브레이커(extraLine)·소매치기(steal)를 액션과 함께 쓰면 실제 결과 = outcomesBySkill / receiverPreviewBySkill (1-3-2, 울릭 DF1)", () => {
+  // 회귀: 울릭(sk_line_breaker)이 유일한 DF → line 0 carrier. 라인 브레이커 + 패스면 공은 MF 가 아니라 FW(line 2)에게 간다.
+  // 소매치기는 MF 전원에게 붙여 수비 성공 시 역습 시작 구역이 한 칸 깊어지는 경로를 검증한다.
+  const squad = { GK: "ch_spirit_keeper", DF1: "ch_wolf_winger", MF1: "ch_elf_playmaker", MF2: "ch_human_runner", MF3: "ch_cat_trickster", FW1: "ch_giant_striker", FW2: "ch_human_captain" };
+  const st = run.createRun({ data, seed: "lb", formation: "1-3-2", squad });
+  const home = run.buildTeamSnapshot(st, data);
+  const ulrik = home.players.find((p) => p.slot === "DF1");
+  assert.ok(ulrik.skillIds.includes("sk_line_breaker"), "울릭 = 라인 브레이커 보유");
+  for (const p of home.players) if (p.position === "MF" && !p.skillIds.includes("sk_pickpocket")) p.skillIds.push("sk_pickpocket");
+  const seen = { lbPass: 0, lbPassOk: 0, lbDribble: 0, steal: 0, stealWon: 0 };
+  for (let seed = 1; seed <= 90; seed++) {
+    const away = oppSnapshot(OPP_POOL[seed % OPP_POOL.length]);
+    const ms = match.createMatch({ data, seed: `var${seed}`, home, away, possessions: 8, kind: "goal" });
+    const pick = createRng("var" + seed);
+    let guard = 0;
+    while (!match.isFinished(ms) && guard++ < 3000) {
+      if (ms.phase === "decision") ms.home.tension = M.tension.max; // 스킬을 자주 쓰게
+      const v = match.getMatchView(ms, data);
+      let decision = null;
+      let variant = null;
+      if (v.needsDecision) {
+        const en = v.actions.filter((a) => a.enabled);
+        const sk = v.skills.find((s) => s.enabled && (s.effect === "extraLine" || s.effect === "steal"));
+        decision = { action: pick.pick(en).action };
+        if (v.needsDecision === "attack" && sk && sk.effect === "extraLine" && en.some((a) => a.action === "pass") && pick.next() < 0.7) {
+          decision = { action: pick.next() < 0.75 ? "pass" : en.find((a) => a.action !== "pass").action, skillId: sk.skillId };
+        } else if (v.needsDecision === "defense" && sk && sk.effect === "steal") {
+          decision = { action: decision.action, skillId: sk.skillId };
+        }
+        if (decision.skillId) {
+          // 위치를 바꾸는 사람 측 스킬마다 변형이 있다 (기본 outcomes 와 같은 키)
+          assert.ok(v.outcomesBySkill && v.outcomesBySkill[decision.skillId], `${decision.skillId} outcomesBySkill`);
+          variant = v.outcomesBySkill[decision.skillId];
+          assert.deepEqual(Object.keys(variant).sort(), Object.keys(v.outcomes).sort());
+          if (v.needsDecision === "attack") {
+            assert.ok(Object.prototype.hasOwnProperty.call(v.receiverPreviewBySkill, decision.skillId));
+            const rp = v.receiverPreviewBySkill[decision.skillId];
+            if (variant.pass) {
+              assert.equal(rp.id, variant.pass.success.receiver.id, "변형 수신자 = 변형 outcomes 수신자");
+              assert.equal(rp.zone, variant.pass.success.zone);
+              assert.ok(variant.pass.success.label.includes(rp.name));
+            }
+          }
+        } else {
+          assert.ok(!v.outcomesBySkill || Object.keys(v.outcomesBySkill).every((id) => v.skills.some((s) => s.skillId === id && s.enabled)));
+        }
+      } else {
+        assert.equal(v.outcomesBySkill, null, "결정 대기가 아니면 변형 없음");
+        assert.equal(v.receiverPreviewBySkill, null);
+      }
+      const n0 = ms.events.length;
+      match.step(ms, data, decision);
+      if (!variant) continue;
+      const fresh = ms.events.slice(n0);
+      assert.ok(fresh.some((e) => e.skillId === decision.skillId), "스킬 발동");
+      const ev = fresh.find((e) => RESOLVE_TYPES.includes(e.type));
+      const role = v.needsDecision;
+      const humanWon = role === "attack" ? ev.success : !ev.success;
+      const o = variant[decision.action];
+      if (role === "defense" && ev.action === "shoot" && ev.success && !o.fail.goal) continue; // 돌파 기준 미리보기 (예고된 중거리 실점 위험)
+      const exp = o[humanWon ? "success" : "fail"];
+      assert.equal(ev.toZone, exp.zone, `seed ${seed} ${role} ${decision.action}+${decision.skillId} ${humanWon ? "성공" : "실패"}: 판정 후 구역 = 변형 미리보기`);
+      assert.equal(ev.toAttackingSide, exp.attackingSide);
+      assert.equal(ev.toStep, exp.step);
+      if (role === "attack" && decision.action === "pass") {
+        seen.lbPass++;
+        if (ev.success) {
+          assert.equal(ev.receiverId, v.receiverPreviewBySkill[decision.skillId].id, `seed ${seed}: 실제 수신자 = 변형 미리보기`);
+          if (ev.step === 0) assert.notEqual(ev.receiverId, v.receiverPreview.id, "line 0 라인 브레이커: 기본 미리보기(MF)와 다른 선수(FW)");
+          seen.lbPassOk++;
+        }
+      } else if (role === "attack") seen.lbDribble++;
+      else { seen.steal++; if (humanWon) seen.stealWon++; }
+    }
+  }
+  for (const [k, n] of Object.entries(seen)) assert.ok(n > 5, `${k} ${n} (${JSON.stringify(seen)})`);
 });
