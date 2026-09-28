@@ -3,7 +3,7 @@ import { h, avatar, openModal, closeOverlays, section, select, toast } from '../
 import {
   STATS, slotsOf, positionOfSlot, POSITION_LABELS, ELEMENT_LABELS, ELEMENT_ICONS, STYLE_LABELS,
   RACE_LABELS, SUPPORT_TYPE_LABELS, TACTIC_MAIN_KEYS, TACTIC_LABELS, TACTIC_OPTIONS,
-  APTITUDE_ORDER, FORMATIONS, randomSeed,
+  APTITUDE_ORDER, FORMATIONS, randomSeed, traitInfo,
 } from '../labels.js';
 
 export function initSetup(data, seedPrefill = '') {
@@ -40,6 +40,16 @@ export function renderSetup(root, ctx) {
 
   const rerender = () => ctx.render();
 
+  // 연계 특성 (GDD v0.5 §9.10): 카드엔 이름, 목록엔 이름 + 효과
+  function traitTag(id) {
+    const t = traitInfo(id, data);
+    return t ? h('span', { class: 'trait-tag tiny', title: t.description }, `${t.icon} ${t.name}`) : null;
+  }
+  function traitLine(id) {
+    const t = traitInfo(id, data);
+    return t ? h('span', { class: 'tiny' }, h('span', { class: 'trait-tag' }, `${t.icon} ${t.name}`), h('span', { class: 'muted' }, ` ${t.description}`)) : null;
+  }
+
   // ---- 슬롯 카드 ----
   function slotCard(slot) {
     const pos = positionOfSlot(slot);
@@ -52,8 +62,9 @@ export function renderSetup(root, ctx) {
         : h('span', { class: 'avatar avatar-sm', style: { background: 'transparent', borderStyle: 'dashed' } }, '+'),
       h('span', { class: 'grow col' },
         h('span', { class: 'ellipsis' }, c ? c.name : '비어 있음 — 탭하여 선택'),
-        c ? h('span', { class: 'tiny muted' },
-          `${ELEMENT_ICONS[c.element] ?? ''} ${ELEMENT_LABELS[c.element] ?? c.element ?? ''} · ${STYLE_LABELS[c.style] ?? c.style ?? ''}`) : null),
+        c ? h('span', { class: 'tiny muted ellipsis' },
+          `${ELEMENT_ICONS[c.element] ?? ''} ${ELEMENT_LABELS[c.element] ?? c.element ?? ''} · ${STYLE_LABELS[c.style] ?? c.style ?? ''}`) : null,
+        c && c.trait ? traitTag(c.trait) : null),
       c ? aptBadge(apt) : null,
     );
   }
@@ -88,7 +99,8 @@ export function renderSetup(root, ctx) {
           where === slot ? h('span', { class: 'badge badge-good' }, '현재') : null),
         h('span', { class: 'tiny muted' },
           `${RACE_LABELS[c.race] ?? c.race ?? ''} · ${ELEMENT_LABELS[c.element] ?? ''} · ${STYLE_LABELS[c.style] ?? ''} · 스탯 합 ${total}`),
-        h('span', { class: 'tiny muted' }, aptLine)),
+        h('span', { class: 'tiny muted' }, aptLine),
+        c.trait ? traitLine(c.trait) : null),
       aptBadge(apt),
       );
     });
@@ -151,10 +163,15 @@ export function renderSetup(root, ctx) {
       },
     },
     avatar(sp.portraitColor, sp.name, 'sm'),
+    // 이름은 이름 줄 전체 폭을 쓰고 단어 단위로만 줄바꿈. 희귀도는 보조 줄 맨 앞, 보조 줄은 항목(" · ") 단위로만 줄바꿈
     h('span', { class: 'grow col' },
-      h('span', { class: 'row' }, h('span', { class: 'ellipsis' }, sp.name), h('span', { class: ['tiny', `rarity-${sp.rarity}`] }, sp.rarity ?? '')),
-      h('span', { class: 'tiny muted' },
-        `${SUPPORT_TYPE_LABELS[sp.type] ?? sp.type}${sp.trainingBonus ? ` · 효율 +${Math.round(sp.trainingBonus * 100)}%` : ''}${sp.initialBond != null ? ` · 유대 ${sp.initialBond}` : ''}`)),
+      h('span', { class: 'sp-name', title: `${sp.name}${sp.rarity ? ` (${sp.rarity})` : ''}` }, sp.name),
+      h('span', { class: 'tiny muted sp-sub' }, ...[
+        sp.rarity ? h('span', { class: ['nw', `rarity-${sp.rarity}`] }, sp.rarity) : null,
+        h('span', { class: 'nw' }, SUPPORT_TYPE_LABELS[sp.type] ?? sp.type),
+        sp.trainingBonus ? h('span', { class: 'nw' }, `효율 +${Math.round(sp.trainingBonus * 100)}%`) : null,
+        sp.initialBond != null ? h('span', { class: 'nw' }, `유대 ${sp.initialBond}`) : null,
+      ].filter(Boolean).flatMap((el, i) => (i ? [' · ', el] : [el])))),
     selected ? h('span', { class: 'badge badge-accent' }, '✔') : null,
     );
   }));

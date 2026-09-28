@@ -42,7 +42,9 @@ export function renderTraining(root, ctx, { inert = false } = {}) {
           h('span', { class: 'muted' }, ` · ${view.turnsUntilMatch != null ? `${view.turnsUntilMatch}턴 후` : ''} 경계전`)),
         h('span', { class: 'tiny muted' },
           `${L.ELEMENT_ICONS[nm.element] ?? ''} ${L.label(L.ELEMENT_LABELS, nm.element, '?')} · ${L.label(L.STYLE_LABELS, nm.style, '?')}` +
-          ` · ${nm.possessions ?? '?'}포제션 · 의도 ${L.label(L.INTENT_LABELS, nm.intentReveal, '?')}`))),
+          ` · ${nm.possessions ?? '?'}포제션` +
+          // v0.3 (§13.5): 의도 공개 → 상대 성향 요약(styleHint), 간파 사용권
+          ` · 상대 ${nm.styleHint ?? '성향 ?'}${Number(nm.gaanpaTickets) > 0 ? ` · 간파 사용권 ${nm.gaanpaTickets}` : ''}`))),
     h('div', { class: 'status-row' },
       h('span', { class: 'status-chip', title: `컨디션 ${L.CONDITION_LABELS[cond] ?? cond}` },
         '컨디션 ', condDots(cond), h('span', { class: 'muted' }, L.CONDITION_LABELS[cond] ?? '')),

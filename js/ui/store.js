@@ -36,7 +36,12 @@ export const store = {
     auto: URL_PREFS.auto ?? true,
     speed: URL_PREFS.speed ?? 1,
     intervene: false,
-    selectedSkillId: null,
+    selectedSkillId: null, // 결정과 함께 쓸 일반 액티브 (토글)
+    ultimate: false,       // 결정과 함께 쓸 필살기 (토글, §13.2-12)
+    receiverPick: {},      // 받는 선수 직접 선택 { pass?: { id, arrival }, cross?: … } — 결정마다 초기화
+    pickKey: null,         // 위 토글들이 속한 결정(듀얼) 식별자
+    gaanpaUsedKey: null,   // 이번 결정에서 간파를 이미 썼음 (버튼 표시용)
+    lastDecision: null,    // 사람이 마지막으로 보낸 결정 { action, receiverId?, skillId?, ultimate? } (읽기 전용: 테스트·도구용)
     timer: null,        // 다음 step 예약 (setTimeout id; app.js render() 가 clearInterval 로 지운다 — 같은 id 풀)
     busy: false,        // 비트 연출 중 (읽기 전용 표시: 테스트·도구용)
     resultShown: false,
@@ -94,5 +99,10 @@ export function resetMatchUi() {
   ui.busy = false;
   ui.intervene = false;
   ui.selectedSkillId = null;
+  ui.ultimate = false;
+  ui.receiverPick = {};
+  ui.pickKey = null;
+  ui.gaanpaUsedKey = null;
+  ui.lastDecision = null;
   ui.resultShown = false;
 }

@@ -6,10 +6,12 @@
 //   const found = buildScenarioState(data, SCENARIOS[0], { runSeed: 1 });
 //   // found = { runState, matchState, seed, steps, preferred, summary }
 //
-// 시나리오 = { name, title, matchKind, auto, viewport?, require(s, ctx), prefer?(s, ctx), interact?, verify? }
+// 시나리오 = { name, title, matchKind, auto, viewport?, speed?, adjustSetup?(setup, data), require(s, ctx), prefer?(s, ctx), interact?, verify? }
+//   adjustSetup: 경기 스냅샷을 만들기 전에 고친다 (예: 상대에게 간파 사용권) — 복제본에 적용, 결정적
 //   require : 반드시 만족해야 하는 조건 (캡처 시점 상태 확인에도 쓴다)
 //   prefer  : 가능하면 만족시킬 조건 (없으면 require 만 만족하는 첫 상태로 대체)
 //   interact: 브라우저에서 할 조작 — { type: "hover", actions: [...] } | { type: "click", action, waitMs }
+//             | { type: "steps", steps: [{ click: "css 선택자" } | { hover: [액션…] } | { press: 액션, waitMs } | { wait: ms }] }
 //   verify  : interact 뒤 상태 확인 (prev = 주입한 상태, live = 캡처 시점 상태) → true | "이유"
 import fs from "node:fs";
 import path from "node:path";
@@ -20,10 +22,15 @@ import * as match from "../js/engine/match.js";
 export { run, match };
 export const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const DATA_FILES = ["config", "characters", "supports", "skills", "events", "relics", "opponents", "routes"];
+const OPTIONAL_FILES = ["traits", "combos"]; // v0.3 (없으면 엔진 기본값)
 
 export function loadData(root = ROOT) {
   const data = {};
   for (const n of DATA_FILES) data[n] = JSON.parse(fs.readFileSync(path.join(root, "data", `${n}.json`), "utf8"));
+  for (const n of OPTIONAL_FILES) {
+    const f = path.join(root, "data", `${n}.json`);
+    if (fs.existsSync(f)) data[n] = JSON.parse(fs.readFileSync(f, "utf8"));
+  }
   return data;
 }
 
@@ -91,7 +98,8 @@ export function createFromSetup(data, setup, seed) {
  * @returns {{ seed, steps, matchState, preferred } | null}
  */
 export function findMatchState(data, runState, scenario, { maxSeeds = 400, maxSteps = 800 } = {}) {
-  const setup = run.getMatchSetup(runState, data);
+  const setup = clone(run.getMatchSetup(runState, data));
+  if (scenario.adjustSetup) scenario.adjustSetup(setup, data);
   const ctx = { data };
   const seeds = [setup.seed];
   for (let i = 1; i <= maxSeeds; i++) seeds.push(i);
@@ -145,6 +153,8 @@ export function tryDecision(s, data, decision) {
   match.step(c, data, decision);
   return { state: c, events: c.events.slice(before) };
 }
+/** 사람(home) 측 view — require/prefer 에서 엔진 view 필드(§13.4)로 조건을 건다 */
+export const viewOf = (s, data) => match.getMatchView(s, data, "home");
 export function passSucceeds(s, data) {
   const { events } = tryDecision(s, data, { action: "pass" });
   return events.some((e) => e.type === "duel" && e.success === true && e.action === "pass");
@@ -237,4 +247,124 @@ export const SCENARIOS = [
     ...AWAY_SHOT,
     viewport: { width: 1280, height: 900, deviceScaleFactor: 1, isMobile: false, hasTouch: false },
   },
+  {
+    name: "08_cross_decision",
+    title: "울릭(크로서) ③ 크로스 가능한 결정 — 공격 2×2, 크로스 받는 선수 후보 2명 박스에 (크로스 hover = 포물선)",
+    matchKind: "friendly",
+    auto: false,
+    require: (s, { data }) => atk(s, "home", 2) && needs(s, "attack") && carrierOf(s)?.trait === "crosser" && !!viewOf(s, data).receivers?.cross,
+    prefer: (s, { data }) => viewOf(s, data).receivers.cross.candidates.length >= 2 && s.possession >= 2,
+    interact: { type: "hover", actions: ["cross", "pass"] },
+  },
+  {
+    name: "09_combo_ready",
+    title: "합체기 준비 — 바람의 실을 받은 그룸바, 스킬 줄 '💥 바람의 유성' 토글 + 슛 hover",
+    matchKind: "friendly",
+    auto: false,
+    require: (s, { data }) => isDuel(s) && s.attackingSide === "home" && needs(s, "attack") && !!comboOption(viewOf(s, data)),
+    prefer: (s) => s.ball.lineIndex === 2,
+    interact: { type: "steps", steps: [{ click: ".skill-row .ult-btn:not(:disabled)" }, { wait: 150 }, { hover: ["shoot"] }] },
+  },
+  {
+    name: "10_opponent_reading",
+    title: "상대 간파 — '상대가 우리 수를 읽는 중' (상대에게 간파 사용권 3)",
+    matchKind: "friendly",
+    auto: false,
+    adjustSetup: (setup) => { setup.away.gaanpaTickets = 3; },
+    require: (s, { data }) => isDuel(s) && !!match.humanNeedsDecision(s, "home") && viewOf(s, data).opponentReading === true,
+    prefer: (s) => atk(s, "home", 2) && s.possession >= 2,
+  },
+  {
+    name: "11_defense_decision",
+    title: "수비 결정 3버튼 (태클·인터셉트·버티기) + 간파 사용권 버튼, 태클 hover",
+    matchKind: "friendly",
+    auto: false,
+    adjustSetup: (setup) => { setup.home.gaanpaTickets = 5; }, // 자동 진행 중 레버리지 비트에서 우리 AI 도 쓰므로 넉넉히
+    require: (s) => isDuel(s) && s.attackingSide === "away" && s.ball.lineIndex <= 2 && needs(s, "defense"),
+    prefer: (s, { data }) => s.ball.lineIndex === 1 && viewOf(s, data).expected?.attack?.action === "dribble" && viewOf(s, data).gaanpa?.usable === true,
+    interact: { type: "hover", actions: ["tackle", "intercept"] },
+  },
+  {
+    name: "12_ult_pass",
+    title: "필살 패스 — 실루엔 '✨ 바람의 실' 토글, 받는 선수 기본값 = 합체기 상대 (패스 hover)",
+    matchKind: "friendly",
+    auto: false,
+    require: (s, { data }) => isDuel(s) && s.attackingSide === "home" && needs(s, "attack") && ultOption(viewOf(s, data))?.type === "pass",
+    prefer: (s, { data }) => {
+      const v = viewOf(s, data);
+      return !!v.receivers?.pass?.ultimateDefaultId && v.players.home.find((p) => p.id === v.receivers.pass.ultimateDefaultId)?.ultimateSkillId;
+    },
+    interact: { type: "steps", steps: [{ click: ".skill-row .ult-btn:not(:disabled)" }, { wait: 150 }, { hover: ["pass"] }] },
+  },
+  {
+    name: "13_combo_cutin",
+    title: "합체기 컷인 — 바람의 유성 발동 (슛 클릭 뒤 2.4초, 1x: 두 컷인 → 이름 카드)",
+    matchKind: "friendly",
+    auto: false,
+    require: (s, { data }) => isDuel(s) && s.attackingSide === "home" && needs(s, "attack") && !!comboOption(viewOf(s, data)),
+    prefer: (s) => s.ball.lineIndex === 2,
+    interact: { type: "steps", steps: [{ click: ".skill-row .ult-btn:not(:disabled)" }, { wait: 120 }, { press: "shoot", waitMs: 2400 }] },
+    verify: (prev, live) => {
+      if (!live) return "캡처 시점 경기 상태를 읽지 못함";
+      const fresh = (live.events || []).slice((prev.events || []).length);
+      return fresh.some((e) => e.type === "combo") ? true : `합체기 이벤트 없음 (${fresh.map((e) => e.type).join(",") || "-"})`;
+    },
+  },
+  {
+    name: "14_cross_beat_mid",
+    title: "크로스 성공 비트 연출 중간 프레임 — 포물선 궤적 · 공 (크로스 클릭 400ms 뒤, 1x)",
+    matchKind: "friendly",
+    auto: false,
+    require: (s, { data }) => atk(s, "home", 2) && needs(s, "attack") && actionEnabled(s, data, "cross") &&
+      tryDecision(s, data, { action: "cross" }).events.some((e) => e.type === "duel" && e.success === true && e.action === "cross"),
+    prefer: (s) => s.possession >= 2,
+    interact: { type: "click", action: "cross", waitMs: 400 },
+    verify: (prev, live) => {
+      if (!live) return "캡처 시점 경기 상태를 읽지 못함";
+      const fresh = (live.events || []).slice((prev.events || []).length);
+      return fresh.some((e) => e.type === "duel" && e.success && e.action === "cross") ? true : `크로스 성공 이벤트 없음 (${fresh.map((e) => e.type).join(",") || "-"})`;
+    },
+  },
+  {
+    name: "15_tackle_beaten_mid",
+    title: "드리블로 태클을 제친 비트 — 수비수가 넘어져 누운 모습 · 연계 문구 (드리블 클릭 600ms 뒤, 1x)",
+    matchKind: "friendly",
+    auto: false,
+    require: (s, { data }) => isDuel(s) && s.attackingSide === "home" && s.ball.lineIndex <= 2 && needs(s, "attack") &&
+      viewOf(s, data).expected?.defense?.action === "tackle" &&
+      tryDecision(s, data, { action: "dribble" }).events.some((e) => e.type === "duel" && e.success === true && e.action === "dribble" && e.defAction === "tackle"),
+    prefer: (s, { data }) => tryDecision(s, data, { action: "dribble" }).events.some((e) => e.type === "duel" && (e.links || []).length > 0),
+    interact: { type: "click", action: "dribble", waitMs: 600 },
+    verify: (prev, live) => {
+      if (!live) return "캡처 시점 경기 상태를 읽지 못함";
+      const fresh = (live.events || []).slice((prev.events || []).length);
+      return fresh.some((e) => e.type === "duel" && e.success && e.defAction === "tackle") ? true : `태클 제침 이벤트 없음 (${fresh.map((e) => e.type).join(",") || "-"})`;
+    },
+  },
+  {
+    name: "16_skill_row_4",
+    title: "스킬 줄 4개 (필살기 + 간파 + 액티브 2) — 실루엔에 스루 패스·폭발 드리블·꿰뚫어보기, 이름이 잘리지 않아야 함 (390×844)",
+    matchKind: "friendly",
+    auto: false,
+    adjustSetup: (setup) => {
+      const p = setup.home.players.find((x) => (x.skillIds || []).includes("sk_wind_thread"));
+      if (p) p.skillIds = [...new Set([...(p.skillIds || []), "sk_through_pass", "sk_burst_dribble", "sk_see_through"])];
+    },
+    require: (s, { data }) => isDuel(s) && s.attackingSide === "home" && s.ball.lineIndex <= 2 && needs(s, "attack") &&
+      (carrierOf(s)?.skillIds || []).includes("sk_see_through") && (viewOf(s, data).skills || []).length >= 3,
+    prefer: (s, { data }) => {
+      const v = viewOf(s, data);
+      return !!ultOption(v) && v.gaanpa?.usable === true && (v.skills || []).filter((x) => x.enabled).length >= 3;
+    },
+  },
 ];
+
+/** 사람 측 결정의 필살기(세이브형 제외) */
+function ultOption(view) {
+  return (view.ultimateOptions || []).find((u) => u.usable && u.type !== "save") || null;
+}
+/** 합체기로 쓸 수 있는 필살기 (게이지 무관) */
+function comboOption(view) {
+  const u = ultOption(view);
+  return u && u.comboName ? u : null;
+}

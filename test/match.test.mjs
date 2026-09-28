@@ -229,43 +229,48 @@ test("1-FW 포메이션(2-3-1): line 2 에서 FW 캐리어의 패스 비활성, 
   assert.equal(sawShootBeforeLine2, false);
 });
 
-test("수비 액션 규칙: line 0·1 은 block 비활성, line 2 는 셋 다", () => {
+test("수비 액션 규칙 (v0.3): line 0~2 모두 태클·인터셉트·버티기, line 3 은 GK 세이브 자동", () => {
   const home = homeSnapshot();
   const away = oppSnapshot("op_s1_ironhoof");
   const seenLines = new Set();
-  for (let seed = 1; seed <= 40 && seenLines.size < 3; seed++) {
+  for (let seed = 1; seed <= 40 && seenLines.size < 4; seed++) {
     const ms = match.createMatch({ data, seed, home, away, possessions: 8, kind: "goal" });
     let guard = 0;
     while (!match.isFinished(ms) && guard++ < 500) {
-      if (ms.phase === "decision" && ms.attackingSide === "away" && ms.ball.lineIndex < 3) {
+      if (ms.phase === "decision" && ms.attackingSide === "away") {
         const line = ms.ball.lineIndex;
         seenLines.add(line);
         const acts = Object.fromEntries(match.getDefenseActions(ms, "home").map((a) => [a.action, a.enabled]));
-        assert.equal(acts.tackle, true);
-        assert.equal(acts.intercept, true);
-        assert.equal(acts.block, line === 2);
+        assert.deepEqual(Object.keys(acts), ["tackle", "intercept", "hold"]);
+        for (const k of Object.keys(acts)) assert.equal(acts[k], line < 3, `${k} line ${line}`);
         const v = match.getMatchView(ms, data);
-        assert.equal(v.needsDecision, "defense");
+        assert.equal(v.needsDecision, line < 3 ? "defense" : null);
         assert.equal(v.actions.length, 3);
       }
       match.step(ms, data, null);
     }
   }
-  assert.deepEqual([...seenLines].sort(), [0, 1, 2]);
+  assert.deepEqual([...seenLines].sort(), [0, 1, 2, 3]);
 });
 
-test("판정 공식: 수읽기 ×1.5, 커버 보너스, minP/maxP 클램프, 스타일 상성", () => {
+test("판정 공식 (v0.3): 짝 ×readBonus · 빗나감 ×missMult · 버티기 ×1.0, 커버 보너스, minP/maxP 클램프, 스타일 상성", () => {
   const home = homeSnapshot();
   const away = oppSnapshot("op_s1_ironhoof");
   const ms = match.createMatch({ data, seed: 7, home, away, possessions: 8, kind: "goal" });
   // line 0: 홈 공격, 상대 FW 2명 → coverCount 1
   assert.equal(ms.duel.coverCount, 1);
-  const plain = match.computeOdds(ms, data, { action: "dribble", defAction: "intercept" });
   const read = match.computeOdds(ms, data, { action: "dribble", defAction: "tackle" });
+  const miss = match.computeOdds(ms, data, { action: "pass", defAction: "tackle" });
+  const plain = match.computeOdds(ms, data, { action: "dribble", defAction: "intercept" });
   assert.equal(read.read, true);
-  assert.equal(plain.read, false);
-  assert.ok(Math.abs(read.def / plain.def - M.readBonus) < 1e-9, "수읽기 성공 시 수비 ×readBonus");
-  assert.ok(read.p < plain.p);
+  assert.equal(read.pair, "read");
+  assert.equal(miss.pair, "miss");
+  assert.ok(Math.abs(read.def / miss.def - M.readBonus / M.missMult) < 1e-9, "같은 태클: 짝 / 빗나감 = readBonus / missMult");
+  const holdD = match.computeOdds(ms, data, { action: "dribble", defAction: "hold" });
+  const holdP = match.computeOdds(ms, data, { action: "pass", defAction: "hold" });
+  assert.equal(holdD.pair, "hold");
+  assert.ok(Math.abs(holdD.def / holdP.def - 1) < 1e-9, "버티기는 짝 없음 (공격 무관 ×1.0)");
+  assert.ok(read.p < miss.p);
   assert.ok(plain.p >= M.minP && plain.p <= M.maxP);
   // 커버: coverCount 를 0 으로 바꾸면 수비력이 (1+0.1×1) 배 만큼 낮아진다
   const ms2 = clone(ms); ms2.duel.coverCount = 0;
@@ -276,7 +281,8 @@ test("판정 공식: 수읽기 ×1.5, 커버 보너스, minP/maxP 클램프, 스
   ms3.home.players.find((p) => p.id === ms3.ball.carrierId).stats.dribble = 0;
   assert.equal(match.computeOdds(ms3, data, { action: "dribble", defAction: "tackle" }).p, M.minP);
   const ms4 = clone(ms);
-  ms4.away.players.find((p) => p.id === ms4.duel.defenderId).stats.defense = 0;
+  const d4 = ms4.away.players.find((p) => p.id === ms4.duel.defenderId);
+  d4.stats.defense = 0; d4.stats.pass = 0;
   assert.equal(match.computeOdds(ms4, data, { action: "dribble", defAction: "intercept" }).p, M.maxP);
   // 스타일: 캐리어 speed vs 수비 power → 유리
   const ms5 = clone(ms);
@@ -287,7 +293,7 @@ test("판정 공식: 수읽기 ×1.5, 커버 보너스, minP/maxP 클램프, 스
   carrier.style = "power"; defender.style = "speed";
   const dis = match.computeOdds(ms5, data, { action: "dribble", defAction: "intercept" });
   assert.ok(adv.p > dis.p, "스타일 유리 > 불리");
-  // 팀워크 패스 보너스
+  // 팀워크 패스 보너스 (v0.1 규칙 유지: 패스 공격 × (1 + 0.1 × 팀워크/100))
   const ms6 = clone(ms); ms6.home.teamwork = 0;
   const ms7 = clone(ms); ms7.home.teamwork = 100;
   const p6 = match.computeOdds(ms6, data, { action: "pass", defAction: "tackle" });
@@ -295,11 +301,12 @@ test("판정 공식: 수읽기 ×1.5, 커버 보너스, minP/maxP 클램프, 스
   assert.ok(Math.abs(p7.att / p6.att - (1 + M.teamworkPassBonusPer100)) < 1e-9);
 });
 
-test("액티브 effect 8종 전부 발동 경로 (수동 결정) + unique 는 cutin", () => {
+test("액티브 effect 7종 전부 발동 경로 (수동 결정)", () => {
   const skillsByEffect = {};
   for (const sk of data.skills) if (sk.active) skillsByEffect[sk.active.effect] = skillsByEffect[sk.active.effect] || sk;
-  const effects = ["boost", "extraLine", "reveal", "steal", "recover", "chainBoost", "shield", "powerShot"];
+  const effects = ["boost", "extraLine", "powerShot", "readBoost", "negateRead", "steal", "rally"];
   for (const e of effects) assert.ok(skillsByEffect[e], `데이터에 effect ${e} 스킬 존재`);
+  for (const sk of data.skills) if (sk.kind === "unique") assert.ok(!sk.active && sk.ultimate, `${sk.id}: 필살기는 active 없이 ultimate`);
 
   const baseHome = homeSnapshot(1.3);
   const away = oppSnapshot("op_s1_ironhoof");
@@ -338,37 +345,34 @@ test("액티브 effect 8종 전부 발동 경로 (수동 결정) + unique 는 cu
     for (let seed = 1; seed <= 40 && !done; seed++) {
       const ms = match.createMatch({ data, seed, home: loaded(), away, possessions: 8, kind: "goal" });
       ms.home.tension = M.tension.max;
-      const lineOk = effect === "powerShot" ? (l) => l >= 2 : effect === "steal" ? (l) => l >= 1 && l <= 2 : effect === "extraLine" ? (l) => l <= 1 : () => true;
+      const lineOk = effect === "powerShot" ? (l) => l >= 2
+        : effect === "steal" || effect === "readBoost" || effect === "negateRead" ? (l) => l <= 2
+        : effect === "extraLine" ? (l) => l <= 1 : () => true;
       const v = reach(ms, role, sk.id, lineOk);
       if (!v) continue;
       ms.home.tension = M.tension.max;
       const view = match.getMatchView(ms, data);
       const entry = view.skills.find((s) => s.skillId === sk.id);
       assert.ok(entry, `${sk.id} 가 view.skills 에 있어야 함 (${role})`);
+      if (!entry.enabled && /상대가 먼저 간파/.test(entry.reason || "")) continue;
       assert.equal(entry.enabled, true, `${sk.id} enabled: ${entry.reason}`);
+      const acts = sk.active.params && sk.active.params.actions;
       const action = role === "attack"
-        ? (effect === "powerShot" ? "shoot" : view.actions.find((a) => a.enabled && a.action !== "shoot").action)
+        ? (effect === "powerShot" ? "shoot" : (view.actions.find((a) => a.enabled && a.action !== "shoot" && (!acts || acts.includes(a.action))) || {}).action)
         : view.actions.find((a) => a.enabled).action;
+      if (!action) continue;
       const before = ms.events.length;
       const tension0 = ms.home.tension;
-      const chain0 = ms.ball.chain;
-      const stamina0 = Object.fromEntries(Object.entries(ms.home.live).map(([k, v2]) => [k, v2.stamina]));
       match.step(ms, data, { action, skillId: sk.id });
       const fresh = ms.events.slice(before);
       const skEv = fresh.find((e2) => e2.skillId === sk.id);
       assert.ok(skEv, `${sk.id} 발동 이벤트`);
-      assert.equal(skEv.type, sk.kind === "unique" ? "cutin" : "skill");
+      assert.equal(skEv.type, "skill");
       assert.equal(skEv.effect, effect);
-      if (effect === "chainBoost") {
-        // 판정 전에 즉시 적용 → 성공(패스)이면 +amount+1, 실패면 판정 전 chain 은 사라졌으므로 이벤트로만 확인
-        assert.match(skEv.text, /연계 스택/);
-      }
-      if (effect === "recover") {
-        assert.match(skEv.text, /체력 \+/);
-      }
-      // 텐션 차감: 판정 승리로 +10 이 붙을 수 있으므로 "차감 반영" 은 상한 비교로
-      assert.ok(ms.home.tension <= tension0 - sk.tension + M.tension.duelWin + M.tension.goal + 1e-9, `${sk.id} 텐션 차감`);
-      void chain0; void stamina0;
+      assert.equal(skEv.seq, ms.events.indexOf(skEv), "skill 이벤트도 seq = 인덱스");
+      if (effect === "rally") assert.match(skEv.text, /체력 \+/);
+      // 텐션 차감: 판정 승리·역습 상한·소매치기로 가산이 붙을 수 있으므로 "차감 반영" 은 상한 비교로
+      assert.ok(ms.home.tension <= tension0 - entry.cost + M.tension.duelWin + M.tension.goal + M.tension.steal + 20 + 1e-9, `${sk.id} 텐션 차감`);
       fired.add(effect);
       done = true;
     }
@@ -377,10 +381,11 @@ test("액티브 effect 8종 전부 발동 경로 (수동 결정) + unique 는 cu
   assert.deepEqual([...fired].sort(), effects.slice().sort());
 });
 
-test("reveal 스킬: skillId 만 먼저 제출 → 의도 full 공개, 결정 대기 유지", () => {
+test("간파 스킬(사람): skillId 만 먼저 제출 → 효과(짝 ×readMult)만 붙고 결정 대기 유지, 한 듀얼 1회", () => {
   const home = homeSnapshot(1.3);
   for (const p of home.players) if (p.position === "DF" || p.position === "MF") p.skillIds = [...p.skillIds, "sk_eagle_eye"];
-  const away = oppSnapshot("op_s3_emberthrone"); // intentReveal none
+  const away = oppSnapshot("op_s1_ironhoof"); // 간파 스킬 없는 상대 → 우리가 먼저 쓸 수 있다
+  const eagle = data.skills.find((s) => s.id === "sk_eagle_eye");
   let checked = false;
   for (let seed = 1; seed <= 40 && !checked; seed++) {
     const ms = match.createMatch({ data, seed, home, away, possessions: 8, kind: "goal" });
@@ -390,28 +395,34 @@ test("reveal 스킬: skillId 만 먼저 제출 → 의도 full 공개, 결정 �
       if (v.needsDecision === "defense" && v.skills.some((s) => s.skillId === "sk_eagle_eye")) {
         ms.home.tension = 100;
         const v0 = match.getMatchView(ms, data);
-        assert.equal(v0.intent.level, "none", "시즌3 상대 의도 비공개");
-        assert.deepEqual(v0.intent.candidates, []);
+        assert.equal(v0.gaanpa.usable, true, v0.gaanpa.reason);
+        assert.equal(v0.gaanpa.source, "skill");
+        assert.equal(v0.gaanpa.skillId, "sk_eagle_eye");
+        assert.equal(v0.opponentReading, false);
+        const oppAction = v0.expected.attack.action;
+        assert.equal(oppAction, ms.duel.awayChoice.action, "A안: 상대 예상 행동 = 커밋한 액션");
         match.step(ms, data, { skillId: "sk_eagle_eye" });
         const v1 = match.getMatchView(ms, data);
         assert.equal(v1.needsDecision, "defense", "결정 대기 유지");
-        assert.equal(v1.intent.level, "full");
-        assert.equal(v1.intent.candidates.length, 1);
-        assert.equal(v1.intent.candidates[0], ms.duel.awayChoice.action);
+        assert.equal(ms.duel.gaanpaSide, "home");
+        assert.equal(ms.duel.effects.home.readMult, eagle.active.params.readMult);
         assert.equal(v1.skills.find((s) => s.skillId === "sk_eagle_eye").enabled, false, "한 듀얼 1회");
-        assert.throws(() => match.step(clone(ms), data, { action: "tackle", skillId: "sk_eagle_eye" }), /이미 사용/);
-        // 읽은 대로 카운터
-        const counter = { dribble: "tackle", pass: "intercept", shoot: "block" }[v1.intent.candidates[0]];
+        assert.equal(v1.gaanpa.usable, false);
+        assert.throws(() => match.step(clone(ms), data, { action: "tackle", skillId: "sk_eagle_eye" }), /이미/);
+        // 짝을 맞히면 ×readMult (×readBonus 대신)
+        const counter = match.COUNTER[oppAction];
+        const odds = match.computeOdds(ms, data, { action: oppAction, defAction: counter });
+        if (oppAction !== "shoot") assert.equal(odds.pairMult, eagle.active.params.readMult);
         match.step(ms, data, { action: counter });
-        const last = ms.events.filter((e) => e.type === "duel" || e.type === "turnover").at(-1);
-        assert.ok(last);
+        const last = ms.events.filter((e) => e.type === "duel" || e.type === "turnover" || e.type === "goal").at(-1);
+        assert.equal(last.defAction, counter, "사람의 간파는 효과만 — 선택은 그대로");
         checked = true;
         break;
       }
       match.step(ms, data, null);
     }
   }
-  assert.ok(checked, "reveal 검증 상황을 찾지 못함");
+  assert.ok(checked, "간파 검증 상황을 찾지 못함");
 });
 
 test("무효 입력은 throw: 비활성 액션, 텐션 부족, 미보유 스킬", () => {
@@ -453,28 +464,40 @@ test("getMatchView: 상태 불변, 난수 미소비, 필드 형태", () => {
   assert.ok(v.carrier && v.carrier.id && v.carrier.side === "home" && typeof v.carrier.stamina === "number");
   assert.ok(v.defender && v.defender.side === "away" && typeof v.defender.coverCount === "number");
   assert.equal(v.needsDecision, "attack");
-  assert.equal(v.actions.length, 3);
-  for (const a of v.actions) assert.ok(["dribble", "pass", "shoot"].includes(a.action) && typeof a.enabled === "boolean" && typeof a.label === "string" && typeof a.hint === "string");
+  assert.equal(v.version, 3);
+  assert.equal(ms.version, 3);
+  assert.equal(v.actions.length, 4);
+  assert.deepEqual(v.actions.map((a) => a.action), ["dribble", "pass", "cross", "shoot"]);
+  for (const a of v.actions) {
+    assert.ok(typeof a.enabled === "boolean" && typeof a.label === "string" && typeof a.hint === "string");
+    assert.ok(a.enabled ? Number.isInteger(a.expectedPct) && a.expectedPct >= 0 && a.expectedPct <= 100 : a.expectedPct === null);
+  }
+  assert.equal(v.actions.filter((a) => a.recommended).length, 1, "추천은 하나");
   assert.ok(Array.isArray(v.skills));
-  for (const s of v.skills) for (const k of ["skillId", "name", "tension", "enabled", "description", "kind"]) assert.ok(k in s, k);
-  assert.ok(v.intent && ["full", "partial", "none"].includes(v.intent.level));
-  assert.equal(v.intent.level, "partial", "시즌2 상대 partial");
-  assert.equal(v.intent.candidates.length, 2);
-  assert.ok(v.intent.candidates.includes(ms.duel.awayChoice.action), "partial 후보에 실제 선택 포함");
+  for (const s of v.skills) for (const k of ["skillId", "name", "tension", "cost", "enabled", "description", "kind", "effect", "gaanpa"]) assert.ok(k in s, k);
+  // v0.3: intent 삭제 → expected (A안 예상 행동)
+  assert.equal(v.intent, undefined);
+  assert.equal(v.revealToHome, undefined);
+  assert.equal(v.expected.attack.playerId, ms.ball.carrierId);
+  assert.equal(v.expected.defense.playerId, ms.duel.defenderId);
+  assert.equal(v.expected.defense.action, ms.duel.awayChoice.action, "상대(AI) 예상 행동 = 커밋한 액션");
+  assert.deepEqual(Object.keys(v.expected.defense.values).sort(), ["hold", "intercept", "tackle"]);
+  assert.ok(["dribble", "pass"].includes(v.expected.attack.action));
+  assert.ok(v.receivers.pass && v.receivers.pass.candidates.includes(v.receivers.pass.defaultId));
+  assert.equal(v.receiverPreview.id, v.receivers.pass.defaultId);
+  assert.ok(v.gaanpa && typeof v.gaanpa.usable === "boolean" && "source" in v.gaanpa && "tickets" in v.gaanpa);
+  assert.equal(typeof v.opponentReading, "boolean");
+  assert.ok(v.ultimate.home && v.ultimate.away);
+  assert.ok(Array.isArray(v.ultimateOptions));
   assert.deepEqual(Object.keys(v.tension).sort(), ["away", "home"]);
   assert.equal(v.players.home.length, 7);
   assert.equal(v.players.away.length, 7);
-  for (const p of v.players.home) for (const k of ["id", "name", "slot", "stamina", "staminaMax", "isCarrier", "isDefender"]) assert.ok(k in p, k);
+  for (const p of v.players.home) for (const k of ["id", "name", "slot", "stamina", "staminaMax", "isCarrier", "isDefender", "trait", "gauge"]) assert.ok(k in p, k);
   assert.equal(v.players.home.filter((p) => p.isCarrier).length, 1);
   assert.equal(v.players.away.filter((p) => p.isDefender).length, 1);
   assert.ok(v.recentEvents.length <= 6);
   assert.equal(v.finished, false);
   assert.equal(v.result, null);
-  // 시즌1 상대: full
-  const ms1 = match.createMatch({ data, seed: 11, home, away: oppSnapshot("op_s1_ironhoof"), possessions: 8, kind: "goal" });
-  const v1 = match.getMatchView(ms1, data);
-  assert.equal(v1.intent.level, "full");
-  assert.deepEqual(v1.intent.candidates, [ms1.duel.awayChoice.action]);
 });
 
 test("여러 경기 불변식: 체력 0~max, 텐션 0~max, p 클램프, NaN 없음, stats.goals == score (3난이도 × 30)", () => {
@@ -503,33 +526,47 @@ test("여러 경기 불변식: 체력 0~max, 텐션 0~max, p 클램프, NaN 없�
   assert.ok(seen.skill + seen.cutin > 0, "자동 경기에서 액티브 스킬이 발동해야 함");
 });
 
-test("ai.js: 전술이 선택에 반영된다 (attack dribble/pass, defense tackle/intercept)", () => {
+test("ai.js: 전술 ×tacticBonus 가 성향 1위를 뒤집는다 (attack dribble/pass, defense tackle/intercept/hold)", () => {
+  // 공격: 드리블·패스 스탯이 같은 선수 → 동률이면 드리블(tieAttack), pass 전술이면 패스
   const home = homeSnapshot(1.2);
-  // 의도 비공개 상대(시즌3)여야 전술 편향이 보인다 — 의도가 완전 공개되면 읽은 대로 카운터하는 것이 맞다
-  const away = oppSnapshot("op_s3_emberthrone");
-  const count = (tactics, side, pick) => {
+  const away = oppSnapshot("op_s1_ironhoof");
+  const ms = match.createMatch({ data, seed: 3, home, away, possessions: 8, kind: "goal" });
+  const carrier = ms.home.players.find((p) => p.id === ms.ball.carrierId);
+  carrier.stats.dribble = 400; carrier.stats.pass = 400; carrier.trait = null;
+  const pick = (tactics) => { const s = clone(ms); Object.assign(s.home.tactics, tactics); return s; };
+  assert.equal(match.autoAction(pick({ attack: "balanced" }), data, "home"), "dribble", "동률 → tieAttack 순서");
+  assert.equal(match.autoAction(pick({ attack: "pass" }), data, "home"), "pass");
+  const s2 = pick({ attack: "dribble" }); s2.home.players.find((p) => p.id === carrier.id).stats.pass = 440;
+  assert.equal(match.autoAction(s2, data, "home"), "dribble", "패스 +10% 도 드리블 전술 ×1.15 가 뒤집는다");
+  // 수비: 태클 = 인터셉트 = 버티기가 되게 → 동률 hold, 전술로 각각
+  const md = clone(ms);
+  md.attackingSide = "away";
+  const def = md.home.players.find((p) => p.position === "FW");
+  def.stats.defense = 400; def.stats.physical = 400; def.stats.pass = 400; def.trait = null;
+  md.duel.defenderId = def.id;
+  md.ball.carrierId = md.away.players.find((p) => p.position === "DF").id;
+  const dpick = (tactics) => { const s = clone(md); Object.assign(s.home.tactics, tactics); return match.autoAction(s, data, "home"); };
+  assert.equal(dpick({ defense: "balanced" }), "hold", "동률 → tieDefense 순서");
+  assert.equal(dpick({ defense: "tackle" }), "tackle");
+  assert.equal(dpick({ defense: "intercept" }), "intercept");
+  assert.equal(dpick({ defense: "hold" }), "hold");
+  // 실제 경기에서도 전술이 수비 선택 분포를 바꾼다
+  const count = (tactics) => {
     const h = clone(home); Object.assign(h.tactics, tactics);
+    for (const p of h.players) if (p.position !== "GK") { p.stats.physical = p.stats.defense; p.stats.pass = p.stats.defense; p.trait = null; }
     const c = {};
-    for (let seed = 1; seed <= 25; seed++) {
-      const ms = match.simulateAuto(match.createMatch({ data, seed, home: h, away, possessions: 8, kind: "goal" }), data);
-      for (const e of ms.events) {
-        if ((e.type === "duel" || e.type === "turnover") && e.side === side) {
-          const a = pick(e);
-          if (a) c[a] = (c[a] || 0) + 1;
-        }
-      }
+    for (let seed = 1; seed <= 10; seed++) {
+      const m2 = match.simulateAuto(match.createMatch({ data, seed, home: h, away, possessions: 8, kind: "goal" }), data);
+      for (const e of m2.events) if ((e.type === "duel" || e.type === "turnover") && e.side === "away") c[e.defAction] = (c[e.defAction] || 0) + 1;
     }
     return c;
   };
-  const drib = count({ attack: "dribble" }, "home", (e) => e.action);
-  const pass = count({ attack: "pass" }, "home", (e) => e.action);
-  assert.ok((drib.dribble || 0) / ((drib.dribble || 0) + (drib.pass || 0)) > (pass.dribble || 0) / ((pass.dribble || 0) + (pass.pass || 0)), `dribble 전술 ${JSON.stringify(drib)} vs pass 전술 ${JSON.stringify(pass)}`);
-  const tackle = count({ defense: "tackle" }, "away", (e) => e.defAction);
-  const inter = count({ defense: "intercept" }, "away", (e) => e.defAction);
-  assert.ok((tackle.tackle || 0) > (inter.tackle || 0), `tackle 전술 ${JSON.stringify(tackle)} vs intercept 전술 ${JSON.stringify(inter)}`);
+  const tk = count({ defense: "tackle" });
+  const ic = count({ defense: "intercept" });
+  assert.ok((tk.tackle || 0) > (ic.tackle || 0) && (ic.intercept || 0) > (tk.intercept || 0), `tackle 전술 ${JSON.stringify(tk)} vs intercept 전술 ${JSON.stringify(ic)}`);
 });
 
-test("액션 힌트 배율은 config 에서 계산된다 (중거리 슛 = midrangeShoot/shoot, 수읽기 = readBonus)", () => {
+test("액션 힌트 배율은 config 에서 계산된다 (중거리 슛 = midrangeShoot/shoot, 짝 = readBonus)", () => {
   const home = homeSnapshot();
   const away = oppSnapshot("op_s1_ironhoof");
   const ms = match.createMatch({ data, seed: 3, home, away, possessions: 8, kind: "goal" });
@@ -539,7 +576,11 @@ test("액션 힌트 배율은 config 에서 계산된다 (중거리 슛 = midran
   assert.equal(shoot.enabled, true);
   assert.ok(shoot.hint.includes(`×${ratio}`), shoot.hint);
   assert.ok(match.getMatchView(ms, data, "home").actions.find((a) => a.action === "shoot").hint.includes(`×${ratio}`));
-  for (const a of match.getDefenseActions(ms, "away", data).filter((x) => x.action !== "block")) assert.ok(a.hint.includes(`×${M.readBonus}`), a.hint);
+  for (const a of match.getDefenseActions(ms, "away", data).filter((x) => x.action !== "hold")) {
+    assert.ok(a.hint.includes(`×${M.readBonus}`), a.hint);
+    assert.ok(a.hint.includes(`×${M.missMult}`), a.hint);
+  }
+  assert.ok(match.getDefenseActions(ms, "away", data).find((x) => x.action === "hold").hint.includes(`×${M.holdVsMidrange}`));
   // 튠 값이 바뀌면 힌트도 따라간다 (리터럴 아님)
   const d2 = clone(data);
   d2.config.match.actionCoef.midrangeShoot = 0.7; d2.config.match.actionCoef.shoot = 1; d2.config.match.readBonus = 2;
@@ -549,36 +590,48 @@ test("액션 힌트 배율은 config 에서 계산된다 (중거리 슛 = midran
   assert.equal(typeof match.getAttackActions(ms, "home").find((a) => a.action === "shoot").hint, "string");
 });
 
-test("상대 AI 의 reveal 스킬: 의도는 countered(level none) 로 표시되고, 커밋된 액션은 우리 선택의 카운터로 바뀐다", () => {
-  const COUNTER = { dribble: "tackle", pass: "intercept", shoot: "block" };
+test("상대 AI 의 간파: opponentReading 표시, 우리 간파 비활성, 판정 때 우리 실제 선택에 대한 최선 수비로 교체 (난수 추가 없음)", () => {
   const home = homeSnapshot(1.3);
-  const away = oppSnapshot("op_s1_ironhoof"); // intentReveal full → 평소엔 상대 선택이 그대로 보인다
-  for (const p of away.players) if (p.position !== "GK") p.skillIds = [...p.skillIds, "sk_eagle_eye"];
+  const away = oppSnapshot("op_s1_ironhoof");
+  for (const p of away.players) if (p.position === "DF" || p.position === "MF") p.skillIds = [...p.skillIds, "sk_eagle_eye"];
+  for (const p of home.players) if (p.position === "FW" || p.position === "MF") p.skillIds = [...p.skillIds, "sk_see_through"];
   let checked = 0;
   for (let seed = 1; seed <= 300 && checked < 3; seed++) {
     const ms = match.createMatch({ data, seed, home, away, possessions: 8, kind: "goal" });
     let guard = 0;
     while (!match.isFinished(ms) && guard++ < 400) {
       ms.away.tension = 100;
-      if (ms.phase === "decision" && ms.duel && ms.attackingSide === "home" && ms.ball.lineIndex < 3 && ms.duel.effects.away.reveal) {
+      if (ms.phase === "decision" && ms.duel && ms.attackingSide === "home" && ms.ball.lineIndex < 3 && ms.duel.gaanpaSide === "away") {
+        ms.home.tension = 100;
         const v = match.getMatchView(ms, data);
         assert.equal(v.needsDecision, "attack");
-        assert.equal(v.intent.level, "none");
-        assert.deepEqual(v.intent.candidates, []);
-        assert.equal(v.intent.countered, true);
-        assert.equal(ms.duel.revealToHome.countered, true);
-        const committed = ms.duel.awayChoice.action;
-        const pick = (v.actions.find((a) => a.enabled && COUNTER[a.action] !== committed) || v.actions.find((a) => a.enabled)).action;
+        assert.equal(v.opponentReading, true);
+        assert.equal(v.gaanpa.usable, false);
+        assert.equal(v.gaanpa.reason, "상대가 먼저 간파");
+        for (const s of v.skills.filter((x) => x.gaanpa)) assert.equal(s.enabled, false, "상대가 먼저 쓴 듀얼: 우리 간파 스킬 비활성");
+        const pick = v.actions.filter((a) => a.enabled).at(-1).action;
+        const expectDef = match.bestDefenseResponse(ms, data, pick);
+        // 기대 % 는 상대의 대응 기준
+        const odds = match.computeOdds(ms, data, { action: pick, defAction: expectDef });
+        const a = v.actions.find((x) => x.action === pick);
+        if (!(ms.ball.lineIndex === 2 && pick !== "shoot")) assert.equal(a.expectedPct, Math.round(odds.p * 100));
+        const rng0 = ms.rngState;
+        const probe = clone(ms);
         match.step(ms, data, { action: pick });
-        const last = ms.events.filter((e) => e.type === "duel" || e.type === "turnover").at(-1);
-        assert.equal(last.defAction, COUNTER[pick], "reveal AI 는 실제 선택에 맞춰 카운터");
+        const last = ms.events.filter((e) => ["duel", "turnover", "goal"].includes(e.type)).at(-1);
+        assert.equal(last.defAction, expectDef, "간파한 AI 는 우리 실제 선택에 대한 최선 수비");
+        assert.equal(last.readBy, "away");
+        // 결정성: 같은 상태 + 같은 결정 → 같은 결과
+        match.step(probe, data, { action: pick });
+        assert.equal(JSON.stringify(probe.events.at(-1)), JSON.stringify(ms.events.at(-1)));
+        void rng0;
         checked++;
         break;
       }
       match.step(ms, data, null);
     }
   }
-  assert.ok(checked >= 1, "상대 reveal 듀얼을 찾지 못함");
+  assert.ok(checked >= 1, "상대 간파 듀얼을 찾지 못함");
 });
 
 /* ------------------------------------------------------------------ */
@@ -674,7 +727,8 @@ test("v0.2 pickReceiver 결정적: 동률이면 team.players 순서의 첫 선�
   const home = homeSnapshot(1.2);
   const mfs = home.players.filter((p) => p.position === "MF");
   assert.ok(mfs.length >= 2);
-  for (const p of mfs) { p.stats.dribble = 300; p.stats.pass = 300; }
+  // 받는 선수 기본값 = 도착 구역 주 액션 판정값 최고 (특성 보정 포함) → 스탯·특성을 같게 해서 동률을 만든다
+  for (const p of mfs) { p.stats.dribble = 300; p.stats.pass = 300; p.trait = null; }
   const away = oppSnapshot("op_s1_ironhoof");
   let passed = 0;
   for (let seed = 1; seed <= 80 && passed < 3; seed++) {
@@ -739,8 +793,8 @@ test("v0.2 outcomes: 판정 후 공 구역·공격 팀 = 직전 view.outcomes[�
         const o = before.outcomes[decision.action];
         const exp = o[humanWon ? "success" : "fail"];
         if (role === "defense" && ev.action === "shoot") {
-          assert.ok(o.fail.goalRisk || o.fail.goal, "상대 슛이 가능했으면 fail label 에 실점 위험 표시");
-          if (ev.success && !exp.goal) return; // 돌파 기준 미리보기 — 예고된 위험(중거리 슛 실점)은 비교 제외
+          // A안: 상대 예상 행동(커밋)이 정확하므로 중거리 슛이면 fail = 실점으로 미리보기
+          assert.equal(o.fail.goal, true, "상대 중거리 슛 → fail = 실점");
         }
         assert.equal(ev.toZone, exp.zone, `seed ${seed} ${role} ${decision.action} ${humanWon ? "success" : "fail"}: 이벤트 toZone`);
         assert.equal(ev.toAttackingSide, exp.attackingSide);
@@ -758,115 +812,118 @@ test("v0.2 outcomes: 판정 후 공 구역·공격 팀 = 직전 view.outcomes[�
     });
   }
   for (const r of ["attack", "defense"]) for (const k of ["success", "fail"]) assert.ok(counts[r][k] > 50, `${r}.${k} ${counts[r][k]}`);
-  for (const a of ["dribble", "pass", "shoot", "tackle", "intercept", "block"]) assert.ok(seenActions.has(a), `액션 ${a} 검증됨`);
+  for (const a of ["dribble", "pass", "shoot", "tackle", "intercept", "hold"]) assert.ok(seenActions.has(a), `액션 ${a} 검증됨`);
   assert.ok(viewChecked > 500, `view 비교 ${viewChecked}`);
 });
 
-test("v0.2 outcomes 문구: 공격 역습 구역·세이브·골, 수비 막으면/뚫리면·중거리 실점 위험", () => {
+test("v0.3 outcomes 문구: 공격 = 상대 수비 예상 행동에 따른 역습 구역·세이브·골, 수비 = 손익(빠른 역습·빌드업·제쳐짐·+10%)·실점", () => {
   const home = homeSnapshot(1.2);
-  const away = oppSnapshot("op_s3_emberthrone"); // 의도 비공개 → line 2 수비에서 슛 가능성 남음
+  const away = oppSnapshot("op_s1_ironhoof");
   const ms = match.createMatch({ data, seed: 9, home, away, possessions: 8, kind: "goal" });
-  ms.duel.effects.away = { ...ms.duel.effects.away, steal: false };
-  // 공격 line 0: 드리블 성공 = 중원(Z3), 실패 = 상대 역습 우리 진영(Z2)부터
-  const v0 = match.getMatchView(ms, data);
-  assert.equal(v0.outcomes.dribble.success.zone, 3);
-  assert.equal(v0.outcomes.dribble.success.label, "중원 진입");
-  assert.equal(v0.outcomes.dribble.fail.zone, 2);
-  assert.equal(v0.outcomes.dribble.fail.attackingSide, "away");
-  assert.equal(v0.outcomes.dribble.fail.label, "상대 역습 — 우리 진영부터");
-  // 공격 line 1: 성공 = 상대 진영(Z4), 실패 = 상대 역습 중원(Z3)부터
-  const s1 = clone(ms); s1.ball.lineIndex = 1;
-  const v1 = match.getMatchView(s1, data);
-  assert.equal(v1.outcomes.dribble.success.label, "상대 진영 진입 — 중거리 슛 가능");
-  assert.equal(v1.outcomes.dribble.fail.label, "상대 역습 — 중원부터");
-  // 공격 line 2: 성공 = 상대 박스(Z5), 실패 = 상대 빌드업(Z4), 중거리 슛 성공 = 골 → 상대 킥오프(Z4)
-  const s2 = clone(ms); s2.ball.lineIndex = 2;
-  const v2 = match.getMatchView(s2, data);
+  ms.duel.effects.away = { ...ms.duel.effects.away, steal: null };
+  const withDef = (s, line, defAction) => { const c = clone(s); c.ball.lineIndex = line; c.duel.awayChoice = { ...c.duel.awayChoice, action: defAction }; return match.getMatchView(c, data); };
+  // 공격 line 0: 드리블 성공 = 중원(Z3), 실패 = 상대 역습 우리 진영(Z2)부터 (기본 2 = 상한 → 인터셉트도 같음)
+  for (const d of ["tackle", "intercept"]) {
+    const v0 = withDef(ms, 0, d);
+    assert.equal(v0.outcomes.dribble.success.zone, 3);
+    assert.equal(v0.outcomes.dribble.success.label, "중원 진입");
+    assert.equal(v0.outcomes.dribble.success.short, "성공 중원");
+    assert.equal(v0.outcomes.dribble.fail.zone, 2);
+    assert.equal(v0.outcomes.dribble.fail.attackingSide, "away");
+    assert.equal(v0.outcomes.dribble.fail.label, "상대 역습 — 우리 진영부터");
+    assert.equal(v0.outcomes.dribble.fail.short, "실패 상대 역습(우리 진영)");
+  }
+  assert.equal(withDef(ms, 0, "hold").outcomes.dribble.fail.label, "공 뺏김 — 상대 빌드업부터", "버티기로 뺏기면 역습 이점 없음");
+  // 공격 line 1: 성공 = 상대 진영(Z4). 실패 = 태클 → 중원(Z3), 인터셉트 → 빠른 역습 우리 진영(Z2), 버티기 → 빌드업(Z4)
+  assert.equal(withDef(ms, 1, "tackle").outcomes.dribble.success.label, "상대 진영 진입 — 중거리 슛 가능");
+  assert.equal(withDef(ms, 1, "tackle").outcomes.dribble.fail.label, "상대 역습 — 중원부터");
+  assert.equal(withDef(ms, 1, "intercept").outcomes.dribble.fail.label, "상대 역습 — 우리 진영부터");
+  assert.equal(withDef(ms, 1, "hold").outcomes.dribble.fail.zone, 4);
+  // 공격 line 2: 성공 = 상대 박스(Z5), 태클에 뺏기면 상대 빌드업(Z4), 인터셉트면 중원(Z3). 중거리 슛 성공 = 골 → 상대 킥오프
+  const v2 = withDef(ms, 2, "tackle");
   assert.equal(v2.outcomes.dribble.success.zone, 5);
   assert.equal(v2.outcomes.dribble.success.label, "상대 박스 진입 — 슈팅 찬스");
+  assert.equal(v2.outcomes.dribble.success.short, "성공 박스 진입");
   assert.equal(v2.outcomes.dribble.fail.label, "공 뺏김 — 상대 빌드업부터");
+  assert.equal(withDef(ms, 2, "intercept").outcomes.dribble.fail.label, "상대 역습 — 중원부터");
   assert.deepEqual(
     { zone: v2.outcomes.shoot.success.zone, goal: v2.outcomes.shoot.success.goal, side: v2.outcomes.shoot.success.attackingSide },
     { zone: 4, goal: true, side: "away" },
   );
   assert.equal(v2.outcomes.shoot.success.label, "골! → 상대 킥오프");
   assert.equal(v2.outcomes.shoot.fail.label, "막히면 → 상대 빌드업부터");
-  // line 3: 슛만, 실패 = 세이브 → 상대 골킥
+  // line 3: 슛만, 실패 = 세이브 → 상대 골킥 (빠른 배급 GK 면 중원부터)
   const s3g = clone(ms); s3g.ball.lineIndex = 3;
+  const gk = s3g.away.players.find((p) => p.position === "GK");
+  s3g.duel.defenderId = gk.id; s3g.duel.awayChoice = { action: "save", byAI: true };
+  gk.trait = null;
   const v3 = match.getMatchView(s3g, data);
   assert.deepEqual(Object.keys(v3.outcomes), ["shoot"]);
   assert.equal(v3.outcomes.shoot.fail.label, "세이브 → 상대 골킥");
   assert.equal(v3.outcomes.shoot.fail.zone, 4);
+  gk.trait = "distributor";
+  const v3d = match.getMatchView(s3g, data);
+  assert.equal(v3d.outcomes.shoot.fail.label, "세이브 → 상대 역습, 중원부터");
+  assert.equal(v3d.outcomes.shoot.fail.zone, 3);
   // 상대 steal 스킬이 이미 커밋돼 있으면 역습이 한 구역 더 깊다 (판정에 그대로 적용되는 공개 정보)
-  const s4 = clone(ms); s4.ball.lineIndex = 1; s4.duel.effects.away.steal = true;
+  const s4 = clone(ms); s4.ball.lineIndex = 1; s4.duel.awayChoice = { ...s4.duel.awayChoice, action: "tackle" };
+  s4.duel.effects.away.steal = { plus: 1, tension: 10, cappedNextBonus: 0.15 };
   const v4 = match.getMatchView(s4, data);
   assert.equal(v4.outcomes.dribble.fail.zone, 2, "line 1 + steal → 상대 line 2 = 우리 진영");
   assert.equal(v4.outcomes.dribble.fail.label, "상대 역습 — 우리 진영부터");
-  // 수비: 상대 공격 상태를 찾아 line 별 문구 확인
+  // 수비: 상대 공격 상태를 찾아 line 별 손익 문구 확인
   const seen = new Set();
-  for (let seed = 1; seed <= 40 && seen.size < 3; seed++) {
+  const bb = Math.round(M.beatenBonus * 100);
+  const ib = Math.round(M.interceptFailBonus * 100);
+  for (let seed = 1; seed <= 60 && seen.size < 3; seed++) {
     const m2 = match.createMatch({ data, seed, home, away, possessions: 8, kind: "goal" });
     let guard = 0;
     while (!match.isFinished(m2) && guard++ < 400) {
       const v = match.getMatchView(m2, data);
-      if (v.needsDecision === "defense" && !m2.duel.effects.away.extraLine) {
+      if (v.needsDecision === "defense" && !m2.duel.effects.away.extraLine && !v.opponentReading) {
         const L = m2.ball.lineIndex;
         seen.add(L);
-        const o = v.outcomes.tackle;
-        const expStart = L === 0 ? 2 : L === 1 ? 1 : 0;
-        assert.equal(o.success.zone, match.zoneOf("home", expStart));
-        assert.equal(o.success.attackingSide, "home");
-        assert.equal(o.fail.zone, match.zoneOf("away", L + 1));
-        assert.equal(o.fail.attackingSide, "away");
+        const oppAct = m2.duel.awayChoice.action;
+        assert.equal(v.expected.attack.action, oppAct);
+        const base = L === 0 ? 2 : L === 1 ? 1 : 0;
+        const o = v.outcomes;
+        assert.equal(o.tackle.success.zone, match.zoneOf("home", base));
+        assert.equal(o.hold.success.zone, match.zoneOf("home", 0), "버티기 → 항상 빌드업");
+        assert.equal(o.hold.success.label, "막으면 — 우리 공격, 빌드업부터 (역습 이점 없음)");
+        assert.equal(o.intercept.success.zone, match.zoneOf("home", Math.min(2, base + 1)));
         if (L === 0) {
-          assert.equal(o.success.label, "막으면 — 우리 역습, 상대 진영부터");
-          assert.equal(o.fail.label, "뚫리면 — 상대 중원 진입");
+          assert.equal(o.tackle.success.label, "막으면 — 우리 역습, 상대 진영부터");
+          assert.equal(o.intercept.success.label, `막으면 — 우리 역습, 상대 진영부터 · 텐션 +${M.counterCapTension}`, "인터셉트 +1 이 상한에 걸리면 텐션");
         }
         if (L === 1) {
-          assert.equal(o.success.label, "막으면 — 우리 역습, 중원부터");
-          assert.equal(o.fail.label, "뚫리면 — 우리 진영 위험, 중거리 슛 가능");
+          assert.equal(o.tackle.success.label, "막으면 — 우리 역습, 중원부터");
+          assert.equal(o.intercept.success.label, "막으면 — 빠른 역습, 상대 진영부터");
+          assert.equal(o.intercept.success.short, "막으면 빠른역습(상대 진영)");
         }
         if (L === 2) {
-          assert.equal(o.success.label, "막으면 — 우리 공격, 빌드업부터");
-          assert.equal(o.fail.zone, 1);
-          assert.equal(o.fail.label, "뚫리면 — 우리 박스 슈팅 위기 · 중거리 슛이면 실점");
-          assert.equal(o.fail.goalRisk, true);
-          assert.ok(v.outcomes.block, "line 2 에서는 block 도 선택 가능");
+          assert.equal(o.tackle.success.label, "막으면 — 우리 공격, 빌드업부터");
+          assert.equal(o.intercept.success.label, "막으면 — 빠른 역습, 중원부터");
+        }
+        for (const d of ["tackle", "intercept", "hold"]) assert.match(o[d].success.label, /^막으면/);
+        if (oppAct === "shoot") {
+          for (const d of ["tackle", "intercept", "hold"]) {
+            assert.equal(o[d].fail.goal, true);
+            assert.equal(o[d].fail.label, "뚫리면 — 실점 → 우리 킥오프");
+          }
         } else {
-          assert.equal(o.fail.goalRisk, undefined);
-          assert.equal(v.outcomes.block, undefined, "line 0·1 block 비활성 → outcomes 없음");
+          const breach = L === 2 ? "뚫리면 — 우리 박스 슈팅 위기" : L === 1 ? "뚫리면 — 우리 진영 위험, 중거리 슛 가능" : "뚫리면 — 상대 중원 진입";
+          assert.equal(o.tackle.fail.label, `${breach} · 제쳐짐 +${bb}%`);
+          assert.equal(o.tackle.fail.short, `뚫리면 제쳐짐 +${bb}%`);
+          assert.equal(o.intercept.fail.label, `${breach} · 상대 +${ib}%`);
+          assert.equal(o.hold.fail.label, breach, "버티기는 뚫려도 추가 손해 없음");
+          assert.equal(o.hold.fail.short, "뚫리면 손해 없음");
+          for (const d of ["tackle", "intercept", "hold"]) assert.equal(o[d].fail.zone, match.zoneOf("away", L + 1));
         }
       }
       match.step(m2, data, null);
     }
   }
   assert.deepEqual([...seen].sort(), [0, 1, 2]);
-  // 의도가 full 로 "shoot" 확정이면 fail = 실점, full 로 슛이 아님이 확정이면 실점 위험 문구 없음
-  let line2 = null;
-  for (let seed = 1; seed <= 60 && !line2; seed++) {
-    const m3 = match.createMatch({ data, seed, home, away, possessions: 8, kind: "goal" });
-    let guard = 0;
-    while (!match.isFinished(m3) && guard++ < 400) {
-      if (match.getMatchView(m3, data).needsDecision === "defense" && m3.ball.lineIndex === 2 && !m3.duel.effects.away.reveal) { line2 = m3; break; }
-      match.step(m3, data, null);
-    }
-  }
-  assert.ok(line2, "line 2 수비 상황을 찾지 못함");
-  const shot = clone(line2);
-  shot.duel.awayChoice.action = "shoot";
-  shot.duel.revealToHome = { level: "full", candidates: ["shoot"] };
-  const vs = match.getMatchView(shot, data);
-  assert.deepEqual(vs.intent.candidates, ["shoot"]);
-  assert.equal(vs.outcomes.tackle.fail.goal, true);
-  assert.equal(vs.outcomes.tackle.fail.zone, match.zoneOf("home", 0));
-  assert.equal(vs.outcomes.tackle.fail.attackingSide, "home");
-  assert.equal(vs.outcomes.tackle.fail.label, "뚫리면 — 실점 → 우리 킥오프");
-  const drib = clone(line2);
-  drib.duel.awayChoice.action = "dribble";
-  drib.duel.revealToHome = { level: "partial", candidates: ["pass", "dribble"] };
-  const vd = match.getMatchView(drib, data);
-  assert.equal(vd.outcomes.tackle.fail.label, "뚫리면 — 우리 박스 슈팅 위기", "공개 후보에 슛이 없으면 실점 위험 문구 없음");
-  assert.equal(vd.outcomes.tackle.fail.goalRisk, undefined);
 });
 
 test("v0.2 이벤트 위치 필드: seq = 배열 인덱스(단조 증가), 비트 이벤트 zone/toZone/step/toStep/attackingSide, 연속성, lastBeat", () => {
@@ -1041,7 +1098,7 @@ test("v0.2 스킬 변형 미리보기: 라인 브레이커(extraLine)·소매치
             }
           }
         } else {
-          assert.ok(!v.outcomesBySkill || Object.keys(v.outcomesBySkill).every((id) => v.skills.some((s) => s.skillId === id && s.enabled)));
+          assert.ok(!v.outcomesBySkill || Object.keys(v.outcomesBySkill).every((id) => v.skills.some((s) => s.skillId === id && s.enabled) || v.ultimateOptions.some((u) => u.skillId === id && u.usable)));
         }
       } else {
         assert.equal(v.outcomesBySkill, null, "결정 대기가 아니면 변형 없음");

@@ -1,0 +1,74 @@
+[
+  {
+    "id": "killpass",
+    "name": "킬패스",
+    "description": "이 선수의 패스·크로스를 받은 선수의 첫 듀얼(드리블·패스·크로스·박스 슛·헤더) +20%. 중거리 슛 제외",
+    "kind": "bonus",
+    "amp": true,
+    "params": { "nextDuelBonus": 0.20 }
+  },
+  {
+    "id": "finisher",
+    "name": "피니셔",
+    "description": "패스·크로스를 받은 직후의 박스 슛·헤더 +15%",
+    "kind": "bonus",
+    "amp": true,
+    "params": { "receivedShotBonus": 0.15 }
+  },
+  {
+    "id": "crosser",
+    "name": "크로서",
+    "description": "파이널 서드에서 크로스 사용 가능, 크로스 +10%",
+    "kind": "condition",
+    "amp": false,
+    "params": { "canCross": true, "crossBonus": 0.10 }
+  },
+  {
+    "id": "targetman",
+    "name": "타깃맨",
+    "description": "크로스를 헤더로 마무리하면 +25%",
+    "kind": "bonus",
+    "amp": true,
+    "params": { "headerBonus": 0.25 }
+  },
+  {
+    "id": "runner",
+    "name": "침투",
+    "description": "패스를 받은 직후 드리블 +15% (받고 바로 돌파)",
+    "kind": "bonus",
+    "amp": true,
+    "params": { "receivedDribbleBonus": 0.15 }
+  },
+  {
+    "id": "carrier",
+    "name": "볼 운반",
+    "description": "드리블 체력 소모 −30%, 빌드업·중원 드리블 +10%",
+    "kind": "bonus",
+    "amp": true,
+    "params": { "dribbleStaminaMult": 0.7, "buildupDribbleBonus": 0.10, "buildupMaxLine": 1 }
+  },
+  {
+    "id": "wall",
+    "name": "철벽",
+    "description": "버티기 ×1.0 → ×1.15",
+    "kind": "mult",
+    "amp": false,
+    "params": { "holdMult": 1.15 }
+  },
+  {
+    "id": "distributor",
+    "name": "빠른 배급",
+    "description": "이 골키퍼가 세이브하면 역습이 빌드업이 아니라 중원에서 시작",
+    "kind": "position",
+    "amp": false,
+    "params": { "saveCounterLine": 1 }
+  },
+  {
+    "id": "captain",
+    "name": "주장",
+    "description": "팀워크 증폭 단계를 계산할 때 팀워크 +10",
+    "kind": "team",
+    "amp": false,
+    "params": { "teamworkPlus": 10 }
+  }
+]

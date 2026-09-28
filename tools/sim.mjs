@@ -1,53 +1,57 @@
 #!/usr/bin/env node
-// tools/sim.mjs — 헤드리스 밸런스 시뮬 (ARCHITECTURE §9)
+// tools/sim.mjs — 헤드리스 밸런스 시뮬 (ARCHITECTURE §9, v0.3 §13.7)
 //   node tools/sim.mjs --runs 300 --seed 1 [--policy smart|train] [--json]
-//                      [--manualOracle] [--set path=value ...] [--oppScale s1=1.0,s2=1.03,s3=1.02]
-// 기본 편성·기본 전술로 자동 완주. 정책: 훈련은 추천 칸, 체력 부족 추천이면 휴식(smart), 이벤트 0번,
-// 유물 첫 번째, 루트 순환(런마다 시작점 회전), 경기는 match.simulateAuto.
-// 출력: 시즌별 목표 경기 승률, 평균 최종 스탯, 등급 분포, 런당 부상, 우정 훈련, 평균 골, 기타. 종료 코드 0.
+//                      [--set path=value ...] [--oppScale s1=1.0,s2=1.03,s3=1.02]
+// 기본 편성·기본 전술로 자동 완주. 정책: 훈련은 추천 칸, 체력 부족 추천이면 휴식(smart), 살 수 있는 스킬은 미팅 구매(smart),
+// 이벤트 0번, 유물 첫 번째, 루트 순환(런마다 시작점 회전), 경기는 match.simulateAuto (A안 자동).
+// 출력: 시즌별 목표 경기 승률, 평균 최종 스탯, 등급 분포, 런당 부상·우정 훈련, 경기 지표(골, 액티브·필살기·합체기·간파 사용,
+// 크로스·헤더, 수비·공격 선택 분포, 짝 비율) — 전체 경기와 시즌별 목표 경기로 나눠서. 종료 코드 0.
 //
-// --manualOracle : 경기마다 같은 setup·seed 로 사본을 만들어 (a) 완전 오라클(상대의 커밋된 선택을 항상 알고
-//                  기대값 최대 액션), (b) 화면 공개 정보만 쓰는 오라클(visible), (c) 의도 정보 없는 자동(blind) 을
-//                  추가로 돌린다. 런 자체는 자동 결과로 이어가므로 육성 경로는 동일 → 결정 방식의 순수 효과만 측정.
-// --set          : data.config 값을 메모리에서 덮어쓴다 (예: --set match.actionCoef.save=0.85). 파일은 바꾸지 않는다.
-// --oppScale     : 상대 스탯을 시즌별로 배율 적용(10 단위 반올림, 메모리만). s2=1.03 은 시즌2 goal+friendly 전부.
+// --set      : data.config 값을 메모리에서 덮어쓴다 (예: --set match.readBonus=1.4). 파일은 바꾸지 않는다.
+// --oppScale : 상대 스탯을 시즌별(s2=1.03) 또는 팀별(op_s3_emberthrone=1.05) 배율 적용 (10 단위 반올림, 메모리만).
+// 수동 결정 방식 비교(기대 % 최고 / 무작위 / 짝 맞힘 / 버티기)와 스킬 끄기 변형은 tools/choice.mjs.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as run from "../js/engine/run.js";
 import * as match from "../js/engine/match.js";
-import { computeOdds } from "../js/engine/match.js";
-import { chooseSkill } from "../js/engine/ai.js";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const STATS = ["shoot", "dribble", "pass", "defense", "physical"];
 const GRADES = ["S", "A", "B", "C", "D", "E", "F", "G"];
 const STAMINA_BUCKETS = [">=60", "40~59", "20~39", "<20"];
-const ORACLE_MODES = ["perfect", "visible", "blind"];
+export const DATA_FILES = ["config", "characters", "supports", "events", "skills", "relics", "opponents", "routes", "traits", "combos"];
+const OPTIONAL_FILES = new Set(["traits", "combos"]);
+const ATK_ACTIONS = ["dribble", "pass", "cross", "shoot"];
+const DEF_ACTIONS = ["tackle", "intercept", "hold"];
+const LINK_IDS = ["killpass", "runner", "oneTouch", "header", "combo"];
 
 export function parseArgs(argv) {
-  const out = { runs: 300, seed: 1, policy: "smart", json: false, manualOracle: false, sets: [], oppScale: "" };
+  const out = { runs: 300, seed: 1, policy: "smart", json: false, sets: [], oppScale: "" };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--runs") out.runs = Math.max(1, parseInt(argv[++i], 10) || 300);
     else if (a === "--seed") out.seed = argv[++i] ?? 1;
     else if (a === "--policy") out.policy = argv[++i] || "smart";
     else if (a === "--json") out.json = true;
-    else if (a === "--manualOracle") out.manualOracle = true;
     else if (a === "--set") out.sets.push(argv[++i] || "");
     else if (a === "--oppScale") out.oppScale = argv[++i] || "";
     else if (a === "--help" || a === "-h") {
-      console.log("usage: node tools/sim.mjs --runs N --seed S [--policy smart|train] [--json] [--manualOracle] [--set a.b=v ...] [--oppScale s2=1.03,s3=1.02]");
+      console.log("usage: node tools/sim.mjs --runs N --seed S [--policy smart|train] [--json] [--set a.b=v ...] [--oppScale s2=1.03,op_id=1.05]");
+      console.log("수동 결정 방식·스킬 끄기 비교는 node tools/choice.mjs");
       process.exit(0);
     }
   }
   return out;
 }
 
-export function loadData() {
+/** data/*.json 번들. traits·combos 는 없으면 건너뛴다(엔진 기본값). */
+export function loadData(root = ROOT) {
   const data = {};
-  for (const n of ["config", "characters", "supports", "events", "skills", "relics", "opponents", "routes"]) {
-    data[n] = JSON.parse(fs.readFileSync(path.join(ROOT, "data", `${n}.json`), "utf8"));
+  for (const n of DATA_FILES) {
+    const p = path.join(root, "data", `${n}.json`);
+    if (OPTIONAL_FILES.has(n) && !fs.existsSync(p)) continue;
+    data[n] = JSON.parse(fs.readFileSync(p, "utf8"));
   }
   return data;
 }
@@ -55,6 +59,7 @@ export function loadData() {
 /** --set a.b.c=value → data.config 경로에 대입 (JSON 파싱 가능하면 파싱). */
 export function applyConfigOverrides(config, sets) {
   for (const s of sets) {
+    if (!s) continue;
     const eq = s.indexOf("=");
     if (eq < 0) throw new Error(`--set 형식은 path=value 입니다: ${s}`);
     const keys = s.slice(0, eq).split(".").filter(Boolean);
@@ -73,113 +78,149 @@ export function applyConfigOverrides(config, sets) {
 
 /**
  * 상대 스탯 배율. spec "s1=1.0,s2=1.03,s3=1.02" (시즌 전체) 또는 "op_s2_silverleaf=1.05" (특정 팀).
- * 10 단위 반올림. 파일은 건드리지 않는다.
+ * "cap=1000" 을 넣으면 배율 적용한 스탯을 그 값으로 자른다 (배율이 1 이 아닌 팀만). 10 단위 반올림. 파일은 건드리지 않는다.
  */
 export function scaleOpponents(opponents, spec) {
   if (!spec) return opponents;
-  const rules = spec.split(",").map((x) => x.trim()).filter(Boolean).map((x) => {
+  let cap = Infinity;
+  const rules = [];
+  for (const x of spec.split(",").map((s) => s.trim()).filter(Boolean)) {
     const [k, v] = x.split("=");
     const f = Number(v);
-    if (!k || !Number.isFinite(f)) throw new Error(`--oppScale 형식은 s2=1.03 또는 op_id=1.03 입니다: ${x}`);
-    return { key: k, factor: f };
-  });
+    if (!k || !Number.isFinite(f)) throw new Error(`--oppScale 형식은 s2=1.03 또는 op_id=1.03 (cap=1000) 입니다: ${x}`);
+    if (k === "cap") cap = f;
+    else rules.push({ key: k, factor: f });
+  }
   for (const op of opponents) {
     let f = 1;
     for (const r of rules) {
       if (r.key === op.id || r.key === `s${op.season}`) f *= r.factor;
     }
     if (f === 1) continue;
-    for (const p of op.players) for (const k of Object.keys(p.stats)) p.stats[k] = Math.round((p.stats[k] * f) / 10) * 10;
+    for (const p of op.players) {
+      for (const k of Object.keys(p.stats)) p.stats[k] = Math.min(cap, Math.round((p.stats[k] * f) / 10) * 10);
+    }
   }
   return opponents;
 }
 
 /* ------------------------------------------------------------------ */
-/* 수동 개입 오라클                                                        */
+/* 경기 지표 (v0.3)                                                       */
 /* ------------------------------------------------------------------ */
 
-function fwShooterAfterPass(team, carrierId) {
-  const c = team.players.filter((p) => p.position === "FW" && p.id !== carrierId);
-  c.sort((a, b) => (b.stats.shoot || 0) - (a.stats.shoot || 0));
-  return c[0] || null;
-}
+const FIELD_BEATS = new Set(["duel", "turnover", "goal", "save"]);
 
-/** line 2 에서 전진 후 GK 상대 슛 성공률 추정 (상태 변경 없음) */
-function gkShotOdds(ms, data, action) {
-  const gk = ms.away.players.find((p) => p.position === "GK");
-  if (!gk) return 0.5;
-  let shooterId = ms.ball.carrierId;
-  if (action === "pass") {
-    const r = fwShooterAfterPass(ms.home, shooterId);
-    if (r) shooterId = r.id;
-  }
-  const pseudo = {
-    ...ms,
-    ball: { ...ms.ball, lineIndex: 3, carrierId: shooterId, chain: (ms.ball.chain || 0) + (action === "pass" ? 1 : 0) },
-    duel: { ...ms.duel, defenderId: gk.id, coverCount: 0 },
-  };
-  return computeOdds(pseudo, data, { action: "shoot", defAction: null, useEffects: false }).p;
-}
-
-/** 공격 액션 a 의 기대 골 가치 (수비 선택 d 가 알려졌을 때) */
-function attackValue(ms, data, a, d) {
-  const p = computeOdds(ms, data, { action: a, defAction: d }).p;
-  if (a === "shoot") return p; // 중거리 슛 = 즉시 골
-  if (ms.ball.lineIndex < 2) return p; // 한 라인 전진
-  return p * gkShotOdds(ms, data, a); // DF 라인 돌파 후 GK 슛
+/** 필살기 보유자 수 (게이지가 있는 선수) */
+function holderCount(team) {
+  return Object.values(team.live || {}).filter((l) => l && l.gauge != null).length;
 }
 
 /**
- * mode "perfect": 상대의 커밋된 선택을 그대로 안다. "visible": 화면에 공개된 intent 만 쓴다.
- * 정보가 없으면 null (AI 자동 결정). 스킬은 AI 와 같은 정책(chooseSkill)으로 골라 조건을 같게 한다.
+ * 끝난 경기 한 판의 지표. side 별 숫자는 { home, away } 가 아니라 평평한 키(…H / …A)로 둬서 합산이 쉽다.
+ * - active: 일반 액티브 발동(stats.skillsUsed, 간파 스킬 포함·사용권 제외), ult: 필살기 컷인(합체기 포함), combo: 합체기
+ * - gaanpa: 간파(스킬 + 사용권), holders: 필살기 보유자 수
+ * - cross / crossOk: 크로스 시도·성공, header / headerGoal: 헤더 슛·골, links.*: 연계 문구 발생
+ * - atk.* / def.*: 필드 듀얼(line 0~2)의 공격·수비 선택 (판정에 쓰인 액션 — 간파 교체 후)
+ * - pairRead / pairMiss / pairHold: 필드 듀얼에서 수비가 짝을 맞힘 / 빗나감 / 버티기
+ * - midH / midA / midGoal*: 파이널 서드 중거리 슛(필살 슛 제외 — 전술 슛 타이밍 효과 확인용)
  */
-export function oracleDecision(ms, data, mode) {
-  if (ms.finished || ms.phase !== "decision" || !ms.duel) return null;
-  const view = match.getMatchView(ms, data, "home");
-  const need = view.needsDecision;
-  if (!need) return null;
-  const enabled = view.actions.filter((a) => a.enabled).map((a) => a.action);
-  if (!enabled.length) return null;
-  let known = [];
-  if (mode === "perfect") {
-    const opp = ms.duel.awayChoice;
-    if (opp && opp.action && opp.action !== "save") known = [opp.action];
-  } else if (view.intent && view.intent.candidates && view.intent.candidates.length) {
-    known = view.intent.candidates.slice();
-  }
-  if (!known.length) return null;
-  let action = null;
-  let best = -Infinity;
-  if (need === "defense") {
-    for (const d of enabled) {
-      let s = 0;
-      for (const a of known) s += 1 - computeOdds(ms, data, { action: a, defAction: d }).p;
-      s /= known.length;
-      if (s > best) { best = s; action = d; }
+export function matchMetrics(ms) {
+  const r = match.getResult(ms);
+  const st = ms.stats;
+  const o = {
+    goalsH: r.homeGoals, goalsA: r.awayGoals,
+    activeH: st.home.skillsUsed || 0, activeA: st.away.skillsUsed || 0,
+    ultH: st.home.ultimatesUsed || 0, ultA: st.away.ultimatesUsed || 0,
+    comboH: st.home.combos || 0, comboA: st.away.combos || 0,
+    gaanpaH: st.home.gaanpaUsed || 0, gaanpaA: st.away.gaanpaUsed || 0,
+    holdersH: holderCount(ms.home), holdersA: holderCount(ms.away),
+    ultShot: 0, ultPass: 0, ultSave: 0, ultShotGoal: 0,
+    cross: 0, crossOk: 0, header: 0, headerGoal: 0,
+    midH: 0, midA: 0, midGoalH: 0, midGoalA: 0,
+    fieldDuels: 0, pairRead: 0, pairMiss: 0, pairHold: 0,
+    extraTime: ms.stage !== "regular" ? 1 : 0, penalties: r.penalties ? 1 : 0,
+  };
+  for (const a of ATK_ACTIONS) o[`atk_${a}`] = 0;
+  for (const d of DEF_ACTIONS) o[`def_${d}`] = 0;
+  for (const l of LINK_IDS) o[`link_${l}`] = 0;
+  for (const e of ms.events) {
+    if (e.type === "cutin") {
+      if (e.ultimateType === "shot") o.ultShot++;
+      else if (e.ultimateType === "pass") o.ultPass++;
+      else if (e.ultimateType === "save") o.ultSave++;
+      continue;
     }
-  } else {
-    for (const a of enabled) {
-      let s = 0;
-      for (const d of known) s += attackValue(ms, data, a, d);
-      s /= known.length;
-      if (s > best) { best = s; action = a; }
+    if (!FIELD_BEATS.has(e.type) || !e.action) continue;
+    if (e.type === "goal" && e.ultimate && e.action === "shoot") o.ultShotGoal++;
+    for (const l of e.links || []) if (`link_${l.id}` in o) o[`link_${l.id}`]++;
+    if (e.header) {
+      o.header++;
+      if (e.type === "goal") o.headerGoal++;
     }
+    if (e.defAction === "save") continue;
+    if (e.action === "shoot" && e.step === 2 && !e.ultimate) {
+      const h = e.attackingSide === "home";
+      o[h ? "midH" : "midA"]++;
+      if (e.type === "goal") o[h ? "midGoalH" : "midGoalA"]++;
+    }
+    o.fieldDuels++;
+    if (`atk_${e.action}` in o) o[`atk_${e.action}`]++;
+    if (`def_${e.defAction}` in o) o[`def_${e.defAction}`]++;
+    if (e.action === "cross") {
+      o.cross++;
+      if (e.success) o.crossOk++;
+    }
+    if (e.defAction === "hold" && e.pair !== "read") o.pairHold++;
+    else if (e.pair === "read") o.pairRead++;
+    else if (e.pair === "miss") o.pairMiss++;
   }
-  if (!action) return null;
-  const pid = need === "attack" ? ms.ball.carrierId : ms.duel.defenderId;
-  const participant = ms.home.players.find((p) => p.id === pid);
-  const skillId = participant ? chooseSkill(ms, data, "home", participant, need, action) : null;
-  return { action, skillId };
+  return o;
 }
 
-function driveMatch(ms, data, mode) {
-  let guard = 0;
-  while (!ms.finished) {
-    const d = mode === "perfect" || mode === "visible" ? oracleDecision(ms, data, mode) : null;
-    match.step(ms, data, d);
-    if (++guard > 20000) throw new Error("sim: 경기가 끝나지 않습니다");
-  }
-  return match.getResult(ms);
+/** 지표 누적기: add(metrics) 로 더하고 n 으로 나눠 평균 */
+export function newAcc() {
+  return { n: 0, wins: 0, sum: {} };
+}
+
+export function accAdd(acc, mm, win = false) {
+  acc.n++;
+  if (win) acc.wins++;
+  for (const [k, v] of Object.entries(mm)) acc.sum[k] = (acc.sum[k] || 0) + v;
+}
+
+/** 누적기 → 경기당 평균 + 파생 지표 */
+export function accSummary(acc) {
+  const n = acc.n || 0;
+  const s = acc.sum;
+  const avg = (k) => (n ? (s[k] || 0) / n : 0);
+  const ratio = (a, b) => ((s[b] || 0) ? (s[a] || 0) / s[b] : 0);
+  const field = s.fieldDuels || 0;
+  return {
+    matches: n,
+    winRate: n ? acc.wins / n : 0,
+    goalsPerMatch: avg("goalsH") + avg("goalsA"),
+    homeGoals: avg("goalsH"), awayGoals: avg("goalsA"),
+    activeHome: avg("activeH"), activeAway: avg("activeA"),
+    ultHome: avg("ultH"), ultAway: avg("ultA"),
+    ultPerHolderHome: ratio("ultH", "holdersH"), ultPerHolderAway: ratio("ultA", "holdersA"),
+    holdersHome: avg("holdersH"), holdersAway: avg("holdersA"),
+    combos: avg("comboH") + avg("comboA"), combosHome: avg("comboH"),
+    gaanpaHome: avg("gaanpaH"), gaanpaAway: avg("gaanpaA"),
+    ultShot: avg("ultShot"), ultPass: avg("ultPass"), ultSave: avg("ultSave"),
+    ultShotGoalRate: ratio("ultShotGoal", "ultShot"),
+    cross: avg("cross"), crossSuccess: ratio("crossOk", "cross"),
+    header: avg("header"), headerGoalRate: ratio("headerGoal", "header"),
+    midrangeHome: avg("midH"), midrangeAway: avg("midA"),
+    midrangeGoalRateHome: ratio("midGoalH", "midH"), midrangeGoalRateAway: ratio("midGoalA", "midA"),
+    links: Object.fromEntries(LINK_IDS.map((l) => [l, avg(`link_${l}`)])),
+    attackMix: Object.fromEntries(ATK_ACTIONS.map((a) => [a, field ? (s[`atk_${a}`] || 0) / field : 0])),
+    defenseMix: Object.fromEntries(DEF_ACTIONS.map((d) => [d, field ? (s[`def_${d}`] || 0) / field : 0])),
+    pairRead: field ? (s.pairRead || 0) / field : 0,
+    pairMiss: field ? (s.pairMiss || 0) / field : 0,
+    pairHold: field ? (s.pairHold || 0) / field : 0,
+    fieldDuelsPerMatch: avg("fieldDuels"),
+    extraTimeRate: avg("extraTime"), penaltyRate: avg("penalties"),
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -193,21 +234,22 @@ function staminaBucket(st) {
 function newMetrics() {
   return {
     injuries: 0, friendship: 0, trains: 0, rests: 0, meetings: 0, events: 0, relics: 0,
-    goalsHome: 0, goalsAway: 0, matches: 0, friendlies: 0, penalties: 0, extraTime: 0, skillUses: 0,
+    goalsHome: 0, goalsAway: 0, matches: 0, friendlies: 0, penalties: 0, extraTime: 0,
     injuredMatchSlots: 0, hints: 0, learned: 0,
     trainedPlayers: 0, trainFails: 0, expectedFails: 0, staminaBuckets: [0, 0, 0, 0], trainInjuries: 0, eventInjuries: 0,
     spEarned: 0,
   };
 }
 
-function emptyOracleRec() {
-  return { wins: [0, 0, 0], goalsHome: 0, goalsAway: 0, matches: 0, penalties: 0 };
-}
-
-function simulateOne(data, seed, routeStart, policy, oracle) {
+/**
+ * 런 1회 자동 완주.
+ * @param {{ onMatch?: (info: { setup, season, kind, ms, result, state }) => void }} [hooks]
+ *   onMatch 는 경기 직후(finishMatch 전) 호출된다. setup 은 run.getMatchSetup 반환값(사본 아님 — 필요하면 복사).
+ */
+export function simulateOne(data, seed, routeStart, policy, hooks = {}) {
   const state = run.createRun({ data, seed });
   const m = newMetrics();
-  const oracleRec = oracle ? Object.fromEntries(ORACLE_MODES.map((k) => [k, emptyOracleRec()])) : null;
+  const matchAcc = { all: newAcc(), goal: [newAcc(), newAcc(), newAcc()] };
   let routeIdx = routeStart;
   let guard = 0;
   const injuredBefore = () => new Set(state.players.filter((p) => p.injuredTurns > 0).map((p) => p.id));
@@ -252,9 +294,9 @@ function simulateOne(data, seed, routeStart, policy, oracle) {
       for (const p of state.players) if (p.injuredTurns > 0 && !inj0.has(p.id)) { m.injuries++; m.eventInjuries++; }
     } else if (phase === "match") {
       const setup = run.getMatchSetup(state, data);
+      const season = state.season;
       m.injuredMatchSlots += setup.home.players.filter((p) => p.isYouth).length;
-      const mk = (home, away) => match.createMatch({ data, seed: setup.seed, home, away, possessions: setup.possessions, kind: setup.kind });
-      const ms = mk(setup.home, setup.away);
+      const ms = match.createMatch({ data, seed: setup.seed, home: setup.home, away: setup.away, possessions: setup.possessions, kind: setup.kind });
       match.simulateAuto(ms, data);
       const r = match.getResult(ms);
       m.matches++;
@@ -263,25 +305,11 @@ function simulateOne(data, seed, routeStart, policy, oracle) {
       m.goalsAway += r.awayGoals;
       if (r.penalties) m.penalties++;
       if (ms.stage !== "regular") m.extraTime++;
-      m.skillUses += ms.events.filter((e) => e.type === "skill" || e.type === "cutin").length;
-      if (oracleRec) {
-        for (const mode of ORACLE_MODES) {
-          let home = setup.home;
-          let away = setup.away;
-          if (mode === "blind") {
-            away = { ...setup.away, intentReveal: "none" };
-            home = { ...setup.home, modifiers: { ...(setup.home.modifiers || {}), intentReveal: 0 } };
-          }
-          const mo = mk(home, away);
-          const ro = driveMatch(mo, data, mode);
-          const rec = oracleRec[mode];
-          rec.matches++;
-          rec.goalsHome += ro.homeGoals;
-          rec.goalsAway += ro.awayGoals;
-          if (ro.penalties) rec.penalties++;
-          if (setup.kind === "goal" && ro.winner === "home") rec.wins[state.season - 1]++;
-        }
-      }
+      const mm = matchMetrics(ms);
+      const win = r.winner === "home";
+      accAdd(matchAcc.all, mm, win);
+      if (setup.kind === "goal" && season >= 1 && season <= 3) accAdd(matchAcc.goal[season - 1], mm, win);
+      if (hooks.onMatch) hooks.onMatch({ setup, season, kind: setup.kind, ms, result: r, state });
       const sp0 = state.skillPoints;
       run.finishMatch(state, data, r);
       m.spEarned += state.skillPoints - sp0;
@@ -298,7 +326,28 @@ function simulateOne(data, seed, routeStart, policy, oracle) {
   const { rating } = run.finalizeRun(state, data);
   m.hints = Object.values(state.hints).reduce((a, b) => a + b, 0);
   m.learned = state.players.reduce((a, p) => a + p.learnedSkillIds.length, 0);
-  return { state, rating, m, oracleRec };
+  return { state, rating, m, matchAcc };
+}
+
+/**
+ * 자동 런 N회에서 목표 경기 셋업을 시즌별로 모은다 (tools/choice.mjs 용). 런 진행은 runSim 과 같은 정책·시드 규칙.
+ * @returns {{ 1: object[], 2: object[], 3: object[] }} 각 원소 = { home, away, possessions, kind, seed, opponentId, runSeed }
+ */
+export function collectGoalSetups(data, { runs = 60, seed = 1, policy = "smart" } = {}) {
+  const out = { 1: [], 2: [], 3: [] };
+  for (let i = 0; i < runs; i++) {
+    const runSeed = `${seed}-${i}`;
+    simulateOne(data, runSeed, i % 3, policy, {
+      onMatch: ({ setup, season, kind }) => {
+        if (kind !== "goal" || !out[season]) return;
+        out[season].push(JSON.parse(JSON.stringify({
+          home: setup.home, away: setup.away, possessions: setup.possessions, kind: setup.kind, seed: setup.seed,
+          opponentId: setup.opponentId, runSeed,
+        })));
+      },
+    });
+  }
+  return out;
 }
 
 /* ------------------------------------------------------------------ */
@@ -306,13 +355,22 @@ function simulateOne(data, seed, routeStart, policy, oracle) {
 /* ------------------------------------------------------------------ */
 
 function pct(x) { return `${(x * 100).toFixed(1)}%`; }
-function pp(x) { return `${x >= 0 ? "+" : ""}${(x * 100).toFixed(1)}pp`; }
 function fmt(x, d = 2) { return Number.isFinite(x) ? x.toFixed(d) : "-"; }
 function pad(s, n) { s = String(s); return s.length >= n ? s : s + " ".repeat(n - s.length); }
 function rpad(s, n) { s = String(s); return s.length >= n ? s : " ".repeat(n - s.length) + s; }
-function table(rows) {
-  const w = rows[0].map((_, i) => Math.max(...rows.map((r) => String(r[i]).length)));
-  return rows.map((r) => r.map((c, i) => (i === 0 ? pad(c, w[i]) : rpad(c, w[i]))).join("  ")).join("\n");
+function strWidth(s) {
+  // 한글 등 전각 문자는 폭 2
+  let w = 0;
+  for (const ch of String(s)) w += /[ᄀ-ᇿ　-鿿가-힯＀-￯]/.test(ch) ? 2 : 1;
+  return w;
+}
+export function table(rows) {
+  const w = rows[0].map((_, i) => Math.max(...rows.map((r) => strWidth(r[i]))));
+  const padW = (s, n, right) => {
+    const d = n - strWidth(s);
+    return d <= 0 ? String(s) : right ? " ".repeat(d) + s : s + " ".repeat(d);
+  };
+  return rows.map((r) => r.map((c, i) => padW(String(c), w[i], i !== 0)).join("  ")).join("\n");
 }
 function medianGradeOf(list) {
   const idx = list.map((g) => GRADES.indexOf(g)).sort((a, b) => a - b);
@@ -340,11 +398,17 @@ export function runSim(data, args) {
   const buckets = [0, 0, 0, 0];
   let lossesTotal = 0;
   const lossDist = [0, 0, 0, 0];
-  const oracleTot = args.manualOracle ? Object.fromEntries(ORACLE_MODES.map((k) => [k, emptyOracleRec()])) : null;
+  const allAcc = newAcc();
+  const goalAcc = [newAcc(), newAcc(), newAcc()];
+  const mergeAcc = (a, b) => {
+    a.n += b.n;
+    a.wins += b.wins;
+    for (const [k, v] of Object.entries(b.sum)) a.sum[k] = (a.sum[k] || 0) + v;
+  };
 
   for (let i = 0; i < N; i++) {
     const seed = `${args.seed}-${i}`;
-    const { state, rating, m, oracleRec } = simulateOne(data, seed, i % 3, args.policy, args.manualOracle);
+    const { state, rating, m, matchAcc } = simulateOne(data, seed, i % 3, args.policy);
     for (const g of state.record.goalMatches) {
       played[g.season - 1]++;
       if (g.win) wins[g.season - 1]++;
@@ -362,14 +426,8 @@ export function runSim(data, args) {
       if (Array.isArray(v)) { v.forEach((x, j) => { buckets[j] += x; }); continue; }
       tot[k] = (tot[k] || 0) + v;
     }
-    if (oracleRec) {
-      for (const mode of ORACLE_MODES) {
-        const a = oracleTot[mode];
-        const b = oracleRec[mode];
-        for (let s = 0; s < 3; s++) a.wins[s] += b.wins[s];
-        a.goalsHome += b.goalsHome; a.goalsAway += b.goalsAway; a.matches += b.matches; a.penalties += b.penalties;
-      }
-    }
+    mergeAcc(allAcc, matchAcc.all);
+    for (let s = 0; s < 3; s++) mergeAcc(goalAcc[s], matchAcc.goal[s]);
   }
   const nPlayers = 7 * N;
   const avgStats = Object.fromEntries(STATS.map((s) => [s, statSum[s] / nPlayers]));
@@ -378,7 +436,7 @@ export function runSim(data, args) {
   const median = scores[Math.floor(scores.length / 2)];
   const ms = Date.now() - t0;
 
-  const summary = {
+  return {
     runs: N, seed: args.seed, policy: args.policy, ms,
     overrides: { sets: args.sets, oppScale: args.oppScale },
     winRate: played.map((p, i) => (p ? wins[i] / p : 0)),
@@ -392,7 +450,7 @@ export function runSim(data, args) {
     matchesPerRun: tot.matches / N, friendliesPerRun: tot.friendlies / N,
     penaltyRate: tot.penalties / tot.matches, extraTimeRate: tot.extraTime / tot.matches,
     eventsPerRun: tot.events / N, restsPerRun: tot.rests / N, trainsPerRun: tot.trains / N, meetingsPerRun: tot.meetings / N,
-    relicsPerRun: tot.relics / N, skillUsesPerMatch: tot.skillUses / tot.matches,
+    relicsPerRun: tot.relics / N,
     hintsPerRun: tot.hints / N, learnedPerRun: tot.learned / N, youthSlotsPerRun: tot.injuredMatchSlots / N,
     spEarnedPerRun: tot.spEarned / N,
     training: {
@@ -402,28 +460,44 @@ export function runSim(data, args) {
       expectedFailRate: tot.trainedPlayers ? tot.expectedFails / tot.trainedPlayers : 0,
       staminaBuckets: Object.fromEntries(STAMINA_BUCKETS.map((b, i) => [b, tot.trainedPlayers ? buckets[i] / tot.trainedPlayers : 0])),
     },
-    oracle: null,
+    // v0.3 경기 지표: 전체 경기(친선 포함) + 시즌별 목표 경기
+    matchStats: { all: accSummary(allAcc), goal: goalAcc.map(accSummary) },
   };
-  if (oracleTot) {
-    summary.oracle = {};
-    for (const mode of ORACLE_MODES) {
-      const o = oracleTot[mode];
-      summary.oracle[mode] = {
-        winRate: played.map((p, i) => (p ? o.wins[i] / p : 0)),
-        goalsPerMatch: o.matches ? (o.goalsHome + o.goalsAway) / o.matches : 0,
-        homeGoalsPerMatch: o.matches ? o.goalsHome / o.matches : 0,
-        awayGoalsPerMatch: o.matches ? o.goalsAway / o.matches : 0,
-        penaltyRate: o.matches ? o.penalties / o.matches : 0,
-      };
-    }
-  }
-  return summary;
+}
+
+/** 경기 지표 표 (전체 / S1~S3 목표 경기). cols = [[제목, accSummary]] */
+export function matchStatsTable(cols) {
+  const row = (label, f, target = "") => [label, ...cols.map(([, s]) => (s && s.matches ? f(s) : "-")), target];
+  const mix = (o, keys, short) => keys.map((k) => `${short[k]}${Math.round(o[k] * 100)}`).join("/");
+  const A = { dribble: "드", pass: "패", cross: "크", shoot: "슛" };
+  const D = { tackle: "태", intercept: "인", hold: "버" };
+  return table([
+    ["지표", ...cols.map(([t]) => t), "목표"],
+    row("경기 수", (s) => s.matches),
+    row("우리 승률", (s) => pct(s.winRate), "70~80/50~60/35~45"),
+    row("골/경기 (우리/상대)", (s) => `${fmt(s.goalsPerMatch)} (${fmt(s.homeGoals)}/${fmt(s.awayGoals)})`, "1.5~3.5"),
+    row("일반 액티브/경기 우리/상대", (s) => `${fmt(s.activeHome)} / ${fmt(s.activeAway)}`, "팀당 3~4"),
+    row("필살기/보유자·경기 우리/상대", (s) => `${fmt(s.ultPerHolderHome)} / ${s.holdersAway ? fmt(s.ultPerHolderAway) : "-"}`, "1~2"),
+    row("필살기/경기 우리 (보유자 수)", (s) => `${fmt(s.ultHome)} (${fmt(s.holdersHome, 1)})`),
+    row("필살 슛/패스/세이브 (경기당)", (s) => `${fmt(s.ultShot)}/${fmt(s.ultPass)}/${fmt(s.ultSave)}`),
+    row("필살 슛 골 확률", (s) => (s.ultShot ? pct(s.ultShotGoalRate) : "-"), "80%대"),
+    row("합체기/경기", (s) => fmt(s.combos, 3)),
+    row("간파/경기 우리/상대", (s) => `${fmt(s.gaanpaHome)} / ${fmt(s.gaanpaAway)}`),
+    row("크로스/경기 (성공률)", (s) => `${fmt(s.cross)} (${s.cross ? pct(s.crossSuccess) : "-"})`),
+    row("헤더 슛/경기 (골 확률)", (s) => `${fmt(s.header)} (${s.header ? pct(s.headerGoalRate) : "-"})`),
+    row("중거리 슛/경기 우리/상대 (골%)", (s) => `${fmt(s.midrangeHome)}/${fmt(s.midrangeAway)} (${s.midrangeHome ? Math.round(s.midrangeGoalRateHome * 100) : "-"}/${s.midrangeAway ? Math.round(s.midrangeGoalRateAway * 100) : "-"})`),
+    row("연계 킬패스/침투/원터치", (s) => `${fmt(s.links.killpass)}/${fmt(s.links.runner)}/${fmt(s.links.oneTouch)}`),
+    row("필드 듀얼/경기", (s) => fmt(s.fieldDuelsPerMatch, 1)),
+    row("공격 선택 % 드/패/크/슛", (s) => mix(s.attackMix, ATK_ACTIONS, A)),
+    row("수비 선택 % 태/인/버", (s) => mix(s.defenseMix, DEF_ACTIONS, D)),
+    row("수비 짝/빗나감/버티기 %", (s) => `${Math.round(s.pairRead * 100)}/${Math.round(s.pairMiss * 100)}/${Math.round(s.pairHold * 100)}`),
+    row("연장 / 승부차기", (s) => `${pct(s.extraTimeRate)} / ${pct(s.penaltyRate)}`),
+  ]);
 }
 
 export function printSummary(summary) {
   const s = summary;
-  const N = s.runs;
-  console.log(`sim: ${N} runs, seed ${s.seed}, policy ${s.policy}, ${s.ms} ms`);
+  console.log(`sim: ${s.runs} runs, seed ${s.seed}, policy ${s.policy}, ${s.ms} ms`);
   if (s.overrides.sets.length || s.overrides.oppScale) {
     console.log(`overrides: ${s.overrides.sets.join(" ")}${s.overrides.oppScale ? ` oppScale ${s.overrides.oppScale}` : ""}`);
   }
@@ -466,31 +540,9 @@ export function printSummary(summary) {
     ["실패 / 런 (관측 실패율 / 기대 실패율)", `${fmt(tr.failsPerRun)} (${pct(tr.observedFailRate)} / ${pct(tr.expectedFailRate)})`],
     ["훈련 시 체력 분포 " + STAMINA_BUCKETS.join(" / "), STAMINA_BUCKETS.map((b) => pct(tr.staminaBuckets[b])).join(" / ")],
   ]));
-  console.log("\n[경기]");
-  console.log(table([
-    ["지표", "값", "목표"],
-    ["평균 골 / 경기 (합)", fmt(s.goalsPerMatch), "1.5~3.5"],
-    ["우리 골 / 상대 골", `${fmt(s.homeGoalsPerMatch)} / ${fmt(s.awayGoalsPerMatch)}`, ""],
-    ["연장 비율 / 승부차기 비율", `${pct(s.extraTimeRate)} / ${pct(s.penaltyRate)}`, ""],
-    ["액티브 스킬 발동 / 경기", fmt(s.skillUsesPerMatch), ""],
-  ]));
-  if (s.oracle) {
-    console.log("\n[수동 개입 이득]  같은 경기(setup·seed 동일)를 결정 방식만 바꿔 재생. 기준: 시즌1 오라클 - 자동 = 5~15pp");
-    const rows = [["결정 방식", "S1 승률", "S2 승률", "S3 승률", "골/경기(우리/상대)", "승부차기"]];
-    rows.push(["자동(AI)", ...s.winRate.map(pct), `${fmt(s.goalsPerMatch)} (${fmt(s.homeGoalsPerMatch)}/${fmt(s.awayGoalsPerMatch)})`, pct(s.penaltyRate)]);
-    const label = { perfect: "완전 오라클(항상 안다)", visible: "화면 공개 정보만", blind: "자동(의도 정보 없음)" };
-    for (const mode of ORACLE_MODES) {
-      const o = s.oracle[mode];
-      rows.push([label[mode], ...o.winRate.map(pct), `${fmt(o.goalsPerMatch)} (${fmt(o.homeGoalsPerMatch)}/${fmt(o.awayGoalsPerMatch)})`, pct(o.penaltyRate)]);
-    }
-    console.log(table(rows));
-    const d = s.oracle.perfect.winRate.map((w, i) => w - s.winRate[i]);
-    const dv = s.oracle.visible.winRate.map((w, i) => w - s.winRate[i]);
-    const db = s.winRate.map((w, i) => w - s.oracle.blind.winRate[i]);
-    console.log(`완전 오라클 - 자동: S1 ${pp(d[0])} / S2 ${pp(d[1])} / S3 ${pp(d[2])}`);
-    console.log(`화면 정보 오라클 - 자동: S1 ${pp(dv[0])} / S2 ${pp(dv[1])} / S3 ${pp(dv[2])}`);
-    console.log(`자동 - 의도 정보 없는 자동 (공개 정보 자체의 가치): S1 ${pp(db[0])} / S2 ${pp(db[1])} / S3 ${pp(db[2])}`);
-  }
+  console.log("\n[경기]  (자동 A안 · 전체 = 친선 포함 모든 경기, S1~S3 = 시즌별 목표 경기)");
+  const ms = s.matchStats;
+  console.log(matchStatsTable([["전체", ms.all], ["S1 목표", ms.goal[0]], ["S2 목표", ms.goal[1]], ["S3 목표", ms.goal[2]]]));
 }
 
 function main() {
@@ -503,15 +555,15 @@ function main() {
   else printSummary(summary);
 }
 
-function isEntry() {
+export function isEntry(metaUrl) {
   try {
-    return path.resolve(process.argv[1] || "").toLowerCase() === fileURLToPath(import.meta.url).toLowerCase();
+    return path.resolve(process.argv[1] || "").toLowerCase() === fileURLToPath(metaUrl).toLowerCase();
   } catch {
     return false;
   }
 }
 
-if (isEntry()) {
+if (isEntry(import.meta.url)) {
   main();
   process.exitCode = 0;
 }

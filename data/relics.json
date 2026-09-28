@@ -17,8 +17,8 @@
     "id": "rl_coach_notebook",
     "name": "감독의 수첩",
     "rarity": "SSR",
-    "description": "상대 의도가 한 단계 더 공개됨",
-    "modifiers": { "intentReveal": 1 }
+    "description": "경기마다 간파 사용권 1회 (텐션 없이 사용). 간파 스킬은 텐션 비용 -50%",
+    "modifiers": { "gaanpaTicket": 1, "gaanpaCostHalf": 1 }
   },
   {
     "id": "rl_cracked_trophy",

@@ -2,10 +2,46 @@
  * effects.js — 이벤트·루트·유물 효과 적용 (ARCHITECTURE §4.4 효과 타입 13종).
  *
  * applyEffects(state, data, effects, ctx) 는 진입 시 state.rngState 로 rng 를 만들고 종료 시 저장한다.
- * 알 수 없는 type 이면 throw.
+ * 알 수 없는 type, 알 수 없는 modifier key 면 throw.
  */
 import { createRngFromState } from "./rng.js";
 import { STATS, clamp, mainStatOf, indexById, getModifier, MAX_HINT_LEVEL } from "./training.js";
+
+/**
+ * modifier 키 (§6.7, v0.3 갱신). 유물·루트·이벤트가 쓸 수 있는 키는 이것뿐이다.
+ * v0.3 (ARCHITECTURE §13.5): `intentReveal` 삭제(의도 공개 폐지),
+ *   `gaanpaTicket` (경기마다 간파 사용권 수 — 스냅샷 team.gaanpaTickets),
+ *   `gaanpaCostHalf` (1 이상이면 간파 스킬 텐션 비용 ×0.5 — 스냅샷 team.gaanpaCostHalf) 추가.
+ */
+export const MODIFIER_KEYS = Object.freeze([
+  "trainingEfficiency",
+  "injuryRate",
+  "restEffect",
+  "bondGain",
+  "hintRate",
+  "skillPointGain",
+  "goalMatchCondition",
+  "shootPower",
+  "defense",
+  "passAttack",
+  "tensionGain",
+  "staminaCost",
+  "lossPenaltyHalf",
+  "dribbleStaminaRefund",
+  "gaanpaTicket",
+  "gaanpaCostHalf",
+]);
+
+/**
+ * 알 수 없는 modifier key 면 throw (삭제된 intentReveal 포함).
+ * @param {string} key
+ * @param {string} [where]  오류 메시지용 출처
+ */
+export function assertModifierKey(key, where = "") {
+  if (typeof key !== "string" || !MODIFIER_KEYS.includes(key)) {
+    throw new Error(`알 수 없는 modifier key '${key}'${where ? ` (${where})` : ""} — 사용 가능: ${MODIFIER_KEYS.join(", ")}`);
+  }
+}
 
 /**
  * @typedef {Object} EffectCtx
@@ -221,6 +257,7 @@ function applyOne(state, data, eff, ctx, rng, summary) {
     }
     case "modifier": {
       if (typeof eff.key !== "string" || !eff.key) throw new Error("modifier 효과에 key 가 없습니다");
+      assertModifierKey(eff.key, ctx.eventId ? `이벤트 ${ctx.eventId}` : "modifier 효과");
       const duration = eff.duration === "run" ? "run" : "season";
       state.modifiers.push({
         key: eff.key,

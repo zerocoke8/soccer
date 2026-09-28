@@ -23,7 +23,7 @@ import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { ROOT, loadData, SCENARIOS, buildScenarioState, describeState } from "./scenarios.mjs";
 
-const ACTION_LABELS = { dribble: "드리블", pass: "패스", shoot: "슛", tackle: "태클", intercept: "인터셉트", block: "블록" };
+const ACTION_LABELS = { dribble: "드리블", pass: "패스", cross: "크로스", shoot: "슛", tackle: "태클", intercept: "인터셉트", hold: "버티기", block: "버티기" };
 const MIME = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
@@ -358,6 +358,30 @@ async function runScenario(browser, baseUrl, sc, prepared, opts) {
       if (!r) out.notes.push(`'${sc.interact.action}' 버튼을 찾지 못함`);
       else out.notes.push(`클릭: ${r} → ${sc.interact.waitMs ?? 250}ms 뒤 캡처`);
       await delay(sc.interact.waitMs ?? 250);
+    } else if (sc.interact && sc.interact.type === "steps") {
+      // 여러 단계 조작 (v0.3): 스킬 줄 버튼 클릭(선택자) → 액션 hover / 액션 클릭(연출 타이머가 돌도록 고정 해제) → 대기
+      for (const st of sc.interact.steps || []) {
+        if (st.click) {
+          const r = await page.evaluate((sel) => {
+            const el = document.querySelector(sel);
+            if (!el) return null;
+            el.click();
+            return (el.textContent || "").trim().replace(/\s+/g, " ").slice(0, 40);
+          }, st.click);
+          out.notes.push(r ? `클릭 ${st.click}: [${r}]` : `'${st.click}' 을 찾지 못함`);
+        } else if (st.hover) {
+          const r = await pressAction(page, st.hover, { hold: true });
+          out.notes.push(r ? `hover+누르기: ${r}` : "hover 할 액션 버튼을 찾지 못함");
+          await delay(300);
+        } else if (st.press) {
+          if (opts.freeze) await page.evaluate(() => { window.__shot.frozen = false; });
+          const r = await pressAction(page, [st.press], { click: true });
+          out.notes.push(r ? `클릭: ${r} → ${st.waitMs ?? 250}ms 뒤 캡처` : `'${st.press}' 버튼을 찾지 못함`);
+          await delay(st.waitMs ?? 250);
+        } else if (st.wait) {
+          await delay(st.wait);
+        }
+      }
     }
 
     const metrics = await page.evaluate(() => {
@@ -372,7 +396,18 @@ async function runScenario(browser, baseUrl, sc, prepared, opts) {
         const name = el.tagName.toLowerCase() + (el.id ? `#${el.id}` : "") + (cls ? `.${cls}` : "");
         inner.push({ name, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight, isLog: /log/i.test(name) });
       }
+      // 잘린 글자 (가독성): 스킬 줄 버튼 이름이 말줄임으로 잘렸는가 (§13.8.5 — 4개 이상이면 압축 모드)
+      const clipped = [...document.querySelectorAll(".skill-row .sk-nm")]
+        .map((el) => {
+          // 말줄임은 소수 픽셀만 넘쳐도 생긴다 → 정수 scrollWidth 대신 글자 Range 폭과 요소 폭(소수)을 비교
+          const rg = document.createRange();
+          rg.selectNodeContents(el);
+          return { el, need: rg.getBoundingClientRect().width, have: el.getBoundingClientRect().width };
+        })
+        .filter((x) => x.have > 0 && x.need > x.have + 0.5)
+        .map((x) => `${(x.el.textContent || "").trim()} ${x.need.toFixed(1)}/${x.have.toFixed(1)}`);
       return {
+        clipped,
         scrollHeight: document.scrollingElement ? document.scrollingElement.scrollHeight : document.documentElement.scrollHeight,
         innerHeight: window.innerHeight,
         innerWidth: window.innerWidth,
@@ -533,6 +568,7 @@ function printScenario(sc, prep, r) {
   for (const s of m.inner || []) {
     console.log(`  내부 스크롤: ${s.name} ${s.scrollHeight}/${s.clientHeight} (+${s.scrollHeight - s.clientHeight}px)${s.isLog ? " — 로그(허용)" : ""}`);
   }
+  if ((m.clipped || []).length) console.log(`  잘린 스킬 이름: ${m.clipped.join(" · ")}`);
   console.log(`  캡처 시점 상태: ${r.stateCheck}`);
   for (const n of r.notes) console.log(`  - ${n}`);
   console.log(`  콘솔 에러: ${r.errors.length ? r.errors.length + "건" : "없음"}`);
@@ -542,9 +578,9 @@ function printScenario(sc, prep, r) {
 function printSummary(results) {
   console.log("");
   console.log("요약");
-  const rows = [["시나리오", "PNG", "scrollHeight", "스크롤", "내부 스크롤(로그 제외)", "상태", "에러"]];
+  const rows = [["시나리오", "PNG", "scrollHeight", "스크롤", "내부 스크롤(로그 제외)", "잘린 스킬", "상태", "에러"]];
   for (const r of results) {
-    if (r.failed) { rows.push([r.name, "실패", "-", "-", "-", "-", "-"]); continue; }
+    if (r.failed) { rows.push([r.name, "실패", "-", "-", "-", "-", "-", "-"]); continue; }
     const m = r.metrics;
     const inner = (m.inner || []).filter((s) => !s.isLog).sort((a, b) => (b.scrollHeight - b.clientHeight) - (a.scrollHeight - a.clientHeight));
     rows.push([
@@ -553,6 +589,7 @@ function printSummary(results) {
       `${m.scrollHeight}/${m.innerHeight}`,
       m.scrollHeight > m.innerHeight + 1 ? "있음" : "없음",
       inner.length ? `${inner[0].name} +${inner[0].scrollHeight - inner[0].clientHeight}${inner.length > 1 ? ` 외 ${inner.length - 1}` : ""}` : "없음",
+      String((m.clipped || []).length),
       r.stateCheck === "OK" ? "OK" : "다름",
       String(r.errors.length),
     ]);

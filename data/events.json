@@ -196,12 +196,12 @@
     "choices": [
       {
         "text": "성실히 협조한다",
-        "preview": "이번 시즌 상대 의도 공개 +1단계 / 전원 체력 -10",
+        "preview": "이번 시즌 경기마다 간파 사용권 1회 / 전원 체력 -10",
         "effects": [
-          { "type": "modifier", "key": "intentReveal", "amount": 1, "duration": "season" },
+          { "type": "modifier", "key": "gaanpaTicket", "amount": 1, "duration": "season" },
           { "type": "stamina", "target": "team", "amount": -10 }
         ],
-        "resultText": "감독관이 두꺼운 기록철을 두고 갔습니다. 상대의 습관이 훤히 보입니다."
+        "resultText": "감독관이 두꺼운 기록철을 두고 갔습니다. 이번 시즌에는 경기마다 한 번, 상대의 수를 읽을 수 있습니다."
       },
       {
         "text": "짧게 끝낸다",
@@ -836,9 +836,9 @@
     "choices": [
       {
         "text": "코치진과 정찰을 간다",
-        "preview": "이번 경기 상대 의도 공개 +1단계",
-        "effects": [ { "type": "modifier", "key": "intentReveal", "amount": 1, "duration": "season" } ],
-        "resultText": "상대 선수들의 버릇을 노트 세 장에 적어 왔습니다."
+        "preview": "이번 경기 간파 사용권 1회",
+        "effects": [ { "type": "modifier", "key": "gaanpaTicket", "amount": 1, "duration": "season" } ],
+        "resultText": "상대 선수들의 버릇을 노트 세 장에 적어 왔습니다. 결정적인 순간 한 번은 읽어낼 수 있습니다."
       },
       {
         "text": "선수들과 함께 남는다",

@@ -10,7 +10,9 @@ import { renderRelicModal } from './screens/relic.js';
 import { renderRoute } from './screens/route.js';
 import { renderResult } from './screens/result.js';
 
-const DATA_FILES = ['config', 'characters', 'supports', 'skills', 'events', 'relics', 'opponents', 'routes'];
+const DATA_FILES = ['config', 'characters', 'supports', 'skills', 'events', 'relics', 'opponents', 'routes', 'traits', 'combos'];
+// v0.3: 없어도 엔진(DEFAULT_TRAITS/DEFAULT_COMBOS)·화면(TRAIT_LABELS)이 같은 기본값으로 동작 → 404 면 건너뛴다
+const OPTIONAL_FILES = new Set(['traits', 'combos']);
 
 // 엔진 모듈 (계약: js/engine/run.js, js/engine/match.js). 로드 실패 시에도 화면은 뜨도록 동적 import.
 let run = null;
@@ -25,14 +27,17 @@ function errMsg(e) {
 async function loadData() {
   const entries = await Promise.all(DATA_FILES.map(async (name) => {
     const res = await fetch(`./data/${name}.json`, { cache: 'no-cache' });
-    if (!res.ok) throw new Error(`데이터 로드 실패: data/${name}.json (${res.status})`);
+    if (!res.ok) {
+      if (OPTIONAL_FILES.has(name) && res.status === 404) return null;
+      throw new Error(`데이터 로드 실패: data/${name}.json (${res.status})`);
+    }
     try {
       return [name, await res.json()];
     } catch (e) {
       throw new Error(`data/${name}.json 파싱 실패: ${errMsg(e)}`);
     }
   }));
-  return Object.fromEntries(entries);
+  return Object.fromEntries(entries.filter(Boolean));
 }
 
 // ---- 엔진 호출 래퍼 ----

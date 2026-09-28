@@ -4,9 +4,9 @@ import { fileURLToPath } from "node:url";
 import * as run from "../js/engine/run.js";
 import * as match from "../js/engine/match.js";
 
-const DATA_FILES = ["config", "characters", "supports", "events", "skills", "relics", "opponents", "routes"];
+const DATA_FILES = ["config", "characters", "supports", "events", "skills", "relics", "opponents", "routes", "traits", "combos"];
 
-/** data/*.json 8개를 읽어 엔진 데이터 번들을 만든다 (매 호출마다 새 객체). */
+/** data/*.json 10개(v0.3: traits·combos 포함)를 읽어 엔진 데이터 번들을 만든다 (매 호출마다 새 객체). */
 export function loadData() {
   const data = {};
   for (const name of DATA_FILES) {

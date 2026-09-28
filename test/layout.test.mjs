@@ -1,9 +1,10 @@
-// test/layout.test.mjs — ARCHITECTURE §12.2 · §12.4 (js/ui/layout.js computeLayout)
+// test/layout.test.mjs — ARCHITECTURE §12.2 · §12.4 · §13.6 (js/ui/layout.js computeLayout)
 // 합성 view (4 포메이션 × 공격 팀 2 × 단계 4 × 모든 carrier/defender/receiver 조합) + 실제 엔진 경기의 매 view.
+// v0.3: 받는 선수 후보 전원(view.receivers 패스+크로스)이 receiver 역할로 도착 구역에 선다. resolvePreview 는 receivers·필살기 변형도 고른다.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  computeLayout, resolvePreview, ZONES, SHAPE, LANES, X_MIN, X_MAX, HIGHLIGHTS, RECEIVER_INSET, zoneFor, zoneAtY, tokenDistance, withJosa,
+  computeLayout, resolvePreview, receiverCandidates, ZONES, SHAPE, LANES, X_MIN, X_MAX, HIGHLIGHTS, RECEIVER_INSET, zoneFor, zoneAtY, tokenDistance, withJosa,
 } from "../js/ui/layout.js";
 import { loadData, clone, run, match } from "./helpers.mjs";
 
@@ -54,7 +55,7 @@ function makeTeam(side, formation, { withPosition = true } = {}) {
 const posOfSynthetic = (p) => p.position || (p.slot === "GK" ? "GK" : p.slot.slice(0, 2));
 
 /** 엔진 규칙의 패스 수신 후보: 다음 단계 1 → MF, 2·3 → FW (carrier 제외). ④ 단계는 패스 없음 */
-function receiverCandidates(players, step, carrierId) {
+function syntheticReceivers(players, step, carrierId) {
   if (step >= 3) return [];
   const pos = step + 1 <= 1 ? "MF" : "FW";
   return players.filter((p) => posOfSynthetic(p) === pos && p.id !== carrierId);
@@ -95,7 +96,7 @@ function* allSyntheticViews() {
           const duelPos = POS_BY_LINE[step];
           const defenders = [null, ...defPlayers.filter((p) => posOfSynthetic(p) === duelPos).map((p) => p.id)];
           for (const c of atkPlayers.filter((p) => posOfSynthetic(p) !== "GK")) {
-            const receivers = [null, ...receiverCandidates(atkPlayers, step, c.id).map((p) => p.id)];
+            const receivers = [null, ...syntheticReceivers(atkPlayers, step, c.id).map((p) => p.id)];
             for (const defenderId of defenders) {
               for (const receiverId of receivers) {
                 yield {
@@ -181,12 +182,15 @@ function assertPlayLayout(view, L, where) {
   }
   assert.equal(L.tokens.filter((t) => t.role === "carrier").length, carrierId ? 1 : 0, `${where}: carrier 1명`);
 
-  // receiver 역할 = view.receiverPreview 만
+  // receiver 역할 = 받는 선수 후보 전원 (§13.4 view.receivers 패스+크로스, 없으면 receiverPreview) — v0.3 §13.6
+  const cands = receiverCandidates(view).filter((c) => c.id !== carrierId);
+  const landingOf = new Map(cands.map((c) => [c.id, c.arrival]));
   const receivers = L.tokens.filter((t) => t.role === "receiver").map((t) => t.id);
-  const expectReceiver = receiverId && receiverId !== carrierId ? [receiverId] : [];
-  assert.deepEqual(receivers, expectReceiver, `${where}: receiver = receiverPreview`);
-  assert.equal(L.receiverId, expectReceiver[0] ?? null);
-  if (expectReceiver.length) assert.ok(!behind(byId.get(receiverId).y) && byId.get(receiverId).y !== L.ball.y, `${where}: receiver 는 공보다 앞`);
+  const expectReceiver = view.players[atk].map((p) => String(p.id)).filter((id) => landingOf.has(id));
+  assert.deepEqual(receivers, expectReceiver, `${where}: receiver = 받는 선수 후보 전원`);
+  assert.deepEqual(L.receiverIds, expectReceiver, `${where}: receiverIds`);
+  assert.equal(L.receiverId, receiverId && landingOf.has(receiverId) ? receiverId : null, `${where}: receiverId = receiverPreview`);
+  for (const id of expectReceiver) assert.ok(!behind(byId.get(id).y) && byId.get(id).y !== L.ball.y, `${where}: 후보 ${id} 는 공보다 앞`);
 
   // defender: carrier 와 같은 레인, 세로 간격 ≥ 토큰 지름, 공과 자기 골 사이
   const defs = L.tokens.filter((t) => t.role === "defender").map((t) => t.id);
@@ -227,8 +231,7 @@ function assertPlayLayout(view, L, where) {
     const pos = viewPos(p);
     if (t.id === carrierId) continue;
     if (expectReceiver.includes(t.id)) {
-      const rp = view.receiverPreview;
-      const landing = Number.isInteger(rp.step) ? rp.step : step + 1;
+      const landing = landingOf.get(t.id);
       assert.equal(t.y, toY(Math.max(SHAPE.atk[pos][step], ZONES[landing + 1].from + RECEIVER_INSET)), `${where}: ${t.id} 패스 후보 세로`);
       assert.equal(zoneAtY(t.y), zoneFor(atk, landing), `${where}: 패스 후보 ${t.id} y=${t.y} 는 도착 구역 Z${zoneFor(atk, landing)} 안`);
       continue;
@@ -577,10 +580,10 @@ function asAway(snap, name) {
   return a;
 }
 
-/** 엔진 v0.2 가 getMatchView 에 추가한 필드를 뺀 사본 (v0.1 view 모양) */
+/** 엔진 v0.2·v0.3 이 getMatchView 에 추가한 필드를 뺀 사본 (v0.1 view 모양) */
 function stripV02(view) {
   const v = clone(view);
-  for (const k of ["zone", "attackStep", "attackDir", "remaining", "receiverPreview", "outcomes", "lastBeat"]) delete v[k];
+  for (const k of ["zone", "attackStep", "attackDir", "remaining", "receiverPreview", "outcomes", "lastBeat", "receivers", "receiversBySkill"]) delete v[k];
   if (v.penalties) for (const k of ["kickerSide", "kickerId", "keeperId"]) delete v.penalties[k];
   return v;
 }
@@ -627,8 +630,8 @@ function playAndCheck(ms, label, seen) {
     } else {
       if (old.finished) assertFinishedLayout(old, LO, `${where} (v0.1 view)`);
       else assertPlayLayout(old, LO, `${where} (v0.1 view)`);
-      // receiver 역할만 빼면 위치·역할이 같다 (receiver 는 receiverPreview 가 있어야 표시되고, 도착 구역에 선다)
-      const strip = (T) => T.tokens.map((t) => [t.id, t.id === L.receiverId ? null : t.y, t.role === "receiver" ? "support" : t.role]);
+      // receiver 역할만 빼면 위치·역할이 같다 (receiver 는 receivers/receiverPreview 가 있어야 표시되고, 도착 구역에 선다)
+      const strip = (T) => T.tokens.map((t) => [t.id, L.receiverIds.includes(t.id) ? null : t.y, t.role === "receiver" ? "support" : t.role]);
       assert.deepEqual(strip(LO), strip(L), `${where}: v0.1/v0.2 view 세로·역할 동일`);
       assert.deepEqual(LO.ball, L.ball);
       assert.equal(LO.zone, L.zone);
@@ -796,23 +799,79 @@ test("resolvePreview: 토글한 스킬의 변형으로 바꾸고, 자동 진행 
   const away = { ...v, attackingSide: "away" };
   assert.equal(resolvePreview(away, { deciding: false }), away);
   assert.equal(JSON.stringify(v), before, "view 불변");
+
+  // v0.3: receivers(후보 전원) 변형 · 필살기 토글(ultimate → ultimateOptions 의 skillId 키) · 자동 진행 중 후보 숨김
+  const mf = v.players.home.filter((p) => p.id.startsWith("h_MF")).map((p) => p.id);
+  const fws = v.players.home.filter((p) => p.id.startsWith("h_FW")).map((p) => p.id);
+  const w = {
+    ...v,
+    receivers: { pass: { candidates: mf, defaultId: "h_MF1", arrival: 1, zone: 3 } },
+    receiversBySkill: {
+      sk_line_breaker: { pass: { candidates: fws, defaultId: "h_FW1", arrival: 2, zone: 4 } },
+      sk_wind_thread: { pass: { candidates: mf, defaultId: "h_MF2", arrival: 1, zone: 3 } },
+    },
+    receiverPreviewBySkill: { ...v.receiverPreviewBySkill, sk_wind_thread: { id: "h_MF2", name: "타린", side: "home", step: 1, zone: 3 } },
+    ultimateOptions: [{ playerId: "h_DF1", skillId: "sk_wind_thread", type: "pass", usable: true }],
+  };
+  const wBefore = JSON.stringify(w);
+  const Lw = computeLayout(w);
+  assert.deepEqual(Lw.receiverIds, mf, "후보 전원 receiver");
+  for (const id of mf) assert.equal(zoneAtY(Lw.tokens.find((t) => t.id === id).y), 3);
+  const sk = resolvePreview(w, { skillId: "sk_line_breaker", deciding: true });
+  assert.deepEqual(sk.receivers, w.receiversBySkill.sk_line_breaker, "스킬 토글 → 변형 후보");
+  const Ls = computeLayout(sk);
+  assert.deepEqual(Ls.receiverIds, fws);
+  for (const id of fws) assert.equal(zoneAtY(Ls.tokens.find((t) => t.id === id).y), 4, "extraLine 후보 = 상대 진영");
+  const ul = resolvePreview(w, { ultimate: true, deciding: true });
+  assert.equal(ul.receiverPreview.id, "h_MF2", "필살기 토글 → 필살기 변형 (합체기 기본값)");
+  assert.equal(ul.receivers.pass.defaultId, "h_MF2");
+  assert.equal(resolvePreview(w, { ultimate: false, deciding: true }), w, "토글 없음 → 그대로");
+  const wx = { ...w, ultimateOptions: [{ ...w.ultimateOptions[0], usable: false }] };
+  assert.equal(resolvePreview(wx, { ultimate: true, deciding: true }), wx, "쓸 수 없는 필살기 토글은 무시");
+  // 자동 진행: 도착 단계가 다른 변형(라인 브레이커)이 있으면 후보 전체를 숨긴다
+  const au = resolvePreview(w, { deciding: false });
+  assert.deepEqual(au.receivers, {});
+  assert.equal(au.receiverPreview, null);
+  assert.deepEqual(computeLayout(au).receiverIds, []);
+  // 후보·도착이 같고 기본값만 다르면(필살 패스) 후보는 그리고 기본 받는 선수만 숨긴다
+  const w2 = { ...w, receiversBySkill: { sk_wind_thread: w.receiversBySkill.sk_wind_thread } };
+  const au2 = resolvePreview(w2, { deciding: false });
+  assert.deepEqual(au2.receivers, w2.receivers);
+  assert.equal(au2.receiverPreview, null);
+  assert.equal(JSON.stringify(w), wBefore, "view 불변 (v0.3)");
 });
 
-test("자동 진행: 화면에 그린 패스 후보 = 실제 수신자 (사람 측 AI 가 라인 브레이커를 쓰는 1-3-2, 6팀 × 20 seed)", () => {
-  const squad = { GK: "ch_spirit_keeper", DF1: "ch_wolf_winger", MF1: "ch_elf_playmaker", MF2: "ch_human_runner", MF3: "ch_cat_trickster", FW1: "ch_giant_striker", FW2: "ch_human_captain" };
+test("자동 진행: 화면에 그린 패스 후보 = 실제 수신자 (사람 측 AI 가 라인 브레이커·필살 패스를 쓰는 1-3-2, 6팀 × 20 seed)", () => {
+  // A안: 자동은 성향 1위 액션 → 패스형 DF(아르덴: 패스 200 > 드리블 150)에게 라인 브레이커를 쥐여 줘야 DF 의 패스에 extraLine 변형이 생긴다.
+  // (울릭 DF 는 드리블형이라 패스를 하지 않는다.) 실루엔(MF, 바람의 실)은 필살 패스 변형(합체기 기본값)을 만든다.
+  const squad = { GK: "ch_spirit_keeper", DF1: "ch_human_captain", MF1: "ch_elf_playmaker", MF2: "ch_human_runner", MF3: "ch_cat_trickster", FW1: "ch_giant_striker", FW2: "ch_wolf_winger" };
   const home = run.buildTeamSnapshot(run.createRun({ data, seed: "lb", formation: "1-3-2", squad }), data);
+  const df = home.players.find((p) => p.slot === "DF1");
+  df.skillIds = [...(df.skillIds || []), "sk_line_breaker"];
+  home.tension = 60;
   let passes = 0;
   let hidden = 0;
+  let hiddenCands = 0;
+  let candChecked = 0;
   for (const opp of data.opponents) {
     for (let s = 1; s <= 20; s++) {
       const ms = match.createMatch({ data, seed: `auto-lb${opp.id}${s}`, home, away: run.buildOpponentSnapshot(opp, data), possessions: 8, kind: "goal" });
       while (!match.isFinished(ms)) {
         const view = match.getMatchView(ms, data);
-        const L = computeLayout(resolvePreview(view, { deciding: false }));
+        const shown = resolvePreview(view, { deciding: false });
+        const L = computeLayout(shown);
         const n0 = ms.events.length;
         match.step(ms, data, null);
         for (const e of ms.events.slice(n0)) {
-          if (e.type !== "duel" || e.action !== "pass" || !e.success) continue;
+          if (e.type !== "duel" || !e.success || (e.action !== "pass" && e.action !== "cross")) continue;
+          // 그린 후보(있으면)는 실제 받는 선수를 포함하고, 그 후보는 실제 도착 구역에 서 있다
+          if (L.receiverIds.length) {
+            candChecked++;
+            assert.ok(L.receiverIds.includes(String(e.receiverId)), `${opp.id} ${s}: 그린 후보 ${L.receiverIds} 에 실제 받는 선수 ${e.receiverId} (${e.side} ${e.action})`);
+            const t = L.tokens.find((x) => x.side === e.side && x.id === String(e.receiverId));
+            assert.equal(zoneAtY(t.y), e.toZone, `${opp.id} ${s}: 후보 ${e.receiverId} 가 실제 도착 구역 Z${e.toZone} 에`);
+          } else if (e.side === "home") hiddenCands++;
+          if (e.action !== "pass") continue;
           passes++;
           if (L.receiverId === null) { hidden++; continue; }
           assert.equal(L.receiverId, e.receiverId, `${opp.id} ${s}: 그린 후보 = 실제 수신자 (${e.side})`);
@@ -821,7 +880,54 @@ test("자동 진행: 화면에 그린 패스 후보 = 실제 수신자 (사람 �
     }
   }
   assert.ok(passes > 300, `패스 성공 ${passes}`);
-  assert.ok(hidden > 0 && hidden < passes / 4, `불확실해서 숨긴 경우 ${hidden}/${passes}`);
+  assert.ok(hidden > 0 && hidden < passes / 3, `불확실해서 숨긴 경우 ${hidden}/${passes}`);
+  assert.ok(hiddenCands > 0, `도착 구역이 바뀔 수 있어 후보 전체를 숨긴 경우 ${hiddenCands}`);
+  assert.ok(candChecked > 300, `후보 검사 ${candChecked}`);
+});
+
+test("받는 선수 후보 전원 = 도착 구역 (실제 엔진 view): 크로스 후보 MF 도 박스, 결정 중 스킬·필살기 변형도 같은 규칙", () => {
+  const squad = { GK: "ch_spirit_keeper", DF1: "ch_dwarf_wall", DF2: "ch_human_captain", MF1: "ch_elf_playmaker", MF2: "ch_human_runner", FW1: "ch_wolf_winger", FW2: "ch_giant_striker" };
+  const home = run.buildTeamSnapshot(run.createRun({ data, seed: "cands", formation: "2-2-2", squad }), data);
+  home.tension = 80;
+  const seen = { cross: 0, multi: 0, variant: 0, ult: 0 };
+  for (const opp of data.opponents) {
+    for (let s = 1; s <= 12; s++) {
+      const ms = match.createMatch({ data, seed: `cands${opp.id}${s}`, home, away: run.buildOpponentSnapshot(opp, data), possessions: 8, kind: "goal" });
+      let g = 0;
+      while (!match.isFinished(ms) && g++ < 400) {
+        const view = match.getMatchView(ms, data);
+        const variants = [{ v: view, tag: "base" }];
+        if (view.needsDecision) {
+          for (const k of Object.keys(view.receiversBySkill || {})) {
+            const isUlt = (view.ultimateOptions || []).some((u) => u.skillId === k);
+            const v2 = isUlt ? resolvePreview(view, { ultimate: true }) : resolvePreview(view, { skillId: k });
+            variants.push({ v: v2, tag: k });
+            if (isUlt) seen.ult++; else seen.variant++;
+            assert.deepEqual(v2.receivers, view.receiversBySkill[k], `변형 ${k}: receivers = receiversBySkill`);
+          }
+        }
+        for (const { v, tag } of variants) {
+          if (v.phase !== "decision" || v.finished) continue;
+          const L = computeLayout(v, { aspect: 0.74, tokenSize: 0.0866 });
+          const atk = v.attackingSide;
+          for (const a of ["pass", "cross"]) {
+            const r = v.receivers && v.receivers[a];
+            if (!r) continue;
+            if (a === "cross") seen.cross++;
+            if (r.candidates.length > 1) seen.multi++;
+            for (const id of r.candidates) {
+              const t = L.tokens.find((x) => x.side === atk && x.id === id);
+              assert.equal(t.role, "receiver", `${tag} ${a} 후보 ${id} 역할`);
+              assert.equal(zoneAtY(t.y), zoneFor(atk, r.arrival), `${tag} ${a} 후보 ${id} y=${t.y} 는 도착 구역 Z${zoneFor(atk, r.arrival)}`);
+            }
+          }
+        }
+        match.step(ms, data, null);
+      }
+    }
+  }
+  assert.ok(seen.cross > 20 && seen.multi > 20, JSON.stringify(seen));
+  assert.ok(seen.variant > 5 && seen.ult > 5, `스킬·필살기 변형 ${JSON.stringify(seen)}`);
 });
 
 /** UI 가 실제로 넘기는 범위의 불변식 (세로 좌표는 규칙 방향으로만 조정될 수 있다) */

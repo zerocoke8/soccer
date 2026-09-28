@@ -1,13 +1,35 @@
-// test/run.test.mjs — ARCHITECTURE §5, §6, §9 (실제 data/*.json + 실제 match.js 로 경기)
+// test/run.test.mjs — ARCHITECTURE §5, §6, §9, §13.1·13.5 (실제 data/*.json + 실제 match.js 로 경기)
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import { fileURLToPath } from "node:url";
 import { loadData, playRun, stepRun, clone, run, match } from "./helpers.mjs";
-import { applyEffects } from "../js/engine/effects.js";
+import { applyEffects, MODIFIER_KEYS } from "../js/engine/effects.js";
 import { getModifier, previewSlot, STATS, formationSlots } from "../js/engine/training.js";
 
 const data = loadData();
 const cfg = data.config;
 const PHASES = new Set(["turn", "event", "match", "relic", "route", "finished"]);
+
+/** v0.3 연계 특성 id (§13.1 traits.json 표) */
+const TRAIT_IDS = ["killpass", "finisher", "crosser", "targetman", "runner", "carrier", "wall", "distributor", "captain"];
+/** §13.1 characters.json trait 배정 */
+const CHAR_TRAITS = {
+  ch_elf_playmaker: "killpass", ch_wolf_winger: "crosser", ch_giant_striker: "targetman", ch_human_runner: "runner",
+  ch_cat_trickster: "carrier", ch_dwarf_wall: "wall", ch_spirit_keeper: "distributor", ch_human_captain: "captain",
+};
+/** data/<name>.json 이 있으면 읽는다 (traits/combos 는 엔진 담당 신규 파일, helpers 번들 밖) */
+function readOptionalData(name) {
+  const p = fileURLToPath(new URL(`../data/${name}.json`, import.meta.url));
+  return fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, "utf8")) : null;
+}
+/** 이벤트/루트 효과 트리를 훑는다 (random 분기 포함) */
+function walkEffects(effs, fn) {
+  for (const e of effs || []) {
+    fn(e);
+    if (e.type === "random") { walkEffects(e.then, fn); walkEffects(e.else, fn); }
+  }
+}
 
 function assertInvariants(state, where = "") {
   assert.ok(PHASES.has(state.phase), `${where} phase ${state.phase}`);
@@ -430,9 +452,12 @@ test("모든 스킬 id 참조 유효 (캐릭터 고유·서포트 힌트·상대
     if (ev.characterId) assert.ok(data.characters.some((c) => c.id === ev.characterId), `${ev.id} characterId`);
     assert.ok(ev.choices.length >= 1 && ev.choices.length <= 2, `${ev.id} 선택지 1~2개`);
   }
-  const MOD_KEYS = ["trainingEfficiency", "injuryRate", "restEffect", "bondGain", "hintRate", "skillPointGain", "intentReveal", "goalMatchCondition", "shootPower", "defense", "passAttack", "tensionGain", "staminaCost", "lossPenaltyHalf", "dribbleStaminaRefund"];
-  for (const r of data.relics) for (const k of Object.keys(r.modifiers)) assert.ok(MOD_KEYS.includes(k), `${r.id} modifier ${k}`);
-  for (const rt of data.routes) for (const e of rt.effects) if (e.type === "modifier") assert.ok(MOD_KEYS.includes(e.key), `${rt.id} ${e.key}`);
+  // modifier 키 (§6.7 + §13.5: intentReveal 삭제, gaanpaTicket·gaanpaCostHalf 추가) — 유물·루트·이벤트 전부
+  assert.ok(!MODIFIER_KEYS.includes("intentReveal"), "intentReveal 은 삭제된 키");
+  for (const k of ["gaanpaTicket", "gaanpaCostHalf"]) assert.ok(MODIFIER_KEYS.includes(k), `새 키 ${k}`);
+  for (const r of data.relics) for (const k of Object.keys(r.modifiers)) assert.ok(MODIFIER_KEYS.includes(k), `${r.id} modifier ${k}`);
+  for (const rt of data.routes) walkEffects(rt.effects, (e) => { if (e.type === "modifier") assert.ok(MODIFIER_KEYS.includes(e.key), `${rt.id} ${e.key}`); });
+  for (const ev of data.events) for (const c of ev.choices) walkEffects(c.effects, (e) => { if (e.type === "modifier") assert.ok(MODIFIER_KEYS.includes(e.key), `${ev.id} ${e.key}`); });
   // 상대 role/season 커버
   for (const season of [1, 2, 3]) {
     assert.ok(data.opponents.some((o) => o.role === "goal" && o.season === season), `시즌 ${season} 목표 상대`);
@@ -476,8 +501,14 @@ test("유물/루트 modifier 가 실제 수치에 반영된다", () => {
   assert.equal(snap.modifiers.shootPower, 0.05);
   assert.equal(snap.modifiers.defense, 0.05);
   assert.equal(snap.modifiers.staminaCost, 0.05);
-  assert.equal(snap.modifiers.intentReveal, 1);
-  for (const k of ["shootPower", "defense", "tensionGain", "staminaCost", "intentReveal", "passAttack"]) assert.ok(k in snap.modifiers);
+  // 감독의 수첩 (v0.3): 경기마다 간파 사용권 1 + 간파 스킬 비용 절반
+  assert.equal(snap.modifiers.gaanpaTicket, 1);
+  assert.equal(snap.modifiers.gaanpaCostHalf, 1);
+  assert.equal(snap.gaanpaTickets, 1);
+  assert.equal(snap.gaanpaCostHalf, true);
+  for (const k of ["shootPower", "defense", "tensionGain", "staminaCost", "passAttack", "dribbleStaminaRefund", "gaanpaTicket", "gaanpaCostHalf"]) assert.ok(k in snap.modifiers, k);
+  assert.equal("intentReveal" in snap.modifiers, false, "intentReveal modifier 삭제");
+  assert.equal("intentReveal" in snap, false, "스냅샷 intentReveal 삭제");
   assert.equal(snap.players.length, 7);
   // 기본 편성은 같은 원소가 최대 2명 → 공명 없음 (8명 데이터에서는 어떤 편성도 3명 공명이 불가능)
   assert.equal(snap.resonance, null);
@@ -486,13 +517,10 @@ test("유물/루트 modifier 가 실제 수치에 반영된다", () => {
   assert.ok(ember.resonance && ember.resonance.element === "fire" && ember.resonance.strong === true);
   assert.ok(Math.abs(ember.resonance.bonus.shootPower - 0.05 * cfg.elementResonance.strongMult) < 1e-9);
 
-  // 경기에서 intentReveal modifier 가 공개 단계를 올린다 (시즌1 상대 full → 그대로 full, 시즌3 상대 none → partial)
-  const opp3 = data.opponents.find((o) => o.id === "op_s3_emberthrone");
-  const ms = match.createMatch({ data, seed: 1, home: snap, away: run.buildOpponentSnapshot(opp3, data), possessions: 8, kind: "goal" });
-  assert.equal(match.revealLevelFor(ms, data, "home"), "partial");
+  // 유물 없는 스냅샷은 간파 사용권 0
   const snapPlain = run.buildTeamSnapshot(state, data);
-  const ms0 = match.createMatch({ data, seed: 1, home: snapPlain, away: run.buildOpponentSnapshot(opp3, data), possessions: 8, kind: "goal" });
-  assert.equal(match.revealLevelFor(ms0, data, "home"), "none");
+  assert.equal(snapPlain.gaanpaTickets, 0);
+  assert.equal(snapPlain.gaanpaCostHalf, false);
 
   // 유물: 낡은 주장 완장 → 목표 경기 컨디션 +1 단계
   const st3 = clone(state);
@@ -728,22 +756,303 @@ test("부상 카운트 = 결장하는 배치 횟수 (turns:1 → 1회, 훈련 �
   }
 });
 
-test("getTurnView().nextMatch.intentReveal 은 intentReveal modifier 단계 상승을 반영한다 (경기 revealLevelFor 와 동일)", () => {
-  const LV = ["none", "partial", "full"];
+/** styleHint 기대값을 테스트 쪽에서 따로 계산 (§13.5: 필드 선수 공격 1위 액션 다수결, 동률 드리블) */
+function expectedStyleHint(opp, d = data) {
+  const m = d.config.match;
+  const tb = (m.tendency && m.tendency.tacticBonus) || 1.15;
+  const counts = { dribble: 0, pass: 0 };
+  for (const p of opp.players) {
+    if (p.position === "GK") continue;
+    const dv = p.stats.dribble * (m.actionCoef.dribble || 1) * (opp.tactics.attack === "dribble" ? tb : 1);
+    const pv = p.stats.pass * (m.actionCoef.pass || 1) * (opp.tactics.attack === "pass" ? tb : 1);
+    counts[pv > dv ? "pass" : "dribble"] += 1;
+  }
+  const label = counts.dribble > counts.pass ? "드리블 위주" : counts.pass > counts.dribble ? "패스 위주" : "혼합";
+  return { label, counts };
+}
+
+test("getTurnView().nextMatch.styleHint: 상대 필드 선수 공격 1위 액션 다수결 (intentReveal 대체, §13.5)", () => {
   const d = clone(data); d.config.eventChancePerTurn = 0; d.events = d.events.filter((e) => e.trigger !== "seasonStart");
-  const s = run.createRun({ data: d, seed: "ir" });
+  const s = run.createRun({ data: d, seed: "style" });
   for (const season of [1, 2, 3]) {
     s.season = season;
     const opp = d.opponents.find((o) => o.role === "goal" && o.season === season);
-    const nm0 = run.getTurnView(s, d).nextMatch;
-    assert.equal(nm0.baseIntentReveal, opp.intentReveal);
-    assert.equal(nm0.intentReveal, opp.intentReveal, "modifier 없으면 기본값");
-    s.modifiers.push({ key: "intentReveal", amount: 1, untilSeason: null, source: "test" });
-    const nm1 = run.getTurnView(s, d).nextMatch;
-    assert.equal(nm1.intentReveal, LV[Math.min(2, LV.indexOf(opp.intentReveal) + 1)], `시즌 ${season} 한 단계 상승`);
-    assert.equal(nm1.baseIntentReveal, opp.intentReveal);
-    s.modifiers.pop();
+    const before = JSON.stringify(s);
+    const nm = run.getTurnView(s, d).nextMatch;
+    assert.equal(JSON.stringify(s), before, "getTurnView 상태 불변");
+    assert.equal(nm.opponentId, opp.id);
+    const exp = expectedStyleHint(opp, d);
+    assert.equal(nm.styleHint, exp.label, `시즌 ${season} ${opp.name}`);
+    assert.deepEqual(nm.styleCounts, exp.counts);
+    assert.ok(["dribble", "pass", "mixed"].includes(nm.styleHintKey));
+    assert.equal(nm.styleCounts.dribble + nm.styleCounts.pass, opp.players.filter((p) => p.position !== "GK").length, "필드 선수 전원 집계 (GK 제외)");
+    assert.equal("intentReveal" in nm, false, "intentReveal 삭제");
+    assert.equal("baseIntentReveal" in nm, false, "baseIntentReveal 삭제");
+    assert.equal(nm.gaanpaTickets, 0);
   }
+  // 데이터 성격: 드리블 전술 팀은 드리블 위주로 읽힌다 (전술·설명과 예상 행동이 일치)
+  for (const o of d.opponents) {
+    const h = run.opponentStyleHint(o, d);
+    if (o.tactics.attack === "dribble") assert.equal(h.label, "드리블 위주", `${o.id} 드리블 전술`);
+    if (o.tactics.attack === "pass") assert.equal(h.label, "패스 위주", `${o.id} 패스 전술`);
+  }
+  // pendingMatch(친선전)가 있으면 그 상대 기준
+  s.season = 2;
+  s.pendingMatch = { kind: "friendly", opponentId: "op_f2_thunderclaw", possessions: 6, seed: 1, reason: "friendly" };
+  const nmF = run.getTurnView(s, d).nextMatch;
+  assert.equal(nmF.opponentId, "op_f2_thunderclaw");
+  assert.equal(nmF.styleHint, expectedStyleHint(d.opponents.find((o) => o.id === "op_f2_thunderclaw"), d).label);
+  s.pendingMatch = null;
+
+  // 합성 팀: 전술 보정(×tacticBonus)이 1위를 뒤집고, 3:3 이면 혼합, GK 는 세지 않는다
+  const tb = d.config.match.tendency.tacticBonus;
+  const mk = (attack, fieldStats) => ({
+    tactics: { attack },
+    players: [
+      { slot: "GK", position: "GK", stats: { dribble: 900, pass: 10 } },
+      ...fieldStats.map(([dr, pa], i) => ({ slot: `X${i}`, position: i < 2 ? "DF" : i < 4 ? "MF" : "FW", stats: { dribble: dr, pass: pa } })),
+    ],
+  });
+  const close = Math.round(300 * tb) - 10; // 드리블 300 × tacticBonus > 이 패스 값 > 드리블 300
+  const flip = [[300, close], [300, close], [300, close], [300, close], [100, 200], [100, 200]];
+  assert.equal(run.opponentStyleHint(mk("balanced", flip), d).label, "패스 위주", "보정 없으면 패스");
+  assert.equal(run.opponentStyleHint(mk("dribble", flip), d).label, "드리블 위주", "드리블 전술 ×tacticBonus 로 뒤집힘");
+  const mixed = [[300, 100], [300, 100], [300, 100], [100, 300], [100, 300], [100, 300]];
+  const hm = run.opponentStyleHint(mk("balanced", mixed), d);
+  assert.equal(hm.label, "혼합");
+  assert.deepEqual(hm.counts, { dribble: 3, pass: 3 }, "GK 는 집계하지 않음");
+  const tie = [[200, 200], [200, 200], [200, 200], [200, 200], [100, 300], [100, 300]];
+  assert.equal(run.opponentStyleHint(mk("balanced", tie), d).label, "드리블 위주", "동률은 드리블 (tieAttack 순서)");
+});
+
+test("v0.3 데이터: 캐릭터 연계 특성 배정, traits.json 참조, 상대 팀 특성 2~4명(시즌별 증가)·크로스 후보", () => {
+  const traits = readOptionalData("traits");
+  const traitIds = new Set(traits ? traits.map((t) => t.id) : TRAIT_IDS);
+  for (const id of TRAIT_IDS) assert.ok(traitIds.has(id), `traits.json 에 ${id}`);
+  // 캐릭터 8명 = §13.1 배정 그대로
+  assert.equal(data.characters.length, Object.keys(CHAR_TRAITS).length);
+  for (const c of data.characters) {
+    assert.equal(c.trait, CHAR_TRAITS[c.id], `${c.name} trait`);
+    assert.ok(traitIds.has(c.trait));
+  }
+  const countBy = {};
+  for (const o of data.opponents) {
+    assert.equal("intentReveal" in o, false, `${o.id} intentReveal 필드 삭제`);
+    assert.ok(run.DEFENSE_TACTICS.includes(o.tactics.defense), `${o.id} 수비 전술 ${o.tactics.defense}`);
+    const withTrait = o.players.filter((p) => p.trait);
+    assert.ok(withTrait.length >= 2 && withTrait.length <= 4, `${o.id} 특성 ${withTrait.length}명 (2~4)`);
+    for (const p of withTrait) {
+      assert.ok(traitIds.has(p.trait), `${o.id} ${p.name} trait ${p.trait}`);
+      if (p.trait === "distributor") assert.equal(p.position, "GK", `${o.id} ${p.name} 빠른 배급은 GK`);
+      if (p.trait === "crosser") {
+        assert.ok(["FW", "MF"].includes(p.position), `${o.id} ${p.name} 크로서는 FW/MF`);
+        // 크로스 후보 = FW 전원 + MF 중 피지컬 최고 1명 (크로서 본인 제외) ≥ 1
+        const fws = o.players.filter((x) => x.position === "FW" && x !== p);
+        const mfs = o.players.filter((x) => x.position === "MF" && x !== p);
+        assert.ok(fws.length + (mfs.length ? 1 : 0) >= 1, `${o.id} 크로스 후보`);
+      }
+      if (p.trait === "targetman") assert.ok(o.players.some((x) => x.trait === "crosser"), `${o.id} 타깃맨이 있으면 크로서도`);
+    }
+    (countBy[o.role] ||= {})[o.season] = withTrait.length;
+  }
+  for (const role of ["goal", "friendly"]) {
+    const c = countBy[role];
+    assert.ok(c[1] <= c[2] && c[2] <= c[3] && c[1] < c[3], `${role} 특성 수가 시즌마다 늘어남 ${JSON.stringify(c)}`);
+  }
+});
+
+test("v0.3 데이터: 시즌 3 보스 필살기·간파, 서포트 힌트 꿰뚫어보기, 합체기 참조", () => {
+  const skills = new Map(data.skills.map((s) => [s.id, s]));
+  const boss = data.opponents.find((o) => o.id === "op_s3_emberthrone");
+  const fws = boss.players.filter((p) => p.position === "FW");
+  const ace = fws.reduce((a, b) => (b.stats.shoot > a.stats.shoot ? b : a), fws[0]);
+  assert.ok(ace.skillIds.includes("sk_boss_strike"), `에이스 FW ${ace.name} 필살 슛`);
+  assert.ok(boss.players.find((p) => p.position === "GK").skillIds.includes("sk_boss_save"), "GK 필살 세이브");
+  for (const p of boss.players) {
+    for (const id of p.skillIds) {
+      const sk = skills.get(id);
+      assert.ok(sk, `${p.name} ${id} 가 skills.json 에 있음`);
+      if (sk.positions) assert.ok(sk.positions.includes(p.position), `${p.name}(${p.position}) ${id} positions ${sk.positions}`);
+    }
+  }
+  for (const id of ["sk_boss_strike", "sk_boss_save"]) assert.equal(skills.get(id).kind, "unique", `${id} 필살기`);
+  // 보스는 우리 수를 읽는 팀 (GDD 9.11): 간파 스킬 보유
+  assert.ok(boss.players.some((p) => p.skillIds.some((id) => ["readBoost", "negateRead"].includes(skills.get(id)?.active?.effect) && id !== "sk_through_pass")), "보스 간파 스킬");
+  // 꿰뚫어보기 힌트: 서포트 1~2장, 학습 가능
+  const seeThrough = data.supports.filter((s) => s.hintSkillIds.includes("sk_see_through"));
+  assert.ok(seeThrough.length >= 1 && seeThrough.length <= 2, `꿰뚫어보기 힌트 서포트 ${seeThrough.length}장`);
+  assert.ok(skills.get("sk_see_through").learnable);
+  for (const s of seeThrough) assert.ok(!["defense"].includes(s.type), `${s.id} 는 MF·FW 쪽 카드`);
+  // 합체기: a·b 모두 unique 스킬
+  const combos = readOptionalData("combos");
+  if (combos) for (const c of combos) for (const k of ["a", "b"]) assert.equal(skills.get(c[k])?.kind, "unique", `combo ${c.name} ${k}`);
+});
+
+test("스냅샷: 연계 특성 trait 전달 (우리 팀·유스·상대·getTurnView·등록 팀)", () => {
+  const d = clone(data); d.config.eventChancePerTurn = 0; d.events = d.events.filter((e) => e.trigger !== "seasonStart");
+  const s = run.createRun({ data: d, seed: "trait" });
+  const snap = run.buildTeamSnapshot(s, d);
+  for (const p of snap.players) {
+    const rp = s.players.find((x) => x.id === p.id);
+    assert.equal(p.charId, rp.charId);
+    assert.equal(p.trait, CHAR_TRAITS[rp.charId], `${p.name} 스냅샷 trait`);
+  }
+  // 유스는 특성 없음
+  s.players.find((p) => p.slot === "MF1").injuredTurns = 2;
+  const snapY = run.buildTeamSnapshot(s, d);
+  const youth = snapY.players.find((p) => p.slot === "MF1");
+  assert.equal(youth.isYouth, true);
+  assert.equal(youth.trait, null);
+  s.players.find((p) => p.slot === "MF1").injuredTurns = 0;
+  // getTurnView 선수에도 trait
+  for (const p of run.getTurnView(s, d).players) assert.equal(p.trait, CHAR_TRAITS[p.charId]);
+  // 상대: 데이터 trait 그대로, 없으면 null, skillIds 에 보스 필살기
+  for (const o of d.opponents) {
+    const os = run.buildOpponentSnapshot(o, d);
+    o.players.forEach((p, i) => assert.equal(os.players[i].trait, p.trait || null, `${o.id} ${p.name}`));
+    assert.equal(os.gaanpaTickets, 0);
+    assert.equal(os.gaanpaCostHalf, false);
+    assert.equal("intentReveal" in os, false);
+  }
+  const ember = run.buildOpponentSnapshot(d.opponents.find((o) => o.id === "op_s3_emberthrone"), d);
+  assert.ok(ember.players.some((p) => p.skillIds.includes("sk_boss_strike")));
+  assert.ok(ember.players.some((p) => p.position === "GK" && p.skillIds.includes("sk_boss_save")));
+  // 등록 팀: trait·charId 포함, 전술 이행
+  const fin = clone(s);
+  fin.phase = "finished"; fin.tactics.defense = "readIntent";
+  const { registeredTeam } = run.finalizeRun(fin, d);
+  for (const p of registeredTeam.players) assert.equal(p.trait, CHAR_TRAITS[p.charId]);
+  assert.equal(registeredTeam.tactics.defense, "balanced");
+});
+
+test("간파 사용권: 감독의 수첩 · 정찰(ev_prematch_s2) · 감독관(ev_treaty_inspector) → 스냅샷 gaanpaTickets, 시즌 만료", () => {
+  const d = clone(data); d.config.eventChancePerTurn = 0; d.events = d.events.filter((e) => e.trigger !== "seasonStart");
+  const base = run.createRun({ data: d, seed: "gaanpa" });
+  const fire = (s, eventId, choice) => {
+    s.phase = "event"; s.queue = []; s.pendingRelicChoices = null;
+    s.currentEvent = { eventId, playerId: s.players[0].id, supportId: null };
+    const view = run.getEventView(s, d);
+    assert.match(view.choices[choice].preview, /간파 사용권/, `${eventId} preview 가 새 효과를 말한다`);
+    assert.doesNotMatch(view.choices[choice].preview, /의도/, `${eventId} preview 에 의도 공개 문구 없음`);
+    run.resolveEvent(s, d, choice);
+  };
+  const s = clone(base);
+  s.season = 2; s.turn = 8; s.turnIndex = 15;
+  // 정찰 → 이번 경기(그 시즌) 사용권 1
+  fire(s, "ev_prematch_s2", 0);
+  assert.equal(getModifier(s, "gaanpaTicket"), 1);
+  assert.equal(run.buildTeamSnapshot(s, d).gaanpaTickets, 1);
+  assert.equal(run.buildTeamSnapshot(s, d).gaanpaCostHalf, false);
+  // 정찰 대신 남기 선택지는 사용권 없음
+  const s1 = clone(base); s1.season = 2;
+  s1.phase = "event"; s1.queue = []; s1.currentEvent = { eventId: "ev_prematch_s2", playerId: s1.players[0].id, supportId: null };
+  run.resolveEvent(s1, d, 1);
+  assert.equal(run.buildTeamSnapshot(s1, d).gaanpaTickets, 0, "남기 선택지는 사용권 없음");
+  // 감독관 협조 → +1 (누적 2)
+  fire(s, "ev_treaty_inspector", 0);
+  assert.equal(run.buildTeamSnapshot(s, d).gaanpaTickets, 2);
+  assert.equal(run.getTurnView(s, d).nextMatch.gaanpaTickets, 2, "다음 경기 정보에도 같은 값");
+  // 감독의 수첩 → +1, 비용 절반
+  s.phase = "relic"; s.pendingRelicChoices = ["rl_coach_notebook"]; s.queue = [];
+  run.chooseRelic(s, d, "rl_coach_notebook");
+  const snap = run.buildTeamSnapshot(s, d);
+  assert.equal(snap.gaanpaTickets, 3);
+  assert.equal(snap.gaanpaCostHalf, true);
+  // 시즌이 바뀌면 이벤트 사용권(duration season)은 만료, 유물은 남는다
+  s.phase = "route"; s.pendingRoutes = d.routes.map((r) => r.id); s.queue = [];
+  run.chooseRoute(s, d, "rt_camp");
+  assert.equal(s.season, 3);
+  const snap3 = run.buildTeamSnapshot(s, d);
+  assert.equal(snap3.gaanpaTickets, 1, "시즌 만료 후 유물 사용권만");
+  assert.equal(snap3.gaanpaCostHalf, true);
+  // 유물·이벤트 데이터: 새 키 사용
+  assert.deepEqual(d.relics.find((r) => r.id === "rl_coach_notebook").modifiers, { gaanpaTicket: 1, gaanpaCostHalf: 1 });
+  for (const [evId, ci] of [["ev_prematch_s2", 0], ["ev_treaty_inspector", 0]]) {
+    const mods = [];
+    walkEffects(d.events.find((e) => e.id === evId).choices[ci].effects, (e) => { if (e.type === "modifier") mods.push(e); });
+    assert.deepEqual(mods.map((e) => [e.key, e.amount, e.duration]), [["gaanpaTicket", 1, "season"]], evId);
+  }
+});
+
+test("전술·저장 이행: readIntent → balanced, intentReveal modifier → 간파 사용권 (createRun·미팅·상대·저장 런·등록 팀)", () => {
+  const d = clone(data); d.config.eventChancePerTurn = 0; d.events = d.events.filter((e) => e.trigger !== "seasonStart");
+  // createRun 입력
+  const s = run.createRun({ data: d, seed: "migr", tactics: { defense: "readIntent" } });
+  assert.equal(s.tactics.defense, "balanced");
+  assert.equal(run.createRun({ data: d, seed: "migr", tactics: { defense: "hold" } }).tactics.defense, "hold", "새 선택지 hold 는 그대로");
+  // 미팅 입력
+  run.applyAction(s, d, { type: "meeting", tactics: { defense: "readIntent", attack: "pass" } });
+  assert.equal(s.tactics.defense, "balanced");
+  assert.equal(s.tactics.attack, "pass");
+  // 상대 데이터에 readIntent 가 남아 있어도 스냅샷은 balanced
+  const opp = clone(d.opponents.find((o) => o.id === "op_s3_emberthrone"));
+  opp.tactics.defense = "readIntent";
+  assert.equal(run.buildOpponentSnapshot(opp, d).tactics.defense, "balanced");
+  for (const o of d.opponents) assert.ok(run.DEFENSE_TACTICS.includes(run.buildOpponentSnapshot(o, d).tactics.defense));
+  assert.deepEqual(run.normalizeTactics({ attack: "dribble", defense: "readIntent" }), { attack: "dribble", defense: "balanced" });
+
+  // 옛 저장 런 (v0.2): readIntent 전술 + intentReveal modifier (감독의 수첩 유물 + 정찰 이벤트)
+  const legacy = clone(s);
+  legacy.tactics.defense = "readIntent";
+  legacy.relics = ["rl_coach_notebook"];
+  legacy.modifiers = [
+    { key: "trainingEfficiency", amount: 0.2, untilSeason: 1 },
+    { key: "intentReveal", amount: 1, untilSeason: null, source: "relic:rl_coach_notebook" },
+    { key: "intentReveal", amount: 1, untilSeason: 1 },
+  ];
+  const before = JSON.stringify(legacy);
+  const snap = run.buildTeamSnapshot(legacy, d);
+  assert.equal(JSON.stringify(legacy), before, "스냅샷은 저장 런을 바꾸지 않는다");
+  assert.equal(snap.tactics.defense, "balanced");
+  assert.equal(snap.gaanpaTickets, 2, "옛 intentReveal 2개 → 사용권 2");
+  assert.equal(snap.gaanpaCostHalf, true, "옛 감독의 수첩 → 비용 절반");
+  const tv = run.getTurnView(legacy, d);
+  assert.equal(JSON.stringify(legacy), before, "getTurnView 도 상태 불변");
+  assert.ok(!tv.modifiers.some((m) => m.key === "intentReveal"), "뷰의 modifier 목록은 이행된 키");
+  // migrateRun: in-place, 멱등
+  run.migrateRun(legacy);
+  assert.equal(legacy.tactics.defense, "balanced");
+  assert.ok(!legacy.modifiers.some((m) => m.key === "intentReveal"));
+  assert.equal(getModifier(legacy, "gaanpaTicket"), 2);
+  assert.equal(getModifier(legacy, "gaanpaCostHalf"), 1);
+  assert.equal(getModifier(legacy, "trainingEfficiency"), 0.2, "다른 modifier 는 그대로");
+  const once = JSON.stringify(legacy);
+  run.migrateRun(legacy);
+  assert.equal(JSON.stringify(legacy), once, "멱등");
+  // 상태를 바꾸는 API 는 진입 시 이행한다
+  const legacy2 = JSON.parse(before);
+  run.applyAction(legacy2, d, { type: "rest" });
+  assert.equal(legacy2.tactics.defense, "balanced");
+  assert.ok(!legacy2.modifiers.some((m) => m.key === "intentReveal"));
+  // 새 런에는 이행할 것이 없다 (migrateRun 은 아무것도 바꾸지 않음)
+  const fresh = run.createRun({ data: d, seed: "fresh" });
+  const freshJson = JSON.stringify(fresh);
+  run.migrateRun(fresh);
+  assert.equal(JSON.stringify(fresh), freshJson);
+
+  // 저장된 등록 팀 (trait·charId 없던 v0.2 등록본)
+  const oldTeam = { name: "우리 클럽", tactics: { attack: "balanced", defense: "readIntent" }, players: [{ id: "p4", name: "실루엔", slot: "MF1" }, { id: "p9", name: "모르는 선수", slot: "FW1" }] };
+  const t2 = run.migrateRegisteredTeam(oldTeam, d);
+  assert.equal(t2.tactics.defense, "balanced");
+  assert.equal(t2.players[0].trait, "killpass", "이름으로 캐릭터 특성 찾기");
+  assert.equal(t2.players[1].trait, null);
+  assert.equal(oldTeam.tactics.defense, "readIntent", "입력은 바꾸지 않는다");
+  assert.equal(run.migrateRegisteredTeam({ tactics: {}, players: [{ charId: "ch_dwarf_wall", name: "x" }] }, d).players[0].trait, "wall");
+});
+
+test("effects: 삭제된 modifier key(intentReveal)·알 수 없는 key 는 throw, 새 키 적용", () => {
+  const state = run.createRun({ data, seed: "modkey" });
+  assert.throws(() => applyEffects(state, data, [{ type: "modifier", key: "intentReveal", amount: 1, duration: "season" }], {}), /modifier key/);
+  assert.throws(() => applyEffects(state, data, [{ type: "modifier", key: "nope", amount: 1 }], {}), /modifier key/);
+  applyEffects(state, data, [{ type: "modifier", key: "gaanpaTicket", amount: 1, duration: "season" }], {});
+  assert.equal(getModifier(state, "gaanpaTicket"), 1);
+  assert.equal(state.modifiers.at(-1).untilSeason, state.season);
+  // 유물의 modifier 키도 검증
+  const d = clone(data);
+  d.relics.push({ id: "rl_legacy", name: "옛 유물", rarity: "R", description: "", modifiers: { intentReveal: 1 } });
+  const st = clone(state);
+  st.phase = "relic"; st.pendingRelicChoices = ["rl_legacy"]; st.queue = [];
+  assert.throws(() => run.chooseRelic(st, d, "rl_legacy"), /modifier key/);
 });
 
 test("finishMatch: 승부차기 결과(penalties)가 record.goalMatches 항목에 기록된다", () => {

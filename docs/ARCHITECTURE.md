@@ -417,11 +417,14 @@ export function getEffectiveStats(state, playerId, data?)   // 스탯 × 적성 
 ```jsonc
 {
   "side": "home", "name": "우리 클럽", "formation": "2-2-2",
-  "tactics": { … }, "teamwork": 42, "conditionMult": 1.0, "intentReveal": "none",   // intentReveal = 상대가 이 팀 의도를 보는 수준
+  "tactics": { … }, "teamwork": 42, "conditionMult": 1.0,
+  "gaanpaTickets": 0, "gaanpaCostHalf": false,   // (v0.3) 경기마다 간파 사용권 수 · 간파 스킬 텐션 ×0.5 (§13.2-8). intentReveal 은 삭제
   "resonance": { "element": "wind", "strong": false, "bonus": { "passAttack": 0.05 } } | null,
-  "modifiers": { "shootPower": 0, "defense": 0, "tensionGain": 0, "staminaCost": 0, "intentReveal": 0, "passAttack": 0 },  // 유물 등 합산치
-  "players": [ { "id": "p1", "name": "…", "slot": "FW1", "position": "FW", "style": "speed", "element": "wind", "race": "beast",
-                 "stats": { … 적성 배율 적용됨 … }, "skillIds": ["sk_…"], "portraitColor": "#…", "isYouth": false } ]
+  "modifiers": { "shootPower": 0, "defense": 0, "tensionGain": 0, "staminaCost": 0, "passAttack": 0, "dribbleStaminaRefund": 0,
+                 "gaanpaTicket": 0, "gaanpaCostHalf": 0 },  // 유물 등 합산치 (v0.3: intentReveal 삭제, gaanpa 2키 추가)
+  "players": [ { "id": "p1", "charId": "ch_…", "name": "…", "slot": "FW1", "position": "FW", "style": "speed", "element": "wind", "race": "beast",
+                 "stats": { … 적성 배율 적용됨 … }, "skillIds": ["sk_…"], "trait": "runner" | null,   // (v0.3) 연계 특성, 유스 null
+                 "portraitColor": "#…", "isYouth": false } ]
 }
 ```
 
@@ -469,9 +472,11 @@ failRate = failRateByStamina 구간값(현재 체력) + getModifier("injuryRate"
 | `bondGain` | 유대 상승 가산 |
 | `hintRate` | 힌트 확률 가산 |
 | `skillPointGain` | 스킬 포인트 배율 가산 |
-| `intentReveal` | 상대 의도 공개 +1 단계 (none→partial→full) |
+| ~~`intentReveal`~~ | (v0.3 삭제 — 의도 공개 폐지. effects.js 가 이 키를 throw 한다. 옛 저장 런은 `gaanpaTicket` 으로 이행) |
+| `gaanpaTicket` | (v0.3) 경기마다 간파 사용권 수 → 스냅샷 `team.gaanpaTickets` (§13.2-8) |
+| `gaanpaCostHalf` | (v0.3) ≥ 1 이면 간파 스킬(readBoost·negateRead) 텐션 ×0.5 → 스냅샷 `team.gaanpaCostHalf` |
 | `goalMatchCondition` | 목표 경기 컨디션 단계 가산 |
-| `shootPower`, `defense`, `passAttack`, `tensionGain`, `staminaCost` | 경기 스냅샷 `modifiers`로 전달 |
+| `shootPower`, `defense`, `passAttack`, `tensionGain`, `staminaCost` (+ `dribbleStaminaRefund`, `gaanpaTicket`, `gaanpaCostHalf`) | 경기 스냅샷 `modifiers`로 전달 |
 | `lossPenaltyHalf` | 1이면 패배 보상 감소 절반 |
 | `dribbleStaminaRefund` | 드리블 성공 시 확률로 체력 +5 (값 = 확률) |
 
@@ -948,3 +953,132 @@ GDD 9.6·9.7·9.16·9.17 대로:
 - 기존 테스트는 규칙 변경에 맞게 갱신 (block → hold, intent 삭제 등). 회귀 불변식(§12 레이아웃)은 유지.
 - tools/choice.mjs: 수동 정책 비교 — auto / 버튼 기대 % 최고(expectedPct) / 무작위 / 항상 짝 맞힘, 그리고 스킬 끄기·필살기 끄기 변형. 출력: 시즌별 승률, 수동 이득, 필살기 1회당 승률 효과, 액티브 전체 효과, 경기당 필살기·액티브 사용 수.
 - 밸런스 목표 (자동, sim 300런): 시즌 승률 70~80 / 50~60 / 35~45%, 골 1.5~3.5/경기, 필살기 보유자당 경기 1~2회 사용, 팀당 일반 액티브 3~4회. choice.mjs: 수동(expectedPct) 이득 5~10%p, 필살기 1회 +5~8%p, 액티브·필살기 전체 +6~10%p. 조정은 config·opponents 수치로.
+
+### 13.8 통합 노트 (v0.3)
+
+4개 담당(경기 엔진 / 데이터·런 / 화면 / 도구·밸런스)이 13.0~13.7 만 보고 만든 뒤 통합하면서 확정·추가된 사항. **구현이 기준**이다.
+
+#### 13.8.1 계약과 달라진 것 · 추가된 것
+
+**경기 엔진 (match.js · ai.js · skills.js)**
+- `tendencyValues(state, data, side, playerId?)` — config 가 필요해 `data` 인자 추가 (13.2-9 문구는 `(state, side, playerId)`).
+- 추가 export: `pickByTendency, autoAction, receiverPlan, defaultReceiverId, ultimateUsable, ultimateReady, aiWantsUltimate, gaanpaStatus, bestDefenseResponse, bestAttackResponse, teamworkAmp, getTrait, comboName, fxOf, gaugeOf, DEFAULT_TRAITS, DEFAULT_COMBOS, MATCH_VERSION` (ai.js `isLeverage`, skills.js `getPlayerUltimate, isGaanpaSkill, skillCost, addSkillFx, ULTIMATE_TYPES`). 삭제: `revealLevelFor, REVEAL_LEVELS`.
+- **필살 패스의 기본 받는 선수**는 받는 선수의 합체기 가치(자기 필살 효과 × comboBonus)를 판정값에 넣는다. 없으면 기본 편성에서 실루엔 → 울릭(드리블형)으로 가서 자동 경기 합체기가 0회였다. `view.receivers[a].ultimateDefaultId` 추가, 수동 `{ action: "pass", ultimate: true }` 에 receiverId 가 없으면 이 값. 필살 패스 변형은 `receiverPreviewBySkill / outcomesBySkill / receiversBySkill` 에 **필살기 skillId 키**로 들어간다.
+- 연계 스택 `passChainBonus × chain` 은 **슛에만** (v0.1 규칙 유지, GDD 9.10-6). 13.2-5 문구에는 액션 제한이 없다.
+- 필살 슛 `gkMult ×0.7` 은 파이널 서드 중거리(박스 슛 취급)에서 막는 DF 에도 적용. 박스 슛 취급이라 버티기 중거리 배율(×holdVsMidrange)은 붙지 않는다.
+- 필살기를 쓴 선수는 그 듀얼에서 게이지를 얻지 않는다(0 유지). 필살 패스 수신은 onReceive 대신 `ultimate.receiverGauge`(50). 게이지 증가는 한 번씩 상한으로 자른다(승 → 골 순서).
+- AI 텐션 정책 save/clutch 의 "슛 상황" = line ≥ 2 공격·수비 (13.3 기본 레버리지). 슛만으로는 팀당 액티브 2.0~2.5 로 목표 미달이었다.
+- 결정 형식: `decision.gaanpa = true | "ticket" | "skill"` (true 는 사용권 우선). `{ skillId }` 또는 `{ gaanpa }` 단독 = 부분 커밋(결정 대기 유지). `{ ultimate: true }` 단독은 throw. 부분 커밋한 skillId 를 최종 결정에 다시 보내면 "이미 사용" throw. 간파 스킬과 다른 액티브는 한 듀얼에 함께 못 쓴다(throw) — 화면은 비활성이 된 토글을 스스로 해제한다.
+- **사람 측 자동 진행도 AI 규칙**(`byAI`)이라, 자동 중 우리 팀이 간파(사용권)를 쓰면 AI 처럼 판정 때 상대의 실제 선택에 맞춰 액션을 바꾼다. 수동 결정은 효과만 (13.2-8).
+- 데이터: traits.json 항목에 `amp: boolean`(팀워크 증폭 대상). skills.json 전 항목에 `ultimate` 키(null | 객체), 필살기는 `active: null`·`tension 0`. config.match: `actionCoef.block` 삭제, `actionCoef.tackle/intercept`(1.0)·`staminaCost.cross`(4) 추가, `aiRevealForOpponent` 삭제.
+- `data.traits` / `data.combos` 가 번들에 없으면 `DEFAULT_TRAITS / DEFAULT_COMBOS`(같은 값)로 동작 — 테스트가 같은 경기 결과를 확인한다.
+- getMatchView 추가 필드: `actions[].expected`(소수), `skills[].cost/gaanpa/expectedPct{action:%}`, `ultimateOptions[].gauge/description/expectedPct`, `gaanpa.expectedPct`, `receivers[a].arrival/zone/ultimateDefaultId`, `outcomesByReceiver[a][id].expectedPct`, `receiversBySkill`, `ballState{oneTouch, receivedVia, receivedFresh, comboReadyId, pending}`, `gaanpaTickets{home, away}`, `carrier/defender.trait/gauge`, `players[].trait/gauge/ultimateSkillId`, Outcome `short`(버튼용 짧은 문구)·`oneTouch`. 필살 세이브는 `ultimateOptions` 에 `type "save", usable false, reason "GK 세이브에서 자동 발동"`.
+- 이벤트: 판정 이벤트에 `pair, links[{id, label}]`(킬패스!/원터치!/헤더!/침투!/합체기!), `header, oneTouch, readBy, ultimate, defUltimate, via, counterStart`. skill 이벤트에 `gaanpa, ticket, cost`. **모든 이벤트가 `seq` 를 가진다.** combo 이벤트 = `{ type: "combo", name, skillIds: [a, b], playerIds: [a, b] }` (받은 선수의 cutin 뒤). `stats[side]` 에 `skillsUsed, ultimatesUsed, combos, gaanpaUsed`. `state.possessionFx`(함성 teamMult).
+- 이벤트 로그의 "X의 버티기 제침" 은 "뚫었다"는 동사일 뿐이다. 제쳐짐 상태(+beatenBonus)는 태클이 졌을 때만 붙는 별도 꼬리표("— X 제쳐짐 (다음 듀얼 +25%)").
+
+**데이터 · 런 (data/*.json · run.js · effects.js)**
+- 시즌 3 보스 엠버스론: 13.1 의 필살기 2개 외에 MF 세르바 `sk_eagle_eye`, FW 코르드 `sk_see_through` (GDD 0.1 #37 "보스가 우리 수를 읽는다" — readIntent 삭제 후 읽기 수단이 없어서).
+- 상대 3명 드리블·패스 값 교환(합 불변): 아이언후프 DF2 하르둠·MF2 코르바, 썬더클로 DF2 스나르. A안에서 DF·MF 패스 스탯이 드리블을 이겨 "드리블 전술" 팀도 styleHint 가 패스 위주로 나왔기 때문.
+- `styleHint` 는 엔진 tendency 가 아니라 스탯 비교(필드 선수 dribble×계수 vs pass×계수, 전술 선호 ×tacticBonus, 동률 드리블, 과반이 아니면 "혼합"). 경기 상태 없이 계산해야 해서.
+- 추가: `nextMatch.styleHintKey / styleCounts / gaanpaTickets`, 스냅샷 선수 `charId`, `getTurnView().players[].trait`, export `normalizeTactics, migrateRun, migrateRegisteredTeam, opponentStyleHint, DEFENSE_TACTICS, MODIFIER_KEYS, assertModifierKey`. `team.gaanpaCostHalf` 는 boolean, `modifiers.gaanpaCostHalf` 는 숫자.
+- 옛 저장 런 이행: `intentReveal` modifier → 같은 양·기간의 `gaanpaTicket` (감독의 수첩 유물이면 `gaanpaCostHalf 1` 추가), 전술 readIntent → balanced. 상태를 바꾸는 run 함수는 모두 `migrateRun` 을 먼저 부른다. RUN_VERSION 은 1 유지(모양 불변, 내용으로 이행).
+- effects.js 는 알 수 없는·삭제된 modifier 키를 throw 한다 (전에는 조용히 통과).
+
+**화면 (screens/match.js · layout.js · setup.js · training.js)**
+- 남은 수비 문구는 필드 왼쪽 아래 칩("남은 수비: MF2·DF2·GK"). 정보 줄은 예상 행동 근거(GDD 9.6)에 쓴다.
+- "추천"·"짝" 칩은 버튼 제목 밖(공격 = 성공 줄 오른쪽, 수비 = 아래 줄) — 제목에 두면 360~390px 에서 받는 선수 이름이 잘렸다. 스킬·필살기·받는 선수를 토글하면 "추천"은 화면에 보이는 % 최고로 옮긴다.
+- **근사 % (≈)**: 엔진 view 에 스킬 + 필살기 동시 토글, 또는 토글 + 기본이 아닌 받는 선수 조합의 미리보기가 없어 가장 가까운 엔진 값에 ≈ 를 붙인다(규칙 재계산 없음). 정확히 하려면 엔진에 `outcomesByReceiverBySkill` 류가 필요하다.
+- 합체기 컷인 = 1.0s + 1.0s + 이름 1.1s (단일 필살기 1.5s). 1x 에서 합체기 비트가 4.5초를 넘지 않게.
+- 간파는 탭하면 즉시 부분 커밋(`{ gaanpa: source }`), 결정 대기 유지. 스킬·사용권이 둘 다 있으면 엔진 우선(사용권). 간파 스킬은 일반 액티브 줄에서 숨긴다.
+- 자동 진행 중 액션 영역 = 우리 선수의 성향값 + "자동 선택" 표시.
+- 로그 줄 클래스 `ev-<type>` (전역 `.cutin` 배너 스타일과 충돌 방지). 필드 높이 = 화면 높이 − 370px.
+- layout API: `L.receiverIds`(패스·크로스 후보 전원, 도착 구역에 role receiver), `receiverCandidates` export, `resolvePreview(view, { skillId, ultimate, deciding })` 가 `receivers` 도 바꾼다. 자동 진행 중에는 변형이 후보·도착을 바꾸면 후보 전원을, 기본값만 다르면 그 선수만 숨긴다.
+- store.matchUi 추가: `ultimate, receiverPick, pickKey, gaanpaUsedKey, lastDecision`(읽기 전용).
+- 편성 화면 서포트 그리드 가로 넘침(390px 에서 429px) 수정 — 이번 라운드 전부터 있던 문제.
+
+**도구 · 테스트**
+- test/layout.test "자동 진행: 그린 패스 후보 = 실제 수신자": 픽스처를 DF1 아르덴(패스형) + `sk_line_breaker` 주입 + 텐션 60 으로 바꿈(A안에서 드리블형 DF 울릭은 패스를 안 해서 변형이 쓰이지 않았다). 숨김 상한 passes/4 → passes/3. **이 비율은 `tension.start` 에 민감**하다 — 35 이상이면 라인 브레이커가 킥오프 듀얼에 바로 발동해 0.35 로 실패.
+- tools/sim.mjs: `--manualOracle` 삭제(view.intent 사용) → tools/choice.mjs 가 대체. 경기 표를 전체 / S1~S3 목표 경기로 나눠 출력. `--oppScale` 에 `cap=`.
+- tools/choice.mjs 정책: auto / expected(AI 규칙으로 붙을 스킬·필살기·간파 토글의 기대 % 까지 보고 최고) / rec("추천"만, 스킬·필살기는 AI 규칙) / random / pair / hold / expD·expA. 변형: 필살기·액티브·둘 다 끔(`--strip both` 면 상대도).
+- tools/scenarios.mjs 시나리오 08~15, `adjustSetup` 훅, shot.mjs `steps` 상호작용.
+
+#### 13.8.2 통합에서 고친 경계 불일치
+
+1. js/ui/app.js · test/helpers.mjs 로더에 `traits`, `combos` 추가 (app.js 는 두 파일이 404 면 건너뛴다 — 엔진·화면 기본값이 같다).
+2. test/v05.test 게이지 테스트: 기대값을 한 번씩 `min(…, gaugeMax)` 로 자르고 제목의 고정 수치를 config 키로. 이전에는 증가량 합이 100 을 넘으면 실패해 튜닝을 `(100 − 시작)/2` 이하로 묶었다. 수비 배율 테스트 제목 "짝 ×1.5" → "×readBonus".
+3. 화면 자동 진행 액션 영역이 엔진 힌트를 그대로 써서 "→ 기본 받는 선수" 를 보였다 — 필살 패스(합체기 기본값)·스킬 변형이면 실제 받는 선수와 달랐다. 결정 버튼과 같은 처리(`stripRecvHint`)로 뗀다.
+4. 간파 버튼 설명의 "짝을 맞히면 ×2.0" 고정값 → readBoost 스킬 데이터의 readMult (엔진 `ticketReadMult` 와 같은 출처).
+5. §5.2 TeamSnapshot · §6.7 modifier 표를 v0.3 로 갱신.
+
+#### 13.8.3 튜닝 값 (13.1 config 블록 · §4.6 · §11.3 대체)
+
+| 키 | 13.1 | v0.3 | 이유 |
+|---|---|---|---|
+| match.readBonus (짝) | 1.5 | **1.7** | 1.5 에서는 수동 이득의 수비 쪽이 약했다. 1.7 에서 수동 이득 약 +7%p, "추천만 따르기"가 S2·S3 에서 자동보다 손해가 아니다 |
+| match.tension.start / duelWin | 20 / 10 | **30 / 9** | 우리 액티브 S1 2.9 → 3.0 수준. 35 이상은 layout.test 숨김 상한에 걸림 |
+| match.ultimate.onDuelWin / onReceive / onGoal | 20 / 15 / 30 | **35 / 35 / 35** | 보유자가 경기당 4~5회 관여하는데 사용 0.4회(실루엔 35% 경기가 가득 찬 채 종료). 시작 30 + 35×2 = 100 → 첫 필살기는 관여 2번 뒤, 이후 3번마다 |
+| 상대 스탯 | §4.6 가이드 | S1 ×1.18, S2 ×1.07, S3 ×1.17 (10 단위 반올림, 스탯만) | 필살기가 강해진 만큼 시즌 승률을 목표 대역에 다시 맞춤 |
+| match.tendency.midrangeTactic (신규, 13.8.6-5) | (tacticBonus 1.15) | **3.0** | 중거리 계수 0.6 이 드리블·패스 2.2 보다 훨씬 낮아 ×1.15 로는 1위를 절대 못 뒤집었다(상대 최대 비율 0.448). 중거리 = 한 번 이기면 골, 돌파 = 두 번 → 반반 승부에서 약 3배가 같은 득점 기대 |
+| 상대 연계 특성·스탯 (13.8.6-4) | 13.1 | 피니셔 제거(무그렌·시온델·아그니르), 침투 이동(다린 → 로벨, 프레이 → 없음, + 코르바·카엘라·코르드), 파낙 슈팅 730·드리블 540·패스 610 · 루가 슈팅 710, 시온델 슈팅 780·드리블 580 → 실버리프 전원 ×1.05 | A안 자동에서 한 번도 발동하지 않던 특성을 공을 실제로 잡는 선수로 옮김. 실버리프는 중거리 팀이 되며 약해져(S2 59%) 스탯으로 되돌림 |
+
+- 상대 선수당 5스탯 합 평균: S1 아이언후프 1700 · 강변 1606, S2 실버리프 2573(QA 전 2451) · 썬더클로 2329(QA 전 2316), S3 엠버스론 3399 · 프로스트베일 3199. **S3 최대 스탯 1170 > statCap 1000** (엠버스론 GK·DF, 프로스트베일 GK). 엔진은 상대 스탯을 자르지 않고 화면에 상대 스탯 바가 없어 드러나지 않는다. 1000 으로 자르면 팀 개성이 사라져 쓰지 않았다.
+- GDD v0.5 의 [가정] 수치 중 바뀐 것: 짝 ×1.5 → ×1.7, 필살 게이지 +20/+15/+30 → +35/+35/+35, 팀 텐션 시작 20 → 30 · 듀얼 승 +10 → +9, "기회 보이면 중거리" 중거리 성향 ×1.15 → ×3.0 (13.8.6-5). 규칙 문구 중 바뀐 것: 볼 운반 "빌드업 구역 드리블 +10%" → "빌드업·중원(line ≤ 1)" (13.8.6-3).
+
+#### 13.8.4 검증 (통합 시점)
+
+- `npm test`: 97 테스트 전부 통과 (rng 8, run 25, match 24, v05 22, layout 16, ui.smoke 2 — jsdom 클릭-스루·시나리오 포함).
+- `node tools/sim.mjs --runs 300 --seed 1` (자동 A안): 목표 경기 승률 **73.7 / 53.0 / 41.3%**, 골 2.64/경기(S3 목표 경기 4.07), 우리 일반 액티브 3.04/경기(S1 2.74 · S2 3.01 · S3 4.15), 필살기 보유자당 0.99 / 0.85 / 1.22, 합체기 0.67 / 0.52 / 0.81, 필살 슛 골 확률 81.8 / 70.4 / 81.0%, 연장 19.5% · 승부차기 10.7%, 등급 중앙값 B.
+- `node tools/choice.mjs --runs 300 --seeds 8` (시즌당 2400경기): 수동 이득(expected − auto) **+7.0 / +6.7 / +8.4%p**, 필살기 1회 효과 **+5.3 / +8.4 / +5.5%p**, 일반 액티브 효과 +4.0 / +3.3 / +4.3%p(1회 +1.0~1.4), 액티브·필살기 전체 **+15.0 / +17.6 / +16.6%p**, 무작위 − 자동 −22.6%p, 추천만 − 자동 −2.4 / +1.0 / +0.1%p.
+- 화면 계약 퍼즈(임시 스크립트, 180경기 · 사람 결정 3117회): 화면이 허용하는 조합(액션 · resolvePreview 로 고른 받는 선수 · 일반 액티브 · 필살기 · 간파 부분 커밋)을 무작위로 보내 `step()` throw 0, 공격·수비 액션 교체 0, 받는 선수 불일치 0(기본값이 아닌 선택 154회), 필살기 120회 전부 cutin, 합체기 18회, 간파 255회 뒤 결정 대기 유지. 토글 없는 결정 2598회 중 약속한 구역 ≠ 판정 뒤 구역은 승부차기로 넘어간 8회뿐(승부차기 view.zone = 키커가 노리는 박스, §12.1 규칙).
+- `node tools/shot.mjs <outDir>`: 15/15 시나리오 390×844 페이지 스크롤 없음(로그 내부 스크롤만), 콘솔 에러 0.
+- 실제 브라우저(puppeteer, 390×844): 시작 → 새 런 → 기본 편성 → 친선전 자동 4x 완주 → 결과 모달 → 확인 → 런 진행. 수동(`?auto=0`, 간파 사용권 2 주입): 받는 선수 탭 2회(버튼 · 실제 수신자 일치), 메테오 슛(cutin, 골), 간파 사용권 2회(결정 대기 유지), 판정 액션 불일치 0, 콘솔 에러 0.
+
+#### 13.8.5 남은 문제 · 기획 결정 필요
+
+1. **액티브·필살기 전체 효과 +16.4%p (목표 +6~10)**. 필살기 1회 효과는 게이지 설정과 무관하게 5~9%p 로 거의 일정해서 전체 ≈ 1회 효과 × 사용 수다. 보유자 2명 × 1~2회 × 5~8%p 면 10%p 를 넘을 수밖에 없어 "보유자당 1~2회"와 "전체 +6~10"은 양립하지 않는다. 현재는 승인된 사용 빈도를 우선했다. 대안: 게이지 증가를 20/15/30 으로 되돌리고 상대를 약하게 → 보유자당 0.3~0.6회, 전체 약 +8~11.
+2. S2 필살기 보유자당 0.85회 (목표 1~2). 측정(sim 300런 seed 1, 증가량 셋 다 같은 값): 40 은 35 와 **완전히 같은 결과**(가득 차는 관여 횟수가 같다), 50 도 0.99/0.85/1.22 → 1.07/0.94/1.38 · 승률 +1~2%p 에 그친다. S2 는 보유자의 관여 자체가 적어서, 1회 이상은 "관여 1번 만에 준비"(시작 65 등, 전체 효과 +20~25%p) 구간에서만 나온다 (13.8.2-2 로 테스트 제약은 풀렸다).
+3. S1 우리 일반 액티브 2.74~2.89회 (목표 3~4). 포제션 8/10/12 차이로 텐션만으로 S1·S3 를 함께 맞출 수 없다(S3 4.15).
+4. S1·S2 상대 4팀에 일반 액티브가 없어 상대 액티브 0회/경기 (GDD 9.18 "팀당 3~4"). 1~2개씩 넣고 `--oppScale` 로 스탯을 다시 맞추면 된다.
+5. 크로서가 자동에서 크로스를 거의 안 한다 (0.17회/경기): 크로스 성향 (패스+드리블)/2 × 1.1 < 드리블. 예: 스크린샷 08 에서 자동은 드리블 25%, 크로스는 53%. 크로스 → 헤더 → 타깃맨 연계는 사실상 수동 전용.
+6. 보스 GK 필살 세이브 0.02회/경기 — GK 게이지는 세이브로만 차고 가득 찼을 때만 쓴다. GK 전용 증가량(예: 세이브 +50) 검토.
+7. "추천"(`actions[].recommended`)은 토글 없는 기대 % 라 준비된 필살기를 보지 않는다. 필살기가 준비된 그룸바가 라인 2 에서 드리블 30% 를 추천받고, 메테오 중거리는 87%. 추천만 따르면 S1 −2.4%p. 제안: 필살기가 준비되면 `ultimateOptions` 에도 추천 표시.
+8. line 0~1 공격 expectedPct 는 돌파 확률만 본다(계약대로) → 공격만 기대 % 최고의 이득은 +1.7~2.6%p (수비만 +5~7.5). 다음 듀얼 보너스·도착 구역 가치를 넣으면 공격 쪽 결정이 살아난다.
+9. S3 목표 경기 골 4.07/경기 (전체 평균 2.64 는 목표 안).
+10. 새 파일이 아직 git 에 없다: `data/traits.json, data/combos.json, test/v05.test.mjs, tools/choice.mjs` — 커밋에 넣어야 한다 (`npm test` 가 v05 를 요구한다).
+11. **기획 확인 — 볼 운반** (13.8.6-3): "빌드업 구역(line 0)"은 규칙상 공 소유자가 항상 DF 라 미르카(MF/FW)·키르(MF)에게 발동하지 않았다. 검수 제안 1안(line ≤ 1, `buildupMaxLine`)으로 바꿨다. 다른 안: 효과를 "중원 드리블 +10%"로 한정, 또는 DF 캐릭터에 배정.
+12. **기획 확인 — 중거리 전술** (13.8.6-5): ×3.0 은 "슈팅이 드리블·패스보다 약 1.2배 이상 높은 선수만" 중거리 1위. 자동 중거리 슛 골 확률은 15~17%(우리 DF 가 버티기 ×1.5 로 막음) 라서 중거리 팀(실버리프)은 오히려 약해진다 — GDD 9.11 "중거리 팀 = 버티기의 가치" 그대로. 우리 팀이 이 전술을 고르면 목표 경기 승률은 대략 중립(±3%p). 대안: 값을 2.5 로(상대 동작 불변, 우리 슈터만 뒤집힘), 또는 전술 설명을 "필살 슛·수동에서만 의미"로.
+13. 피니셔(받은 직후 박스 슛·헤더)는 A안 자동에서 상대가 발동시킬 경로가 없다(FW 끼리 패스·크로스가 없음). GDD 9.10 대로 런치 캐릭터용으로 남기고 상대에서는 뺐다. 상대 철벽 노르윈(실버리프)은 매치업 수비수 선택이라 경기당 0.01회 — 수비할 때 자동 선택은 버티기라 테스트는 "발동 > 0 또는 버티기 선택"으로 본다.
+14. 수비 미리보기 ✕ 는 다음 구역 같은 레인에 선 선수와 겹치면 레인 옆으로 비킨다 (13.8.6-10). 수비수와 그 선수 사이 틈(약 17px)이 ✕(약 23px)보다 좁아서 레인 위에는 못 둔다.
+
+#### 13.8.6 검수 수정 (v0.3 QA — 14건, 구현이 기준)
+
+**엔진 (match.js)**
+1. 함성(rally) 미리보기: `skills[].expectedPct` 를 발동 뒤 가상 상태(`stateAfterActive` = 사본에 실제 `applyActive`)에서 계산 — 전원 체력, 제쳐짐 해제·커버 복구, 이번 포제션 팀 판정 ×teamMult(다음 박스 슛까지) 포함. 받는 선수는 실제 결정처럼 발동 전 기본값. 전에는 함성을 안 켰을 때와 같은 값(2~11%p 낮음).
+2. line 2 드리블·패스·크로스 기대 %(돌파 × 박스 슛)의 박스 슛에 **슈터 자기 필살 슛** 포함: 판정 뒤 게이지(드리블 = +onDuelWin, 패스·크로스 = +onReceive / 필살 패스 receiverGauge, 이번 듀얼에 필살기를 쓴 선수는 0)가 gaugeMax 면 필살 슛 효과로 계산 (AI 규칙: shot 은 준비되면 항상 사용). 합체기·상대 GK 필살 세이브는 전과 같다. "추천"도 따라 바뀐다.
+3. 볼 운반 `buildupDribbleBonus` 조건: line 0 → **line ≤ `buildupMaxLine`(1)** (traits.json · DEFAULT_TRAITS 에 `buildupMaxLine: 1`, 설명 "빌드업·중원 드리블 +10%"). 판정(attackBonus)과 성향값 모두. 13.8.5-11.
+4. (데이터) 상대 연계 특성이 자동에서 발동하도록 재배정 — 13.8.3 표. 테스트 "상대 연계 특성은 자동(A안) 경기에서 발동한다"(v05)가 모든 상대 특성의 발동 > 0 을 확인한다(철벽은 "발동 또는 수비 시 버티기 선택").
+5. `config.match.tendency.midrangeTactic`(3.0): 슛 타이밍 "기회 보이면 중거리"의 중거리 성향 배율 (없으면 tacticBonus). 13.8.5-12.
+6. `getAttackActions(state, side, data, fx?)` · `getDefenseActions(state, side, data, fx?)`: 힌트가 효과를 따른다 (fx 없으면 이번 듀얼에 커밋된 효과 — 간파 부분 커밋 포함). 짝 무효(간파·스루 패스·필살 패스) → "짝 무효 (이름)", 파이널 서드 필살 슛(boxShot) → 제목 **"필살 슛"** · "박스 슛 취급 · GK ×0.7", 박스 필살 슛 → "… · 필살 · GK ×0.7", 파워 슛 → 중거리 위력 배율, 수비 간파 → "짝 ×2", 빗나감 무시 → "빗나감 없음". view 추가: `skills[].actions` · `ultimateOptions[].actions` · `gaanpa.actions` = `{ [action]: { label, hint } }` (그 토글을 켰을 때의 제목·약점 문구).
+7. 판정 이벤트(duel · turnover)에 패스·크로스면 `receiverId` (판정 전에 정한 받는 선수 — 턴오버에도).
+
+**화면 (screens/match.js · setup.js · css)**
+8. 액션 버튼 제목·약점 문구 = 켠 필살기 → 스킬의 `actions[action]` (없으면 기본). 필살 패스를 켜면 "vs 인터셉트에 약함" 대신 "짝 무효 (바람의 실)".
+9. 한 줄 버튼(rows-1, 2열 이하) 성공 긴 문구 3줄까지. 수비 3열: 짝·추천 칩과 판정 스탯이 한 줄에 안 들어가면 판정 스탯을 다음 줄로(잘리지 않음).
+10. 연계 문구(`linkPop`) 자리: 위 → 위 좌우 → 좌우 → 아래(필드 위쪽 끝이면 아래부터) 중 토큰·이름표·말풍선·공을 피한 자리 (`pickSpot`). 수비 미리보기 ✕: 길 위(수비수 뒤 1.6 → 1.25 → 1.0 → 2.4 → 3.0 토큰) → 레인 옆 ±0.8 토큰 중 다른 토큰과 안 겹치는 첫 자리.
+11. 자동 진행 중 성향값 보기의 힌트: 한국어 단어 중간 줄바꿈 금지(keep-all).
+12. 라인 브레이커 등 **도착 구역을 바꾸는 변형** + 기본 아닌 받는 선수: `outcomesByReceiver`(스킬 없이 계산)를 쓰지 않고 변형 결과에 받는 선수 이름만 바꾼다(≈). 전에는 "상대 진영 진입, 중거리 슛"(스킬 없는 도착)을 보였는데 실제는 박스 원터치였다.
+13. 실패한 패스·크로스 연출의 받는 선수 = 이벤트 `receiverId` → 이번 비트의 사람 결정 → 기본값. 화면 내부 `lastDecision` 은 자동 비트에서 지운다 (전에는 개입 뒤 자동 패스가 끊기면 옛 받는 선수 쪽으로 길이 0 궤적). `store.matchUi.lastDecision`(도구용)은 그대로.
+14. 스킬 줄 4개 이상 = 압축 모드(`.skill-row.many`: 필살기 "필살기/합체기" 꼬리표·텐션 ✦ 숨김, 게이지 16px, 간격·글자 축소 — 제목에 전부 있음), 간파 버튼은 줄지 않는다. 편성 서포트 카드: 이름은 단어 단위 줄바꿈(희귀도는 보조 줄 맨 앞), 보조 줄은 항목 단위 줄바꿈.
+
+**도구**
+- tools/sim.mjs: 경기 표에 "중거리 슛/경기 우리/상대 (골%)" (필살 슛 제외).
+- tools/scenarios.mjs: 시나리오 `16_skill_row_4` (실루엔 + 스루 패스·폭발 드리블·꿰뚫어보기 → 필살기·간파·액티브 2). tools/shot.mjs: "잘린 스킬" 열 (스킬 이름 말줄임 — 소수 픽셀 Range 폭으로 잰다).
+
+**검증 (QA 수정 뒤)**
+- `npm test`: 99 전부 통과 (rng 8, run 25, match 24, v05 24, layout 16, ui.smoke 2).
+- `node tools/sim.mjs --runs 300 --seed 1`: 목표 경기 승률 **74.3 / 57.3 / 41.3%** (seed 1~4 평균 S2 약 55%), 골 2.58/경기(S3 4.15), 우리 일반 액티브 3.08/경기, 필살기 보유자당 0.98 / 0.88 / 1.23, 필살 슛 골 확률 80.4%, 상대 중거리 슛 S2 2.72/경기(골 15%), 침투 연계 1.56/경기(전 0.09).
+- `node tools/choice.mjs` (60런 × 6시드): 수동 이득 **+7.0%p** (7.8 / 5.3 / 8.1), 필살기 1회 +7.0%p, 액티브·필살기 전체 +17.3%p(13.8.5-1 그대로), 추천만 − 자동 −1.2%p.
+- 미리보기 = 실제 (실제 목표 경기 36셋업 × 시드 2, 액티브 8종 주입): 액티브 토글 8705건(함성 2588) 불일치 0, line 2 비슛 기대 % 538건 중 1%p 넘는 차이 0.
+- 상대 특성 발동 (목표 + 친선, 540경기): 피니셔 0 → 배정 없음, 침투 로벨 118 · 카엘라 133 · 코르바 191 · 코르드 191, 크로서 파낙 0 → 136, 타깃맨 루가 0 → 89, 볼 운반 키르 0 → 234.
+- `node tools/shot.mjs`: 16/16 시나리오 390×844 스크롤 없음·잘린 스킬 0·콘솔 에러 0 (360 폭 04·11·12·16 도 스크롤·잘림 0, 320 폭에서는 16 의 이름 3개가 말줄임).
+- 브라우저 확인(puppeteer 390×844): 라인 브레이커 + 울릭 탭 → 버튼 "울릭 원터치 · 상대 박스 진입", 미리보기 "→ 상대 박스", 판정 line 3 원터치. 개입 패스 뒤 자동 ON → 타린의 자동 패스가 끊긴 턴오버 궤적이 그룸바(이벤트 receiverId) 쪽 33px. 연계 문구 6건 토큰 얼굴·이름표 겹침 0 (전: 6건 모두 오르반 얼굴·이름표·말풍선을 가림). 편성 서포트 카드 390·360: 단어 중간 줄바꿈 0, 가로 넘침 없음.

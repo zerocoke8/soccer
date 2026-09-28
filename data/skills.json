@@ -9,7 +9,8 @@
     "positions": ["GK"],
     "description": "골문 앞에 물의 벽을 세워 세이브 판정 +15%",
     "passive": { "when": "always", "target": "self", "mods": { "save": 1.15 } },
-    "active": null
+    "active": null,
+    "ultimate": null
   },
   {
     "id": "sk_iron_tackle",
@@ -19,10 +20,10 @@
     "cost": 0,
     "tension": 30,
     "positions": null,
-    "description": "이번 수비 듀얼 수비력 ×1.3",
+    "description": "이번 수비 ×1.4, 짝이 빗나가도 ×0.8 페널티 없음",
     "passive": null,
-    "active": { "effect": "boost", "params": { "defense": 1.3 }, "phase": "defense",
-                "ai": { "useWhen": "defenseDuel", "minTension": 30 } }
+    "active": { "effect": "boost", "params": { "defense": 1.4, "noMissPenalty": true }, "phase": "defense", "ai": { "useWhen": "defenseDuel", "minTension": 30 } },
+    "ultimate": null
   },
   {
     "id": "sk_captain_call",
@@ -34,7 +35,8 @@
     "positions": null,
     "description": "팀이 뒤지고 있을 때 팀 전원 공격 판정 +5%",
     "passive": { "when": "trailing", "target": "team", "mods": { "attack": 1.05 } },
-    "active": null
+    "active": null,
+    "ultimate": null
   },
   {
     "id": "sk_wind_thread",
@@ -42,12 +44,12 @@
     "kind": "unique",
     "learnable": false,
     "cost": 0,
-    "tension": 40,
+    "tension": 0,
     "positions": null,
-    "description": "바람을 엮어 연계 스택 +2",
+    "description": "필살 패스: 이번 패스·크로스 공격 ×1.5 + 상대 짝 맞힘 무효. 성공하면 받은 선수의 다음 듀얼 +50%, 받은 선수 필살 게이지 +50",
     "passive": null,
-    "active": { "effect": "chainBoost", "params": { "amount": 2 }, "phase": "attack",
-                "ai": { "useWhen": "attackDuel", "minTension": 40 } }
+    "active": null,
+    "ultimate": { "type": "pass", "attack": 1.5, "negateRead": true, "nextDuelBonus": 0.5, "receiverGauge": 50 }
   },
   {
     "id": "sk_tireless",
@@ -59,7 +61,8 @@
     "positions": null,
     "description": "본인 경기 체력 소모 -20%",
     "passive": { "when": "always", "target": "self", "mods": { "staminaCost": 0.8 } },
-    "active": null
+    "active": null,
+    "ultimate": null
   },
   {
     "id": "sk_line_breaker",
@@ -67,12 +70,12 @@
     "kind": "active",
     "learnable": false,
     "cost": 0,
-    "tension": 40,
+    "tension": 35,
     "positions": null,
-    "description": "이번 공격 듀얼 성공 시 한 라인 추가 전진",
+    "description": "이번 공격 성공 시 한 구역 추가 전진 (박스 도착이면 원터치)",
     "passive": null,
-    "active": { "effect": "extraLine", "params": {}, "phase": "attack",
-                "ai": { "useWhen": "attackDuel", "minTension": 40 } }
+    "active": { "effect": "extraLine", "params": {}, "phase": "attack", "ai": { "useWhen": "attackDuel", "minTension": 35 } },
+    "ultimate": null
   },
   {
     "id": "sk_meteor_shot",
@@ -80,12 +83,12 @@
     "kind": "unique",
     "learnable": false,
     "cost": 0,
-    "tension": 50,
+    "tension": 0,
     "positions": null,
-    "description": "하늘에서 떨어지는 슛, 위력 ×1.5 (체력 -10)",
+    "description": "필살 슛: 파이널 서드에서도 박스 슛 취급, 위력 ×2, GK 세이브 ×0.7 (체력 -10)",
     "passive": null,
-    "active": { "effect": "powerShot", "params": { "shoot": 1.5, "stamina": 10 }, "phase": "attack",
-                "ai": { "useWhen": "beforeShoot", "minTension": 50 } }
+    "active": null,
+    "ultimate": { "type": "shot", "shoot": 2, "gkMult": 0.7, "boxShot": true, "stamina": 10 }
   },
   {
     "id": "sk_feint",
@@ -97,9 +100,35 @@
     "positions": null,
     "description": "파워 스타일 상대에게 드리블 판정 +10%",
     "passive": { "when": "vsStyle:power", "target": "self", "mods": { "attack": 1.1 }, "actions": ["dribble"] },
-    "active": null
+    "active": null,
+    "ultimate": null
   },
-
+  {
+    "id": "sk_boss_strike",
+    "name": "업화의 일격",
+    "kind": "unique",
+    "learnable": false,
+    "cost": 0,
+    "tension": 0,
+    "positions": ["FW"],
+    "description": "필살 슛: 파이널 서드에서도 박스 슛 취급, 위력 ×2, GK 세이브 ×0.7 (체력 -10)",
+    "passive": null,
+    "active": null,
+    "ultimate": { "type": "shot", "shoot": 2, "gkMult": 0.7, "boxShot": true, "stamina": 10 }
+  },
+  {
+    "id": "sk_boss_save",
+    "name": "불꽃 장벽",
+    "kind": "unique",
+    "learnable": false,
+    "cost": 0,
+    "tension": 0,
+    "positions": ["GK"],
+    "description": "필살 세이브: 이번 세이브 ×2",
+    "passive": null,
+    "active": null,
+    "ultimate": { "type": "save", "saveMult": 2 }
+  },
   {
     "id": "sk_power_shot",
     "name": "파워 슛",
@@ -108,10 +137,10 @@
     "cost": 150,
     "tension": 30,
     "positions": ["FW"],
-    "description": "온 힘을 실은 슛, 위력 ×1.3 (체력 -8)",
+    "description": "이번 슛 위력 ×1.5, 중거리 계수 0.6 → 1.0 (체력 -8)",
     "passive": null,
-    "active": { "effect": "powerShot", "params": { "shoot": 1.3, "stamina": 8 }, "phase": "attack",
-                "ai": { "useWhen": "beforeShoot", "minTension": 30 } }
+    "active": { "effect": "powerShot", "params": { "shoot": 1.5, "midrangeCoef": 1, "stamina": 8 }, "phase": "attack", "ai": { "useWhen": "beforeShoot", "minTension": 30 } },
+    "ultimate": null
   },
   {
     "id": "sk_eagle_eye",
@@ -119,12 +148,12 @@
     "kind": "active",
     "learnable": true,
     "cost": 100,
-    "tension": 20,
+    "tension": 40,
     "positions": ["DF", "MF"],
-    "description": "이번 수비 듀얼에서 상대 의도를 완전히 읽는다",
+    "description": "수비 간파: 이번 듀얼에서 짝을 맞히면 ×1.5 대신 ×2.0",
     "passive": null,
-    "active": { "effect": "reveal", "params": {}, "phase": "defense",
-                "ai": { "useWhen": "defenseDuel", "minTension": 20 } }
+    "active": { "effect": "readBoost", "params": { "readMult": 2 }, "phase": "defense", "ai": { "useWhen": "defenseDuel", "minTension": 40 } },
+    "ultimate": null
   },
   {
     "id": "sk_pickpocket",
@@ -134,10 +163,10 @@
     "cost": 110,
     "tension": 25,
     "positions": ["MF"],
-    "description": "수비 성공 시 역습 시작 라인 한 칸 전진",
+    "description": "막으면 역습 +1구역 (상한 파이널 서드) + 텐션 +10. 이미 상한이면 역습 첫 듀얼 +15%",
     "passive": null,
-    "active": { "effect": "steal", "params": {}, "phase": "defense",
-                "ai": { "useWhen": "defenseDuel", "minTension": 25 } }
+    "active": { "effect": "steal", "params": { "plus": 1, "tension": 10, "cappedNextBonus": 0.15 }, "phase": "defense", "ai": { "useWhen": "defenseDuel", "minTension": 25 } },
+    "ultimate": null
   },
   {
     "id": "sk_rally_cry",
@@ -145,12 +174,12 @@
     "kind": "active",
     "learnable": true,
     "cost": 130,
-    "tension": 30,
+    "tension": 35,
     "positions": null,
-    "description": "팀 전원 경기 체력 +20",
+    "description": "팀 전원 체력 +30, 제쳐짐 해제, 이번 포제션 동안 팀 판정 ×1.1",
     "passive": null,
-    "active": { "effect": "recover", "params": { "amount": 20 }, "phase": "any",
-                "ai": { "useWhen": "lastPossessions:4", "minTension": 30 } }
+    "active": { "effect": "rally", "params": { "stamina": 30, "clearBeaten": true, "teamMult": 1.1 }, "phase": "any", "ai": { "useWhen": "anyDuel", "minTension": 35 } },
+    "ultimate": null
   },
   {
     "id": "sk_stone_shield",
@@ -160,10 +189,10 @@
     "cost": 140,
     "tension": 35,
     "positions": ["DF"],
-    "description": "이번 수비 듀얼 수비력 ×1.4",
+    "description": "이번 수비 ×1.4, 뚫려도 손해 없음 (제쳐짐·+10% 없음)",
     "passive": null,
-    "active": { "effect": "shield", "params": { "defense": 1.4 }, "phase": "defense",
-                "ai": { "useWhen": "defenseDuel", "minTension": 35 } }
+    "active": { "effect": "boost", "params": { "defense": 1.4, "noFailPenalty": true }, "phase": "defense", "ai": { "useWhen": "defenseDuel", "minTension": 35 } },
+    "ultimate": null
   },
   {
     "id": "sk_burst_dribble",
@@ -173,10 +202,10 @@
     "cost": 120,
     "tension": 30,
     "positions": ["FW", "MF"],
-    "description": "이번 공격 듀얼 공격력 ×1.3",
+    "description": "이번 드리블 ×1.5, 성공하면 체력 소모 없음",
     "passive": null,
-    "active": { "effect": "boost", "params": { "attack": 1.3 }, "phase": "attack",
-                "ai": { "useWhen": "attackDuel", "minTension": 30 } }
+    "active": { "effect": "boost", "params": { "attack": 1.5, "actions": ["dribble"], "noStamina": true }, "phase": "attack", "ai": { "useWhen": "attackDuel", "minTension": 30 } },
+    "ultimate": null
   },
   {
     "id": "sk_through_pass",
@@ -186,10 +215,23 @@
     "cost": 100,
     "tension": 25,
     "positions": ["MF"],
-    "description": "수비 사이를 꿰뚫는 패스, 연계 스택 +1",
+    "description": "이번 패스·크로스는 상대 짝 맞힘 무효 + 받은 선수의 다음 듀얼 +25%",
     "passive": null,
-    "active": { "effect": "chainBoost", "params": { "amount": 1 }, "phase": "attack",
-                "ai": { "useWhen": "attackDuel", "minTension": 25 } }
+    "active": { "effect": "negateRead", "params": { "actions": ["pass", "cross"], "nextDuelBonus": 0.25 }, "phase": "attack", "ai": { "useWhen": "attackDuel", "minTension": 25 } },
+    "ultimate": null
+  },
+  {
+    "id": "sk_see_through",
+    "name": "꿰뚫어보기",
+    "kind": "active",
+    "learnable": true,
+    "cost": 140,
+    "tension": 40,
+    "positions": ["FW", "MF"],
+    "description": "공격 간파: 이번 듀얼에서 상대 수비가 짝을 맞혀도 ×1.0",
+    "passive": null,
+    "active": { "effect": "negateRead", "params": {}, "phase": "attack", "ai": { "useWhen": "attackDuel", "minTension": 40 } },
+    "ultimate": null
   },
   {
     "id": "sk_focus_finish",
@@ -201,7 +243,8 @@
     "positions": null,
     "description": "남은 포제션 2 이하일 때 슛 위력 +15%",
     "passive": { "when": "lastPossessions:2", "target": "self", "mods": { "shootPower": 1.15 }, "actions": ["shoot"] },
-    "active": null
+    "active": null,
+    "ultimate": null
   },
   {
     "id": "sk_calm_keeper",
@@ -213,7 +256,8 @@
     "positions": ["GK"],
     "description": "세이브 판정 +8%",
     "passive": { "when": "always", "target": "self", "mods": { "save": 1.08 } },
-    "active": null
+    "active": null,
+    "ultimate": null
   },
   {
     "id": "sk_tiebreaker",
@@ -225,7 +269,8 @@
     "positions": null,
     "description": "동점일 때 슛 판정 +10%",
     "passive": { "when": "tied", "target": "self", "mods": { "attack": 1.1 }, "actions": ["shoot"] },
-    "active": null
+    "active": null,
+    "ultimate": null
   },
   {
     "id": "sk_underdog",
@@ -237,7 +282,8 @@
     "positions": null,
     "description": "뒤지고 있을 때 본인 공격 판정 +10%",
     "passive": { "when": "trailing", "target": "self", "mods": { "attack": 1.1 } },
-    "active": null
+    "active": null,
+    "ultimate": null
   },
   {
     "id": "sk_lockdown",
@@ -249,7 +295,8 @@
     "positions": ["DF"],
     "description": "앞서고 있을 때 본인 수비 판정 +10%",
     "passive": { "when": "leading", "target": "self", "mods": { "defense": 1.1 } },
-    "active": null
+    "active": null,
+    "ultimate": null
   },
   {
     "id": "sk_big_game",
@@ -261,7 +308,8 @@
     "positions": null,
     "description": "경계전(목표 경기)에서 공격·수비 판정 +8%",
     "passive": { "when": "goalMatch", "target": "self", "mods": { "attack": 1.08, "defense": 1.08 } },
-    "active": null
+    "active": null,
+    "ultimate": null
   },
   {
     "id": "sk_chain_master",
@@ -273,7 +321,8 @@
     "positions": null,
     "description": "연계 스택 2 이상일 때 패스·슛 판정 +15%",
     "passive": { "when": "chain>=2", "target": "self", "mods": { "attack": 1.15 }, "actions": ["pass", "shoot"] },
-    "active": null
+    "active": null,
+    "ultimate": null
   },
   {
     "id": "sk_second_wind",
@@ -285,6 +334,7 @@
     "positions": null,
     "description": "체력 20% 이하일 때 공격·수비 판정 +20%",
     "passive": { "when": "lowStamina", "target": "self", "mods": { "attack": 1.2, "defense": 1.2 } },
-    "active": null
+    "active": null,
+    "ultimate": null
   }
 ]

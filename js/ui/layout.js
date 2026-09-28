@@ -9,8 +9,9 @@
 // 엔진 v0.2 필드(zone / attackStep / attackDir / remaining / receiverPreview / lastBeat)가 없어도 동작한다.
 // 있으면 view 값을 쓰고, 없으면 attackingSide + lineIndex(+ players, recentEvents)로 직접 계산한다.
 //
-// 보강 규칙 (ARCHITECTURE §12.2):
-//  - 패스 후보(receiver)는 패스가 도착하는 구역 안에 선다: fy = max(SHAPE.atk, 도착 구역 시작 + 2) → ③ 단계 FW 후보 = 86 (상대 박스).
+// 보강 규칙 (ARCHITECTURE §12.2 · §13.6):
+//  - 받는 선수 후보(receiver)는 패스·크로스가 도착하는 구역 안에 선다: fy = max(SHAPE.atk, 도착 구역 시작 + 2) → ③ 단계 FW 후보 = 86 (상대 박스).
+//    v0.3: view.receivers(패스·크로스 후보 전원)를 모두 receiver 로 그린다 (결정 중 탭해서 고른다). 크로스 후보 MF 도 박스에.
 //  - 경기 종료 view: 마지막 비트가 끝난 뒤의 모습 — 턴오버/세이브면 공을 얻은 선수(수비수·GK)가 공을 갖고,
 //    골이면 공은 골문 안, carrier 없음 (finalFrame).
 //  - 좁고 높은 필드(aspect ≥ 1.1)에서 ④ 단계 GK 가 세로 간격을 못 얻으면 공을 자기 골 쪽으로 당긴다 (구역 · 뚫린 라인 앞 유지).
@@ -93,31 +94,91 @@ export function withJosa(word, pair) {
 }
 
 /**
- * 화면에 그릴 미리보기(receiverPreview · outcomes)를 고른 view 사본 (GDD §9.6: 미리보기 = 실제). view 는 바꾸지 않는다.
- * - deciding = true (사람이 고르는 중): skillId 가 엔진 view.receiverPreviewBySkill / outcomesBySkill 에 있으면 그 변형
- *   (라인 브레이커 같은 extraLine 을 토글하면 수신자·도착 구역이 바뀐다. 소매치기(steal)는 역습 시작 구역).
- * - deciding = false (자동 진행 중): 사람 측 AI 가 step() 안에서 스킬을 고르므로, 스킬 변형 중 수신자가 기본과 다른 것이
- *   있으면 receiverPreview 를 지운다 — 확정할 수 없는 후보는 그리지 않는다. 상대 측 공격은 AI 가 먼저 커밋해 이미 정확하다.
+ * 화면에 그릴 미리보기(receiverPreview · receivers · outcomes)를 고른 view 사본 (GDD §9.6: 미리보기 = 실제). view 는 바꾸지 않는다.
+ * - deciding = true (사람이 고르는 중): 토글한 스킬(skillId) 또는 필살기(ultimate = true → 사람 측 ultimateOptions 의 필살기 skillId)가
+ *   엔진 view.receiverPreviewBySkill / receiversBySkill / outcomesBySkill 에 있으면 그 변형
+ *   (라인 브레이커 같은 extraLine 은 수신 후보·도착 구역이, 필살 패스는 기본 받는 선수(합체기)가, 소매치기는 역습 구역이 바뀐다).
+ *   둘 다 변형이 있으면 스킬 쪽 (엔진은 한 변형씩만 준다).
+ * - deciding = false (자동 진행 중): 사람 측 AI 가 step() 안에서 스킬·필살기를 고르므로, 변형 중 기본 받는 선수가 다른 것이 있으면
+ *   receiverPreview 를, 수신 후보·도착 단계가 다른 것이 있으면 receivers 까지 지운다 — 확정할 수 없는 후보는 그리지 않는다.
+ *   상대 측 공격은 AI 가 먼저 커밋해 이미 정확하다.
  * 바꿀 것이 없으면 view 그대로 반환.
  */
-export function resolvePreview(view, { skillId = null, deciding = true } = {}) {
+export function resolvePreview(view, { skillId = null, ultimate = false, deciding = true } = {}) {
   if (!view || typeof view !== "object") return view;
-  const rpBy = view.receiverPreviewBySkill && typeof view.receiverPreviewBySkill === "object" ? view.receiverPreviewBySkill : null;
-  const outBy = view.outcomesBySkill && typeof view.outcomesBySkill === "object" ? view.outcomesBySkill : null;
+  const obj = (x) => (x && typeof x === "object" ? x : null);
+  const rpBy = obj(view.receiverPreviewBySkill);
+  const outBy = obj(view.outcomesBySkill);
+  const rcvBy = obj(view.receiversBySkill);
+  const has = (m, k) => !!m && k != null && Object.prototype.hasOwnProperty.call(m, k);
   if (deciding) {
-    if (skillId == null) return view;
-    let out = null;
-    if (rpBy && Object.prototype.hasOwnProperty.call(rpBy, skillId)) out = { ...view, receiverPreview: rpBy[skillId] };
-    if (outBy && outBy[skillId]) out = { ...(out || view), outcomes: outBy[skillId] };
-    return out || view;
+    const ultKey = ultimate ? ultimateSkillKey(view) : null;
+    const key = [skillId, ultKey].find((k) => has(rpBy, k) || has(outBy, k) || has(rcvBy, k));
+    if (key == null) return view;
+    let out = { ...view };
+    if (has(rpBy, key)) out.receiverPreview = rpBy[key];
+    if (has(rcvBy, key) && rcvBy[key]) out.receivers = rcvBy[key];
+    if (outBy && outBy[key]) out.outcomes = outBy[key];
+    return out;
   }
   const human = view.humanSide === "away" ? "away" : "home";
+  if (view.attackingSide !== human) return view;
+  let out = view;
   const rp = view.receiverPreview;
-  if (rp && rpBy && view.attackingSide === human) {
+  if (rp && rpBy) {
     const uncertain = Object.values(rpBy).some((r) => (r && r.id != null ? String(r.id) : null) !== String(rp.id));
-    if (uncertain) return { ...view, receiverPreview: null };
+    if (uncertain) out = { ...out, receiverPreview: null };
   }
-  return view;
+  const base = obj(view.receivers);
+  if (base && rcvBy && Object.keys(base).length) {
+    const sig = (rs) => ["pass", "cross"].map((a) => {
+      const r = rs && rs[a];
+      return r ? `${a}:${r.arrival}:${(Array.isArray(r.candidates) ? r.candidates : []).join(",")}` : `${a}:-`;
+    }).join("|");
+    const b = sig(base);
+    if (Object.values(rcvBy).some((r) => sig(r) !== b)) out = { ...out, receivers: {}, receiverPreview: null };
+  }
+  return out;
+}
+
+/** 사람 측 결정의 필살기 skillId (ultimateOptions 중 쓸 수 있는 것). 없으면 null */
+function ultimateSkillKey(view) {
+  const opts = Array.isArray(view.ultimateOptions) ? view.ultimateOptions : [];
+  const u = opts.find((o) => o && o.usable) || null;
+  return u ? u.skillId : null;
+}
+
+/**
+ * view 의 패스·크로스 받는 선수 후보 (§13.4 receivers) → [{ id, actions: ["pass"|"cross"], arrival }] (선수 순서 무관, 중복 합침).
+ * receivers 가 없으면 receiverPreview 한 명 (v0.2 view 호환).
+ */
+export function receiverCandidates(view) {
+  const v = view && typeof view === "object" ? view : {};
+  const out = new Map();
+  const r = v.receivers && typeof v.receivers === "object" ? v.receivers : null;
+  const step = clampInt(v.attackStep ?? v.lineIndex, 0, 3);
+  if (r) {
+    for (const a of ["pass", "cross"]) {
+      const x = r[a];
+      if (!x || !Array.isArray(x.candidates)) continue;
+      const arrival = Number.isInteger(x.arrival) && x.arrival > step && x.arrival <= 3 ? x.arrival : Math.min(3, step + 1);
+      for (const id of x.candidates) {
+        if (id == null) continue;
+        const k = String(id);
+        const cur = out.get(k);
+        if (cur) {
+          cur.actions.push(a);
+          cur.arrival = Math.min(cur.arrival, arrival);
+        } else out.set(k, { id: k, actions: [a], arrival });
+      }
+    }
+  }
+  const rp = v.receiverPreview;
+  if (rp && rp.id != null && !out.has(String(rp.id))) {
+    const arrival = Number.isInteger(rp.step) && rp.step > step && rp.step <= 3 ? rp.step : Math.min(3, step + 1);
+    out.set(String(rp.id), { id: String(rp.id), actions: ["pass"], arrival });
+  }
+  return [...out.values()];
 }
 
 /* ------------------------------------------------------------------ */
@@ -130,14 +191,16 @@ export function resolvePreview(view, { skillId = null, deciding = true } = {}) {
  * @returns {{
  *   mode: "play"|"penalties",
  *   ball: {x:number,y:number},
- *   tokens: Array<{side,id,name,slot,position,x,y,role,staminaRatio,portraitColor,isYouth}>,
+ *   tokens: Array<{side,id,name,slot,position,x,y,role,staminaRatio,portraitColor,isYouth,trait}>,
  *   zone: number,
  *   highlight: { zone:number, level: "danger"|"crisis"|"chance"|"shotChance"|null, label: string },
  *   track: { side: "home"|"away", step: number, dir: "up"|"down" },
  *   remainingText: string,
  *   banner: string|null,
  *   attackingSide: "home"|"away", attackStep: number,
- *   carrierId: string|null, defenderId: string|null, receiverId: string|null,
+ *   carrierId: string|null, defenderId: string|null,
+ *   receiverId: string|null,   // 기본 패스 받는 선수 (view.receiverPreview) — 후보 중 하나
+ *   receiverIds: string[],     // 받는 선수 후보 전원 (view.receivers 패스+크로스, 공격 팀 선수 순서) — 모두 role "receiver", 도착 구역
  *   nextBall: {x,y}|null,   // 드리블 성공 시 공 좌표 (다음 단계). ④ 단계·승부차기면 null
  *   goal: {x,y},            // 공격 팀이 노리는 골문 좌표
  * }}
@@ -173,18 +236,23 @@ function playLayout(v, teams, geo, lastBeat) {
   let carrier;
   let defender;
   let receiver = null;
-  let landing = step + 1;
+  // 받는 선수 후보 전원 (§13.4 receivers: 패스 + 크로스) → 도착 단계. 후보는 모두 도착 구역에 선다 (GDD v0.5 §9.6 · 9.8)
+  const landingOf = new Map();
   if (fin) {
     carrier = findEntry(A, fin.holderId);
     defender = null;
   } else {
     carrier = findEntry(A, v.carrier && v.carrier.id) || A.list.find((e) => e.p.isCarrier) || null;
     defender = findEntry(D, v.defender && v.defender.id) || D.list.find((e) => e.p.isDefender) || null;
+    // 도착 단계: 엔진 receivers[a].arrival · receiverPreview.step (커밋된 extraLine · 스킬 변형 포함) → 없으면 다음 단계
+    const probe = { ...v, attackStep: step, lineIndex: step };
+    for (const c of receiverCandidates(probe)) {
+      const e = findEntry(A, c.id);
+      if (e && e !== carrier) landingOf.set(e, c.arrival);
+    }
     const rp = v.receiverPreview;
     receiver = rp && rp.id != null ? findEntry(A, rp.id) : null;
-    if (receiver === carrier) receiver = null;
-    // 패스 도착 단계: 엔진 receiverPreview.step (커밋된 extraLine · 스킬 변형 포함) → 없으면 다음 단계
-    if (rp && Number.isInteger(rp.step) && rp.step > step && rp.step <= 3) landing = rp.step;
+    if (receiver === carrier || !landingOf.has(receiver)) receiver = null;
   }
 
   const duelPos = POS_BY_LINE[step];
@@ -214,9 +282,10 @@ function playLayout(v, teams, geo, lastBeat) {
     if (e === carrier) {
       role = "carrier";
       fy = ballFy;
-    } else if (e === receiver) {
+    } else if (landingOf.has(e)) {
       role = "receiver";
-      // 패스 후보: 패스가 도착하는 구역 안 (GDD §9.3 공격 팀 2 — 공보다 한 구역 앞)
+      // 받는 선수 후보: 패스·크로스가 도착하는 구역 안 (GDD §9.3 공격 팀 2 — 공보다 한 구역 앞)
+      const landing = landingOf.get(e);
       fy = Math.max(SHAPE.atk[e.position][step], ZONES[Math.min(5, landing + 2) - 1].from + RECEIVER_INSET);
       nudge = 1;
     } else if (e.position === "GK") {
@@ -296,6 +365,7 @@ function playLayout(v, teams, geo, lastBeat) {
     carrierId: carrier ? carrier.id : null,
     defenderId: defender ? defender.id : null,
     receiverId: receiver ? receiver.id : null,
+    receiverIds: A.list.filter((e) => landingOf.has(e)).map((e) => e.id),
     nextBall: step < 3 && !fin ? { x: ball.x, y: toY(SHAPE.ball[step + 1]) } : null,
     goal: { x: 50, y: atk === "home" ? 100 : 0 },
   };
@@ -428,6 +498,7 @@ function penaltyLayout(v, teams, geo, lastBeat) {
     carrierId: kicker ? kicker.id : null,
     defenderId: gk ? gk.id : null,
     receiverId: null,
+    receiverIds: [],
     nextBall: null,
     goal: { x: 50, y: kickSide === "home" ? 100 : 0 },
   };
@@ -628,6 +699,7 @@ function buildTokens(teams, pos) {
         staminaRatio: clamp(num(p.stamina, max) / max, 0, 1),
         portraitColor: p.portraitColor ?? null,
         isYouth: !!p.isYouth,
+        trait: p.trait ?? null,
       });
     }
   }

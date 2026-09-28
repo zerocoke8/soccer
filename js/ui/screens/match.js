@@ -1,25 +1,41 @@
 // js/ui/screens/match.js — 경기 화면 (phase "match")
 //
-// v0.2 (ARCHITECTURE §12.3 · GDD v0.4 §9.3~9.7, 9.13): 화면 위치 = 규칙 위치.
+// v0.2 (ARCHITECTURE §12.3 · GDD v0.4 §9.3~9.7): 화면 위치 = 규칙 위치.
 //  - 공·14명의 좌표, 역할, 구역 강조, 배너, 남은 수비는 전부 js/ui/layout.js computeLayout(view) 에서 온다.
-//    결과 미리보기(outcomes)·패스 수신자(receiverPreview)는 엔진 getMatchView 값 그대로. 이 파일은 규칙을 다시 계산하지 않는다.
 //  - 비트 루프 (setInterval 없음): step() → 새 비트 이벤트가 있으면 ① 액션 연출(공 이동) → ② 전원 재배치 → ③ 결과 한 줄
 //    → 다음 step 예약. 연출 중에는 step 을 부르지 않는다. 결정 대기(수동·개입)면 재배치까지 보여준 뒤 멈춘다.
 //  - 토큰 DOM 은 경기 화면이 살아 있는 동안 유지하고 transform 만 바꾼다 (CSS transition 으로 달려가는 연출).
-import { h, avatar, openModal, closeOverlays, bar, banner, statBadge } from '../dom.js';
+//
+// v0.3 (ARCHITECTURE §13.6 · GDD v0.5 §9.6·9.7·9.16·9.17): 듀얼 개편 화면.
+//  - 예상 행동(A안): 상대 듀얼 선수 머리 위 아이콘, 정보 줄에 근거("상대 X: 드리블형 — 드리블 600 > 패스 400")와 우리 선수 예상 행동.
+//    상대가 간파를 쓴 듀얼(view.opponentReading)이면 "상대가 우리 수를 읽는 중".
+//  - 결정 버튼: 공격은 켜진 액션만 2×2, 수비는 3열. 제목 "드리블 41%" + 성공/실패 한 줄씩(엔진 Outcome.short) + "추천".
+//  - 받는 선수: 후보 전원이 도착 구역에 선다(layout.js). 결정 중 후보 토큰 탭 = 선택, 길게 누르기 = 미니 카드. 결정 { action, receiverId }.
+//  - 필살기: 토큰 게이지 링(준비되면 빛남), 스킬 줄 필살기 버튼(합체기면 합체기 이름) 토글 → 결정 { …, ultimate: true }.
+//    cutin/combo 이벤트 = 전체 화면 컷인 1.5초(배속 비례, 스킵 시 생략), 합체기는 두 컷인 + 이름.
+//  - 간파 버튼(스킬 또는 사용권, 비용·사유) = 즉시 사용({ gaanpa }, 결정 대기 유지). 일반 액티브는 토글 후 액션과 함께.
+//  - 연출: 크로스 포물선, 헤더, 연계 문구(킬패스!·원터치!·헤더!·침투!), 태클 실패 누운 모습, 필살기 공.
+//  기대 %·결과·후보·게이지는 전부 엔진 getMatchView 값이다. 이 파일은 규칙을 다시 계산하지 않는다.
+import { h, avatar, openModal, closeOverlays, bar, statBadge, toast } from '../dom.js';
 import { saveMatch } from '../store.js';
-import { computeLayout, resolvePreview, ZONES } from '../layout.js';
+import { computeLayout, resolvePreview, withJosa, ZONES } from '../layout.js';
 import * as L from '../labels.js';
 
 const BEAT_FALLBACK = ['kickoff', 'counter', 'duel', 'turnover', 'save', 'goal', 'penalty'];
 const ACTION_BEATS = new Set(['duel', 'turnover', 'save', 'goal', 'penalty']);
-// 1x 기준 ms. GDD §9.4 (v0.4 구현 조정): 액션 0.8 + 재배치 0.65 + 결과(읽는 시간) 0.95 ≈ 비트당 2.4초
-// → 자동 1x 친선 약 35초 · 목표 경기 약 50초 (GDD §9.12 "자동 1x 40~60초"). 2x·4x 는 1/speed 로 비례 단축 (2x ≈ 비트당 1.2초).
-const T = { act: 800, move: 650, result: 950, hold: 250, goal: 900, cutin: 900, start: 700, idle: 300 };
+// 1x 기준 ms. GDD §9.4: 액션 0.8 + 재배치 0.65 + 결과(읽는 시간) 0.95 ≈ 비트당 2.4초. 2x·4x 는 1/speed 로 비례 단축.
+// 컷인 1.5초 (GDD v0.5 §9.17-5), 합체기 = 두 컷인 1.0초씩 + 이름 1.1초.
+const T = {
+  act: 800, move: 650, result: 950, hold: 250, goal: 900,
+  cutin: 1500, comboCut: 1000, comboName: 1100,
+  start: 700, idle: 300, longPress: 450,
+};
 const TOKEN_RATIO = 0.075; // 토큰 지름 = 필드 폭 × 7.5% (§12.3)
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const STEP_MARKS = ['①', '②', '③', '④'];
-const NAMED_ROLES = new Set(['carrier', 'defender', 'receiver']);
+const RECV_ACTIONS = ['pass', 'cross'];
+const ACTION_ORDER = ['dribble', 'pass', 'cross', 'shoot', 'tackle', 'intercept', 'hold', 'save'];
+const MATCH_VERSION = 3; // §13.2-14: 이보다 낮은 저장 경기는 새로 만든다
 
 let GEN = 0; // renderMatch 호출마다 증가 → 이전 경기 화면이 예약한 콜백을 무효화
 
@@ -28,7 +44,16 @@ export function renderMatch(root, ctx) {
   const ui = store.matchUi;
   const cfg = data.config || {};
   const BEATS = new Set(Array.isArray(match.BEAT_TYPES) && match.BEAT_TYPES.length ? match.BEAT_TYPES : BEAT_FALLBACK);
+  const wantVersion = Number(match.MATCH_VERSION) || MATCH_VERSION;
+  const gaugeMax = Number(cfg.match?.ultimate?.gaugeMax) || 100;
+  if (!ui.receiverPick || typeof ui.receiverPick !== 'object') ui.receiverPick = {};
 
+  if (store.match && !((Number(store.match.version) || 0) >= wantVersion)) {
+    // 이전 규칙(v0.2 이하)으로 저장된 경기: 상태 모양이 달라 이어서 진행할 수 없다 → 새로 만든다 (§13.2-14)
+    store.match = null;
+    saveMatch(null);
+    toast('이전 버전에서 저장된 경기라 새로 시작합니다.', 'info', 3000);
+  }
   if (!store.match) {
     const setup = safe(() => ctx.run.getMatchSetup(store.run, data));
     if (!setup) { root.append(errorScreen('경기 정보를 불러올 수 없습니다.', ctx)); return; }
@@ -40,6 +65,9 @@ export function renderMatch(root, ctx) {
     saveMatch(ms);
     ui.intervene = false;
     ui.selectedSkillId = null;
+    ui.ultimate = false;
+    ui.receiverPick = {};
+    ui.pickKey = null;
     ui.resultShown = false;
   }
   ui.busy = false;
@@ -81,14 +109,16 @@ export function renderMatch(root, ctx) {
   const ballEl = h('div', { class: 'm-ball', 'aria-hidden': 'true' }, h('span', {}, '⚽'));
   const popLayer = h('div', { class: 'pop-layer', 'aria-hidden': 'true' });
   const goalFx = h('div', { class: 'goal-fx', 'aria-hidden': 'true' });
-  const pitch = h('div', { class: 'pitch' }, bg, tokLayer, ballEl, svg, svgTop, popLayer, goalFx);
+  const remainEl = h('div', { class: 'm-remain' });
+  const pitch = h('div', { class: 'pitch' }, bg, remainEl, tokLayer, ballEl, svg, svgTop, popLayer, goalFx);
   const pitchRow = h('div', { class: 'pitch-row' }, track, pitch);
   const info = h('div', { class: 'm-info' });
   const actGrid = h('div', { class: 'action-grid' });
   const skillRow = h('div', { class: 'skill-row' });
   const controls = h('div', { class: 'match-controls' });
   const log = h('div', { class: 'match-log', role: 'log', 'aria-label': '경기 로그' });
-  screen.append(hud, bannerEl, pitchRow, info, actGrid, skillRow, controls, log);
+  const cutLayer = h('div', { class: 'm-cutin', 'aria-live': 'polite' });
+  screen.append(hud, bannerEl, pitchRow, info, actGrid, skillRow, controls, log, cutLayer);
   root.append(screen);
 
   /* ------------------------------------------------------------------ */
@@ -104,6 +134,10 @@ export function renderMatch(root, ctx) {
   let arrowFor = null;
   let finishing = false;
   let resizePending = false; // 연출 중 resize → 비트가 끝나면 다시 잰다
+  let ballAnim = null;       // 크로스 포물선 (Web Animations)
+  let lastDecision = null;   // 사람이 보낸 마지막 결정 (실패한 패스의 받는 선수 연출용)
+  let cardModal = null;
+  let tagBoxes = [];         // 이름 라벨·말풍선이 놓인 자리 (픽셀 박스)
   const tokEls = new Map();
   const timers = new Set();
   const reduced = prefersReducedMotion();
@@ -111,9 +145,14 @@ export function renderMatch(root, ctx) {
   const alive = () => gen === GEN && screen.isConnected;
   const fx = () => 1 / (Number(ui.speed) || 1);
   const isFinished = () => safe(() => match.isFinished(store.match)) === true;
-  const getView = () => safe(() => match.getMatchView(store.match, data, 'home'));
+  const getView = () => {
+    const v = safe(() => match.getMatchView(store.match, data, 'home'));
+    if (v) syncDecisionUi(v);
+    return v;
+  };
   const paused = (view) => !!(view?.needsDecision && (!ui.auto || ui.intervene));
   const canDecideNow = (view) => !busy && !isFinished() && paused(view);
+  const humanOf = (view) => (view?.humanSide === 'away' ? 'away' : 'home');
 
   function later(fn, ms) {
     const id = setTimeout(() => { timers.delete(id); if (alive()) fn(); }, Math.max(0, ms));
@@ -128,6 +167,60 @@ export function renderMatch(root, ctx) {
   function setBusy(v) { busy = v; ui.busy = v; }
 
   /* ------------------------------------------------------------------ */
+  /* 결정 토글 (스킬 · 필살기 · 받는 선수)                                     */
+  /* ------------------------------------------------------------------ */
+  /** 결정(듀얼) 식별자: 판정이 일어나면 바뀐다. 간파 부분 커밋(비트 없음)으로는 바뀌지 않는다 */
+  function decisionKey(view) {
+    if (!view || view.phase !== 'decision') return null;
+    return [view.possession, view.lastBeat?.seq ?? -1, view.attackingSide, view.lineIndex, view.carrier?.id ?? '', view.defender?.id ?? ''].join('|');
+  }
+  function syncDecisionUi(view) {
+    const key = decisionKey(view);
+    if (key !== ui.pickKey) {
+      ui.pickKey = key;
+      ui.selectedSkillId = null;
+      ui.ultimate = false;
+      ui.receiverPick = {};
+      ui.gaanpaUsedKey = null;
+    }
+    // 간파 부분 커밋 등으로 쓸 수 없게 된 토글은 푼다
+    if (ui.selectedSkillId && !(view.skills || []).some((s) => s.skillId === ui.selectedSkillId && s.enabled !== false)) ui.selectedSkillId = null;
+    if (ui.ultimate && !ultOption(view)?.usable) ui.ultimate = false;
+  }
+  /** 사람 측 결정 당사자의 필살기 (세이브형 제외 — GK 세이브는 자동) */
+  function ultOption(view) {
+    const opts = Array.isArray(view?.ultimateOptions) ? view.ultimateOptions : [];
+    return opts.find((u) => u && u.type !== 'save') || null;
+  }
+  /** 엔진 힌트의 받는 선수("→ 이름 · …")는 기본값 기준이라 실제(선택·필살 패스·스킬 변형)와 다를 수 있다 → 떼고 쓴다 */
+  function stripRecvHint(hint) {
+    return String(hint ?? '').replace(/^→\s*[^·]*·\s*/, '');
+  }
+  function ultCompatible(u, action) {
+    if (!u) return true;
+    if (u.type === 'shot') return action === 'shoot';
+    if (u.type === 'pass') return action === 'pass' || action === 'cross';
+    return false;
+  }
+  /** 화면에 그릴 미리보기: 사람이 고르는 중이면 토글한 스킬·필살기 변형, 자동 진행 중이면 확정할 수 없는 후보를 뺀다 */
+  function shownView(view) {
+    if (!view) return view;
+    const deciding = paused(view);
+    return resolvePreview(view, { skillId: deciding ? ui.selectedSkillId : null, ultimate: deciding && !!ui.ultimate, deciding });
+  }
+  /** 액션(pass|cross)의 받는 선수: 직접 고른 선수(같은 도착 단계의 후보일 때만) → 없으면 기본값 */
+  function recvInfo(view, action) {
+    const sv = shownView(view);
+    const r = sv?.receivers?.[action];
+    if (!r || !Array.isArray(r.candidates) || !r.candidates.length) return null;
+    const pick = ui.receiverPick?.[action];
+    const picked = pick && r.candidates.includes(pick.id) && pick.arrival === r.arrival ? pick.id : null;
+    const defaultId = r.defaultId ?? r.candidates[0];
+    return { id: picked || defaultId, defaultId, candidates: r.candidates, arrival: r.arrival, picked: !!picked && picked !== defaultId };
+  }
+  const nameOf = (view, side, id) => (view?.players?.[side] || []).find((p) => p.id === id)?.name ?? '';
+
+  /* ------------------------------------------------------------------ */
   /* 좌표                                                                 */
   /* ------------------------------------------------------------------ */
   function measure() {
@@ -139,19 +232,13 @@ export function renderMatch(root, ctx) {
     svg.setAttribute('viewBox', `0 0 ${round1(W)} ${round1(H)}`);
     svgTop.setAttribute('viewBox', `0 0 ${round1(W)} ${round1(H)}`);
   }
-  /** 화면에 그릴 미리보기: 사람이 고르는 중이면 토글한 스킬의 변형, 자동 진행 중이면 확정할 수 없는 패스 후보를 뺀다 */
-  function shownView(view) {
-    if (!view) return view;
-    const deciding = paused(view);
-    return resolvePreview(view, { skillId: deciding ? ui.selectedSkillId : null, deciding });
-  }
   function layoutFor(view) {
     if (!view) return null;
     measure();
     // 겹침 방지 간격 = 토큰 지름 + 팀 링(2px×2) → 링끼리도 닿지 않게
     return safe(() => computeLayout(shownView(view), { aspect: W / H, tokenSize: (tokPx + 4) / W })) || null;
   }
-  /** 지금 view 로 다시 배치 (스킬 토글 · 자동/개입 전환 · resize). 보던 미리보기 화살표도 새 좌표로 */
+  /** 지금 view 로 다시 배치 (스킬 토글 · 받는 선수 선택 · 자동/개입 전환 · resize). 보던 미리보기 화살표도 새 좌표로 */
   function relayout({ anim = !reduced } = {}) {
     if (!curView) return;
     const Lay = layoutFor(curView);
@@ -176,17 +263,50 @@ export function renderMatch(root, ctx) {
     const barI = h('i');
     const nameEl = h('span', { class: 'tok-name' }, t.name);
     const bubble = h('span', { class: 'tok-bubble' });
-    const open = () => openCard(t.side, t.id);
+    const ring = h('span', { class: 'tok-ring', 'aria-hidden': 'true' });
+    const ti = t.trait ? L.traitInfo(t.trait, data) : null;
+    let lpTimer = null;
+    let lpFired = false;
+    const clearLp = () => { if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } };
     el = h('div', {
       class: ['tok', t.side],
       role: 'button',
       tabindex: '0',
       dataset: { side: t.side, id: t.id },
-      onclick: open,
-      onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } },
-    }, face, h('span', { class: 'tok-bar' }, barI), nameEl, t.isYouth ? h('span', { class: 'tok-yu' }, '유') : null, bubble);
+      // 탭 = (결정 중 받는 선수 후보면) 선택, 아니면 미니 카드. 길게 누르기 / 우클릭 = 미니 카드 (GDD v0.5 §9.6·9.7)
+      onpointerdown: (e) => {
+        if (e && e.button > 0) return;
+        lpFired = false;
+        clearLp();
+        lpTimer = setTimeout(() => {
+          lpTimer = null;
+          if (!alive()) return;
+          lpFired = true;
+          openCard(t.side, t.id);
+        }, T.longPress);
+      },
+      onpointerup: clearLp,
+      onpointerleave: clearLp,
+      onpointercancel: clearLp,
+      onclick: (e) => {
+        clearLp();
+        if (lpFired) { lpFired = false; e?.preventDefault?.(); return; }
+        tapToken(t.side, t.id);
+      },
+      // 안드로이드는 길게 누르면 contextmenu 도 온다 → 이미 연 카드면 무시, 뒤따르는 click 도 막는다 (다음 pointerdown 에서 풀림)
+      oncontextmenu: (e) => {
+        e?.preventDefault?.();
+        clearLp();
+        if (!lpFired) { lpFired = true; openCard(t.side, t.id); }
+      },
+      onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); tapToken(t.side, t.id); } },
+    }, ring, face, h('span', { class: 'tok-bar' }, barI), nameEl,
+    t.isYouth ? h('span', { class: 'tok-yu' }, '유') : null,
+    ti ? h('span', { class: 'tok-trait', title: `${ti.name} — ${ti.description}` }, ti.icon) : null,
+    bubble);
     el._bar = barI;
     el._bubble = bubble;
+    el._name = nameEl;
     tokLayer.append(el);
     tokEls.set(key, el);
     return el;
@@ -226,14 +346,14 @@ export function renderMatch(root, ctx) {
   }
 
   /** 이름 라벨 후보 (선호 순): 듀얼 상대(와 패스 길) 반대편 = 공격 방향 기준 바깥쪽 → 좌우로 비낀 자리 → 반대편 → 옆 */
-  function labelCands(t, Lay) {
+  function labelCands(t, Lay, text) {
     const home = Lay.attackingSide === 'home';
     const pref = t.role === 'carrier' ? (home ? 'down' : 'up') : home ? 'up' : 'down';
     const other = pref === 'up' ? 'down' : 'up';
     const cx = PX(t.x);
     const cy = PY(t.y);
     const r = tokPx / 2;
-    const w = textWidth(t.name, 10) + 8;
+    const w = textWidth(text, 10) + 8;
     const vBox = (v) => (v === 'up' ? { t: cy - r - 17, b: cy - r - 3 } : { t: cy + r + 7, b: cy + r + 21 });
     const hBox = (hz) => (hz === 'c' ? { l: cx - w / 2, r: cx + w / 2 } : hz === 'l' ? { l: cx - w + 4, r: cx + 4 } : { l: cx - 4, r: cx - 4 + w });
     const out = [];
@@ -242,12 +362,12 @@ export function renderMatch(root, ctx) {
     out.push({ v: 'side-l', hz: 'c', box: { l: cx - r - 5 - w, r: cx - r - 5, t: cy - 7, b: cy + 7 } });
     return out;
   }
-  /** 의도 말풍선 후보: 토큰 위 오른쪽(기본) → 위 왼쪽 → 옆 오른쪽 → 옆 왼쪽 → 아래 오른쪽 → 아래 왼쪽 */
+  /** 예상 행동 말풍선 후보: 토큰 위 오른쪽(기본) → 위 왼쪽 → 옆 오른쪽 → 옆 왼쪽 → 아래 오른쪽 → 아래 왼쪽 */
   function bubbleCands(t, text) {
     const cx = PX(t.x);
     const cy = PY(t.y);
     const r = tokPx / 2;
-    const bw = textWidth(text, 13) + 12;
+    const bw = textWidth(text, 11) + 12;
     const up = { t: cy - r - 19, b: cy - r - 3 };
     const mid = { t: cy - 8, b: cy + 8 };
     const dn = { t: cy + r + 8, b: cy + r + 24 };
@@ -261,13 +381,47 @@ export function renderMatch(root, ctx) {
     ];
   }
 
-  /** 이름 라벨(carrier · defender · receiver)과 의도 말풍선의 자리: key → { label: 'lbl-…' 클래스, bubble: 'bub-…' 클래스 } */
-  function placeTags(Lay, bubbleKey, bubbleText) {
+  /**
+   * 이름을 붙일 받는 선수 후보: 사람이 공격 결정 중이면 후보 전원(고른 선수 표시), 아니면 예상 받는 선수 한 명
+   * (상대 공격이면 상대가 커밋한 액션의 받는 선수). → Map(id → 고른 액션 목록)
+   */
+  function receiverTags(view, Lay) {
+    const m = new Map();
+    if (!Lay || Lay.mode !== 'play' || !view || view.finished) return m;
+    const human = humanOf(view);
+    if (!busy && paused(view) && view.attackingSide === human) {
+      for (const id of Lay.receiverIds || []) m.set(id, []);
+      for (const a of RECV_ACTIONS) {
+        const ri = recvInfo(view, a);
+        if (ri && m.has(ri.id)) m.get(ri.id).push(a);
+      }
+      return m;
+    }
+    // 자동 진행: 공 가진 선수의 예상 행동(패스·크로스)의 받는 선수 한 명. 사람 측이 스킬·필살기로 바꿀 수 있어 확정할 수 없으면 이름 없음
+    const sv = shownView(view);
+    if (view.receiverPreview && !sv?.receiverPreview) return m;
+    let id = Lay.receiverId;
+    const ea = view.expected?.attack?.action;
+    if (ea === 'pass' || ea === 'cross') id = sv?.receivers?.[ea]?.defaultId ?? id;
+    if (id && (Lay.receiverIds || []).includes(id)) m.set(id, []);
+    return m;
+  }
+  function labelText(t, picks, view) {
+    if (!picks || !picks.length) return t.name;
+    const rs = shownView(view)?.receivers || {};
+    const both = RECV_ACTIONS.filter((a) => rs[a]).length > 1;
+    const sameForAll = RECV_ACTIONS.filter((a) => rs[a]).every((a) => picks.includes(a));
+    return both && !sameForAll ? `${t.name} ✓${L.ACTION_LABELS[picks[0]]}` : `${t.name} ✓`;
+  }
+
+  /** 이름 라벨(carrier · defender · 받는 선수)과 예상 행동 말풍선의 자리: key → { label: 'lbl-…' 클래스, bubble: 'bub-…' 클래스 } */
+  function placeTags(Lay, named, bubbleKey, bubbleText) {
     const rects = new Map(Lay.tokens.map((t) => [`${t.side}:${t.id}`, tokenRect(t)]));
     const ball = ballRect(Lay);
     const taken = []; // 이미 놓인 글자
     const obstaclesFor = (key) => [...[...rects].filter(([k]) => k !== key).map(([, r]) => r), ball, ...taken];
     const out = new Map();
+    out.boxes = taken; // 놓인 글자 자리 (미리보기 글자가 피한다)
     const bubTok = bubbleKey ? Lay.tokens.find((t) => `${t.side}:${t.id}` === bubbleKey) : null;
     if (bubTok && bubbleText) {
       const pick = pickSpot(bubbleCands(bubTok, bubbleText), obstaclesFor(bubbleKey));
@@ -275,10 +429,10 @@ export function renderMatch(root, ctx) {
       taken.push({ ...pick.box, w: 1.5 });
     }
     const order = ['carrier', 'defender', 'receiver'];
-    const named = Lay.tokens.filter((t) => NAMED_ROLES.has(t.role)).sort((a, b) => order.indexOf(a.role) - order.indexOf(b.role));
-    for (const t of named) {
+    const list = Lay.tokens.filter((t) => named.has(`${t.side}:${t.id}`)).sort((a, b) => order.indexOf(a.role) - order.indexOf(b.role));
+    for (const t of list) {
       const key = `${t.side}:${t.id}`;
-      const pick = pickSpot(labelCands(t, Lay), obstaclesFor(key));
+      const pick = pickSpot(labelCands(t, Lay, named.get(key)), obstaclesFor(key));
       const cls = [pick.v !== 'down' ? `lbl-${pick.v}` : '', pick.hz === 'l' ? 'lbl-sl' : pick.hz === 'r' ? 'lbl-sr' : ''].filter(Boolean).join(' ');
       out.set(key, { label: cls, bubble: out.get(key)?.bubble ?? '' });
       taken.push({ ...pick.box, w: 1.5 });
@@ -286,8 +440,8 @@ export function renderMatch(root, ctx) {
     return out;
   }
 
-  function tokenClass(t, tag) {
-    const named = NAMED_ROLES.has(t.role);
+  function tokenClass(t, tag, extra) {
+    const named = !!extra.named;
     return [
       'tok', t.side, `role-${t.role}`,
       named ? 'named' : '',
@@ -296,6 +450,11 @@ export function renderMatch(root, ctx) {
       t.staminaRatio <= 0.2 ? 'low' : '',
       t.isYouth ? 'youth' : '',
       t.role === 'broken' ? (t.side === 'home' ? 'chase-down' : 'chase-up') : '',
+      extra.picked ? 'picked' : '',
+      extra.pickable ? 'pickable' : '',
+      extra.ult ? 'has-ult' : '',
+      extra.ult?.ready ? 'ult-ready' : '',
+      extra.ult?.combo ? 'ult-combo' : '',
     ].filter(Boolean).join(' ');
   }
 
@@ -309,29 +468,56 @@ export function renderMatch(root, ctx) {
     curView = view;
     if (!anim) pitch.classList.add('no-anim');
     const seen = new Set();
-    const ii = intentInfo(view);
+    const ei = expectInfo(view);
     const oppKey = oppDuelKey(view);
-    const tags = placeTags(Lay, ii.bubble ? oppKey : null, ii.bubble);
+    const rtags = receiverTags(view, Lay);
+    const atk = Lay.attackingSide;
+    const named = new Map();
+    for (const t of Lay.tokens) {
+      const key = `${t.side}:${t.id}`;
+      if (t.role === 'carrier' || t.role === 'defender') named.set(key, t.name);
+      else if (t.role === 'receiver' && t.side === atk && rtags.has(t.id)) named.set(key, labelText(t, rtags.get(t.id), view));
+    }
+    const tags = placeTags(Lay, named, ei.bubble ? oppKey : null, ei.bubble);
+    tagBoxes = tags.boxes || [];
+    const deciding = !busy && paused(view) && view?.attackingSide === humanOf(view);
     for (const t of Lay.tokens) {
       const key = `${t.side}:${t.id}`;
       seen.add(key);
       const el = tokenEl(t);
-      el.className = tokenClass(t, tags.get(key));
+      const ult = view?.ultimate?.[t.side]?.[t.id] || null;
+      const picks = t.side === atk ? rtags.get(t.id) : null;
+      el.className = tokenClass(t, tags.get(key), {
+        named: named.has(key),
+        picked: !!(deciding && picks && picks.length),
+        pickable: !!(deciding && t.role === 'receiver' && t.side === atk),
+        ult,
+      });
       el.dataset.role = t.role;
       el.dataset.x = String(round1(t.x));
       el.dataset.y = String(round1(t.y));
-      el.setAttribute('aria-label', `${t.side === 'home' ? '우리' : '상대'} ${t.slot ?? t.position} ${t.name} — ${L.TOKEN_ROLE_LABELS[t.role] ?? t.role}`);
+      el.style.setProperty('--g', ult ? String(round3(clamp01((Number(ult.gauge) || 0) / gaugeMax))) : '0');
+      const nm = named.get(key) ?? t.name;
+      if (el._name.textContent !== nm) el._name.textContent = nm;
+      el.setAttribute('aria-label', `${t.side === 'home' ? '우리' : '상대'} ${t.slot ?? t.position} ${t.name} — ${L.TOKEN_ROLE_LABELS[t.role] ?? t.role}` +
+        `${ult ? ` · 필살 게이지 ${Math.round(ult.gauge)}${ult.ready ? ' (준비)' : ''}` : ''}${deciding && t.role === 'receiver' && t.side === atk ? ' · 탭하면 받는 선수로' : ''}`);
       place(el, t.x, t.y);
       el._bar.style.width = `${Math.round(clamp01(t.staminaRatio) * 100)}%`;
-      const bub = key === oppKey && ii.bubble ? ii.bubble : '';
+      const bub = key === oppKey && ei.bubble ? ei.bubble : '';
       el._bubble.textContent = bub;
-      el._bubble.title = bub ? ii.text : '';
+      el._bubble.title = bub ? ei.text : '';
       el.classList.toggle('has-bubble', !!bub);
+      el.classList.toggle('reading', !!(bub && ei.reading));
     }
     for (const [key, el] of tokEls) if (!seen.has(key)) el.classList.add('gone');
     placeBall(Lay);
     updateZones(Lay);
     updateTrack(Lay);
+    // 남은 수비 칩: "남은 수비: MF 2 + DF 2 + GK" → "남은 수비: MF2·DF2·GK" (필드 모서리에 짧게, 전체 문구는 title)
+    const rem = Lay.remainingText || '';
+    remainEl.textContent = rem.replace(/([A-Z]{2}) (\d+)/g, '$1$2').replace(/ \+ /g, '·');
+    remainEl.title = rem;
+    remainEl.classList.toggle('hidden', !rem);
     if (!anim) {
       void pitch.offsetWidth; // 트랜지션 없이 즉시 반영
       pitch.classList.remove('no-anim');
@@ -340,6 +526,7 @@ export function renderMatch(root, ctx) {
 
   /** 공: play 모드에서 공 가진 선수가 있으면 발 앞(공격 방향)으로 살짝 — 얼굴을 가리지 않게. 승부차기·골문 안은 그대로 */
   function placeBall(Lay) {
+    stopBallArc();
     ballEl.dataset.x = String(round1(Lay.ball.x));
     ballEl.dataset.y = String(round1(Lay.ball.y));
     placeBallAt(Lay.ball.x, Lay.ball.y, Lay.mode === 'play' && Lay.carrierId ? Lay.attackingSide : null);
@@ -406,38 +593,67 @@ export function renderMatch(root, ctx) {
   }
 
   /* ------------------------------------------------------------------ */
-  /* 의도 표시                                                             */
+  /* 예상 행동 (A안 — GDD v0.5 §9.6·9.9)                                     */
   /* ------------------------------------------------------------------ */
-  function intentInfo(view) {
-    if (!view) return { ico: '⏳', text: '', bubble: null };
-    if (view.finished) return { ico: '🏁', text: '경기 종료', bubble: null };
-    if (view.phase === 'penalties') return { ico: '🥅', text: '승부차기 — 키커 vs GK (자동)', bubble: null };
-    const intent = view.intent;
-    const cands = Array.isArray(intent?.candidates) ? intent.candidates : [];
-    if (intent?.countered) {
-      // 상대 AI 가 reveal 스킬을 썼다: 우리 선택을 읽고 카운터한다 (엔진 intent.countered)
-      return { ico: '👁', text: '상대가 우리 의도를 읽고 있음 — 카운터 주의', bubble: '👁' };
+  /**
+   * → { ico, text(정보 줄 왼쪽), bubble(상대 듀얼 토큰 위 말풍선) | null, mine(정보 줄 오른쪽: 우리 선수 예상 행동), reading }
+   * 상대 예상 행동 = view.expected[상대 역할].action (AI 커밋), 근거 = 성향값 상위 두 개.
+   */
+  function expectInfo(view) {
+    const none = { ico: '⏳', text: '', bubble: null, mine: '', reading: false };
+    if (!view) return none;
+    if (view.finished) return { ...none, ico: '🏁', text: '경기 종료' };
+    if (view.phase === 'penalties') return { ...none, ico: '🥅', text: '승부차기 — 키커 vs GK (자동)' };
+    const ex = view.expected;
+    if (view.phase !== 'decision' || !ex) return { ...none, text: view.lineLabel ?? '진행 중' };
+    const human = humanOf(view);
+    const opp = human === 'home' ? 'away' : 'home';
+    const myRole = view.attackingSide === human ? 'attack' : 'defense';
+    const oppRole = myRole === 'attack' ? 'defense' : 'attack';
+    const o = ex[oppRole] || null;
+    const me = ex[myRole] || null;
+    const oppName = nameOf(view, opp, o?.playerId) || '상대';
+    const myName = nameOf(view, human, me?.playerId);
+    const box = Number(view.lineIndex) >= 3;
+    let mine = '';
+    let mineTitle = '';
+    if (me) {
+      mine = myRole === 'defense' && box
+        ? '우리: 세이브(자동)'
+        : `우리: ${L.ACTION_LABELS[me.action] ?? me.action}`;
+      mineTitle = `우리 ${myName}의 예상 행동 — 자동이면 이것을 고른다`;
     }
-    if (intent && intent.level !== 'none' && cands.length) {
-      if (intent.level === 'full') {
-        return { ico: L.ACTION_ICONS[cands[0]] ?? '🎯', text: `상대 의도: ${L.ACTION_LABELS[cands[0]] ?? cands[0]}`, bubble: L.ACTION_ICONS[cands[0]] ?? '!' };
-      }
+    if (view.opponentReading) {
       return {
-        ico: '❔',
-        text: `상대 의도: ${cands.map((a) => L.ACTION_LABELS[a] ?? a).join(' 또는 ')}`,
-        bubble: cands.map((a) => L.ACTION_ICONS[a] ?? '?').join('/'),
+        ico: '👁', text: `상대 ${withJosa(oppName, '이/가')} 우리 수를 읽는 중`, bubble: '👁 간파', mine, mineTitle, reading: true,
+        title: `상대 ${withJosa(oppName, '이/가')} 간파를 썼다 — 우리가 고른 액션을 보고 판정 때 가장 유리한 액션으로 바꾼다. 기대 %는 그 대응 기준`,
       };
     }
-    if (intent && intent.level === 'none') return { ico: '🙈', text: '상대 의도 비공개', bubble: '?' };
-    if (view.needsDecision) return { ico: '🙈', text: '상대 의도 정보 없음', bubble: null };
-    return { ico: '⏳', text: view.lineLabel ?? '진행 중', bubble: null };
+    if (!o) return { ...none, text: view.lineLabel ?? '', mine, mineTitle };
+    if (oppRole === 'defense' && box) return { ico: '🧤', text: `상대 GK ${withJosa(oppName, '과/와')} 1:1 — 세이브`, bubble: null, mine, mineTitle, reading: false };
+    const a = o.action;
+    const vals = Object.entries(o.values || {}).filter(([, v]) => Number(v) > 0).sort((x, y) => y[1] - x[1]);
+    const why = vals.length >= 2
+      ? ` · ${L.ACTION_LABELS[vals[0][0]] ?? vals[0][0]} ${vals[0][1]} > ${L.ACTION_LABELS[vals[1][0]] ?? vals[1][0]} ${vals[1][1]}`
+      : '';
+    const kind = box ? (L.ACTION_LABELS[a] ?? a) : (L.ACTION_TYPE_LABELS[a] ?? L.ACTION_LABELS[a] ?? a);
+    return {
+      ico: L.ACTION_ICONS[a] ?? '🎯',
+      text: `상대 ${oppName} ${kind}${why}`,
+      title: `상대 ${oppName}의 예상 행동: ${L.ACTION_LABELS[a] ?? a} (성향값 1위 — 자동은 늘 이것을 고른다)${why ? ` —${why.slice(2)}` : ''}`,
+      bubble: `${L.ACTION_ICONS[a] ?? ''} ${L.ACTION_LABELS[a] ?? a}`.trim(),
+      mine,
+      mineTitle,
+      reading: false,
+    };
   }
 
-  /** 의도 말풍선을 달 상대 듀얼 토큰: 우리 공격이면 상대 수비수, 우리 수비면 상대 carrier */
+  /** 예상 행동 말풍선을 달 상대 듀얼 토큰: 우리 공격이면 상대 수비수(GK 제외), 우리 수비면 상대 carrier */
   function oppDuelKey(view) {
     if (!view || view.finished || view.phase !== 'decision') return null;
-    const human = view.humanSide || 'home';
+    const human = humanOf(view);
     const opp = human === 'home' ? 'away' : 'home';
+    if (view.attackingSide === human && Number(view.lineIndex) >= 3) return null;
     const id = view.attackingSide === human ? view.defender?.id : view.carrier?.id;
     return id ? `${opp}:${id}` : null;
   }
@@ -453,7 +669,7 @@ export function renderMatch(root, ctx) {
     drawActions(view, canDecide, finished);
     drawSkills(view, canDecide);
     drawControls(finished, canDecide);
-    drawLog();
+    drawLog(canDecide);
   }
 
   function drawHud(view, finished) {
@@ -477,7 +693,7 @@ export function renderMatch(root, ctx) {
       const b = bar((Number(tension) || 0) / (tMax || 100), `tension ${side}`);
       return h('div', { class: ['mh-team', side] },
         h('span', { class: 'nm ellipsis' }, name),
-        h('span', { class: 'mh-ten', title: `텐션 ${val}/${tMax}` },
+        h('span', { class: 'mh-ten', title: `텐션 ${val}/${tMax} (일반 액티브·간파)` },
           side === 'home' ? [h('span', {}, '텐션'), b, h('b', {}, val)] : [h('b', {}, val), b, h('span', {}, '텐션')]));
     };
     hud.replaceChildren(
@@ -488,59 +704,155 @@ export function renderMatch(root, ctx) {
   }
 
   function drawInfo(view, canDecide) {
-    const ii = intentInfo(view);
-    // 결정 차례는 액션 버튼 테두리(금색)로 알린다. 배지는 개입 대기일 때만 (정보 줄 폭을 의도·남은 수비에 쓴다)
+    const ei = expectInfo(view);
+    // 결정 차례는 액션 버튼 테두리(금색)로 알린다. 배지는 개입 대기일 때만 (정보 줄 폭을 예상 행동에 쓴다)
     const badge = !canDecide && ui.auto && ui.intervene && !isFinished() ? h('span', { class: 'badge badge-accent' }, '개입 대기') : null;
     info.classList.toggle('deciding', canDecide);
-    info.replaceChildren(
-      h('span', { class: 'intent', title: ii.text }, badge, h('span', { class: 'ico' }, ii.ico), h('span', { class: 'ellipsis' }, ii.text)),
-      h('span', { class: 'remain' }, curL?.remainingText ?? view?.remaining?.text ?? ''));
+    info.classList.toggle('reading', !!ei.reading);
+    // replaceChildren 은 null 을 "null" 글자로 넣는다 → 빈 항목은 빼고 넘긴다
+    info.replaceChildren(...[
+      h('span', { class: 'expect', title: ei.title || ei.text }, badge, h('span', { class: 'ico' }, ei.ico), h('span', { class: 'ellipsis' }, ei.text)),
+      ei.mine ? h('span', { class: 'mine ellipsis', title: ei.mineTitle || ei.mine }, ei.mine) : null,
+    ].filter(Boolean));
+  }
+
+  /** 액션 버튼 한 개가 보여줄 값: 결과(Outcome), 기대 %, 받는 선수, 근사 여부(엔진이 조합 미리보기를 주지 않는 경우) */
+  function actionInfo(view, a) {
+    const sv = shownView(view);
+    const variant = sv !== view;
+    const ri = RECV_ACTIONS.includes(a.action) ? recvInfo(view, a.action) : null;
+    const u = ui.ultimate ? ultOption(view) : null;
+    const sk = ui.selectedSkillId ? (view.skills || []).find((s) => s.skillId === ui.selectedSkillId) || null : null;
+    const ultOk = !u || ultCompatible(u, a.action);
+    const nonDefault = !!(ri && ri.id !== ri.defaultId);
+    // 받는 선수별 결과(outcomesByReceiver)는 스킬·필살기 없이 계산된다 → 변형이 도착 구역을 바꾸면(라인 브레이커: 중원 → 박스)
+    // 쓰지 않는다 (구역 문구·화살표가 틀린다). 그때는 아래에서 변형 결과의 받는 선수 이름만 바꾼다 (≈)
+    const sameArrival = !variant || view.receivers?.[a.action]?.arrival === sv?.receivers?.[a.action]?.arrival;
+    const byR = ri && sameArrival ? view.outcomesByReceiver?.[a.action]?.[ri.id] ?? null : null;
+    let out = sv?.outcomes?.[a.action] ?? null;
+    let approx = false;
+    if (nonDefault && byR) {
+      out = byR;
+      if (variant) approx = true; // 스킬·필살기 + 기본 아닌 받는 선수: 엔진 조합 미리보기가 없어 기본 규칙 결과
+    }
+    // 변형(예: 라인 브레이커로 후보가 FW 로 바뀜)에서 기본이 아닌 선수를 골랐는데 받는 선수별 결과가 없으면:
+    // 도착 구역은 같으므로 변형 결과의 받는 선수 이름만 바꿔 보여주고 근사로 표시한다
+    if (ri && out?.success?.receiver && out.success.receiver.id !== ri.id) {
+      const from = out.success.receiver.name;
+      const to = nameOf(view, humanOf(view), ri.id);
+      if (from && to) {
+        const sw = (t) => (typeof t === 'string' ? t.split(from).join(to) : t);
+        out = { ...out, success: { ...out.success, receiver: { ...out.success.receiver, id: ri.id, name: to }, short: sw(out.success.short), label: sw(out.success.label) } };
+      }
+      approx = true;
+    }
+    let pct = a.expectedPct ?? null;
+    if (u && ultOk && u.expectedPct?.[a.action] != null) {
+      pct = u.expectedPct[a.action];
+      if (sk || nonDefault) approx = true;
+    } else if (sk && sk.expectedPct?.[a.action] != null) {
+      pct = sk.expectedPct[a.action];
+      if (nonDefault) approx = true;
+    } else if (nonDefault && byR?.expectedPct != null) {
+      pct = byR.expectedPct;
+    }
+    // 제목·약점 문구: 켠 필살기·스킬의 효과를 반영한 엔진 문구 (예: 필살 패스 → "짝 무효 (바람의 실)", 필살 슛 → "필살 슛 · 박스 슛 취급")
+    const shown = (u && ultOk && u.actions?.[a.action]) || (sk && sk.actions?.[a.action]) || null;
+    return { out, pct, approx, ri, ultOk, nonDefault, label: shown?.label ?? null, hint: shown?.hint ?? null };
   }
 
   function drawActions(view, canDecide, finished) {
     const penMode = curL?.mode === 'penalties';
-    const role = view?.needsDecision ?? (view?.attackingSide === (view?.humanSide || 'home') ? 'attack' : 'defense');
     actGrid.classList.toggle('deciding', canDecide);
-    if (finished || penMode) {
+    const setGrid = (cols, n) => {
+      const rows = Math.max(1, Math.ceil(n / cols));
+      actGrid.className = ['action-grid', `cols-${cols}`, `rows-${rows}`, canDecide ? 'deciding' : ''].filter(Boolean).join(' ');
+    };
+    if (finished || penMode || !view || view.phase !== 'decision') {
       // 고를 액션이 없는 구간: 한 칸짜리 상태 표시
       const pen = view?.penalties;
+      setGrid(1, 1);
       actGrid.replaceChildren(h('button', { class: 'btn act-btn act-wide', type: 'button', disabled: true },
-        h('span', { class: 'act-title' }, finished ? '🏁 경기 종료' : '🥅 승부차기 — 자동 진행'),
+        h('span', { class: 'act-title' }, h('span', { class: 'act-nm' }, finished ? '🏁 경기 종료' : penMode ? '🥅 승부차기 — 자동 진행' : `⏳ ${view?.lineLabel ?? '진행 중'}`)),
         h('span', { class: 'btn-sub' }, finished
           ? '결과를 확인하세요'
-          : `키커 vs GK · ${pen ? `${pen.home ?? 0} : ${pen.away ?? 0}${pen.suddenDeath ? ' · 서든데스' : ''}` : ''}`)));
+          : penMode ? `키커 vs GK · ${pen ? `${pen.home ?? 0} : ${pen.away ?? 0}${pen.suddenDeath ? ' · 서든데스' : ''}` : ''}` : '다음 포제션 준비')));
       return;
     }
-    const fallback = (role === 'defense' ? L.ACTIONS_DEFENSE_FALLBACK : L.ACTIONS_ATTACK_FALLBACK)
-      .map((a) => ({ action: a, enabled: false, label: L.ACTION_LABELS[a], hint: '' }));
-    const acts = Array.isArray(view?.actions) && view.actions.length ? view.actions.slice(0, 3) : fallback;
-    actGrid.replaceChildren(...acts.map((a) => actionButton(a, role, canDecide, view)));
+    const human = humanOf(view);
+    const role = view.attackingSide === human ? 'attack' : 'defense';
+    if (!canDecide) { drawAutoActions(view, role, setGrid); return; }
+
+    const acts = (Array.isArray(view.actions) ? view.actions : []).filter((a) => a.enabled !== false);
+    if (!acts.length) { drawAutoActions(view, role, setGrid); return; }
+    const infos = acts.map((a) => ({ a, i: actionInfo(view, a) }));
+    // 추천: 엔진 recommended (기본 조건). 스킬·필살기·받는 선수를 바꿨으면 지금 보이는 기대 % 최고
+    const toggled = !!(ui.selectedSkillId || ui.ultimate || infos.some((x) => x.i.nonDefault));
+    let recAction = acts.find((a) => a.recommended)?.action ?? null;
+    if (toggled) {
+      let best = -1;
+      recAction = null;
+      for (const { a, i } of infos) if (i.ultOk && i.pct != null && i.pct > best) { best = i.pct; recAction = a.action; }
+    }
+    const pairWith = role === 'defense' && !view.opponentReading ? L.COUNTER[view.expected?.attack?.action] ?? null : null;
+    if (role === 'attack') {
+      setGrid(acts.length === 1 ? 1 : 2, acts.length);
+    } else {
+      setGrid(Math.min(3, acts.length), acts.length);
+    }
+    const wideLast = role === 'attack' && acts.length === 3;
+    actGrid.replaceChildren(...infos.map(({ a, i }, idx) =>
+      actionButton(view, a, i, { role, rec: a.action === recAction, pair: pairWith === a.action, wide: wideLast && idx === 2 })));
   }
 
-  function actionButton(a, role, canDecide, view) {
-    const enabled = canDecide && a.enabled !== false;
-    const label = a.label ?? L.ACTION_LABELS[a.action] ?? a.action;
-    // 결과 미리보기는 결정 대기(수동)에서만 (§12.3). 공격 label 은 접두어가 없고, 수비 label 은 "막으면 —/뚫리면 —" 로 시작한다.
-    // 위치를 바꾸는 스킬(라인 브레이커 · 소매치기)을 토글했으면 그 스킬을 함께 쓴 결과 (엔진 outcomesBySkill)
-    const out = enabled ? shownView(view)?.outcomes?.[a.action] ?? null : null;
-    const lines = [];
-    if (out) {
-      const [ps, pf] = role === 'attack' ? ['성공: ', '실패: '] : ['', ''];
-      lines.push(h('span', { class: ['act-out', 'ok', out.success?.goal ? 'goal' : ''] }, `${ps}${out.success?.label ?? ''}`));
-      lines.push(h('span', { class: ['act-out', 'ng', out.fail?.conceded || out.fail?.goalRisk ? 'risk' : ''] }, `${pf}${out.fail?.label ?? ''}`));
-    } else if (a.hint) {
-      lines.push(h('span', { class: 'btn-sub' }, a.hint));
-    }
+  function actionButton(view, a, info, { role, rec, pair, wide }) {
+    const enabled = info.ultOk;
+    const label = info.label ?? a.label ?? L.ACTION_LABELS[a.action] ?? a.action;
+    const human = humanOf(view);
+    const ri = info.ri;
+    const rName = ri ? nameOf(view, human, ri.id) : '';
+    const out = info.out;
+    const okShort = out?.success?.short || out?.success?.label || '';
+    const ngShort = out?.fail?.short || out?.fail?.label || '';
+    const okLong = out?.success?.label ? `성공: ${out.success.label}` : okShort;
+    const ngLong = out?.fail?.label ? `실패: ${out.fail.label}` : ngShort;
+    const pctText = info.pct != null ? `${info.approx ? '≈' : ''}${info.pct}%` : '';
+    const hintText = stripRecvHint(info.hint ?? a.hint);
+    const formula = role === 'defense' ? hintText.split(' · ')[0] : '';
     const title = [
-      label, a.hint,
-      out ? `${role === 'attack' ? '성공: ' : ''}${out.success?.label ?? ''}` : null,
-      out ? `${role === 'attack' ? '실패: ' : ''}${out.fail?.label ?? ''}` : null,
+      `${label}${rName ? ` → ${rName}` : ''}${pctText ? ` ${pctText}` : ''}${rec && enabled ? ' (추천)' : ''}${pair ? ' (짝)' : ''}`,
+      role === 'attack' && Number(view.lineIndex) === 2 && a.action !== 'shoot'
+        ? '% = 이번 공격 득점 기대 (돌파 × 박스 슛)'
+        : role === 'attack' ? (a.action === 'shoot' ? '% = 골 확률' : '% = 돌파 확률') : '% = 막을 확률 (상대 예상 행동 기준)',
+      hintText,
+      out?.success?.label, out?.fail?.label,
+      info.approx ? '≈ 스킬·필살기와 받는 선수 조합은 기본 결과 기준 (근사)' : null,
+      !info.ultOk ? '필살기와 함께 쓸 수 없는 액션' : null,
+      ri && ri.candidates.length > 1 ? '필드의 후보 토큰을 탭하면 받는 선수가 바뀐다' : null,
     ].filter(Boolean).join('\n');
+    const chips = [
+      pair ? h('span', { class: 'chip chip-pair' }, '짝') : null,
+      rec && enabled ? h('span', { class: 'chip chip-rec' }, '추천') : null,
+    ].filter(Boolean);
+    // 공격: 추천 칩은 성공 줄 오른쪽 (제목 폭은 받는 선수 이름에 쓴다). 수비(3열): 짝·추천 칩 + 판정 스탯을 아래 줄에
+    const lines = role === 'attack'
+      ? [
+        h('span', { class: ['act-out', 'ok', out?.success?.goal ? 'goal' : ''] },
+          h('span', { class: 'txt short' }, okShort), h('span', { class: 'txt long' }, okLong), ...chips),
+        h('span', { class: ['act-out', 'ng', out?.fail?.conceded || out?.fail?.goal ? 'risk' : ''] },
+          h('span', { class: 'txt short' }, ngShort), h('span', { class: 'txt long' }, ngLong)),
+        hintText ? h('span', { class: 'act-hint' }, hintText) : null,
+      ]
+      : [
+        h('span', { class: 'act-out ok' }, h('span', { class: 'txt' }, okShort)),
+        h('span', { class: ['act-out', 'ng', out?.fail?.conceded || out?.fail?.goal ? 'risk' : ''] }, h('span', { class: 'txt' }, ngShort)),
+        h('span', { class: 'act-foot' }, ...chips, formula ? h('span', { class: 'act-formula' }, formula) : null),
+      ];
     return h('button', {
-      class: ['btn', 'act-btn', enabled ? 'decide' : ''],
+      class: ['btn', 'act-btn', enabled ? 'decide' : 'dim', rec && enabled ? 'rec' : '', wide ? 'span-2' : '', info.ultOk && ui.ultimate && ultOption(view) ? 'ult-on' : ''],
       type: 'button',
       disabled: !enabled,
-      dataset: { action: a.action },
+      dataset: { action: a.action, receiver: ri?.id ?? '' },
       title,
       onclick: () => decide(a.action),
       onpointerenter: (e) => { if (!e.pointerType || e.pointerType === 'mouse') showArrow(a.action); },
@@ -549,35 +861,150 @@ export function renderMatch(root, ctx) {
       onpointercancel: () => hideArrow(a.action),
       onfocus: () => showArrow(a.action),
       onblur: () => hideArrow(a.action),
-    }, h('span', { class: 'act-title' }, `${L.ACTION_ICONS[a.action] ?? ''} ${label}`), ...lines);
+    },
+    h('span', { class: 'act-title' },
+      h('span', { class: 'act-nm' },
+        h('span', { class: 'act-ico' }, L.ACTION_ICONS[a.action] ?? ''),
+        h('span', { class: 'act-lbl' }, label),
+        ri ? h('span', { class: 'act-rcv' },
+          h('span', { class: 'act-arrow' }, '→'),
+          h('span', { class: 'act-rname' }, rName),
+          ri.candidates.length > 1 ? h('span', { class: 'act-more' }, '▾') : null) : null),
+      pctText ? h('b', { class: 'act-pct' }, pctText) : null),
+    ...lines);
+  }
+
+  /** 결정 차례가 아닐 때(자동 진행·연출 중): 우리 당사자의 성향값과 자동 선택 (GDD v0.5 §9.9 — 자동은 1위 액션) */
+  function drawAutoActions(view, role, setGrid) {
+    const ex = view.expected?.[role] || null;
+    const box = Number(view.lineIndex) >= 3;
+    if (!ex || (role === 'defense' && box)) {
+      const gk = role === 'defense' ? nameOf(view, humanOf(view), ex?.playerId ?? view.defender?.id) : '';
+      setGrid(1, 1);
+      actGrid.replaceChildren(h('button', { class: 'btn act-btn act-wide', type: 'button', disabled: true },
+        h('span', { class: 'act-title' }, h('span', { class: 'act-nm' }, role === 'defense' && box ? `🧤 ${gk ? `${gk} ` : ''}세이브 — 자동` : `⏳ ${view.lineLabel ?? ''}`)),
+        h('span', { class: 'btn-sub' }, role === 'defense' && box ? 'GK 듀얼은 세이브 자동 (필살 세이브도 조건이 맞으면 자동)' : '')));
+      return;
+    }
+    const entries = Object.entries(ex.values || {})
+      .filter(([k, v]) => Number(v) > 0 || k === ex.action)
+      .sort((x, y) => ACTION_ORDER.indexOf(x[0]) - ACTION_ORDER.indexOf(y[0]));
+    const hints = new Map((view.actions || []).map((a) => [a.action, a]));
+    const n = Math.max(1, entries.length);
+    if (role === 'attack') setGrid(n === 1 ? 1 : 2, n);
+    else setGrid(Math.min(3, n), n);
+    const wideLast = role === 'attack' && n === 3;
+    actGrid.replaceChildren(...entries.map(([k, v], idx) => {
+      const auto = k === ex.action;
+      const a = hints.get(k);
+      return h('button', {
+        class: ['btn', 'act-btn', 'auto-view', auto ? 'auto-pick' : '', wideLast && idx === 2 ? 'span-2' : ''],
+        type: 'button',
+        disabled: true,
+        dataset: { action: k },
+        title: `${L.ACTION_LABELS[k] ?? k} 성향값 ${v}${auto ? ' — 자동이면 이 액션' : ''}`,
+      },
+      h('span', { class: 'act-title' },
+        h('span', { class: 'act-nm' }, h('span', { class: 'act-ico' }, L.ACTION_ICONS[k] ?? ''), ` ${a?.label ?? L.ACTION_LABELS[k] ?? k}`),
+        h('b', { class: 'act-pct muted' }, String(v))),
+      h('span', { class: ['act-out', auto ? 'auto' : 'muted'] }, auto ? '자동 선택' : '성향값'),
+      a?.hint ? h('span', { class: 'act-out muted' }, stripRecvHint(a.hint)) : null);
+    }));
   }
 
   function drawSkills(view, canDecide) {
-    const skills = Array.isArray(view?.skills) ? view.skills : [];
-    if (!skills.length) {
-      skillRow.replaceChildren(h('span', { class: 'tiny muted' }, curL?.mode === 'penalties' ? '승부차기 중에는 스킬을 쓸 수 없음' : '사용 가능한 액티브 스킬 없음'));
+    const items = [];
+    const guard = () => !busy && canDecideNow(getView());
+    // 1) 필살기 (개인 게이지 — 텐션과 별도)
+    for (const u of Array.isArray(view?.ultimateOptions) ? view.ultimateOptions : []) {
+      const isSave = u.type === 'save';
+      const on = !!ui.ultimate && u.usable && !isSave;
+      const name = u.comboName || u.name;
+      const gaugeTxt = `${Math.round(Number(u.gauge) || 0)}%`;
+      items.push(h('button', {
+        class: ['btn', 'btn-sm', 'sk-btn', 'ult-btn', u.usable && !isSave ? 'ready' : '', u.comboName ? 'combo' : '', on ? 'active' : ''],
+        type: 'button',
+        disabled: !canDecide || !u.usable || isSave,
+        dataset: { ultimate: u.skillId },
+        'aria-pressed': on ? 'true' : 'false',
+        title: [
+          `${u.comboName ? `합체기 [${u.comboName}] — ` : ''}${L.ULT_TYPE_LABELS[u.type] ?? '필살기'} ${u.name}`,
+          u.description,
+          `필살 게이지 ${gaugeTxt}`,
+          !u.usable && u.reason ? `(${u.reason})` : null,
+          u.usable && !isSave ? '토글한 뒤 액션을 고르면 함께 쓴다' : null,
+        ].filter(Boolean).join('\n'),
+        onclick: () => {
+          if (!guard()) return;
+          ui.ultimate = !ui.ultimate;
+          relayout(); // 필살 패스: 기본 받는 선수(합체기)가 바뀔 수 있다
+          drawPanels(curView);
+        },
+      },
+      h('span', { class: 'sk-nm ellipsis' }, `${u.comboName ? '💥' : '✨'} ${name}`),
+      isSave ? h('span', { class: 'sk-cost' }, '자동')
+        : u.usable ? h('span', { class: 'sk-cost' }, u.comboName ? '합체기' : '필살기')
+          : h('span', { class: 'sk-gauge', 'aria-label': `필살 게이지 ${gaugeTxt}` }, h('i', { style: { width: gaugeTxt } }))));
+    }
+    // 2) 간파 (스킬 또는 사용권 — 누르면 즉시 사용, 결정 대기 유지)
+    const g = view?.gaanpa;
+    const usedHere = ui.gaanpaUsedKey && ui.gaanpaUsedKey === ui.pickKey;
+    if (g && (g.source || usedHere)) {
+      const used = usedHere || g.reason === '이번 듀얼에 이미 간파';
+      const costTxt = g.source === 'ticket' ? `사용권 ${g.tickets ?? 0}` : g.source === 'skill' ? `✦${g.cost ?? 0}` : '';
+      // 수비 간파 배율 = readBoost 스킬 데이터 (엔진 ticketReadMult 와 같은 출처)
+      const readMult = Number((data?.skills || []).find((sk) => sk?.active?.effect === 'readBoost')?.active?.params?.readMult) || 2;
+      const roleTxt = view?.attackingSide === humanOf(view) ? '상대 짝 맞힘 무효' : `짝을 맞히면 ×${readMult.toFixed(1)}`;
+      items.push(h('button', {
+        class: ['btn', 'btn-sm', 'sk-btn', 'gaanpa-btn', used ? 'active' : ''],
+        type: 'button',
+        disabled: !canDecide || !g.usable,
+        dataset: { gaanpa: g.source || 'used' },
+        title: [
+          `간파 (${g.source === 'ticket' ? '사용권' : '스킬'}) — 이번 듀얼 ${roleTxt}`,
+          g.source === 'ticket' ? `비용: 사용권 1회 (남은 ${g.tickets ?? 0})` : g.source === 'skill' ? `비용: 텐션 ${g.cost ?? 0}` : null,
+          !g.usable && g.reason ? `(${g.reason})` : null,
+          g.usable ? '누르면 바로 쓰고, 액션은 이어서 고른다' : null,
+        ].filter(Boolean).join('\n'),
+        onclick: () => {
+          if (!guard() || !g.usable) return;
+          ui.gaanpaUsedKey = ui.pickKey;
+          doStep({ gaanpa: g.source || true });
+        },
+      },
+      h('span', { class: 'sk-nm' }, used ? '👁 간파 ✓' : '👁 간파'),
+      h('span', { class: 'sk-cost' }, used ? '사용' : !g.usable && canDecide && g.reason ? shortReason(g.reason) : costTxt)));
+    }
+    // 3) 일반 액티브 (토글 → 액션과 함께). 간파 스킬은 위 간파 버튼으로만
+    for (const s of Array.isArray(view?.skills) ? view.skills : []) {
+      if (s.gaanpa) continue;
+      const on = ui.selectedSkillId === s.skillId;
+      items.push(h('button', {
+        class: ['btn', 'btn-sm', 'sk-btn', on ? 'active' : ''],
+        type: 'button',
+        disabled: !canDecide || s.enabled === false,
+        dataset: { skill: s.skillId },
+        'aria-pressed': on ? 'true' : 'false',
+        title: [s.name, s.description, `텐션 ${s.cost ?? s.tension ?? 0}`, s.enabled === false && s.reason ? `(${s.reason})` : null].filter(Boolean).join('\n'),
+        onclick: () => {
+          if (!guard()) return;
+          ui.selectedSkillId = on ? null : s.skillId;
+          // 라인 브레이커 등: 받는 선수 후보·도착 구역이 바뀌므로 필드도 다시 그린다 (미리보기 = 실제)
+          relayout();
+          drawPanels(curView);
+        },
+      },
+      h('span', { class: 'sk-nm ellipsis' }, `⚡ ${s.name ?? s.skillId}`),
+      h('span', { class: 'sk-cost', 'aria-label': `텐션 ${s.cost ?? s.tension ?? 0}` }, `✦${s.cost ?? s.tension ?? 0}`)));
+    }
+    if (!items.length) {
+      skillRow.replaceChildren(h('span', { class: 'tiny muted' },
+        curL?.mode === 'penalties' ? '승부차기 중에는 스킬을 쓸 수 없음' : '쓸 수 있는 스킬·필살기 없음'));
       return;
     }
-    skillRow.replaceChildren(...skills.map((s) => h('button', {
-      class: ['btn', 'btn-sm', 'sk-btn', ui.selectedSkillId === s.skillId ? 'active' : ''],
-      type: 'button',
-      disabled: !canDecide || s.enabled === false,
-      dataset: { skill: s.skillId },
-      'aria-pressed': ui.selectedSkillId === s.skillId ? 'true' : 'false',
-      title: [s.description, s.enabled === false && s.reason ? `(${s.reason})` : null].filter(Boolean).join(' '),
-      onclick: () => {
-        if (busy || !canDecideNow(getView())) return;
-        // reveal 계열은 { skillId } 단독 결정으로 즉시 발동(계약 §11.1): 엔진이 결정 대기를 유지하고 view.intent 가 full 로 갱신되어
-        // 의도를 본 뒤 액션을 고를 수 있다. 다른 액티브는 토글 후 액션과 함께 제출.
-        if (s.effect === 'reveal') { doStep({ skillId: s.skillId }); return; }
-        ui.selectedSkillId = ui.selectedSkillId === s.skillId ? null : s.skillId;
-        // 라인 브레이커 등: 패스 후보·도착 구역이 바뀌므로 필드도 다시 그린다 (미리보기 = 실제)
-        relayout();
-        drawPanels(curView);
-      },
-    },
-    h('span', { class: 'sk-nm ellipsis' }, `${s.kind === 'unique' ? '✨' : '⚡'} ${s.name ?? s.skillId}`),
-    h('span', { class: 'sk-cost' }, `텐션 ${s.tension ?? 0}`))));
+    // 4개 이상이면 줄이 좁아 이름이 잘린다 → 압축 모드 (필살기 "필살기/합체기" 꼬리표·텐션 ✦ 숨김 — 색·아이콘·비활성으로 구분, 제목에 전부)
+    skillRow.classList.toggle('many', items.length >= 4);
+    skillRow.replaceChildren(...items);
   }
 
   /**
@@ -590,7 +1017,7 @@ export function renderMatch(root, ctx) {
       drawInfo(curView, false);
       return;
     }
-    relayout(); // 자동 ↔ 수동 전환: 패스 후보 표시(확정/불확실)가 바뀔 수 있다
+    relayout(); // 자동 ↔ 수동 전환: 받는 선수 후보 표시(확정/불확실)가 바뀔 수 있다
     drawPanels(curView);
   }
 
@@ -627,10 +1054,11 @@ export function renderMatch(root, ctx) {
       h('button', { class: 'btn', type: 'button', disabled: finished, title: '결과까지 스킵', 'aria-label': '결과까지 스킵', onclick: skip }, '⏭'));
   }
 
-  function drawLog() {
+  function drawLog(canDecide = false) {
     const evs = (Array.isArray(store.match?.events) ? store.match.events : []).slice(-30);
+    log.classList.toggle('deciding', !!canDecide);
     log.replaceChildren(...(evs.length
-      ? evs.map((e) => h('div', { class: ['log-line', e.side ?? '', e.success ? 'success' : '', e.type ?? ''], title: e.text ?? '' },
+      ? evs.map((e) => h('div', { class: ['log-line', e.side ?? '', e.success ? 'success' : '', e.type ? `ev-${e.type}` : ''], title: e.text ?? '' },
         `${e.possession != null ? `[${e.possession}] ` : ''}${e.text ?? ''}`))
       : [h('div', { class: 'log-line' }, '킥오프 대기')]));
     log.scrollTop = log.scrollHeight;
@@ -645,7 +1073,7 @@ export function renderMatch(root, ctx) {
     const a = (view.actions || []).find((x) => x.action === action);
     if (!a || a.enabled === false) return;
     arrowFor = action;
-    drawArrow(action, shownView(view)?.outcomes?.[action] ?? null, view.needsDecision);
+    drawArrow(action, actionInfo(view, a).out, view.needsDecision, view);
   }
   function hideArrow(action) {
     if (action && arrowFor !== action) return;
@@ -655,7 +1083,7 @@ export function renderMatch(root, ctx) {
     pitch.classList.remove('previewing', 'previewing-def');
   }
 
-  function drawArrow(action, out, role) {
+  function drawArrow(action, out, role, view) {
     arrowG.replaceChildren();
     tipG.replaceChildren();
     const Lay = curL;
@@ -669,22 +1097,21 @@ export function renderMatch(root, ctx) {
 
     if (role === 'attack') {
       let to = null;
-      let dashed = false;
-      let endGap = 0;
       let tip = '';
       if (action === 'dribble' && Lay.nextBall) {
         to = Lay.nextBall;
         tip = zoneName(out?.success?.zone);
-      } else if (action === 'pass') {
-        to = tokOf(Lay, Lay.receiverId, atk);
-        dashed = true;
-        endGap = rTok;
-        // 받는 선수 이름은 토큰 라벨에 이미 있으므로, 궤적 가운데에 도착 구역만
-        if (to) {
-          const t2 = [PX(to.x), PY(to.y)];
-          arrowLine(c, t2, { startGap: rTok, endGap, dashed, color: '#ffd166', marker: 'mah-gold', cls: 'ar-pass' });
+      } else if (action === 'pass' || action === 'cross') {
+        // 받는 선수(고른 선수 또는 기본값)까지: 패스 = 점선, 크로스 = 포물선. 이름은 토큰 라벨에 있으므로 도착 구역만
+        const rid = recvInfo(view, action)?.id ?? Lay.receiverId;
+        const R = tokOf(Lay, rid, atk);
+        if (R) {
+          const t2 = [PX(R.x), PY(R.y)];
+          if (action === 'cross') arrowCurve(c, t2, { startGap: rTok, endGap: rTok, color: '#ffd166', marker: 'mah-gold', cls: 'ar-cross' });
+          else arrowLine(c, t2, { startGap: rTok, endGap: rTok, dashed: true, color: '#ffd166', marker: 'mah-gold', cls: 'ar-pass' });
           const z = zoneName(out?.success?.zone);
-          if (z) arrowTip(lerp2(c, t2, 0.5), `→ ${z}`, c);
+          const mid = action === 'cross' ? curvePoint(c, t2, 0.5) : lerp2(c, t2, 0.5);
+          if (z) arrowTip(mid, `→ ${z}`, c);
         }
         return;
       } else if (action === 'shoot') {
@@ -693,33 +1120,48 @@ export function renderMatch(root, ctx) {
       }
       if (!to) return;
       const t = [PX(to.x), PY(to.y)];
-      arrowLine(c, t, { startGap: rTok, endGap, dashed, color: '#ffd166', marker: 'mah-gold', cls: `ar-${action}` });
+      arrowLine(c, t, { startGap: rTok, endGap: 0, dashed: false, color: '#ffd166', marker: 'mah-gold', cls: `ar-${action}` });
       if (tip) arrowTip(t, tip, c);
       return;
     }
 
-    // 수비: 상대 carrier 앞 차단 표시 — 막으려는 길(드리블 길 / 패스 길 / 슛 길)을 흰 점선으로, 우리 수비가 끊는 지점에 빨간 ✕
+    // 수비: 상대 carrier 앞 차단 표시 — 막으려는 길(드리블 길 / 패스·크로스 길 / 슛 길)을 흰 점선으로, 우리 수비가 끊는 지점에 빨간 ✕
     pitch.classList.add('previewing-def'); // 미리보기 동안 우리 수비수 이름표를 접어 ✕ 자리를 비운다
     const D = tokOf(Lay, Lay.defenderId, def);
     const d = D ? [PX(D.x), PY(D.y)] : null;
     const goal = [PX(Lay.goal.x), PY(Lay.goal.y >= 50 ? 99 : 1)];
-    const R = action === 'intercept' ? tokOf(Lay, Lay.receiverId, atk) : null;
+    const ea = view?.expected?.attack?.action;
+    const recvId = (ea === 'pass' || ea === 'cross') ? view?.receivers?.[ea]?.defaultId ?? Lay.receiverId : Lay.receiverId;
+    const R = action === 'intercept' ? tokOf(Lay, recvId, atk) : null;
     let pathTo;
     let endGap = 0;
-    let cut;
+    let alongs;
     if (R) {
       pathTo = [PX(R.x), PY(R.y)];
       endGap = rTok;
-      cut = lerp2(c, pathTo, 0.5);
+      alongs = [0.5, 0.4, 0.6, 0.3, 0.7];
     } else {
-      pathTo = action === 'block' || !Lay.nextBall ? goal : [PX(Lay.nextBall.x), PY(Lay.nextBall.y)];
-      const v = sub2(pathTo, c);
-      const len = Math.hypot(v[0], v[1]) || 1;
-      // 수비수 바로 뒤(골 쪽) — 수비수 얼굴을 가리지 않게 토큰 1.6개만큼
+      pathTo = action === 'hold' || !Lay.nextBall ? goal : [PX(Lay.nextBall.x), PY(Lay.nextBall.y)];
+      const len0 = Math.hypot(pathTo[0] - c[0], pathTo[1] - c[1]) || 1;
+      // 수비수 바로 뒤(골 쪽) — 수비수 얼굴을 가리지 않게 토큰 1.6개만큼 (다른 토큰과 겹치면 수비수 쪽으로 당기거나 더 멀리)
       const base = d ? projectOn(c, pathTo, d) : lerp2(c, pathTo, 0.3);
-      const along = Math.min(0.85, (Math.hypot(base[0] - c[0], base[1] - c[1]) + tokPx * 1.6) / len);
-      cut = lerp2(c, pathTo, along);
+      const b0 = Math.hypot(base[0] - c[0], base[1] - c[1]);
+      alongs = [1.6, 1.25, 1.0, 2.4, 3.0].map((k) => Math.min(0.85, (b0 + tokPx * k) / len0));
     }
+    const vv = sub2(pathTo, c);
+    const vlen = Math.hypot(vv[0], vv[1]) || 1;
+    const nrm = [-vv[1] / vlen, vv[0] / vlen];
+    const half = tokPx * 0.45;
+    const others = (Lay.tokens || []).filter((t) => !(t.side === atk && t.id === Lay.carrierId)).map(tokenRect);
+    const cutCands = [];
+    for (const lat of [0, 0.8, -0.8]) {
+      for (const a of alongs) {
+        const p = lerp2(c, pathTo, a);
+        const q = [p[0] + nrm[0] * tokPx * lat, p[1] + nrm[1] * tokPx * lat];
+        cutCands.push({ p: q, box: { l: q[0] - half, r: q[0] + half, t: q[1] - half, b: q[1] + half } });
+      }
+    }
+    const cut = (pickSpot(cutCands, others) || cutCands[0]).p;
     arrowLine(c, pathTo, { startGap: rTok, endGap, dashed: true, color: '#ffffff', marker: 'mah-white', cls: 'ar-lane', opacity: 0.75 });
     crossMark(cut, tokPx * 0.4);
     sideLabel(cut, L.ACTION_LABELS[action] ?? action, tokPx * 0.7);
@@ -732,7 +1174,7 @@ export function renderMatch(root, ctx) {
       const l = c.anchor === 'start' ? c.x : c.anchor === 'end' ? c.x - w : c.x - w / 2;
       return { l, r: l + w, t: c.y - 11, b: c.y + 3 };
     };
-    const obstacles = (curL?.tokens || []).map(tokenRect);
+    const obstacles = [...(curL?.tokens || []).map(tokenRect), ...tagBoxes];
     const pick = pickSpot(cands.map((c) => ({ ...c, box: boxOf(c) })), obstacles) || { ...cands[0] };
     const el = svgEl('text', { x: round1(pick.x), y: round1(pick.y), class: cls, 'text-anchor': pick.anchor });
     el.textContent = text;
@@ -760,6 +1202,20 @@ export function renderMatch(root, ctx) {
       svgEl('line', { ...common, class: 'ar-halo', 'stroke-dasharray': dashed ? '7 5' : null }),
       svgEl('line', { ...common, class: `ar ${cls}`, stroke: color, opacity, 'stroke-dasharray': dashed ? '7 5' : null, 'marker-end': `url(#${marker})` }));
   }
+  /** 포물선 화살표 (크로스): 필드 바깥쪽으로 휘는 2차 곡선 */
+  function arrowCurve(a, b, { startGap = 0, endGap = 0, color, marker, cls = '' }) {
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (len < 1) return;
+    const k0 = startGap / len;
+    const k1 = 1 - endGap / len;
+    const s = curvePoint(a, b, Math.min(0.3, k0));
+    const e = curvePoint(a, b, Math.max(0.7, k1));
+    const cp = curveCtrl(a, b);
+    const d = `M${round1(s[0])},${round1(s[1])} Q${round1(cp[0])},${round1(cp[1])} ${round1(e[0])},${round1(e[1])}`;
+    arrowG.append(
+      svgEl('path', { d, class: 'ar-halo', 'stroke-dasharray': '7 5' }),
+      svgEl('path', { d, class: `ar ${cls}`, stroke: color, 'stroke-dasharray': '7 5', 'marker-end': `url(#${marker})` }));
+  }
   function crossMark(p, r) {
     for (const [dx, dy] of [[1, 1], [1, -1]]) {
       const common = { x1: round1(p[0] - dx * r), y1: round1(p[1] - dy * r), x2: round1(p[0] + dx * r), y2: round1(p[1] + dy * r) };
@@ -781,6 +1237,26 @@ export function renderMatch(root, ctx) {
       { x: clamp(p[0] - off, 40, W), y: cy(4), anchor: 'end' },
     ], text, 'ar-tip');
   }
+  /** 크로스 곡선의 제어점: 중점에서 진행 방향의 수직으로 길이 × 0.28, 필드 가운데에서 먼 쪽 */
+  function curveCtrl(a, b) {
+    const mx = (a[0] + b[0]) / 2;
+    const my = (a[1] + b[1]) / 2;
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
+    const len = Math.hypot(dx, dy) || 1;
+    let nx = -dy / len;
+    let ny = dx / len;
+    const out = mx + nx * 10 - W / 2;
+    const inn = mx - nx * 10 - W / 2;
+    if (Math.abs(inn) > Math.abs(out)) { nx = -nx; ny = -ny; }
+    const k = len * 0.28;
+    return [mx + nx * k, my + ny * k];
+  }
+  function curvePoint(a, b, t) {
+    const cp = curveCtrl(a, b);
+    const u = 1 - t;
+    return [u * u * a[0] + 2 * u * t * cp[0] + t * t * b[0], u * u * a[1] + 2 * u * t * cp[1] + t * t * b[1]];
+  }
 
   /* ------------------------------------------------------------------ */
   /* 비트 연출                                                             */
@@ -792,18 +1268,25 @@ export function renderMatch(root, ctx) {
     pitch.style.setProperty('--t-move', `${move}ms`);
   }
 
-  function animateBeat(fresh, prevL, nextL, nextView) {
+  /**
+   * 한 step 의 새 이벤트 연출. 컷인은 판정 비트 앞의 것(이번 듀얼에 쓴 필살기) → 액션 전에,
+   * 판정 비트 뒤의 것(다음 듀얼에 AI 가 먼저 커밋한 필살기) → 결과 한 줄 뒤에 보여준다.
+   */
+  function animateBeat(fresh, prevL, nextL, nextView, prevView, chosen = null) {
     setBusy(true);
     hideArrow();
     clearPops(); // 이전 비트의 결과 한 줄은 새 비트가 시작되면 걷는다 (필드·로그와 어긋나지 않게)
-    lockButtons();
+    lockButtons(chosen);
     const k = fx();
     setDurations(k);
+    const mainIdx = fresh.findIndex((e) => e && ACTION_BEATS.has(e.type));
+    const main = mainIdx >= 0 ? fresh[mainIdx] : null;
     const beats = fresh.filter((e) => e && BEATS.has(e.type));
-    const main = beats.find((e) => ACTION_BEATS.has(e.type)) || null;
-    let t = fresh.some((e) => e && e.type === 'cutin') ? T.cutin * k : 0; // 필살기: 컷인 배너 → 액션 연출
+    const pre = main ? cutSeq(fresh.slice(0, mainIdx)) : [];
+    const post = cutSeq(main ? fresh.slice(mainIdx + 1) : fresh);
+    let t = playCuts(pre, 0, k);
     if (main) {
-      later(() => actionPhase(main, prevL), t);
+      later(() => actionPhase(main, prevL, prevView), t);
       t += T.act * k;
       if (main.type === 'turnover' || main.type === 'save' || (main.type === 'penalty' && !main.success)) t += T.hold * k;
       if (main.type === 'goal') {
@@ -813,20 +1296,101 @@ export function renderMatch(root, ctx) {
     }
     later(() => movePhase(nextL, nextView), t);
     t += T.move * k;
-    later(() => resultPhase(main || beats[beats.length - 1], prevL, nextL, nextView), t);
-    t += T.result * k;
+    const shown = main || beats[beats.length - 1];
+    if (shown) {
+      later(() => resultPhase(shown, prevL, nextL, nextView), t);
+      t += T.result * k;
+    }
+    t = playCuts(post, t, k);
     later(() => finishBeat(), t);
   }
 
-  /** 연출 시작: 결정 UI 를 즉시 잠근다 (미리보기 줄·결정 표시 제거). 스코어·로그는 재배치 때 갱신 */
-  function lockButtons() {
+  /** 컷인 카드 목록: cutin → 카드 1장, combo → 두 선수 카드 + 합체기 이름 (앞에 온 받은 선수의 cutin 은 대신한다) */
+  function cutSeq(evs) {
+    const out = [];
+    for (const e of evs) {
+      if (!e) continue;
+      if (e.type === 'cutin') out.push({ kind: 'cut', ev: e, dur: T.cutin });
+      else if (e.type === 'combo') {
+        const [sa, sb] = Array.isArray(e.skillIds) ? e.skillIds : [];
+        const [pa, pb] = Array.isArray(e.playerIds) ? e.playerIds : [];
+        const i = out.findIndex((c) => c.kind === 'cut' && c.ev.skillId === sb && c.ev.playerId === pb);
+        const recvCut = i >= 0 ? out.splice(i, 1)[0].ev : null;
+        out.push(
+          { kind: 'cut', ev: { side: e.side, playerId: pa, skillId: sa }, dur: T.comboCut, part: 1 },
+          { kind: 'cut', ev: { side: e.side, playerId: pb, skillId: sb, ultimateType: recvCut?.ultimateType }, dur: T.comboCut, part: 2 },
+          { kind: 'name', ev: e, dur: T.comboName });
+      }
+    }
+    return out;
+  }
+  function playCuts(cards, t0, k) {
+    if (!cards.length) return t0;
+    let t = t0;
+    for (const c of cards) {
+      const dur = Math.max(250, c.dur * k);
+      later(() => showCut(c, dur), t);
+      t += dur;
+    }
+    later(() => hideCut(), t);
+    return t;
+  }
+  function showCut(c, dur) {
+    const el = cutCard(c);
+    el.style.setProperty('--t-cut', `${Math.round(dur)}ms`);
+    cutLayer.replaceChildren(el);
+    cutLayer.classList.add('show');
+  }
+  function hideCut() {
+    cutLayer.classList.remove('show');
+    cutLayer.replaceChildren();
+  }
+  function cutCard(c) {
+    const ev = c.ev || {};
+    const side = ev.side === 'away' ? 'away' : 'home';
+    const us = side === humanOf(curView);
+    if (c.kind === 'name') {
+      const [pa, pb] = Array.isArray(ev.playerIds) ? ev.playerIds : [];
+      return h('div', { class: ['cut', 'cut-name', `side-${side}`] },
+        h('div', { class: 'cut-band' },
+          h('div', { class: 'cut-txt' },
+            h('small', {}, `${us ? '' : '상대 '}합체기`),
+            h('b', {}, ev.name ?? '합체기'),
+            h('span', { class: 'cut-sub' }, [playerSnap(side, pa)?.name, playerSnap(side, pb)?.name].filter(Boolean).join(' → ')))));
+    }
+    const p = playerSnap(side, ev.playerId) || {};
+    const sk = Array.isArray(data.skills) ? data.skills.find((s) => s.id === ev.skillId) : null;
+    const type = ev.ultimateType || sk?.ultimate?.type;
+    return h('div', { class: ['cut', `side-${side}`, `el-${p.element ?? 'none'}`, c.part ? `part-${c.part}` : ''] },
+      h('div', { class: 'cut-band' },
+        h('span', { class: 'cut-face', style: { background: p.portraitColor || '#4b5563' } }, initialOf(p.name)),
+        h('div', { class: 'cut-txt' },
+          h('small', {}, `${us ? '' : '상대 '}${p.name ?? ''} · ${L.ULT_TYPE_LABELS[type] ?? '필살기'}${c.part ? ` (${c.part}/2)` : ''}`),
+          h('b', {}, sk?.name ?? ev.skillId ?? '필살기'))));
+  }
+  const playerSnap = (side, id) => store.match?.[side]?.players?.find?.((p) => p.id === id) || null;
+
+  /**
+   * 연출 시작: 결정 UI 를 즉시 잠근다. 사람이 방금 고른 결정이면 버튼을 그대로 두고(고른 액션 표시) 비활성만,
+   * 자동 진행이면 자동 패널로. 스코어·로그는 재배치 때 갱신
+   */
+  function lockButtons(chosen = null) {
     drawInfo(curView, false);
+    if (chosen && actGrid.querySelector(`button[data-action="${chosen}"]`)) {
+      actGrid.classList.remove('deciding');
+      for (const b of actGrid.querySelectorAll('button')) {
+        b.disabled = true;
+        b.classList.toggle('chosen', b.dataset.action === chosen);
+      }
+      for (const b of skillRow.querySelectorAll('button')) b.disabled = true;
+      return;
+    }
     drawActions(curView, false, false);
     drawSkills(curView, false);
   }
 
-  /** ① 액션 연출: 드리블 = carrier 와 함께, 패스 = receiver 로, 슛 = 골문으로, 실패 = defender 로 (§12.3) */
-  function actionPhase(ev, prevL) {
+  /** ① 액션 연출: 드리블 = carrier 와 함께, 패스 = receiver 로, 크로스 = 포물선, 슛 = 골문으로, 실패 = defender 로 (§12.3) */
+  function actionPhase(ev, prevL, prevView) {
     pitch.classList.remove('phase-move');
     pitch.classList.add('phase-act');
     const atk = ev.side === 'away' ? 'away' : 'home';
@@ -837,38 +1401,110 @@ export function renderMatch(root, ctx) {
     const tokEl2 = (side, id) => tokEls.get(`${side}:${id}`);
     const moveTok = (side, id, p) => { const el = tokEl2(side, id); if (el && p) place(el, p.x, p.y); };
     const addCls = (side, id, c) => { const el = tokEl2(side, id); if (el) el.classList.add(c); };
+    const isCross = ev.action === 'cross';
+    const k = fx();
+    ballEl.classList.toggle('ult', !!ev.ultimate);
+    let linkAt = C;
 
-    if (ev.type === 'duel' && ev.action === 'pass') {
+    if (ev.type === 'duel' && (ev.action === 'pass' || isCross)) {
       const R = tokOf(prevL, ev.receiverId, atk) || prevL.ball;
-      trail(C, R, atk);
-      placeBallAt(R.x, R.y);
+      if (isCross) {
+        trailCurve(C, R, atk, !!ev.ultimate);
+        arcBall(C, R, T.act * k);
+      } else {
+        trail(C, R, atk, !!ev.ultimate);
+        placeBallAt(R.x, R.y);
+      }
       addCls(atk, ev.receiverId, 'catching');
+      linkAt = R;
+      if (D && ev.defAction === 'tackle') addCls(def, D.id, 'fallen');
     } else if (ev.type === 'duel') {
       const to = prevL.nextBall || C;
       moveTok(atk, ev.playerId, to);
       placeBallAt(to.x, to.y, atk);
-      if (D) addCls(def, D.id, 'beaten');
+      linkAt = to;
+      // 태클 실패 = 제쳐짐: 수비수가 넘어져 잠깐 누운 모습 (GDD v0.5 §9.4). 그 밖의 뚫림은 뒤로 처짐
+      if (D) addCls(def, D.id, ev.defAction === 'tackle' ? 'fallen' : 'beaten');
     } else if (ev.type === 'turnover') {
       let P = D ? lerp(D, C, 0.55) : C;
-      if (ev.action === 'pass') {
-        const R = tokOf(prevL, prevL.receiverId, atk);
-        if (R) { P = lerp(C, R, 0.5); trail(C, P, atk); }
+      if (ev.action === 'pass' || isCross) {
+        const rid = failedReceiver(ev, prevL, prevView);
+        const R = tokOf(prevL, rid, atk);
+        if (R) {
+          if (isCross) {
+            const q = curvePoint([PX(C.x), PY(C.y)], [PX(R.x), PY(R.y)], 0.5);
+            P = { x: (q[0] / W) * 100, y: 100 - (q[1] / H) * 100 };
+            trailCurve(C, R, atk, false, 0.5);
+          } else {
+            P = lerp(C, R, 0.5);
+            trail(C, P, atk);
+          }
+        }
       }
       if (D) { moveTok(def, D.id, P); addCls(def, D.id, 'steal'); }
       placeBallAt(P.x, P.y);
     } else if (ev.type === 'save' || (ev.type === 'penalty' && !ev.success)) {
       const G = D || goalPt;
-      placeBallAt(lerp(C, G, 0.92).x, lerp(C, G, 0.92).y);
+      const p = lerp(C, G, 0.92);
+      placeBallAt(p.x, p.y);
       if (D) addCls(def, D.id, 'dive');
+      if (ev.header) addCls(atk, C.id, 'header');
+      if (ev.defUltimate && D) addCls(def, D.id, 'ult-act');
     } else if (ev.type === 'goal' || ev.type === 'penalty') {
-      trail(C, goalPt, atk);
+      trail(C, goalPt, atk, !!ev.ultimate);
       placeBallAt(goalPt.x + (ev.type === 'penalty' ? 6 : 0), goalPt.y);
       if (D) addCls(def, D.id, 'dive');
+      if (ev.header) addCls(atk, C.id, 'header');
     }
+    if (ev.ultimate && C?.id) addCls(atk, C.id, 'ult-act');
+    // 연계 문구 (성공한 비트만): 킬패스! · 원터치! · 헤더! · 침투! · 합체기!
+    const ok = ev.type === 'goal' || (ev.type === 'duel' && ev.success) || (ev.type === 'penalty' && ev.success);
+    const links = Array.isArray(ev.links) ? ev.links.map((l) => (typeof l === 'string' ? l : l?.label)).filter(Boolean) : [];
+    if (ok && links.length) later(() => linkPop(links.join(' '), linkAt, prevL), Math.round(T.act * k * 0.5));
+  }
+
+  /** 실패한 패스·크로스가 향하던 선수: 엔진 이벤트(판정 때 정한 받는 선수) → 이번 비트의 사람 결정 → 직전 view 의 기본값 → 레이아웃 기본값 */
+  function failedReceiver(ev, prevL, prevView) {
+    if (ev.receiverId) return ev.receiverId;
+    const human = humanOf(prevView);
+    if (ev.side === human && lastDecision && lastDecision.action === ev.action && lastDecision.receiverId) return lastDecision.receiverId;
+    return prevView?.receivers?.[ev.action]?.defaultId ?? prevL.receiverId ?? null;
+  }
+
+  function linkPop(text, at, Lay = null) {
+    if (!at) return;
+    // 문구 상자(가운데 기준): 토큰 위(이름표 위) → 오른쪽 → 왼쪽 → 아래. 필드 위쪽 끝이라 위에 못 두면 아래부터.
+    // 장애물 = 토큰 전원 + 연계가 터진 자리(공 가진 선수가 옮겨 간 자리) + 이름표·말풍선 + 공 → 수비수 이름표·GK 얼굴을 덮지 않는다
+    const w = textWidth(text, 14) + 10;
+    const hh = 20;
+    const cx = PX(at.x);
+    const cy = PY(at.y);
+    const r = tokPx / 2;
+    const spot = (x0, y0) => {
+      const x = clamp(x0, w / 2 + 2, W - w / 2 - 2);
+      const y = clamp(y0, hh / 2 + 2, H - hh / 2 - 2);
+      return { x, y, box: { l: x - w / 2, r: x + w / 2, t: y - hh / 2, b: y + hh / 2 } };
+    };
+    const up = spot(cx, cy - r - 30);
+    const down = spot(cx, cy + r + 26);
+    const right = spot(cx + r + 8 + w / 2, cy);
+    const left = spot(cx - r - 8 - w / 2, cy);
+    const upR = spot(cx + r + w / 2, cy - r - 14);
+    const upL = spot(cx - r - w / 2, cy - r - 14);
+    const nearTop = cy - r - 30 - hh / 2 < 2;
+    const cands = nearTop ? [down, right, left, upR, upL, up] : [up, upR, upL, right, left, down];
+    const L0 = Lay || curL;
+    const obstacles = [...(L0?.tokens || []).map(tokenRect), tokenRect({ x: at.x, y: at.y, role: 'carrier' }), ...tagBoxes];
+    if (L0?.ball) obstacles.push(ballRect(L0));
+    const pick = pickSpot(cands, obstacles) || cands[0];
+    const el = h('div', { class: 'm-link', style: { transform: `translate(${round1(pick.x)}px, ${round1(pick.y)}px)` } }, h('span', {}, text));
+    el.style.setProperty('--t-pop', `${Math.round(Math.max(600, (T.act + T.move) * fx()))}ms`);
+    popLayer.append(el);
+    later(() => el.remove(), Math.max(600, (T.act + T.move) * fx()));
   }
 
   function goalFlash(ev, view) {
-    const us = ev.side === 'home';
+    const us = ev.side === humanOf(view);
     drawHud(view, isFinished());
     goalFx.textContent = us ? 'GOAL!' : '실점';
     goalFx.className = `goal-fx show ${us ? 'home' : 'away'}`;
@@ -883,6 +1519,7 @@ export function renderMatch(root, ctx) {
   function movePhase(nextL, view) {
     pitch.classList.remove('phase-act');
     pitch.classList.add('phase-move');
+    ballEl.classList.remove('ult');
     trailG.replaceChildren();
     applyLayout(nextL, view, { anim: !reduced });
     drawPanels(view);
@@ -928,7 +1565,8 @@ export function renderMatch(root, ctx) {
       style: { transform: `translate(${round1(x)}px, ${round1(y)}px)` },
     }, h('span', {}, r.text));
     el.style.setProperty('--t-pop', `${Math.round(life)}ms`); // CSS 페이드 길이 = 배속 반영 수명
-    popLayer.replaceChildren(el);
+    for (const old of [...popLayer.querySelectorAll('.m-pop')]) old.remove();
+    popLayer.append(el);
     later(() => el.remove(), life);
   }
 
@@ -942,8 +1580,9 @@ export function renderMatch(root, ctx) {
 
   function finishBeat() {
     pitch.classList.remove('phase-act', 'phase-move');
+    hideCut();
     setBusy(false);
-    // 연출 중 바뀐 것 반영: 창 크기(resize 는 연출 중 미뤘다), 자동/개입 전환(패스 후보 확정 여부), 토글 스킬
+    // 연출 중 바뀐 것 반영: 창 크기(resize 는 연출 중 미뤘다), 자동/개입 전환(받는 선수 후보 확정 여부), 토글
     const w = pitch.clientWidth;
     const hh = pitch.clientHeight;
     const resized = resizePending || (w > 40 && hh > 40 && (w !== W || hh !== H));
@@ -953,30 +1592,77 @@ export function renderMatch(root, ctx) {
     schedule(0);
   }
 
-  function trail(a, b, side) {
+  function trail(a, b, side, ult = false) {
     trailG.replaceChildren();
     const common = { x1: round1(PX(a.x)), y1: round1(PY(a.y)), x2: round1(PX(b.x)), y2: round1(PY(b.y)) };
-    trailG.append(svgEl('line', { ...common, class: `trail ${side}` }));
+    trailG.append(svgEl('line', { ...common, class: `trail ${side}${ult ? ' ult' : ''}` }));
+  }
+  /** 크로스 궤적 (포물선). upTo < 1 이면 곡선의 앞부분만 (중간에 끊긴 크로스) */
+  function trailCurve(a, b, side, ult = false, upTo = 1) {
+    trailG.replaceChildren();
+    const p0 = [PX(a.x), PY(a.y)];
+    const p2 = [PX(b.x), PY(b.y)];
+    const cp = curveCtrl(p0, p2);
+    let d;
+    if (upTo >= 1) d = `M${round1(p0[0])},${round1(p0[1])} Q${round1(cp[0])},${round1(cp[1])} ${round1(p2[0])},${round1(p2[1])}`;
+    else {
+      // 드 카스텔조 분할: [0, upTo] 구간의 제어점
+      const t = upTo;
+      const c1 = [p0[0] + (cp[0] - p0[0]) * t, p0[1] + (cp[1] - p0[1]) * t];
+      const e = curvePoint(p0, p2, t);
+      d = `M${round1(p0[0])},${round1(p0[1])} Q${round1(c1[0])},${round1(c1[1])} ${round1(e[0])},${round1(e[1])}`;
+    }
+    trailG.append(svgEl('path', { d, class: `trail cross ${side}${ult ? ' ult' : ''}` }));
+  }
+  /** 공이 포물선으로 날아간다 (높이 = 크기). Web Animations 가 없으면(jsdom) 바로 도착 */
+  function arcBall(a, b, duration) {
+    stopBallArc();
+    const p0 = [PX(a.x), PY(a.y)];
+    const p2 = [PX(b.x), PY(b.y)];
+    ballEl.classList.add('arc');
+    ballEl.style.transform = `translate(${round1(p2[0])}px, ${round1(p2[1])}px)`;
+    if (reduced || typeof ballEl.animate !== 'function' || duration < 50) return;
+    const frames = [];
+    for (let i = 0; i <= 12; i++) {
+      const t = i / 12;
+      const p = curvePoint(p0, p2, t);
+      frames.push({ transform: `translate(${round1(p[0])}px, ${round1(p[1])}px) scale(${round3(1 + 0.7 * Math.sin(Math.PI * t))})` });
+    }
+    try {
+      ballAnim = ballEl.animate(frames, { duration: Math.round(duration * 0.9), easing: 'ease-in-out' });
+      ballAnim.onfinish = () => { ballAnim = null; };
+    } catch (_) {
+      ballAnim = null;
+    }
+  }
+  function stopBallArc() {
+    if (ballAnim) { try { ballAnim.cancel(); } catch (_) { /* ignore */ } ballAnim = null; }
+    if (ballEl.classList.contains('arc')) {
+      ballEl.classList.remove('arc');
+      void ballEl.offsetWidth;
+    }
   }
 
   function beatResult(ev, view) {
-    const nm = (side, id) => (view?.players?.[side] || []).find((p) => p.id === id)?.name ?? '';
+    const nm = (side, id) => nameOf(view, side, id);
     const atk = ev.side === 'away' ? 'away' : 'home';
     const def = atk === 'home' ? 'away' : 'home';
-    const us = atk === 'home';
+    const us = atk === humanOf(view);
     const good = us ? 'good' : 'bad';
     const bad = us ? 'bad' : 'good';
+    const read = ev.readBy ? ' (간파)' : '';
     switch (ev.type) {
       case 'duel':
-        return ev.action === 'pass'
-          ? { text: `${nm(atk, ev.playerId)} → ${nm(atk, ev.receiverId)} 패스 성공`, tone: good }
-          : { text: `${nm(atk, ev.playerId)} 드리블 돌파`, tone: good };
+        if (ev.action === 'pass' || ev.action === 'cross') {
+          return { text: `${nm(atk, ev.playerId)} → ${nm(atk, ev.receiverId)} ${ev.action === 'cross' ? '크로스' : '패스'} 성공${read}`, tone: good };
+        }
+        return { text: `${nm(atk, ev.playerId)} 드리블 돌파${read}`, tone: good };
       case 'turnover':
-        return { text: `${nm(def, ev.defenderId)} ${L.ACTION_LABELS[ev.defAction] ?? '수비'}! ${us ? '공 뺏김' : '공 탈취'}`, tone: bad };
+        return { text: `${nm(def, ev.defenderId)} ${L.ACTION_LABELS[ev.defAction] ?? '수비'}! ${us ? '공 뺏김' : '공 탈취'}${read}`, tone: bad };
       case 'save':
-        return { text: `${nm(def, ev.defenderId)} 세이브!`, tone: bad };
+        return { text: `${nm(def, ev.defenderId)} ${ev.defUltimate ? '필살 ' : ''}세이브!`, tone: bad };
       case 'goal':
-        return { text: us ? `골!! ${nm(atk, ev.playerId)}` : `실점 — ${nm(atk, ev.playerId)}`, tone: good };
+        return { text: us ? `골!! ${nm(atk, ev.playerId)}${ev.header ? ' (헤더)' : ''}` : `실점 — ${nm(atk, ev.playerId)}`, tone: good };
       case 'penalty':
         return ev.success
           ? { text: `${nm(atk, ev.playerId)} 성공`, tone: good }
@@ -1012,25 +1698,26 @@ export function renderMatch(root, ctx) {
     if (ui.timer) { clearTimeout(ui.timer); ui.timer = null; }
     const before = Array.isArray(ms.events) ? ms.events.length : 0;
     const prevL = curL;
+    const prevView = curView;
     const r = safe(() => match.step(ms, data, decision));
     if (r === undefined) { refresh(); return false; } // 엔진 오류: 루프를 멈춘다 (토스트 표시됨)
     saveMatch(ms);
-    ui.selectedSkillId = null;
+    lastDecision = decision && decision.action ? decision : null; // 자동 비트(결정 없음)는 이전 사람 결정을 물려받지 않는다
+    if (decision && decision.action) ui.lastDecision = { ...decision }; // 테스트·도구용 (읽기 전용)
     const fresh = Array.isArray(ms.events) ? ms.events.slice(before) : [];
-    const cut = fresh.find((e) => e && e.type === 'cutin');
-    if (cut) banner(cut.text || '필살기 발동!', 1000);
     const view = getView();
     const nextL = layoutFor(view);
     const hasBeat = fresh.some((e) => e && BEATS.has(e.type));
-    if (!hasBeat || !prevL || !nextL) {
-      // 스킬 단독 사용(reveal) 등: 연출 없이 바로 갱신
+    const hasCut = fresh.some((e) => e && (e.type === 'cutin' || e.type === 'combo'));
+    if ((!hasBeat && !hasCut) || !prevL || !nextL) {
+      // 간파 단독 사용 등: 연출 없이 바로 갱신
       applyLayout(nextL, view);
       drawPanels(view);
       updateBanner(nextL, view);
       schedule(T.idle * fx());
       return true;
     }
-    animateBeat(fresh, prevL, nextL, view);
+    animateBeat(fresh, prevL, nextL, view, prevView, decision && decision.action ? decision.action : null);
     return true;
   }
 
@@ -1039,8 +1726,31 @@ export function renderMatch(root, ctx) {
     if (!canDecideNow(view) || !view.needsDecision) return;
     const decision = { action };
     if (ui.selectedSkillId) decision.skillId = ui.selectedSkillId;
+    const u = ultOption(view);
+    if (ui.ultimate && u?.usable && ultCompatible(u, action)) decision.ultimate = true;
+    if (RECV_ACTIONS.includes(action)) {
+      const ri = recvInfo(view, action);
+      if (ri?.id) decision.receiverId = ri.id;
+    }
     ui.intervene = false;
     doStep(decision);
+  }
+
+  /** 토큰 탭: 결정 중 받는 선수 후보면 그 선수를 받는 선수로 (패스·크로스 중 후보인 액션 모두), 아니면 미니 카드 */
+  function tapToken(side, id) {
+    const view = curView;
+    if (view && !busy && canDecideNow(view) && side === humanOf(view) && view.attackingSide === side) {
+      const acts = RECV_ACTIONS.filter((a) => recvInfo(view, a)?.candidates.includes(id));
+      if (acts.length) {
+        for (const a of acts) ui.receiverPick[a] = { id, arrival: recvInfo(view, a).arrival };
+        relayout({ anim: false });
+        drawPanels(curView);
+        const el = tokEls.get(`${side}:${id}`);
+        if (el) { el.classList.remove('pick-flash'); void el.offsetWidth; el.classList.add('pick-flash'); }
+        return;
+      }
+    }
+    openCard(side, id);
   }
 
   function refresh() {
@@ -1056,6 +1766,8 @@ export function renderMatch(root, ctx) {
     cancelTimers();
     setBusy(false);
     hideArrow();
+    hideCut();
+    stopBallArc();
     trailG.replaceChildren();
     popLayer.replaceChildren();
     pitch.classList.remove('phase-act', 'phase-move');
@@ -1077,10 +1789,12 @@ export function renderMatch(root, ctx) {
     const score = ms.score || {};
     const winner = result.winner;
     const verdict = winner === 'home' ? '승리!' : winner === 'away' ? '패배…' : '무승부';
-    const nameOf = (side, id) => (side === 'home' ? home : away)?.players?.find?.((p) => p.id === id)?.name ?? '-';
+    const nameOfP = (side, id) => (side === 'home' ? home : away)?.players?.find?.((p) => p.id === id)?.name ?? '-';
     const st = result.stats || ms.stats || {};
     const hg = result.homeGoals ?? score.home ?? 0;
     const ag = result.awayGoals ?? score.away ?? 0;
+    const rows = [['슛', 'shots'], ['듀얼 승', 'duelsWon'], ['골', 'goals'], ['필살기', 'ultimatesUsed'], ['합체기', 'combos'], ['간파', 'gaanpaUsed']]
+      .filter(([, k]) => k in (st.home || {}) || k in (st.away || {}) || ['shots', 'duelsWon', 'goals'].includes(k));
     openModal(h('div', { class: 'col', style: { gap: '12px' } },
       h('h2', { class: 'center' }, `${L.KIND_LABELS[result.kind ?? ms.kind] ?? ''} 결과`),
       h('div', { class: 'row between small muted' }, h('span', { class: 'ellipsis' }, home.name ?? '우리 클럽'), h('span', { class: 'ellipsis' }, away.name ?? '상대')),
@@ -1090,9 +1804,8 @@ export function renderMatch(root, ctx) {
       h('table', { class: 'stats-table' },
         h('thead', {}, h('tr', {}, h('th', {}, ''), h('th', {}, '우리'), h('th', {}, '상대'))),
         h('tbody', {},
-          [['슛', 'shots'], ['듀얼 승', 'duelsWon'], ['골', 'goals']].map(([lbl, k]) =>
-            h('tr', {}, h('td', {}, lbl), h('td', {}, st.home?.[k] ?? 0), h('td', {}, st.away?.[k] ?? 0))),
-          h('tr', {}, h('td', {}, 'MVP'), h('td', {}, nameOf('home', st.home?.mvpId)), h('td', {}, nameOf('away', st.away?.mvpId))))),
+          rows.map(([lbl, k]) => h('tr', {}, h('td', {}, lbl), h('td', {}, st.home?.[k] ?? 0), h('td', {}, st.away?.[k] ?? 0))),
+          h('tr', {}, h('td', {}, 'MVP'), h('td', {}, nameOfP('home', st.home?.mvpId)), h('td', {}, nameOfP('away', st.away?.mvpId))))),
       h('button', {
         class: 'btn btn-primary btn-block',
         type: 'button',
@@ -1110,9 +1823,10 @@ export function renderMatch(root, ctx) {
   }
 
   /* ------------------------------------------------------------------ */
-  /* 토큰 탭 → 미니 카드                                                     */
+  /* 토큰 길게 누르기 → 미니 카드 (스탯 · 체력 · 스킬 · 적성 · 연계 특성 · 필살 게이지)  */
   /* ------------------------------------------------------------------ */
   function openCard(side, id) {
+    if (cardModal?.el?.isConnected) return;
     const snap = store.match?.[side]?.players?.find?.((p) => p.id === id) || null;
     const pv = (curView?.players?.[side] || []).find((p) => p.id === id) || null;
     if (!snap && !pv) return;
@@ -1123,6 +1837,8 @@ export function renderMatch(root, ctx) {
     const skillDefs = (Array.isArray(snap?.skillIds) ? snap.skillIds : [])
       .map((sid) => (Array.isArray(data.skills) ? data.skills.find((s) => s.id === sid) : null) || { id: sid, name: sid, kind: '' });
     const tok = tokOf(curL, id, side);
+    const ti = p.trait ? L.traitInfo(p.trait, data) : null;
+    const ult = curView?.ultimate?.[side]?.[id] || null;
     const meta = [
       side === 'home' ? '우리' : '상대',
       p.slot ?? p.position,
@@ -1131,7 +1847,10 @@ export function renderMatch(root, ctx) {
       p.race ? L.RACE_LABELS[p.race] ?? p.race : null,
       p.aptitude ? `적성 ${p.aptitude}` : null,
     ].filter(Boolean).join(' · ');
-    let modal = null;
+    // 결정 중 받는 선수 후보면 카드에서도 고를 수 있게
+    const view = curView;
+    const pickActs = view && !busy && canDecideNow(view) && side === humanOf(view) && view.attackingSide === side
+      ? RECV_ACTIONS.filter((a) => recvInfo(view, a)?.candidates.includes(id)) : [];
     const content = h('div', { class: 'mini-card' },
       h('div', { class: 'row' },
         avatar(p.portraitColor, p.name, 'md', side === 'home' ? 'ring-home' : 'ring-away'),
@@ -1140,17 +1859,25 @@ export function renderMatch(root, ctx) {
           h('span', { class: 'small muted' }, meta)),
         p.isYouth ? h('span', { class: 'badge badge-warn' }, '유스') : null,
         tok ? h('span', { class: 'badge' }, L.TOKEN_ROLE_LABELS[tok.role] ?? tok.role) : null),
+      ti ? h('div', { class: 'mc-trait' }, h('span', { class: 'badge badge-accent' }, `${ti.icon} ${ti.name}`), h('span', { class: 'tiny muted' }, ti.description)) : null,
       p.stats ? h('div', { class: 'mc-stats' }, L.STATS.map((k) =>
         h('div', { class: 'cell' }, h('span', { class: 'tiny muted' }, L.STAT_LABELS[k]), statBadge(p.stats[k], ctx.thresholds)))) : null,
       h('div', { class: 'row small' }, h('span', { class: 'muted' }, '체력'),
         bar(ratio, ratio <= 0.2 ? 'bad' : ratio <= 0.5 ? 'warn' : 'good'), h('span', {}, `${Math.round(st)}/${mx}`)),
+      ult ? h('div', { class: 'row small' }, h('span', { class: 'muted' }, '필살'),
+        bar((Number(ult.gauge) || 0) / gaugeMax, 'ult'), h('span', {}, `${Math.round(Number(ult.gauge) || 0)}/${gaugeMax}${ult.combo ? ' · 합체기 가능' : ult.ready ? ' · 준비' : ''}`)) : null,
       skillDefs.length
         ? h('div', { class: 'col small' }, skillDefs.map((sk) => h('div', { class: 'mc-skill' },
           sk.kind ? h('span', { class: 'badge' }, L.SKILL_KIND_LABELS[sk.kind] ?? sk.kind) : null, ' ',
           h('b', {}, sk.name ?? sk.id), sk.description ? h('span', { class: 'tiny muted' }, ` ${sk.description}`) : null)))
         : h('p', { class: 'tiny muted' }, '스킬 없음'),
-      h('button', { class: 'btn btn-block', type: 'button', onclick: () => modal?.close() }, '닫기'));
-    modal = openModal(content, { className: 'mini-card-modal' });
+      pickActs.length ? h('button', {
+        class: 'btn btn-primary btn-block',
+        type: 'button',
+        onclick: () => { cardModal?.close(); tapToken(side, id); },
+      }, `받는 선수로 (${pickActs.map((a) => L.ACTION_LABELS[a]).join('·')})`) : null,
+      h('button', { class: 'btn btn-block', type: 'button', onclick: () => cardModal?.close() }, '닫기'));
+    cardModal = openModal(content, { className: 'mini-card-modal', onClose: () => { cardModal = null; } });
   }
 
   /* ------------------------------------------------------------------ */
@@ -1206,6 +1933,12 @@ function prefersReducedMotion() {
   }
 }
 
+/** 간파 비활성 사유의 짧은 형태 (스킬 줄 버튼 안) */
+function shortReason(reason) {
+  const map = { '상대가 먼저 간파': '상대 선점', '박스에서는 간파 불가': '박스 불가', '텐션 부족': '텐션 부족', '결정 차례가 아님': '' };
+  return map[reason] ?? '';
+}
+
 function initialOf(name) {
   const s = String(name ?? '').trim();
   return s ? Array.from(s)[0] : '?';
@@ -1221,6 +1954,7 @@ function textWidth(text, size) {
   return w;
 }
 const round1 = (x) => Math.round(x * 10) / 10;
+const round3 = (x) => Math.round(x * 1000) / 1000;
 const lerp = (a, b, t) => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
 const lerp2 = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
 const sub2 = (a, b) => [a[0] - b[0], a[1] - b[1]];
