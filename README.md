@@ -4,7 +4,7 @@
 아트 없이 시스템만 검증하는 단계이며, 최종 타깃은 모바일(Unity)이다.
 
 - **플레이**: https://zerocoke8.github.io/soccer/
-- **기획서**: [docs/GDD_v0.4.md](docs/GDD_v0.4.md) (이전 버전: v0.1~v0.3)
+- **기획서**: [docs/GDD_v0.5.md](docs/GDD_v0.5.md) (이전 버전: v0.1~v0.4)
 - **구현 계약(모듈 설계)**: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
 ## 로컬 실행
