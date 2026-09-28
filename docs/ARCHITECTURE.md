@@ -593,7 +593,7 @@ export function decideDefense(state, data, side)  // → { action, skillId|null 
 - **세로 고정 레이아웃**: `.app` 컨테이너 최대 폭 420px, 중앙 정렬, 데스크톱에서는 폰 프레임처럼 보이게. 모바일에서는 전폭. 시스템 폰트. 아트 없음: 색 원(portraitColor) + 이름 첫 글자.
 - **화면**: `start`(새 런 / 이어하기 / 등록 팀 목록 / seed 입력) → `setup`(포메이션, 슬롯 탭 → 캐릭터 목록에 그 슬롯 적성 표시, GK A/B 제한 경고, 서포트 6장 선택, 전술 3항목, 공명 표시, "기본 편성으로 시작" 버튼) → `training`(§7.2 GDD 목업: 상단 바, 체력 스트립, 5칸 리스트, 행동 바) → `event` 모달 → `match` → `relic` 모달 → `route` → `result`(평가, 선수별 스탯, "팀 등록", "다시 하기", seed 표시).
 - **훈련 칸 행**: 칸 이름, 선수 아이콘들(체력 낮으면 어둡게, 부상자 표시 없음), 서포트 아이콘(★ 우정 가능, 💡 힌트 가능), 총 상승치, 최대 실패율, 추천 표시. 탭 → 하단 시트에 선수별 상세 + [훈련하기]. 호출권 버튼(선수 선택 → 칸 선택).
-- **경기 화면**: 세로 필드(상대 GK/DF/MF/FW 위, 우리 FW/MF/DF/GK 아래), 공 소유자·듀얼 상대 강조, 스코어·포제션, 텐션 바 2개, 의도 표시(아이콘+텍스트), 액션 버튼 3개(비활성 처리), 스킬 버튼, 로그(최근 6개). **자동 토글**(기본 ON, 배속 1x/2x/4x), **개입 버튼**(자동 중 누르면 다음 결정에서 멈춤). 자동 진행은 `setInterval`로 `step()`; 결정 필요 & 수동이면 대기. 컷인 이벤트는 1초 배너.
+- **경기 화면** (v0.2부터 §12 가 기준, 아래는 v0.1 기록): 세로 필드(상대 GK/DF/MF/FW 위, 우리 FW/MF/DF/GK 아래), 공 소유자·듀얼 상대 강조, 스코어·포제션, 텐션 바 2개, 의도 표시(아이콘+텍스트), 액션 버튼 3개(비활성 처리), 스킬 버튼, 로그(최근 6개). **자동 토글**(기본 ON, 배속 1x/2x/4x), **개입 버튼**(자동 중 누르면 다음 결정에서 멈춤). 자동 진행은 `setInterval`로 `step()`; 결정 필요 & 수동이면 대기. 컷인 이벤트는 1초 배너.
 - **저장**: 매 엔진 호출 후 `localStorage["soccer.run"] = JSON.stringify(state)`; `localStorage["soccer.match"]`도 별도. 등록 팀은 `localStorage["soccer.teams"]` 배열. 모든 localStorage 접근은 try/catch.
 - **UI는 엔진을 계약대로만 호출**하고 상태를 직접 계산하지 않는다(표시용 정렬·포맷만).
 - `js/ui/app.js`가 진입점. 화면별 파일 분리(`js/ui/screens/*.js`) 권장. 전역 상태는 `js/ui/store.js` 하나.
@@ -649,7 +649,7 @@ export function decideDefense(state, data, side)  // → { action, skillId|null 
 ### 11.2 데이터 결정
 - `sk_tide_wall`(SR GK 고유)은 passive `save 1.15` — "SR=active" 규칙의 승인된 예외.
 - friend 카드(`sp_bard_lumi`)의 `specialtyRate` 는 무시되고 균등 배치된다.
-- **우리 팀 원소 공명은 프로토타입 8명으로는 불가능** (모든 원소가 최대 2명). 공명은 시즌3 상대 팀(불 4 / 물 5)만 보유. 편성 화면의 공명 미리보기는 캐릭터가 늘어나면 의미가 생긴다.
+- 우리 팀 원소 공명: v0.1 배포 후 미르카(ch_cat_trickster)를 바람으로 바꿔, 바람 3명(실루엔·울릭·미르카) 편성 시 공명 가능. 시즌3 상대 팀은 불 4 / 물 5.
 - `ev_night_training` / `ev_secret_dribble` 의 부상 확률 0.5 → 0.3 (자동 진행 기준 런당 부상 0.5~1.5 목표).
 - 상대 스탯: 초안 대비 시즌1 ×0.97, 시즌2 ×1.13, 시즌3 ×1.13 (10 단위 반올림). 자동 진행이 시즌2·3 에 컨디션 3.5~3.8·팀워크 66~94·유물 1~2개를 들고 가기 때문.
 
@@ -663,3 +663,97 @@ export function decideDefense(state, data, side)  // → { action, skillId|null 
 ### 11.4 검증
 - `npm test`: 45 테스트 (rng 8, run 18, match 16, ui 2 + jsdom 클릭-스루) 전부 통과. v1.2 추가: 부상 카운트 타이밍(3 케이스), nextMatch.intentReveal modifier 반영, record.goalMatches.penalties, 힌트 배율 config 연동, 상대 reveal countered. 결정성(같은 seed·JSON roundtrip), 전 이벤트×전 선택지 강제 적용(효과 13종), 전 스킬 id 참조, 유물/루트 modifier 반영, 24턴 완주(실제 match.js), 승부차기, 2-3-1 패스 규칙, 액티브 8종 수동 발동, 전술 반영.
 - `python -m http.server` 로 서빙 시 index.html · css · js · data 전부 200, 참조는 모두 `./` 상대 경로.
+
+---
+
+## 12. v0.2 — 경기 화면 위치 표현 (GDD v0.4 §9)
+
+> 원칙: **화면 위치 = 규칙 위치.** 판정 공식·수치는 바꾸지 않는다. 바뀌는 규칙은 §12.1-4 (패스 수신자 결정적) 하나.
+> 배경: v0.1 화면은 편성 위치를 고정으로 그려서, 상대가 우리 박스에서 슛 직전(lineIndex 3)인데 상대 FW 토큰이 하프라인 위(상대 진영)에 그려졌다. 또 경기 화면이 390×844 폰에서 세로 2000px 이상이라 스크롤해야 버튼이 보였다.
+
+### 12.1 엔진 (js/engine/match.js) — 추가만, 기존 필드 유지
+
+1. **구역 헬퍼 (export)**
+   ```js
+   export const ZONE_NAMES = { 1: "우리 박스", 2: "우리 진영", 3: "중원", 4: "상대 진영", 5: "상대 박스" }; // home 시점
+   export function zoneOf(attackingSide, lineIndex) // home: lineIndex + 2 (0→2 … 3→5), away: 4 − lineIndex (0→4 … 3→1)
+   ```
+   구역은 항상 **home 시점**으로 고정 (Z1 = home 골 앞). humanSide 가 away 인 경우는 프로토타입 범위 밖.
+2. **getMatchView 추가 필드**
+   ```js
+   zone,            // 1..5 — 현재 공 구역. 승부차기면 슛하는 팀이 노리는 박스 (home 키커 → 5, away 키커 → 1). 경기 종료 후 마지막 값 유지
+   attackStep,      // 0..3 = lineIndex (① 빌드업 … ④ 슈팅)
+   attackDir,       // "up" (home 공격) | "down" (away 공격)
+   remaining,       // { lines: ["MF","DF"], gk: true, text: "남은 수비: MF 2 + DF 2 + GK" } — 공과 목표 골 사이에 남은(뚫리지 않은) 수비. POS_BY_LINE.slice(lineIndex) 기준, 인원수 포함
+   receiverPreview, // null | { id, name, side } — 지금 패스가 성공하면 받을 선수. pass 가 불가능하면 null. 실제 판정과 반드시 동일 (§12.1-4)
+   outcomes,        // null | { [action]: { success: Outcome, fail: Outcome } } — 사람 측이 고를 수 있는 액션(actions[] 의 action)마다
+                    // Outcome = { zone, attackingSide, goal?: true, label }
+                    //   공격 역할 예: dribble.success = { zone: 다음 단계 구역, attackingSide: 우리, label: "상대 박스 진입 — 슈팅 찬스" }
+                    //                 *.fail = { zone: 역습 시작 구역(§7.5 규칙 그대로), attackingSide: 상대, label: "상대 역습 — 우리 진영부터" }
+                    //                 shoot.success = { zone, goal: true, label: "골!" }, shoot.fail(세이브/블록) = { zone: 상대 빌드업 구역, label: "세이브 → 상대 골킥" }
+                    //   수비 역할 예: tackle.success(= 막음) = { zone: 우리 역습 시작 구역, attackingSide: 우리, label: "막으면 — 우리 역습, 중원부터" }
+                    //                 tackle.fail(= 뚫림) = { zone: 상대 다음 단계 구역, attackingSide: 상대, label: "뚫리면 — 상대 슈팅" }
+                    //   스킬 효과(extraLine, steal)는 반영하지 않는다(기본 규칙 기준). needsDecision 이 아니면 null
+   lastBeat,        // null | 가장 최근의 "비트 이벤트" (아래 3번) 사본. UI 연출 트리거
+   ```
+3. **이벤트에 위치 필드** — type 이 `kickoff | counter | duel | turnover | save | goal | penalty` 인 이벤트에 추가:
+   `seq` (이벤트 배열 인덱스, 단조 증가), `zone` (일어난 구역), `toZone` (결과 후 공 구역), `step`, `toStep`, `attackingSide` (그 이벤트 시점 공격 팀).
+   duel/turnover/save/goal 에는 기존 `playerId, defenderId, receiverId?, action, defAction, success` 가 이미 있다. kickoff/counter 에는 `playerId`(시작 선수) 추가.
+   `view.lastBeat` = 위 타입 중 마지막 이벤트.
+4. **규칙 변경 (유일)**: `pickReceiver` 는 난수를 쓰지 않는다. 동률이면 `team.players` 배열 순서(슬롯 순서)의 첫 선수. `receiverPreview` 는 같은 함수를 쓴다.
+   → 동률일 때만 rng 소비가 줄어든다. 판정 공식·수치는 그대로. sim 수치는 v1.2(300런 seed 1: 75.7 / 53.3 / 40.3%)와 같거나 노이즈 범위(±3pp)여야 한다.
+
+### 12.2 레이아웃 (js/ui/layout.js — 신규, 순수 함수, DOM 금지, Node 에서 테스트)
+
+```js
+export const ZONES = [ { id: 1, from: 0, to: 16, name: "우리 박스" }, { id: 2, from: 16, to: 40, name: "우리 진영" },
+                       { id: 3, from: 40, to: 60, name: "중원" }, { id: 4, from: 60, to: 84, name: "상대 진영" }, { id: 5, from: 84, to: 100, name: "상대 박스" } ];
+export const SHAPE = {            // 공격 방향 기준 세로 % (0 = 공격 팀 골, 100 = 상대 골) — GDD v0.4 §9.3 표
+  ball: [28, 50, 72, 90],
+  atk: { GK: [4, 6, 8, 10], DF: [26, 34, 44, 50], MF: [46, 52, 62, 70], FW: [60, 68, 78, 86] },
+  def: { FW: [32, 42, 58, 68], MF: [52, 54, 64, 78], DF: [70, 72, 76, 86], GK: [96, 96, 96, 97] },
+};
+export function computeLayout(view, opts = {})
+// view = match.getMatchView(...) 반환값. opts: { aspect = 0.8 (필드 폭/높이), tokenSize = 0.075 (필드 폭 대비 지름) }
+// → {
+//   ball: { x, y },                                     // % (x: 0 왼쪽 … 100 오른쪽, y: 0 = home 골(아래) … 100 = away 골(위))
+//   tokens: [ { side, id, name, slot, position, x, y, role, staminaRatio, portraitColor, isYouth } ],
+//      role: "carrier" | "defender" | "cover" | "receiver" | "broken" | "support" | "gk"
+//   zone,                                               // view.zone
+//   highlight: { zone, level: "danger" | "crisis" | "chance" | "shotChance" | null, label },   // GDD §9.5 표
+//   track: { side: attackingSide, step: 0..3, dir: "up" | "down" },
+//   remainingText,                                      // view.remaining.text
+//   banner: null | string,                              // 구역이 바뀌는 비트에서 UI 가 띄울 한 줄 (예: "⚠ 슈팅 위기 — 카손이 우리 박스 진입, 네리아와 1:1")
+// }
+```
+규칙 (GDD §9.3):
+- 세로: `SHAPE` 표. away 공격이면 `y = 100 − y`. 공 가진 선수는 공 좌표. 듀얼 수비수는 그 라인의 `def` 좌표, 같은 라인 나머지는 `cover`.
+- 수비 팀에서 `POS_BY_LINE` 인덱스 < attackStep 인 라인 = `broken` (공 뒤). 공격 팀에서 다음 단계 수신 후보 = `receiver` (view.receiverPreview 의 선수만). 공격 팀 나머지 필드 선수 = `support`, 양 팀 GK(듀얼 중이 아닐 때) = `gk`.
+- 가로: 라인 인원 1 → [50], 2 → [30, 70], 3 → [20, 50, 80] (slot 순서). 공 가진 선수 x = 자기 라인 x. 듀얼 수비수 x = carrier x.
+- **겹침 방지**: 모든 토큰 쌍의 거리 ≥ tokenSize (필드 폭 기준, 세로는 aspect 로 환산). 가까우면 가로로 밀어낸다(세로 좌표는 유지 → 규칙 위치 보존). 결과 x 는 [6, 94] 로 clamp. 단 carrier–defender 쌍은 마주보는 연출이라 세로 간격을 우선 확보한다(세로 최소 간격 = tokenSize 환산값, 수비수를 자기 골 쪽으로 민다 — 여전히 공과 자기 골 사이).
+- 포제션 사이(`phase` 가 possessionEnd, 또는 duel 없음): view.attackStep/attackingSide 기준으로 같은 규칙.
+- 승부차기(`phase === "penalties"`): 공 = 노리는 박스의 페널티 스폿(y 10 또는 90, x 50), 키커 = 공 옆, 상대 GK = 골문, 나머지 12명 = 박스 밖 반원(y 30±6 또는 70±6)에 `support`.
+- 결정적: 같은 view → 같은 결과. 난수 금지.
+
+### 12.3 UI (js/ui/screens/match.js 재작성 + css/style.css 경기 부분)
+
+- **한 화면**: 390×844 에서 결정 대기 상태로 페이지 세로 스크롤이 생기지 않는다 (로그는 내부 스크롤 가능, 최근 4줄). 필드는 화면 세로의 55~60%.
+- **필드**: 세로 5구역 밴드(구역 이름 작게), 하프라인, 양 골문·박스. 토큰은 절대 좌표 `transform: translate(...)` + `transition` (재배치 애니메이션). 공은 별도 요소.
+- **토큰**: 지름 ≈ 필드 폭 7.5%. home = 원형 + 파랑 링(#4da3ff), away = 둥근 사각 + 빨강 링(#ff5d5d) (색 + 모양 이중 구분). 안쪽 portraitColor + 이름 첫 글자. 아래 체력 바(≤20% 빨강). 이름 라벨은 carrier / defender / receiver 만. broken = opacity 0.45. 유스 = 작은 "유". 탭 → 미니 카드(이름·포지션·스타일·원소·스탯 5·체력·스킬).
+- **비트 연출** (GDD §9.4): step() 결과로 새 `lastBeat.seq` 가 생기면 ① 액션 연출(공 이동: 드리블=carrier 와 함께, 패스=receiver 로, 슛=골문으로, 실패=defender 로) → ② computeLayout 새 좌표로 전원 재배치 → ③ 결과 한 줄. 1x = 이동 0.4s + 액션 0.5s + 결과 0.3s ≈ 1.2s. 2x·4x 비례. `prefers-reduced-motion` 이면 트랜지션 최소화. 연출 중에는 다음 step 을 호출하지 않는다(비트 큐). setInterval 대신 비트 완료 후 다음 step 을 예약하는 루프.
+- **위기·찬스**: `highlight` 구역 색 (danger 주황 / crisis 빨강 점멸 / chance 금색 / shotChance 금색 점멸), 필드 위 상황 배너(`banner`, 구역이 바뀔 때만 갱신), 필드 왼쪽 공격 진행 트랙 4칸, 남은 수비 텍스트.
+- **결정 대기(수동)** 에서만: 액션 버튼마다 `outcomes` 두 줄(성공/실패 label). 버튼 누르고 있기(pointerdown) / hover → 필드 위 SVG 화살표(드리블 = 다음 구역으로, 패스 = receiverPreview 토큰으로 점선, 슛 = 골문으로, 수비 액션 = 상대 carrier 앞 차단 표시). 자동 진행 중에는 미리보기·화살표를 그리지 않는다.
+- **의도 표시**: 상대 듀얼 토큰 위 말풍선(아이콘) + 정보 줄 텍스트(기존 문구 유지: 확정 / 2지선다 / 비공개 / countered).
+- **유지할 기존 기능**: 자동 토글(기본 ON), 배속 1x/2x/4x, 개입(다음 결정 비트에서 재배치까지 보여준 뒤 멈춤), 결과 스킵, 스킬 버튼(reveal 은 `{skillId}` 단독 즉시 전송), 컷인 배너, 연장·승부차기 표시, 결과 모달, `finishMatch` 정확히 1회, localStorage 저장/이어하기.
+
+### 12.4 테스트 · 도구
+
+- `test/layout.test.mjs` (신규, npm test 에 추가):
+  - 4 포메이션 × 공격 팀 2 × 단계 4: 공 y 가 `zoneOf` 구역 안.
+  - **회귀 (v0.1 버그)**: away 공격 ④ 슈팅 단계에서 home 필드 선수 6명 전원 y > 공 y (공 뒤), home GK y < 공 y. 일반화: 모든 단계에서 수비 팀의 뚫린 라인은 공 뒤, 남은 라인은 공과 골 사이.
+  - carrier 토큰 = 공 좌표, receiver 역할 = view.receiverPreview.
+  - 모든 토큰 쌍 겹침 없음 (§12.2 기준), 좌표 범위 [0, 100].
+  - 실제 경기(여러 seed, step 반복)에서 매 view 마다 위 불변식 검사.
+  - 승부차기 레이아웃.
+- `test/match.test.mjs` 추가: zoneOf 표, 많은 seed 에서 **패스 성공 시 실제 수신자 = 직전 view.receiverPreview**, **판정 후 공 구역 = 직전 view.outcomes[선택 액션].success/fail.zone** (사람 측 결정을 넣어 진행; 스킬 미사용), 이벤트 seq 단조 증가·zone 필드 존재, getMatchView 가 상태를 바꾸지 않음(JSON 동일).
+- `tools/shot.mjs` (신규): puppeteer-core(devDependency, 설치됨) + 로컬 Chrome(`C:/Program Files/Google/Chrome/Application/chrome.exe`) 또는 Edge, `CHROME_PATH` 로 덮어쓰기; 없으면 안내 후 exit 0. 내장 정적 서버로 앱을 띄우고, Node 에서 엔진으로 만든 run/match 상태를 localStorage(`soccer.run`, `soccer.match`)에 주입한 뒤 시작 화면의 "이어하기" 버튼으로 진입 (app.js `continueRun` 은 run.phase === "match" 이고 match.seed === run.pendingMatch.seed 일 때 저장된 경기를 복원한다 → 주입 시 pendingMatch.seed 를 맞출 것). 시나리오별 PNG (390×844, deviceScaleFactor 2): 우리 빌드업 / 우리 파이널 서드 수동 결정(자동 끄고 미리보기 + 액션 버튼 hover 화살표) / **상대 ④ 슈팅(회귀)** / 상대 ③ 위험 / 승부차기 / 패스 비트 연출 중간 프레임 / 데스크톱 1280×900. 각 시나리오의 페이지 scrollHeight 와 콘솔 에러를 출력. 사용: `node tools/shot.mjs <outDir>`. (도구 스크립트는 반드시 프로젝트 안에 둬야 puppeteer-core 가 resolve 된다.)
