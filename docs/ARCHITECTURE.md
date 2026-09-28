@@ -781,3 +781,170 @@ export function computeLayout(view, opts = {})
 - (수정 라운드) `test/layout.test.mjs` 추가: 경기 종료 모습(합성 3종 + 실제 300경기), 패스 후보 = 도착 구역(양 팀·extraLine), resolvePreview, 자동 진행 중 그린 패스 후보 = 실제 수신자(라인 브레이커 편성), UI 실제 범위(aspect 0.74~1.3 · tokenSize 0.0866~0.09, 합성·실제·승부차기) 겹침 없음·규칙 위치. `test/match.test.mjs`: 스킬 변형 미리보기 = 실제(1-3-2 울릭 DF1 + 소매치기). `test/ui.smoke.test.mjs`: 연출 중 배속 클릭 시 스코어·로그 그대로, 자동 OFF → 개입 해제, 종료 모습의 carrier.
 - `test/match.test.mjs` 추가: zoneOf 표, 많은 seed 에서 **패스 성공 시 실제 수신자 = 직전 view.receiverPreview**, **판정 후 공 구역 = 직전 view.outcomes[선택 액션].success/fail.zone** (사람 측 결정을 넣어 진행; 스킬 미사용), 이벤트 seq 단조 증가·zone 필드 존재, getMatchView 가 상태를 바꾸지 않음(JSON 동일).
 - `tools/shot.mjs` (신규): puppeteer-core(devDependency, 설치됨) + 로컬 Chrome(`C:/Program Files/Google/Chrome/Application/chrome.exe`) 또는 Edge, `CHROME_PATH` 로 덮어쓰기; 없으면 안내 후 exit 0. 내장 정적 서버로 앱을 띄우고, Node 에서 엔진으로 만든 run/match 상태를 localStorage(`soccer.run`, `soccer.match`)에 주입한 뒤 시작 화면의 "이어하기" 버튼으로 진입 (app.js `continueRun` 은 run.phase === "match" 이고 match.seed === run.pendingMatch.seed 일 때 저장된 경기를 복원한다 → 주입 시 pendingMatch.seed 를 맞출 것). 시나리오별 PNG (390×844, deviceScaleFactor 2): 우리 빌드업 / 우리 파이널 서드 수동 결정(자동 끄고 미리보기 + 액션 버튼 hover 화살표) / **상대 ④ 슈팅(회귀)** / 상대 ③ 위험 / 승부차기 / 패스 비트 연출 중간 프레임 / 데스크톱 1280×900. 각 시나리오의 페이지 scrollHeight 와 콘솔 에러를 출력. 사용: `node tools/shot.mjs <outDir>`. (도구 스크립트는 반드시 프로젝트 안에 둬야 puppeteer-core 가 resolve 된다.)
+
+---
+
+## 13. v0.3 — 듀얼 개편 · 연계 · 간파 · 필살기 · 액티브 (GDD v0.5 §9.6, 9.8~9.11, 9.17, 9.18)
+
+> 기획 근거는 docs/GDD_v0.5.md. 이 절이 구현 기준이며, GDD와 충돌하면 이 절이 우선한다. 수치는 모두 config 로 빼서 튜닝 가능하게 한다.
+> 기존 §7·§11·§12 계약 중 여기서 바꾸지 않은 것은 유지한다. 바뀐 것은 **대체**다(추가만이 아님). 판정식·AI·데이터 스키마가 바뀐다.
+
+### 13.0 이번 라운드 소유권
+
+| 담당 | 파일 |
+|---|---|
+| 경기 엔진 | js/engine/match.js, js/engine/ai.js, js/engine/skills.js, test/match.test.mjs, test/v05.test.mjs (신규) |
+| 데이터·런 | data/*.json (config·characters·skills·opponents·relics·events·traits(신규)·combos(신규)), js/engine/run.js, js/engine/effects.js, js/engine/training.js(필요 시), test/run.test.mjs |
+| 화면 | js/ui/screens/match.js, js/ui/layout.js, js/ui/screens/setup.js·training.js(표시 추가만), js/ui/labels.js, js/ui/dom.js, css/style.css, test/layout.test.mjs, test/ui.smoke.test.mjs |
+| 도구·밸런스 | tools/sim.mjs, tools/choice.mjs(신규), tools/shot.mjs·scenarios.mjs |
+
+### 13.1 데이터
+
+**characters.json** — 각 캐릭터에 `"trait": "<traitId>"` 추가:
+실루엔 killpass, 울릭 crosser, 그룸바 targetman, 타린 runner, 미르카 carrier, 돌바르 wall, 네리아 distributor, 아르덴 captain.
+
+**traits.json** (신규, 배열) — `{ id, name, description, kind: "bonus"|"condition"|"position"|"mult"|"team", params }`:
+
+| id | 이름 | params | 증폭(teamworkAmp) |
+|---|---|---|---|
+| killpass | 킬패스 | `{ nextDuelBonus: 0.20 }` — 이 선수가 패스·크로스 성공 → 받은 선수의 첫 듀얼(중거리 슛 제외) | O |
+| finisher | 피니셔 | `{ receivedShotBonus: 0.15 }` — 받은 직후 박스 슛·헤더 | O |
+| crosser | 크로서 | `{ canCross: true, crossBonus: 0.10 }` | X |
+| targetman | 타깃맨 | `{ headerBonus: 0.25 }` | O |
+| runner | 침투 | `{ receivedDribbleBonus: 0.15 }` — 받은 직후 드리블 | O |
+| carrier | 볼 운반 | `{ dribbleStaminaMult: 0.7, buildupDribbleBonus: 0.10 }` (line 0 드리블) | 보너스만 O |
+| wall | 철벽 | `{ holdMult: 1.15 }` | X |
+| distributor | 빠른 배급 | `{ saveCounterLine: 1 }` — 이 GK가 세이브하면 역습 line 1 | X |
+| captain | 주장 | `{ teamworkPlus: 10 }` — 증폭 단계 계산용 팀워크 가산 | X |
+
+**combos.json** (신규) — `[{ "a": "sk_wind_thread", "b": "sk_meteor_shot", "name": "바람의 유성" }]` (a = 필살 패스, b = 받은 선수의 필살기).
+
+**skills.json** — 액티브·고유 재정의 (패시브 유지). `unique` = 필살기이고 `tension: 0`, `ultimate` 객체를 가진다 (`active` 없음). 일반 액티브의 `active.effect` 어휘를 아래로 **교체**:
+
+| effect | params | 의미 |
+|---|---|---|
+| `boost` | `{ attack?, defense?, actions?, noMissPenalty?, noFailPenalty?, noStamina? }` | 이번 듀얼 배율. noMissPenalty = 빗나감 ×0.8 무시, noFailPenalty = 뚫려도 제쳐짐·+10% 없음, noStamina = 성공 시 체력 소모 0 |
+| `extraLine` | — | 성공 시 한 구역 추가 전진 (박스 도착이면 원터치) |
+| `powerShot` | `{ shoot, midrangeCoef?, stamina? }` | 슛 배율, 중거리 계수 덮어쓰기 |
+| `readBoost` | `{ readMult: 2.0 }` | 수비 간파 (13.2-8) |
+| `negateRead` | `{ actions?, nextDuelBonus? }` | 공격 간파·스루 패스: 이번 듀얼 상대 짝 맞힘 ×1.0 |
+| `steal` | `{ plus: 1, tension: 10, cappedNextBonus: 0.15 }` | 막으면 역습 +1, 텐션 +10, 이미 상한이면 역습 첫 듀얼 +15% |
+| `rally` | `{ stamina: 30, clearBeaten: true, teamMult: 1.1 }` | 전원 체력 +30, 제쳐짐 해제, 이번 포제션 팀 판정 ×1.1 |
+
+스킬별 값 (GDD 9.18):
+
+| id | 이름 | kind | 텐션 | positions | effect / params |
+|---|---|---|---|---|---|
+| sk_iron_tackle | 철의 태클 | active (돌바르 고유) | 30 | null | boost `{defense:1.4, noMissPenalty:true}` phase defense |
+| sk_line_breaker | 라인 브레이커 | active (울릭 고유) | 35 | null | extraLine, phase attack |
+| sk_power_shot | 파워 슛 | active 학습 | 30 | FW | powerShot `{shoot:1.5, midrangeCoef:1.0, stamina:8}` |
+| sk_eagle_eye | 매의 눈 | active 학습 | 40 | DF,MF | readBoost `{readMult:2.0}` phase defense |
+| sk_see_through | 꿰뚫어보기 (신규) | active 학습, cost 140 | 40 | FW,MF | negateRead `{}` phase attack |
+| sk_pickpocket | 소매치기 | active 학습 | 25 | MF | steal `{plus:1, tension:10, cappedNextBonus:0.15}` phase defense |
+| sk_rally_cry | 함성 | active 학습 | 35 | null | rally `{stamina:30, clearBeaten:true, teamMult:1.1}` phase any |
+| sk_stone_shield | 바위 방벽 | active 학습 | 35 | DF | boost `{defense:1.4, noFailPenalty:true}` phase defense |
+| sk_burst_dribble | 폭발 드리블 | active 학습 | 30 | FW,MF | boost `{attack:1.5, actions:["dribble"], noStamina:true}` phase attack |
+| sk_through_pass | 스루 패스 | active 학습 | 25 | MF | negateRead `{actions:["pass","cross"], nextDuelBonus:0.25}` phase attack |
+| sk_wind_thread | 바람의 실 | unique (실루엔) | 0 | null | ultimate `{ type:"pass", attack:1.5, negateRead:true, nextDuelBonus:0.5, receiverGauge:50 }` |
+| sk_meteor_shot | 메테오 슛 | unique (그룸바) | 0 | null | ultimate `{ type:"shot", shoot:2.0, gkMult:0.7, boxShot:true, stamina:10 }` |
+| sk_boss_strike | 업화의 일격 (신규) | unique (상대 전용) | 0 | FW | ultimate type shot (메테오와 같은 값) |
+| sk_boss_save | 불꽃 장벽 (신규) | unique (상대 전용) | 0 | GK | ultimate `{ type:"save", saveMult:2.0 }` |
+
+서포트 힌트: sk_see_through 를 서포트 1~2장의 hintSkillIds 에 추가.
+
+**opponents.json** — `tactics.defense: "readIntent"` → `"balanced"`. `intentReveal` 필드 삭제. 선수에 `trait` 를 팀마다 2~4명 (시즌이 오를수록 많이). 시즌 3 보스(엠버스론) 에이스 FW `skillIds` 에 sk_boss_strike, GK 에 sk_boss_save.
+
+**relics.json / events.json** — 간파 사용권:
+- rl_coach_notebook: `modifiers: { gaanpaTicket: 1, gaanpaCostHalf: 1 }` (경기마다 사용권 1, 간파 스킬 비용 −50%)
+- ev_prematch_s2 정찰 선택지: `modifier gaanpaTicket 1, duration "season"` (그 시즌 목표 경기)
+- ev_treaty_inspector: `modifier gaanpaTicket 1, duration "season"`
+- 그 외 `intentReveal` modifier 를 쓰던 효과는 제거 또는 위 키로 교체.
+
+**config.json `match`** — 추가/변경 (모두 튜닝값):
+```jsonc
+"actionCoef": { "dribble": 2.2, "pass": 2.2, "cross": 2.2, "shoot": 1.5, "midrangeShoot": 0.6, "header": 1.5, "save": 1.0 },
+"readBonus": 1.5, "missMult": 0.8, "holdMult": 1.0, "holdVsMidrange": 1.5,
+"beatenBonus": 0.25, "interceptFailBonus": 0.10, "oneTouchGk": 0.85, "bonusCap": 0.60, "passChainBonus": 0.10,
+"counterCap": 2, "counterCapTension": 10,
+"tendency": { "tacticBonus": 1.15, "lowStaminaDribble": 0.7, "lowStaminaPass": 1.2,
+              "tieAttack": ["dribble", "pass", "cross", "shoot"], "tieDefense": ["hold", "tackle", "intercept"] },
+"ultimate": { "gaugeStart": 30, "gaugeMax": 100, "onDuelWin": 20, "onReceive": 15, "onGoal": 30, "onUltPassReceive": 50, "comboBonus": 1.2 },
+"teamworkAmp": { "thresholds": [60, 80, 100], "mult": [1.1, 1.2, 1.3] }
+// 삭제: aiRevealForOpponent
+```
+`config.defaultTactics.defense` 선택지: `tackle | balanced | intercept | hold`.
+
+### 13.2 경기 엔진 규칙
+
+1. **액션 id**: 공격 `dribble | pass | cross | shoot`, 수비 `tackle | intercept | hold` (v0.4 `block` → `hold` 로 **이름 변경**), GK `save`. `COUNTER` = { dribble: tackle, pass: intercept, cross: intercept, shoot: hold }.
+2. **가능 액션**: line 0·1 = dribble, pass(수신 후보 ≥ 1). line 2 = dribble, pass(같은 라인 다른 FW ≥ 1), cross(carrier trait crosser 이고 크로스 후보 ≥ 1), shoot(중거리). line 3 = shoot. 수비 line 0~2 = tackle, intercept, hold 전부. line 3 = save (자동).
+3. **판정 스탯**: tackle = (수비+피지컬)/2, intercept = (수비+패스)/2, hold = 수비 × holdMult (wall ×1.15, 드워프 종족 +10% 는 기존 종족 패시브 규칙대로), cross = (패스+드리블)/2 × actionCoef.cross, 헤더 슛 = (슈팅+피지컬)/2 × actionCoef.header, 중거리 = 슈팅 × midrangeShoot.
+4. **수비 배율**: 짝 맞음 ×readBonus (readBoost 스킬이면 ×readMult), tackle·intercept 가 짝이 아니면 ×missMult (noMissPenalty 무시), hold ×1.0 (단 공격이 중거리 슛이면 ×holdVsMidrange). 공격이 negateRead 면 "짝 맞음"을 ×1.0 으로.
+5. **공격 보너스 합**: Σ = 연계 특성(증폭 적용) + passChainBonus × chain + 제쳐짐 beatenBonus + 인터셉트 뚫림 interceptFailBonus + 스킬 nextDuelBonus(스루 패스·필살 패스) + 소매치기 cappedNextBonus. `att × (1 + min(Σ, bonusCap))`. 곱연산으로 따로: 스킬 boost·powerShot·필살기 배율, 합체기 comboBonus, extraLine 슛 +20%, 스타일·컨디션·체력·적성, 함성 teamMult.
+6. **뚫림 결과**: 수비가 tackle 로 졌으면 `ball.pending.beaten = true` → 다음 듀얼 공격 보너스 +beatenBonus, 그 듀얼 coverCount 0 (다음이 GK 면 보너스만). intercept 로 졌으면 +interceptFailBonus. hold 는 없음. noFailPenalty 스킬이면 없음. 함성 clearBeaten 이면 해제. 한 번 쓰고 지운다.
+7. **역습 시작**: 기본 (line 0 → 2, 1 → 1, 2 → 0, GK 세이브·골 → 0) + intercept 성공 +1 + steal +1, 상한 counterCap(2). intercept 의 +1 이 상한에 걸려 무의미하면 막은 팀 텐션 +counterCapTension. steal 이 상한에 걸리면 cappedNextBonus. **hold 로 막으면 항상 0** (steal 무시). distributor GK 의 세이브 → 1.
+8. **간파**: line 0~2 에서만. 한 듀얼에 먼저 커밋한 쪽만 (AI 는 setupDuel 에서 먼저 커밋 → AI 가 썼으면 사람 간파 비활성).
+   - 사람: readBoost(수비) / negateRead(공격) 효과만 (A안으로 이미 상대 행동을 앎).
+   - AI: 효과 + 판정 때 사람의 실제 선택을 보고 행동을 교체 — 수비는 막을 확률 최고(hold 포함), 공격은 성공 확률 최고. 난수 추가 소비 없음.
+   - 간파 사용권: team.gaanpaTickets(경기 시작 시 스냅샷 modifiers.gaanpaTicket) — 스킬 없이 텐션 0 으로 1회 (수비면 readBoost, 공격이면 negateRead). gaanpaCostHalf 면 간파 스킬(readBoost·negateRead effect) 텐션 ×0.5.
+9. **자동 선택 (A안)**: `tendencyValues(state, side, playerId)` = 가능한 액션별 판정 기본값(짝·빗나감 제외): 스탯 × 계수 × 적성 × 스타일(상대 무관이므로 제외) × 특성 자기 보너스 × 전술 tacticBonus(공격 성향 dribble/pass, 수비 성향 tackle/intercept/hold, 슛 타이밍 midrange: "breakAll" → 중거리 0, "midrange" → ×1.15) × 체력 20% 이하 (드리블 ×0.7, 패스·크로스 ×1.2) × 필살기 준비·사용 조건 충족 시 필살 효과. 최대값 액션, 동률은 tie 순서. **난수 없음.** 수비수 선택(pickDefender)·수신자 선택도 동률은 슬롯 순서 — 판정 성공 주사위 외에는 rng 를 쓰지 않는다.
+10. **수신자**: 후보 = pass: line 0 → MF 전원, line 1 → FW 전원, line 2 → 같은 라인 다른 FW (carrier 제외). cross: FW 전원 + MF 중 피지컬 최고 1명 (carrier 제외). 기본 수신자 = 도착 구역에서 쓸 주 액션의 판정값 최고 (도착 line < 3: 그 선수의 tendency 1위 값, 도착 line 3: pass → 슛 값(슈팅 × actionCoef.shoot) × (1 + finisher), cross → 헤더 값 × (1 + targetman)) — 상대 정보 미사용, 동률은 players 순서. 결정 `{ action, receiverId? }` — 후보가 아니면 throw. 없으면 기본값.
+11. **원터치·헤더**: pass·cross 로 line 3 도착(extraLine 포함) → `ball.oneTouch = true`, cross 면 `ball.receivedVia = "cross"`. 첫 슛: GK 수비력 × oneTouchGk, cross 면 헤더 스탯. `ball.lastPasserId` (킬패스·필살 패스 판정용), `ball.receivedFresh = true` (첫 듀얼 판정 후 false).
+12. **필살기**: `team.live[pid].gauge` (unique 보유자만, 시작 gaugeStart). 증가: 그 선수가 듀얼 승리(공격 성공·수비 성공·세이브) +onDuelWin, pass·cross 수신 +onReceive, 골 +onGoal, 필살 패스 수신 +onUltPassReceive. 상한 gaugeMax. **준비** = gauge ≥ max 또는 `ball.comboReadyId === pid`.
+   - 사용: 사람 `decision.ultimate = true`, AI 규칙(13.3). 쓰면 gauge 0 (합체기로 쓴 경우는 소모 없음).
+   - shot: line 2~3 에서 action shoot 과 함께. boxShot 이면 중거리 계수 대신 shoot 계수, att × shoot, GK × gkMult.
+   - pass: action pass 또는 cross 와 함께. att × attack, negateRead, 성공 시 받은 선수 nextDuelBonus + gauge +receiverGauge(= onUltPassReceive 와 중복 아님, receiverGauge 사용), 받은 선수가 unique 보유자면 `ball.comboReadyId = receiverId`.
+   - save: line 3 수비(GK)에서 자동 발동 조건 충족 시 save × saveMult.
+   - 합체기: comboReadyId 선수가 다음 듀얼에서 자기 필살기를 쓰면 att × comboBonus, 이벤트 `type: "combo", name: combos.json 이름`.
+   - 이벤트: 필살기 `type: "cutin", skillId, playerId, ultimateType`, 합체기 `type: "combo"` (cutin 2개 뒤).
+13. **액티브**: 13.1 표의 effect 어휘. 한 듀얼에 팀당 일반 액티브 1개 + 필살기 1개(별도) 가능.
+14. **상태 버전**: `MatchState.version = 3`. 이전 버전 저장 경기는 UI 가 버리고 새로 만든다.
+
+### 13.3 AI (ai.js 재작성)
+
+- `decideAttack(state, data, side)` / `decideDefense(...)` = 13.2-9 의 tendency 최대값 (결정적). `predictIntent`·의도 공개 관련 코드 삭제.
+- 스킬 선택 `chooseSkill`: 전술 tension(save / immediate / clutch)을 따른다. 기본 레버리지 = line 2 공격·수비, 또는 동점·열세이고 남은 포제션 ≤ 3. 효과 없는 사용 금지(hold 인데 steal, 박스에서 간파, 짝 여부와 무관한 readBoost 는 레버리지일 때만 등). 간파: 레버리지 비트에서 텐션 충분하면 사용.
+- 필살기 사용: shot = line 2~3 에서 선택 액션이 shoot 이면 (또는 필살 효과를 반영한 슛 값이 1위면), pass = 받는 선수가 unique 보유자이거나 도착이 박스면, save = line 3 에서 동점·열세 또는 남은 포제션 ≤ 3 이거나 게이지 가득, 합체기 = 가능하면 항상, 마지막 2포제션 = 준비되면 즉시.
+- 수신자 = 13.2-10 기본값.
+
+### 13.4 getMatchView 추가·변경
+
+```js
+expected: { attack: { playerId, action, values: {dribble, pass, cross?, shoot?} }, defense: { playerId, action, values: {tackle, intercept, hold} } } | null,
+actions: [ { action, enabled, label, hint, expectedPct, recommended } ],   // expectedPct: 수비 = 막을 확률(상대 expected 행동 기준), 공격 = 돌파 확률, line 2 공격 = 이번 공격 득점 기대(돌파 × 박스 슛 성공), 중거리 = 골 확률
+receivers: { pass?: { candidates: [id], defaultId }, cross?: {...} },
+outcomesByReceiver: { pass?: { [receiverId]: { success: Outcome, fail: Outcome } }, cross?: {...} },   // outcomes[action] 은 기본 수신자 기준 (기존 필드 유지)
+ultimate: { home: { [playerId]: { gauge, ready, combo } }, away: {...} },  // players[] 에도 gauge 필드
+ultimateOptions: [ { playerId, skillId, name, type, usable, reason, comboName? } ],   // 사람 측 현재 당사자
+gaanpa: { usable, reason, source: "skill"|"ticket"|null, skillId, cost, tickets },
+opponentReading: boolean,   // 상대 AI 가 이번 듀얼에 간파를 커밋함
+state.version, events type: "combo" 추가, "block" → "hold"
+```
+삭제: `intent`, `revealToHome` (UI 는 expected 로 대체). `remaining`·`zone`·`receiverPreview`(= receivers 기본값) 등 §12 필드는 유지.
+
+### 13.5 run.js
+
+- 스냅샷 선수에 `trait`, 팀에 `gaanpaTickets`(modifiers.gaanpaTicket 합), `gaanpaCostHalf`, 팀워크(+captain 은 match 가 계산). 상대 스냅샷도 trait·skillIds(보스 필살기) 포함.
+- 전술 이행: `readIntent` → `balanced` (createRun 입력, 상대 데이터, 저장 등록 팀 로드 시).
+- `getTurnView().nextMatch`: `intentReveal` 대신 `styleHint` (상대 필드 선수들의 공격 1위 액션 다수: "드리블 위주" / "패스 위주" / "혼합").
+- 이벤트·유물 modifier 키 `gaanpaTicket`, `gaanpaCostHalf` 추가 (§6.7 표에 추가), `intentReveal` 제거.
+
+### 13.6 화면
+
+GDD 9.6·9.7·9.16·9.17 대로:
+- 상대 듀얼 선수 머리 위 예상 행동 아이콘, 정보 줄에 근거("드리블형 — 드리블 600 > 패스 400")와 우리 선수 예상 행동. opponentReading 이면 "상대가 우리 수를 읽는 중".
+- 공격 버튼 2×2(켜진 것만), 수비 3열. 버튼: 제목 "드리블 41%", 성공·실패 한 줄씩(짧은 형식), recommended 에 "추천" 표시.
+- 받는 선수: 패스·크로스 버튼 제목에 "→ 그룸바▾", 필드의 후보 토큰(전원 도착 구역에 그림)을 탭하면 변경, 길게 누르기 = 미니 카드. 결정 시 `{ action, receiverId }`.
+- 필살 게이지 링(토큰 둘레), 준비되면 빛남. 스킬 줄에 필살기 버튼(합체기면 합체기 이름). 결정 시 `ultimate: true`. 전체 화면 컷인 1.5초(배속 비례), 합체기 2연속 + 이름.
+- 간파 버튼(스킬 또는 사용권, 비용 표시, 비활성 사유).
+- 크로스 포물선, 헤더 연출, 연계 문구("킬패스!", "원터치!", "헤더!", "침투!"), 태클 실패 누운 모습.
+- 편성 화면: 캐릭터 카드에 연계 특성, 전술 수비 성향에 "버티기 선호", "의도 따라가기" 제거. 훈련 화면 다음 경기 정보에 styleHint.
+- 390×844 결정 대기(공격 4버튼 + 받는 선수 + 필살기·간파) 스크롤 없음. 결정 중 로그 3줄.
+- 저장된 경기 version < 3 이면 새로 만든다.
+
+### 13.7 테스트 · 도구 · 밸런스
+
+- test/v05.test.mjs: A안 결정성(같은 상태 → 같은 자동 선택, rng 소비 없음), 수비 스탯·배율(짝/빗나감/hold/중거리), 뚫림 결과, 역습 시작 표(상한·hold·steal·distributor), 크로스 후보·헤더·원터치, 수신자 기본값·결정 receiverId, 연계 특성 전부, 보너스 합 상한, 팀워크 증폭, 간파(사람/AI/사용권/먼저 쓴 쪽), 필살기 게이지 증가·준비·사용·합체기, 액티브 9종 효과, 데이터 무결성(모든 trait·skill·combo 참조).
+- 기존 테스트는 규칙 변경에 맞게 갱신 (block → hold, intent 삭제 등). 회귀 불변식(§12 레이아웃)은 유지.
+- tools/choice.mjs: 수동 정책 비교 — auto / 버튼 기대 % 최고(expectedPct) / 무작위 / 항상 짝 맞힘, 그리고 스킬 끄기·필살기 끄기 변형. 출력: 시즌별 승률, 수동 이득, 필살기 1회당 승률 효과, 액티브 전체 효과, 경기당 필살기·액티브 사용 수.
+- 밸런스 목표 (자동, sim 300런): 시즌 승률 70~80 / 50~60 / 35~45%, 골 1.5~3.5/경기, 필살기 보유자당 경기 1~2회 사용, 팀당 일반 액티브 3~4회. choice.mjs: 수동(expectedPct) 이득 5~10%p, 필살기 1회 +5~8%p, 액티브·필살기 전체 +6~10%p. 조정은 config·opponents 수치로.
