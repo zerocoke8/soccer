@@ -21,9 +21,9 @@ npm run serve        # python -m http.server 8080  →  http://localhost:8080
 
 ```bash
 npm i                # devDependency(jsdom) 설치 — UI 스모크 테스트용. 없어도 엔진 테스트는 돌아간다
-npm test             # node --test (rng · run · match · v05 · layout · orient · stage · outgame · ui 스모크, 115 테스트)
+npm test             # node --test (rng · run · match · v05 · layout · orient · stage · lineup · outgame · ui 스모크, 137 테스트)
 npm run sim          # node tools/sim.mjs --runs 300 --seed 1  (시즌별 승률·등급 분포·부상·우정 훈련·골)
-node tools/shot.mjs <출력폴더>   # 로컬 Chrome으로 경기(01~17)·아웃게임(og_*) 시나리오 스크린샷 (puppeteer-core, 1280×720)
+node tools/shot.mjs <출력폴더>   # 로컬 Chrome으로 경기(01~19)·아웃게임(og_*, 드래그 배치 포함) 시나리오 스크린샷 (puppeteer-core, 1280×720)
 node tools/shot.mjs <출력폴더> --only og   # 아웃게임만 (--list 로 목록)
 node tools/shot.mjs <출력폴더> --width 1920 --height 1080   # 다른 창 크기에서 스테이지 배율·레터박스 확인
 ```

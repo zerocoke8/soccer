@@ -101,6 +101,7 @@
     "missMult": 0.8,
     "holdMult": 1.0,
     "holdVsMidrange": 1.5,
+    "holdVsCross": 1.7,
     "minP": 0.1,
     "maxP": 0.9,
     "actionCoef": {
@@ -117,6 +118,7 @@
     "beatenBonus": 0.25,
     "interceptFailBonus": 0.10,
     "oneTouchGk": 0.85,
+    "boxLink": { "gkMult": 1.0, "autoRatio": 1.25 },
     "bonusCap": 0.60,
     "passChainBonus": 0.1,
     "counterCap": 2,

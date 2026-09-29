@@ -69,6 +69,12 @@ export function getPlayerUltimate(data, player) {
   return getPlayerSkills(data, player).find((sk) => sk.kind === "unique" && sk.ultimate && typeof sk.ultimate === "object") || null;
 }
 
+/** 패스·크로스 negateRead 에 받은 선수 다음 듀얼 보너스(nextDuelBonus)가 붙은 액티브 (스루 패스) — ④ 박스 연결에서도 의미가 있다 */
+export function hasLinkBonus(skill) {
+  const a = skill && skill.active;
+  return !!(a && a.effect === "negateRead" && Number(a.params && a.params.nextDuelBonus) > 0);
+}
+
 /** 간파 스킬: 수비 readBoost, 또는 행동 제한 없는 공격 negateRead (§13.2-8) */
 export function isGaanpaSkill(skill) {
   if (!skill || !skill.active) return false;
@@ -318,8 +324,16 @@ export function checkSkillUsable(state, data, side, playerId, skill, role) {
   }
   const duel = state.duel;
   const fx = duel && duel.effects && duel.effects[side];
+  const line = state.ball ? Number(state.ball.lineIndex) || 0 : 0;
+  // 박스(④, GK 1:1 · 박스 연결)에서 의미 없는 효과: 추가 전진(extraLine), 짝 없는 GK 상대 짝 무효(negateRead).
+  // 단 받은 선수 보너스(nextDuelBonus)가 붙은 negateRead(스루 패스)는 박스 연결에서 그 보너스가 받은 선수의 원터치 슛·헤더에 붙는다
+  // (필살 패스 바람의 실과 같은 규칙) → 연결이 남아 있으면 쓸 수 있다.
+  if (line >= 3 && !isGaanpaSkill(skill)) {
+    const e = skill.active.effect;
+    if (e === "extraLine" || (e === "negateRead" && !hasLinkBonus(skill))) return { ok: false, reason: "박스에서는 효과 없음" };
+    if (hasLinkBonus(skill) && state.ball && state.ball.boxLinkUsed) return { ok: false, reason: "박스 연결은 포제션당 1회" };
+  }
   if (isGaanpaSkill(skill)) {
-    const line = state.ball ? Number(state.ball.lineIndex) || 0 : 0;
     if (line >= 3) return { ok: false, reason: "박스에서는 간파 불가" };
     const opp = side === "home" ? "away" : "home";
     if (duel && duel.gaanpaSide === opp) return { ok: false, reason: "상대가 먼저 간파" };

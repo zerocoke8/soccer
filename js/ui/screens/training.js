@@ -7,6 +7,7 @@
 // 칸 탭 → 훈련 상세 시트(.sheet) → [훈련하기]. 미팅 · 호출권 · 기록은 가로 모달.
 import { h, avatar, openModal, closeOverlays, select, bar, pct, signed, toast, gradeBadge, gradeOf } from '../dom.js';
 import * as L from '../labels.js';
+import { lineupBoard, reseat, lineupIssues, meetingSwaps } from '../lineup.js';
 
 export function renderTraining(root, ctx, { inert = false } = {}) {
   const { store, data, run, safe, actions } = ctx;
@@ -210,37 +211,27 @@ export function renderTraining(root, ctx, { inert = false } = {}) {
     ), { className: 'modal-md' });
   }
 
-  // ---------- 전술 미팅 (가로 모달: 전술 · 포메이션/포지션 · 스킬 상점 3열) ----------
+  // ---------- 전술 미팅 (가로 모달 3열: 전술 · 포메이션 + 라인업 보드(끌어서 자리 맞바꾸기, js/ui/lineup.js) · 스킬 상점) ----------
   function openMeeting() {
     const tactics = { ...(state.tactics || {}) };
     let formation = state.formation || '2-2-2';
     const buy = { skillId: null, playerId: null };
     const runPlayers = Array.isArray(state.players) ? state.players : [];
-    const currentSlotOf = (pid) => runPlayers.find((p) => p.id === pid)?.slot;
-    const aptOf = (pid, pos) => charById.get(runPlayers.find((p) => p.id === pid)?.charId)?.aptitude?.[pos] ?? '?';
-    // 엔진 validateSquad 와 같은 규칙: 적성 '-' 배치 금지, GK 는 A/B 만. 모달을 닫기 전에 검사해 편집 내용이 사라지지 않게 한다.
-    const canPlay = (pos, apt) => apt !== '-' && (pos !== 'GK' || apt === 'A' || apt === 'B');
-    const nameOf = (pid) => runPlayers.find((p) => p.id === pid)?.name ?? pid;
-    const assign = {};
-    const initAssign = () => {
-      const slots = L.slotsOf(formation);
-      const used = new Set();
-      for (const sl of slots) {
-        const p = runPlayers.find((x) => x.slot === sl && !used.has(x.id));
-        if (p) { assign[sl] = p.id; used.add(p.id); }
-      }
-      for (const sl of slots) {
-        if (assign[sl]) continue;
-        const p = runPlayers.find((x) => !used.has(x.id));
-        if (p) { assign[sl] = p.id; used.add(p.id); }
-      }
-      for (const k of Object.keys(assign)) if (!slots.includes(k)) delete assign[k];
-    };
-    initAssign();
+    const runById = new Map(runPlayers.map((p) => [p.id, p]));
+    const allIds = runPlayers.map((p) => p.id);
+    const currentSlotOf = (pid) => runById.get(pid)?.slot;
+    // 적성: 캐릭터 데이터 기준. 배치 규칙은 엔진 validateSquad 와 같다 (lineup.js canPlay) — 모달을 닫기 전에 검사해 편집 내용이 사라지지 않게 한다.
+    const aptOf = (pid, pos) => charById.get(runById.get(pid)?.charId)?.aptitude?.[pos] ?? '-';
+    const nameOf = (pid) => runById.get(pid)?.name ?? pid;
+    // 슬롯 → 선수 id. 처음 = 런의 지금 배치. 포메이션을 바꾸면 남는 슬롯은 그대로, 없어진 슬롯의 선수는 설 수 있는 빈 슬롯으로 (reseat)
+    const seat = (from) => reseat(from, L.slotsOf(formation), aptOf, { fillAll: true, extraIds: allIds });
+    let assign = seat(Object.fromEntries(runPlayers.filter((p) => p.slot).map((p) => [p.slot, p.id])));
 
     const body = h('div', { class: 'col meeting', style: { gap: '12px' } });
+    let board = null;
     let shopScroll = 0; // 다시 그릴 때 스킬 상점 스크롤 위치 유지
     const draw = () => {
+      if (board) board.cancel();
       shopScroll = body.querySelector('.shop-list')?.scrollTop ?? shopScroll;
       body.replaceChildren(...build());
       const list = body.querySelector('.shop-list');
@@ -253,6 +244,32 @@ export function renderTraining(root, ctx, { inert = false } = {}) {
       const sp = Number(view.skillPoints) || 0;
       const fieldSel = (key) => h('div', { class: 'field' }, h('label', {}, L.TACTIC_LABELS[key]),
         select(L.TACTIC_OPTIONS[key], tactics[key], (v) => { tactics[key] = v; }));
+      // 라인업 보드: 슬롯 카드를 끌어 다른 슬롯에 놓으면 맞바꾸기 (초록 가능 · 빨강 불가), 눌러서 고른 뒤 다른 선수를 눌러도 된다
+      board = lineupBoard({
+        slots,
+        assign,
+        compact: true,
+        aptOf,
+        nameOf,
+        colorOf: (pid) => runById.get(pid)?.portraitColor,
+        slotBody: (pid, sl) => {
+          const p = playerById.get(pid) ?? runById.get(pid);
+          const was = currentSlotOf(pid);
+          const main = p?.mainStat;
+          const injured = Number(p?.injuredTurns) > 0;
+          return [
+            avatar(p?.portraitColor, p?.name, 'sm', injured ? 'dim' : ''),
+            h('span', { class: 'grow col' },
+              h('span', { class: 'ellipsis slot-nm' }, p?.name ?? pid),
+              was !== sl
+                ? h('span', { class: 'tiny warn ellipsis' }, `← 원래 ${was ?? '-'}`)
+                : h('span', { class: 'tiny muted ellipsis' }, injured ? `부상 ${p.injuredTurns}턴`
+                  : main ? `${L.STAT_LABELS[main] ?? main} ${Math.round(Number(p.stats?.[main]) || 0)}` : '')),
+          ];
+        },
+        onChange: (next) => { assign = next; draw(); },
+      });
+      const moved = slots.filter((sl) => assign[sl] && currentSlotOf(assign[sl]) !== sl).length;
       return [
         h('div', { class: 'row between' },
           h('h3', {}, '📋 전술 미팅'),
@@ -265,22 +282,19 @@ export function renderTraining(root, ctx, { inert = false } = {}) {
             L.TACTIC_MAIN_KEYS.map(fieldSel),
             h('div', { class: 'divider' }),
             ['tension', 'duelPicker'].map(fieldSel)),
-          h('section', { class: 'meeting-col' },
-            h('h4', { class: 'og-panel-title' }, '포메이션 · 포지션'),
-            h('div', { class: 'field' }, h('label', {}, '포메이션'),
-              select(Object.keys(L.FORMATIONS).map((f) => [f, f]), formation, (v) => { formation = v; initAssign(); draw(); })),
-            h('div', { class: 'col pos-assign' },
-              h('span', { class: 'tiny muted' }, '포지션 배치 변경'),
-              slots.map((sl) => {
-                const pos = L.positionOfSlot(sl);
-                return h('div', { class: 'row' },
-                  h('span', { class: 'slot-tag muted tiny' }, sl),
-                  select(runPlayers.map((p) => {
-                    const apt = aptOf(p.id, pos);
-                    const blocked = !canPlay(pos, apt);
-                    return [p.id, `${p.name} (${pos} ${apt}${blocked ? ' · 배치 불가' : ''})${p.slot ? ` · 현재 ${p.slot}` : ''}`, blocked];
-                  }), assign[sl] ?? '', (v) => { assign[sl] = v; }));
-              }))),
+          h('section', { class: 'meeting-col meeting-board' },
+            h('div', { class: 'row between' },
+              h('h4', { class: 'og-panel-title' }, '포메이션 · 포지션'),
+              h('div', { class: 'field meeting-formation' }, h('label', {}, '포메이션'),
+                select(Object.keys(L.FORMATIONS).map((f) => [f, `${f} (DF ${L.FORMATIONS[f].DF} · MF ${L.FORMATIONS[f].MF} · FW ${L.FORMATIONS[f].FW})`]), formation, (v) => {
+                  formation = v;
+                  assign = seat(assign);
+                  draw();
+                }, { 'aria-label': '포메이션' }))),
+            board.pitch,
+            h('p', { class: 'tiny muted' },
+              '선수를 끌어 다른 자리에 놓으면 자리를 맞바꿉니다 — ', h('b', { class: 'good' }, '초록'), ' 가능 · ', h('b', { class: 'bad' }, '빨강'), ' 불가. 선수를 누른 뒤 다른 선수를 눌러도 됩니다.',
+              moved ? h('span', { class: 'warn' }, ` · 자리 변경 ${moved}명`) : null)),
           h('section', { class: 'meeting-col shop-col' },
             h('div', { class: 'row between' }, h('h4', { class: 'og-panel-title' }, '스킬 상점'), h('span', { class: 'badge' }, `SP ${sp}`)),
             shop.length === 0
@@ -319,11 +333,10 @@ export function renderTraining(root, ctx, { inert = false } = {}) {
       const slots = L.slotsOf(formation);
       const ids = slots.map((sl) => assign[sl]).filter(Boolean);
       if (ids.length !== slots.length || new Set(ids).size !== ids.length) return toast('포지션 배치에 빠진 선수나 중복이 있습니다.');
-      for (const sl of slots) {
-        const pos = L.positionOfSlot(sl);
-        const apt = aptOf(assign[sl], pos);
-        if (apt === '-') return toast(`${nameOf(assign[sl])}은(는) ${pos} 적성이 없어 ${sl}에 배치할 수 없습니다.`);
-        if (pos === 'GK' && apt !== 'A' && apt !== 'B') return toast(`GK는 적성 A/B만 배치할 수 있습니다 (${nameOf(assign[sl])}: ${apt}).`);
+      for (const is of lineupIssues({ slots, assign, aptOf })) {
+        const pos = L.positionOfSlot(is.slot);
+        if (pos === 'GK' && aptOf(is.id, pos) !== '-') return toast(`GK는 적성 A/B만 배치할 수 있습니다 (${nameOf(is.id)}: ${aptOf(is.id, pos)}).`);
+        return toast(`${nameOf(is.id)}은(는) ${pos} 적성이 없어 ${is.slot}에 배치할 수 없습니다.`);
       }
       if (buy.skillId && buy.playerId) {
         // 엔진(canLearnSkill positionOverride)과 같이 새 포지션 기준으로 스킬 포지션 조건을 확인
@@ -336,15 +349,17 @@ export function renderTraining(root, ctx, { inert = false } = {}) {
       }
       const action = { type: 'meeting', tactics };
       if (formation !== state.formation) action.formation = formation;
-      const swaps = slots.map((sl) => ({ playerId: assign[sl], slot: sl })).filter((sw) => currentSlotOf(sw.playerId) !== sw.slot);
+      // 엔진은 swaps 를 순서대로 적용(자리 맞바꾸기) → 최종 배치 = assign (lineup.js meetingSwaps, test/lineup.test.mjs)
+      const swaps = meetingSwaps(slots, assign, currentSlotOf);
       if (swaps.length) action.swaps = swaps;
       if (buy.skillId && buy.playerId) action.buy = { skillId: buy.skillId, playerId: buy.playerId };
+      if (board) board.cancel();
       closeOverlays();
       actions.doAction(action);
     }
 
     draw();
-    openModal(body, { className: 'modal-xl' });
+    openModal(body, { className: 'modal-xl', onClose: () => { if (board) board.cancel(); } });
   }
 
   // ---------- 호출권 ----------

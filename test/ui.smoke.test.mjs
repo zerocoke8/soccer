@@ -489,8 +489,13 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
     assert.deepEqual(btns.map((b) => b.querySelector(".act-lbl").textContent), ["태클", "인터셉트", "버티기"]);
     assert.ok(s11.querySelector(".action-grid").classList.contains("k-def") && s11.querySelector(".action-grid").classList.contains("n-3"), "수비 = 카드 3장 한 줄");
     for (const b of btns) assert.ok(b.querySelector(".act-foot .act-formula"), `${b.dataset.action}: 판정 스탯 줄`);
-    const pairAct = { dribble: "tackle", pass: "intercept", cross: "intercept", shoot: "hold" }[v11.expected.attack.action];
+    // 짝 표 (2026-09-29): 크로스 ↔ 버티기 — 짝 칩은 엔진 view.counter, labels.js 사본도 엔진과 같다
+    const Lb = await import(pathToFileURL(path.join(ROOT, "js/ui/labels.js")).href);
+    assert.deepEqual(v11.counter, { dribble: "tackle", pass: "intercept", cross: "hold", shoot: "hold" }, "view.counter = 새 짝 표");
+    assert.deepEqual(Lb.COUNTER, S.match.COUNTER, "labels.js COUNTER = 엔진 COUNTER");
+    const pairAct = v11.counter[v11.expected.attack.action];
     assert.ok(s11.querySelector(`button[data-action="${pairAct}"] .chip-pair`), "짝 표시");
+    assert.equal(s11.querySelectorAll(".chip-pair").length, 1, "짝 칩은 한 버튼");
     for (const b of btns) assert.ok(b.textContent.includes(v11.outcomes[b.dataset.action].success.short), "막으면 …");
     const gb = s11.querySelector('.skill-row [data-gaanpa="ticket"]');
     assert.ok(gb && !gb.disabled && /사용권/.test(gb.textContent), "간파 사용권 버튼");
@@ -501,6 +506,107 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
     assert.equal(S.match.getMatchView(S.store.match, S.store.data, "home").needsDecision, "defense", "결정 대기 유지");
     assert.ok(s11.querySelector(".skill-row .gaanpa-btn.active"), "간파 사용 표시");
     assert.equal([...s11.querySelectorAll("button[data-action]")].filter((b) => !b.disabled).length, 3, "수비 버튼 그대로 선택 가능");
+    S.actions.resetToStart();
+  }
+
+  // 18 ④ 박스 연결 (2026-09-29): 슛 + "컷백 → ○○" + "센터링 → ○○"(크로서 울릭) 카드, % = 득점 기대 (엔진 expectedPct), 성공·실패 = 엔진 outcome,
+  // 후보는 박스 안 (탭 = 받는 선수), 미리보기 = 박스 안 연결 + GK 가 튀어나오는 길, 결정 { action, receiverId } → 박스 연결 판정
+  {
+    const { scr: s18, view: v18 } = inject("18_box_link_decision");
+    assert.equal(v18.lineIndex, 3, "④ 슈팅 찬스");
+    const nm = (id) => v18.players.home.find((p) => p.id === id)?.name;
+    const btns = [...s18.querySelectorAll("button[data-action]")].filter((b) => !b.disabled);
+    assert.deepEqual(btns.map((b) => b.dataset.action), v18.actions.filter((a) => a.enabled).map((a) => a.action), "켜진 액션만 (엔진 순서)");
+    assert.deepEqual(btns.map((b) => b.dataset.action), ["pass", "cross", "shoot"], "컷백 · 센터링 · 슛");
+    assert.ok(!s18.querySelector('button[data-action="dribble"]'), "④ 드리블 카드 없음 (꺼진 액션은 숨김)");
+    assert.ok(s18.querySelector(".action-grid").classList.contains("n-3"), "카드 3장 한 줄");
+    for (const [a, lbl, fin] of [["pass", "컷백", "원터치 슛"], ["cross", "센터링", "헤더"]]) {
+      const b = s18.querySelector(`button[data-action="${a}"]`);
+      const act = v18.actions.find((x) => x.action === a);
+      assert.ok(b.classList.contains("box-link"), `${a}: 박스 연결 카드`);
+      assert.equal(b.querySelector(".act-lbl").textContent, lbl, `${a}: "${lbl} → ○○"`);
+      assert.equal(b.querySelector(".act-rname").textContent, nm(v18.receivers[a].defaultId), `${a}: 기본 받는 선수`);
+      assert.ok(b.querySelector(".act-more"), `${a}: 후보 2명 이상 → ▾`);
+      assert.equal(b.querySelector(".act-pct").textContent, `${act.expectedPct}%`, `${a}: 득점 기대 %`);
+      assert.match(b.title, new RegExp(`% = 득점 기대 \\(연결 성공 × .+ ${fin} 골\\)`), `${a}: % 설명 (돌파 확률 아님)`);
+      assert.ok(b.textContent.includes(v18.outcomes[a].success.short) && b.textContent.includes(v18.outcomes[a].fail.short), `${a}: 성공·실패 한 줄 = 엔진 outcome`);
+      assert.ok(v18.outcomes[a].success.boxLink && b.title.includes(v18.outcomes[a].fail.label), `${a}: 실패 = GK 가 끊어냄`);
+      assert.match(b.querySelector(".act-hint").textContent, /^GK와 경합 · 포제션당 1회$/, `${a}: 힌트 (막혔을 때 결과는 실패 줄)`);
+      assert.equal(!!b.querySelector(".chip-rec"), !!act.recommended, `${a}: 추천 = 엔진 recommended`);
+    }
+    assert.match(s18.querySelector('button[data-action="shoot"]').title, /% = 골 확률/);
+    assert.equal(s18.querySelectorAll(".chip-rec").length, 1, "추천 한 개");
+    // 정보 줄: GK 와 1:1 + 연결도 GK 와 경합, 우리 예상 행동은 박스 이름 (패스·크로스 아님)
+    assert.match(s18.querySelector(".m-info .expect").textContent, /GK .+1:1 — 세이브 · 컷백·센터링도 GK와 경합/);
+    const mine = s18.querySelector(".m-info .mine").textContent;
+    assert.match(mine, /^우리: (슛|컷백|센터링)/, `우리 예상 행동 ${mine}`);
+    if (v18.expected.attack.action !== "shoot") assert.ok(mine.includes(`→ ${nm(v18.expected.attack.receiverId)}`), "자동 연결의 받는 선수");
+    assert.match(s18.querySelector(".m-info .mine").title, /④ 자동 규칙: 받는 선수 마무리 값이 슛 값의 1\.25배 이상/);
+    // 후보 전원 박스 안 (home 공격 → 필드 y ≥ 84), 탭할 수 있다
+    const cands = [...new Set([...v18.receivers.pass.candidates, ...v18.receivers.cross.candidates])];
+    for (const id of cands) {
+      const el = s18.querySelector(`.tok[data-side="home"][data-id="${id}"]`);
+      assert.equal(el.dataset.role, "receiver", `후보 ${id}`);
+      assert.ok(Number(el.dataset.y) >= 84, `후보 ${id} 는 상대 박스 안 (y ${el.dataset.y})`);
+      assert.ok(el.classList.contains("pickable"), `후보 ${id} 탭 가능`);
+    }
+    // 미리보기: 컷백 = 박스 안 점선 + GK 길, 끝 글자 "→ 원터치 슛" / 센터링 = 포물선 + "→ 헤더"
+    const pb = s18.querySelector('button[data-action="pass"]');
+    pb.dispatchEvent(new window.Event("pointerdown", { bubbles: true }));
+    assert.ok(s18.querySelector(".g-arrow line.ar-pass") && s18.querySelector(".g-arrow line.ar-gk"), "컷백 점선 + GK 가 튀어나오는 길");
+    assert.equal(s18.querySelector(".g-tip text")?.textContent, "→ 원터치 슛");
+    pb.dispatchEvent(new window.Event("pointerleave"));
+    const cb = s18.querySelector('button[data-action="cross"]');
+    cb.dispatchEvent(new window.Event("pointerdown", { bubbles: true }));
+    assert.ok(s18.querySelector(".g-arrow path.ar-cross") && s18.querySelector(".g-arrow line.ar-gk"), "센터링 포물선 + GK 길");
+    assert.equal(s18.querySelector(".g-tip text")?.textContent, "→ 헤더");
+    cb.dispatchEvent(new window.Event("pointerleave"));
+    // 기본이 아닌 컷백 후보 탭 → 카드 받는 선수 · 받는 선수별 득점 기대 → 결정 { action: "pass", receiverId }
+    const other = v18.receivers.pass.candidates.find((id) => id !== v18.receivers.pass.defaultId);
+    s18.querySelector(`.tok[data-side="home"][data-id="${other}"]`).click();
+    assert.equal(doc.querySelectorAll("#modal-root .mini-card").length, 0, "후보 탭 = 선택");
+    const pb2 = s18.querySelector('button[data-action="pass"]');
+    assert.equal(pb2.dataset.receiver, other, "탭한 후보 = 컷백 받는 선수");
+    assert.equal(pb2.querySelector(".act-rname").textContent, nm(other));
+    assert.equal(pb2.querySelector(".act-pct").textContent, `${v18.outcomesByReceiver.pass[other].expectedPct}%`, "받는 선수별 득점 기대");
+    assert.ok(pb2.textContent.includes(v18.outcomesByReceiver.pass[other].success.short), "받는 선수별 성공 줄");
+    assert.ok(s18.querySelector(`.tok[data-side="home"][data-id="${other}"]`).classList.contains("picked"), "고른 후보 표시");
+    const e0 = S.store.match.events.length;
+    pb2.click();
+    assert.deepEqual(ui.lastDecision, { action: "pass", receiverId: other }, "결정 { action: pass, receiverId }");
+    const ev = S.store.match.events.slice(e0).find((e) => e.boxLink);
+    assert.ok(ev && ev.receiverId === other && ((ev.type === "duel" && ev.success) || ev.type === "save"), `박스 연결 판정 (${ev?.type})`);
+    assert.ok(await until(() => !ui.busy, 6000), "연출 끝");
+    const va = S.match.getMatchView(S.store.match, S.store.data, "home");
+    if (ev.type === "duel") {
+      assert.equal(va.carrier.id, other, "받은 선수가 공");
+      assert.match(s18.querySelector(".m-banner-txt").textContent, new RegExp(`^★ 컷백! ${nm(other)} 원터치 슛 찬스`), "배너 = 받은 선수의 찬스");
+    } else {
+      assert.equal(va.attackingSide, "away", "GK 가 잡음 → 상대 공");
+    }
+    S.actions.resetToStart();
+  }
+
+  // 19 ④ 컷백 성공 → 받은 선수가 GK 와 1:1: 연결은 포제션당 1회라 카드는 슛만, 연계 문구 "컷백!", 결과 한 줄
+  {
+    const { scr: s19, view: v19 } = inject("19_box_link_beat_mid");
+    const e0 = S.store.match.events.length;
+    s19.querySelector('button[data-action="pass"]').click();
+    const ev = S.store.match.events.slice(e0).find((e) => e.type === "duel" && e.boxLink);
+    assert.ok(ev && ev.success, "컷백 성공 이벤트");
+    assert.ok(await until(() => s19.querySelector(".m-link")?.textContent.includes("컷백!"), 2000), "연계 문구 컷백!");
+    assert.ok(await until(() => [...s19.querySelectorAll(".m-pop")].some((el) => el.textContent.includes("컷백 성공 · 원터치 슛 찬스")), 3000), "결과 한 줄");
+    assert.ok(await until(() => !ui.busy, 6000), "연출 끝");
+    const va = S.match.getMatchView(S.store.match, S.store.data, "home");
+    assert.ok(va.ballState.boxLinkUsed && va.carrier.id === ev.receiverId, "받은 선수가 공, 연결 사용");
+    const btns = [...s19.querySelectorAll("button[data-action]")].filter((b) => !b.disabled);
+    assert.deepEqual(btns.map((b) => b.dataset.action), ["shoot"], "연결 뒤에는 슛만");
+    assert.match(btns[0].title, /원터치/, "원터치 슛");
+    assert.equal(s19.querySelector(`.tok[data-side="home"][data-id="${ev.receiverId}"]`).dataset.role, "carrier");
+    assert.equal(s19.querySelectorAll('.tok[data-role="receiver"]').length, 0, "받는 선수 후보 없음");
+    assert.match(s19.querySelector(".m-banner-txt").textContent, /^★ 컷백! .+ 원터치 슛 찬스/);
+    assert.doesNotMatch(s19.querySelector(".m-info .expect").textContent, /컷백|센터링/, "정보 줄: 연결 문구 없음");
+    void v19;
     S.actions.resetToStart();
   }
 

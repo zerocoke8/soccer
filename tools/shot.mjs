@@ -7,7 +7,7 @@
 // 1) 내장 정적 서버(node:http, 포트 0)로 프로젝트 루트를 띄운다.
 // 2) Node 에서 엔진(js/engine/run.js · match.js)으로 시나리오 상황의 run/match 상태를 찾는다 (tools/scenarios.mjs).
 // 3) puppeteer-core + 로컬 Chrome/Edge 로 페이지를 열고 localStorage('soccer.run' / 'soccer.match' / 'soccer.teams')에 주입 →
-//    reload → 경기 · 저장된 런이면 시작 화면 "이어하기" 클릭 → (아웃게임) 조작 steps → 뷰포트 캡처 (페이지는 스크롤하지 않는다).
+//    reload → 경기 · 저장된 런이면 시작 화면 "이어하기" 클릭 → (아웃게임) 조작 steps(클릭 · 드래그) → 뷰포트 캡처 (페이지는 스크롤하지 않는다).
 // 4) 시나리오마다 파일 경로, 스테이지 배율, 페이지 · 안쪽 스크롤, 캡처 시점 상태 확인, pageerror/console.error 를 출력.
 //
 // 화면은 고정 스테이지(논리 1280×720, js/ui/stage.js)라 기본 뷰포트 1280×720 DPR 1 (데스크톱, 터치 없음) = 스테이지 1배.
@@ -495,6 +495,7 @@ async function enterOutgame(page, sc, prepared, opts, out) {
   }
   for (const st of sc.steps || []) {
     if (st.wait) { await delay(st.wait); continue; }
+    if (st.drag) { out.notes.push(await dragStep(page, st.drag)); continue; }
     const handle = await page.evaluateHandle((sel, textSrc) => {
       if (sel) return document.querySelector(sel);
       const rx = new RegExp(textSrc);
@@ -519,6 +520,36 @@ async function enterOutgame(page, sc, prepared, opts, out) {
     }
   }
   await delay(opts.settle);
+}
+
+/**
+ * 드래그 단계 (라인업 보드 js/ui/lineup.js): from 요소 가운데에서 누르고 → to 요소 가운데로 여러 번 나눠 움직이고 →
+ * release 면 놓는다, 아니면 누른 채로 두어 끄는 중 화면(초록/빨강 자리 · 고스트)을 캡처한다.
+ * 좌표는 puppeteer boundingBox(화면 px — 스테이지 배율을 거친 값) 그대로라 --width/--height 를 바꿔도 같은 곳에 놓인다.
+ * @param {{ from: string, to: string, release?: boolean, steps?: number, waitMs?: number }} d
+ */
+async function dragStep(page, d) {
+  const boxOf = async (sel) => {
+    const el = await page.$(sel);
+    if (!el) return null;
+    const box = await el.boundingBox();
+    await el.dispose();
+    return box;
+  };
+  const a = await boxOf(d.from);
+  const b = await boxOf(d.to);
+  if (!a || !b) return `드래그: '${!a ? d.from : d.to}' 을 찾지 못함`;
+  const ax = a.x + a.width / 2;
+  const ay = a.y + a.height / 2;
+  const bx = b.x + b.width / 2;
+  const by = b.y + b.height / 2;
+  await page.mouse.move(ax, ay);
+  await page.mouse.down();
+  await page.mouse.move(ax + 4, ay + 4, { steps: 2 }); // 문턱(6px) 전: 아직 탭
+  await page.mouse.move(bx, by, { steps: d.steps ?? 12 });
+  if (d.release) await page.mouse.up();
+  await delay(d.waitMs ?? 150);
+  return `드래그 ${d.from} → ${d.to} (${Math.round(ax)},${Math.round(ay)} → ${Math.round(bx)},${Math.round(by)})${d.release ? " 놓음" : " — 누른 채 캡처"}`;
 }
 
 /** 아웃게임 캡처 시점 확인: store.screen · run.phase · 모달 · ready 선택자 */

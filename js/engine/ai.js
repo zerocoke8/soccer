@@ -6,6 +6,7 @@
  *
  * A안 (GDD 9.9): 자동은 자기 성향값(match.tendencyValues) 1위 액션을 고른다 — 결정적, 상대를 읽지 않는다, 난수 없음.
  *  동률은 config.match.tendency.tieAttack / tieDefense 순서. 받는 선수 = 기본값(match.defaultReceiverId).
+ *  ④ 박스 연결(2026-09-29): line 3 성향값의 pass / cross = match.boxLinkEval 점수 → 같은 1위 규칙이 A안 예외(연결 조건)가 된다.
  *  의도 예측·공개(predictIntent, aiRevealForOpponent)는 폐지.
  *
  * 전술 5항목:
@@ -101,14 +102,17 @@ function effectSensible(sk, role, action, state, side, m) {
       return true;
     }
     case "extraLine":
-      return role === "attack" && action !== "shoot";
+      // 박스 연결(④ 컷백·센터링)은 더 전진할 곳이 없다
+      return role === "attack" && action !== "shoot" && line < 3;
     case "powerShot":
       return role === "attack" && action === "shoot";
     case "readBoost":
       return role === "defense" && line < 3;
     case "negateRead": {
       const acts = Array.isArray(p.actions) && p.actions.length ? p.actions : null;
-      return role === "attack" && line < 3 && (!acts || acts.includes(action));
+      // ④ 는 짝이 없는 GK 상대라 짝 무효는 의미 없다 — 받은 선수 보너스(nextDuelBonus)가 있으면 박스 연결에 쓴다
+      if (line >= 3) return role === "attack" && num(p.nextDuelBonus, 0) > 0 && (action === "pass" || action === "cross") && (!acts || acts.includes(action));
+      return role === "attack" && (!acts || acts.includes(action));
     }
     case "steal":
       // 버티기로 막으면 역습 이점이 없어 소매치기 무의미
@@ -192,7 +196,8 @@ export function decideAttack(state, data, side) {
   const carrier = findPlayer(team, state.ball && state.ball.carrierId);
   if (!carrier) throw new Error(`ai.decideAttack: ${side} 팀 공 소유자가 없습니다`);
   const values = tendencyValues(state, data, side, carrier.id);
-  const action = line >= 3 ? "shoot" : pickByTendency(values, tieOrder(m, "attack")) || "dribble";
+  // ④(line 3): values = 슛 값 + 박스 연결 점수 (match.boxLinkEval — 마무리 값 ≥ autoRatio × 슛 값, 또는 받는 선수 필살 슛 준비)
+  const action = pickByTendency(values, tieOrder(m, "attack")) || (line >= 3 ? "shoot" : "dribble");
   const skillId = chooseSkill(state, data, side, carrier, "attack", action);
   const fx = skillId ? fxWithSkill(state, side, data, skillId) : null;
   let receiverId = null;

@@ -123,6 +123,8 @@ function holderCount(team) {
  * - atk.* / def.*: 필드 듀얼(line 0~2)의 공격·수비 선택 (판정에 쓰인 액션 — 간파 교체 후)
  * - pairRead / pairMiss / pairHold: 필드 듀얼에서 수비가 짝을 맞힘 / 빗나감 / 버티기
  * - midH / midA / midGoal*: 파이널 서드 중거리 슛(필살 슛 제외 — 전술 슛 타이밍 효과 확인용)
+ * - boxPass / boxCross (…H / …A): ④ 박스 연결(컷백 패스 · 센터링) 시도, boxLinkOk: 연결 성공,
+ *   boxShot / boxShotGoal: 연결 성공 뒤 받은 선수의 슛(원터치·헤더)과 골, boxCombo: 그 슛이 합체기 (2026-09-29)
  */
 export function matchMetrics(ms) {
   const r = match.getResult(ms);
@@ -138,11 +140,13 @@ export function matchMetrics(ms) {
     cross: 0, crossOk: 0, header: 0, headerGoal: 0,
     midH: 0, midA: 0, midGoalH: 0, midGoalA: 0,
     fieldDuels: 0, pairRead: 0, pairMiss: 0, pairHold: 0,
+    boxPassH: 0, boxPassA: 0, boxCrossH: 0, boxCrossA: 0, boxLinkOk: 0, boxShot: 0, boxShotGoal: 0, boxCombo: 0,
     extraTime: ms.stage !== "regular" ? 1 : 0, penalties: r.penalties ? 1 : 0,
   };
   for (const a of ATK_ACTIONS) o[`atk_${a}`] = 0;
   for (const d of DEF_ACTIONS) o[`def_${d}`] = 0;
   for (const l of LINK_IDS) o[`link_${l}`] = 0;
+  let afterLink = null; // 박스 연결 성공 → 같은 포제션의 다음 판정 = 받은 선수의 슛
   for (const e of ms.events) {
     if (e.type === "cutin") {
       if (e.ultimateType === "shot") o.ultShot++;
@@ -151,6 +155,21 @@ export function matchMetrics(ms) {
       continue;
     }
     if (!FIELD_BEATS.has(e.type) || !e.action) continue;
+    if (e.boxLink) {
+      const h = e.attackingSide === "home";
+      o[(e.action === "cross" ? "boxCross" : "boxPass") + (h ? "H" : "A")]++;
+      if (e.success) {
+        o.boxLinkOk++;
+        afterLink = e.possession;
+      }
+    } else if (afterLink != null) {
+      if (e.possession === afterLink && e.action === "shoot") {
+        o.boxShot++;
+        if (e.type === "goal") o.boxShotGoal++;
+        if ((e.links || []).some((l) => l.id === "combo")) o.boxCombo++;
+      }
+      afterLink = null;
+    }
     if (e.type === "goal" && e.ultimate && e.action === "shoot") o.ultShotGoal++;
     for (const l of e.links || []) if (`link_${l.id}` in o) o[`link_${l.id}`]++;
     if (e.header) {
@@ -219,6 +238,11 @@ export function accSummary(acc) {
     pairMiss: field ? (s.pairMiss || 0) / field : 0,
     pairHold: field ? (s.pairHold || 0) / field : 0,
     fieldDuelsPerMatch: avg("fieldDuels"),
+    boxPassHome: avg("boxPassH"), boxPassAway: avg("boxPassA"), boxCrossHome: avg("boxCrossH"), boxCrossAway: avg("boxCrossA"),
+    boxLinks: avg("boxPassH") + avg("boxPassA") + avg("boxCrossH") + avg("boxCrossA"),
+    boxLinkSuccess: n && (avg("boxPassH") + avg("boxPassA") + avg("boxCrossH") + avg("boxCrossA"))
+      ? avg("boxLinkOk") / (avg("boxPassH") + avg("boxPassA") + avg("boxCrossH") + avg("boxCrossA")) : 0,
+    boxShotGoalRate: ratio("boxShotGoal", "boxShot"), boxCombos: avg("boxCombo"),
     extraTimeRate: avg("extraTime"), penaltyRate: avg("penalties"),
   };
 }
@@ -491,6 +515,9 @@ export function matchStatsTable(cols) {
     row("공격 선택 % 드/패/크/슛", (s) => mix(s.attackMix, ATK_ACTIONS, A)),
     row("수비 선택 % 태/인/버", (s) => mix(s.defenseMix, DEF_ACTIONS, D)),
     row("수비 짝/빗나감/버티기 %", (s) => `${Math.round(s.pairRead * 100)}/${Math.round(s.pairMiss * 100)}/${Math.round(s.pairHold * 100)}`),
+    row("박스 연결/경기 컷백/센터링 우리 · 상대", (s) => `${fmt(s.boxPassHome)}/${fmt(s.boxCrossHome)} · ${fmt(s.boxPassAway)}/${fmt(s.boxCrossAway)}`),
+    row("박스 연결 성공률 · 다음 슛 골%", (s) => (s.boxLinks ? `${pct(s.boxLinkSuccess)} · ${s.boxShotGoalRate ? pct(s.boxShotGoalRate) : "-"}` : "-")),
+    row("박스 합체기/경기", (s) => fmt(s.boxCombos, 3)),
     row("연장 / 승부차기", (s) => `${pct(s.extraTimeRate)} / ${pct(s.penaltyRate)}`),
   ]);
 }

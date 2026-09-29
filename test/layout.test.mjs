@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  computeLayout, resolvePreview, receiverCandidates, ZONES, SHAPE, LANES, X_MIN, X_MAX, HIGHLIGHTS, RECEIVER_INSET, zoneFor, zoneAtY, tokenDistance, withJosa,
+  computeLayout, resolvePreview, receiverCandidates, ZONES, SHAPE, LANES, X_MIN, X_MAX, HIGHLIGHTS, RECEIVER_INSET, BOX_LANE, zoneFor, zoneAtY, tokenDistance, withJosa,
   fieldToScreen, screenToField,
 } from "../js/ui/layout.js";
 import { loadData, clone, run, match } from "./helpers.mjs";
@@ -193,7 +193,11 @@ function assertPlayLayout(view, L, where) {
   assert.deepEqual(receivers, expectReceiver, `${where}: receiver = 받는 선수 후보 전원`);
   assert.deepEqual(L.receiverIds, expectReceiver, `${where}: receiverIds`);
   assert.equal(L.receiverId, receiverId && landingOf.has(receiverId) ? receiverId : null, `${where}: receiverId = receiverPreview`);
-  for (const id of expectReceiver) assert.ok(!behind(byId.get(id).y) && byId.get(id).y !== L.ball.y, `${where}: 후보 ${id} 는 공보다 앞`);
+  // ④ 박스 연결(컷백·센터링, 2026-09-29): 후보는 공과 같은 박스 안 (컷백은 뒤로 내준다) — 그 밖에는 공보다 앞
+  for (const id of expectReceiver) {
+    if (step >= 3) assert.equal(zoneAtY(byId.get(id).y), zone, `${where}: 박스 연결 후보 ${id} 는 박스 안`);
+    else assert.ok(!behind(byId.get(id).y) && byId.get(id).y !== L.ball.y, `${where}: 후보 ${id} 는 공보다 앞`);
+  }
 
   // defender: carrier 와 같은 레인, 세로 간격 ≥ 토큰 지름, 공과 자기 골 사이
   const defs = L.tokens.filter((t) => t.role === "defender").map((t) => t.id);
@@ -235,7 +239,10 @@ function assertPlayLayout(view, L, where) {
     if (t.id === carrierId) continue;
     if (expectReceiver.includes(t.id)) {
       const landing = landingOf.get(t.id);
-      assert.equal(t.y, toY(Math.max(SHAPE.atk[pos][step], ZONES[landing + 1].from + RECEIVER_INSET)), `${where}: ${t.id} 패스 후보 세로`);
+      const edgeY = toY(Math.max(SHAPE.atk[pos][step], ZONES[landing + 1].from + RECEIVER_INSET));
+      // ④ 박스 연결 후보: 박스 가장자리 또는 (연결 화살표가 다른 토큰 위를 지나지 않게) 깊은 줄 BOX_LANE.deep
+      if (step >= 3 && landing === 3) assert.ok(t.y === edgeY || t.y === toY(BOX_LANE.deep), `${where}: ${t.id} 박스 연결 후보 세로 ${t.y}`);
+      else assert.equal(t.y, edgeY, `${where}: ${t.id} 패스 후보 세로`);
       assert.equal(zoneAtY(t.y), zoneFor(atk, landing), `${where}: 패스 후보 ${t.id} y=${t.y} 는 도착 구역 Z${zoneFor(atk, landing)} 안`);
       continue;
     }
@@ -771,6 +778,146 @@ test("패스 후보 = 패스 도착 구역 안: ① → 중원, ② → 상대 �
   assert.equal(zoneAtY(r.y), 4);
 });
 
+/**
+ * ④ 박스 연결 합성 view (2026-09-29): 엔진 규칙의 후보 — 컷백 = FW 전원 + MF 1명(첫 MF), 센터링 = FW 전원 + MF 1명(마지막 MF), carrier 제외,
+ * arrival 3 (= 지금 단계, 공은 박스 그대로), 듀얼 상대 = GK. 크로스는 carrier 가 크로서일 때만이라 withCross 로 켠다.
+ */
+function boxLinkView({ homeF, awayF, atk, carrierId, withCross = true }) {
+  const base = makeView({ homeF, awayF, atk, step: 3, carrierId, defenderId: null });
+  const A = base.players[atk];
+  const fws = A.filter((p) => posOfSynthetic(p) === "FW" && p.id !== carrierId);
+  const mfs = A.filter((p) => posOfSynthetic(p) === "MF" && p.id !== carrierId);
+  const plan = (mf) => {
+    const cands = A.filter((p) => fws.includes(p) || p === mf).map((p) => p.id);
+    return cands.length ? { candidates: cands, defaultId: cands[0], arrival: 3, zone: zoneFor(atk, 3), boxLink: true } : null;
+  };
+  const receivers = {};
+  const pass = plan(mfs[0]);
+  if (pass) receivers.pass = pass;
+  const cross = withCross ? plan(mfs[mfs.length - 1]) : null;
+  if (cross) receivers.cross = cross;
+  const gk = base.players[other(atk)].find((p) => posOfSynthetic(p) === "GK");
+  return makeView({
+    homeF, awayF, atk, step: 3, carrierId, defenderId: gk.id, receiverId: pass ? pass.defaultId : null,
+    extra: { receivers, receiverPreview: pass ? { id: pass.defaultId, name: "", side: atk, step: 3, zone: zoneFor(atk, 3) } : null },
+  });
+}
+
+test("④ 박스 연결 후보 (컷백 · 센터링, arrival 3): 전원 박스 안 · 공 가진 선수 레인에서 비켜 선다 · 겹침 없음 (합성 4 포메이션² × 양 팀 × carrier 전원, 스테이지 비율 포함)", () => {
+  assert.deepEqual(receiverCandidates({ lineIndex: 3, receivers: { pass: { candidates: ["x"], arrival: 3 } } }), [{ id: "x", actions: ["pass"], arrival: 3 }], "④: arrival 3 = 박스 그대로");
+  let n = 0;
+  let shifted = 0;
+  let minGap = Infinity;
+  let arrowMin = Infinity;
+  for (const homeF of FORMS) {
+    for (const awayF of FORMS) {
+      for (const atk of ["home", "away"]) {
+        const field = makeView({ homeF, awayF, atk, step: 3, carrierId: null, defenderId: null }).players[atk].filter((p) => posOfSynthetic(p) !== "GK");
+        for (const c of field) {
+          for (const withCross of [true, false]) {
+            const view = boxLinkView({ homeF, awayF, atk, carrierId: c.id, withCross });
+            const where = `${homeF} vs ${awayF} ${atk} ④ box c=${c.id}${withCross ? " +센터링" : ""}`;
+            const L = computeLayout(view);
+            assertPlayLayout(view, L, where); // 후보 전원 receiver · 박스 안 · 세로 = 박스 시작 + INSET · 규칙 위치 · 겹침 없음
+            const ids = [...new Set([...(view.receivers.pass?.candidates || []), ...(view.receivers.cross?.candidates || [])])];
+            const C = L.tokens.find((t) => t.id === c.id);
+            for (const id of ids) {
+              const t = L.tokens.find((x) => x.id === id);
+              const lane = t.x; // 합성 레인 (LANES) 과 비교
+              const natural = normLane(view, atk, id);
+              if (Math.abs(natural - C.x) < BOX_LANE.gap) shifted++;
+              minGap = Math.min(minGap, Math.abs(lane - C.x));
+              assert.ok(Math.abs(lane - C.x) >= 7.5 - TOL, `${where}: 후보 ${id} x=${lane.toFixed(1)} 가 공 가진 선수(x=${C.x}) 바로 옆`);
+            }
+            for (const [aspect, tokenSize] of [[0.4244, 0.0909], [0.8, 0.083], [1.15, 0.0875]]) {
+              const LA = computeLayout(view, { aspect, tokenSize });
+              assertRangeInvariants(view, LA, aspect, tokenSize, `${where} @${aspect}`);
+              // 연결 화살표(공 가진 선수 → 후보)는 다른 후보 위를 지나지 않는다: 선분과 다른 후보 중심 거리 ≥ 토큰 반지름.
+              // 같은 쪽 후보가 3명 이상(3-MF 포메이션의 MF carrier + 크로서 — 후보 4명)이면 깊이 두 줄로는 다 못 비키므로 기본 받는 선수만
+              const CA = LA.tokens.find((t) => t.id === c.id);
+              const sideOf = (t) => Math.sign(t.x - CA.x);
+              for (const id of ids) {
+                const R = LA.tokens.find((t) => t.id === id);
+                const sameSide = ids.filter((x) => sideOf(LA.tokens.find((t) => t.id === x)) === sideOf(R)).length;
+                if (sameSide > 2 && id !== view.receiverPreview?.id) continue;
+                for (const id2 of ids) {
+                  if (id2 === id) continue;
+                  const U = LA.tokens.find((t) => t.id === id2);
+                  const d = segDistTest(U, CA, R, aspect);
+                  arrowMin = Math.min(arrowMin, d / (tokenSize * 100));
+                  assert.ok(d >= (tokenSize * 100) / 2 - TOL, `${where} @${aspect}: 화살표 ${c.id} → ${id} 가 후보 ${id2} 위를 지남 (d=${d.toFixed(2)})`);
+                }
+              }
+            }
+            n++;
+          }
+        }
+      }
+    }
+  }
+  assert.ok(n > 300 && shifted > 50, `박스 view ${n}, 비켜 선 후보 ${shifted}`);
+  assert.ok(minGap >= 7.5, `공 가진 선수와 후보의 가로 간격 최소 ${minGap}`);
+  assert.ok(arrowMin >= 0.5, `화살표–다른 후보 최소 거리 ${arrowMin} × 지름`);
+  // 같은 레인 후보 둘(2-2-2 FW2 carrier → FW1 · MF1 둘 다 레인 30): 한 명은 가장자리, 한 명은 깊은 줄 —
+  // 컷백 화살표 그룸바 → 실루엔이 울릭 위를 지나지 않는다 (visual QA 2026-09-29, 화살표 거리는 위 루프가 확인)
+  const v19 = boxLinkView({ homeF: "2-2-2", awayF: "2-2-2", atk: "home", carrierId: "h_FW2", withCross: false });
+  const L19 = computeLayout(v19, { aspect: 0.4244, tokenSize: 0.0909 });
+  const at19 = (id) => L19.tokens.find((t) => t.id === id);
+  assert.deepEqual([at19("h_FW1").x, at19("h_MF1").x], [30, 30], "제 레인 그대로");
+  assert.deepEqual([at19("h_FW1").y, at19("h_MF1").y].sort(), [86, BOX_LANE.deep], "한 명은 가장자리, 한 명은 깊은 줄");
+  // 레인이 겹치면 비켜 선다 — 다른 후보가 없는 쪽으로: 2-2-2 FW1(레인 30) carrier → MF1(레인 30) 후보는 레인 14 (FW2 쪽이 아니라 반대쪽),
+  // FW2(레인 70)는 제 레인 → 컷백 화살표 울릭 → 그룸바가 실루엔 위를 지나지 않는다
+  const v = boxLinkView({ homeF: "2-2-2", awayF: "2-2-2", atk: "home", carrierId: "h_FW1", withCross: false });
+  const L = computeLayout(v, { aspect: 0.4244, tokenSize: 0.0909 });
+  const at = (id) => L.tokens.find((t) => t.id === id);
+  assert.equal(at("h_FW1").x, 30);
+  assert.equal(at("h_MF1").x, 30 - BOX_LANE.shift, "carrier 레인의 후보 → 다른 후보가 없는 쪽으로");
+  assert.equal(at("h_FW2").x, 70, "다른 레인 후보는 제 레인");
+  assert.ok(at("h_MF1").y === 86 && at("h_FW2").y === 86 && at("h_FW1").y === 90, "세로: 후보 = 박스 시작 + 2, 공 = 90");
+  // 터치라인 쪽이 min 에 막혀도 반대쪽에 다른 후보(MF2 50 · FW2 70)가 있으면 그 길 위에 서지 않는다: 1-3-2 MF1(레인 20) carrier → FW1(30)은 레인 10
+  const v2 = boxLinkView({ homeF: "1-3-2", awayF: "2-2-2", atk: "home", carrierId: "h_MF1", withCross: false });
+  const L2 = computeLayout(v2, { aspect: 0.4244, tokenSize: 0.0909 });
+  assert.equal(L2.tokens.find((t) => t.id === "h_FW1").x, BOX_LANE.min, "min 까지만, 다른 후보 쪽으로 넘어가지 않음");
+});
+
+/** 점 p 와 선분 a–b 의 거리 (필드 폭 % 단위, 세로는 aspect 로 환산) */
+function segDistTest(p, a, b, aspect) {
+  const dx = b.x - a.x;
+  const dy = (b.y - a.y) / aspect;
+  const px = p.x - a.x;
+  const py = (p.y - a.y) / aspect;
+  const len2 = dx * dx + dy * dy;
+  const t = len2 > 0 ? Math.max(0, Math.min(1, (px * dx + py * dy) / len2)) : 0;
+  return Math.hypot(px - t * dx, py - t * dy);
+}
+
+/** 합성 view 선수의 기본 레인 (LANES, 같은 포지션 slot 순) */
+function normLane(view, side, id) {
+  const pos = posOfSynthetic(view.players[side].find((p) => p.id === id));
+  const same = view.players[side].filter((p) => posOfSynthetic(p) === pos);
+  return LANES[same.length][same.findIndex((p) => p.id === id)];
+}
+
+test("④ 박스 연결 성공 직후 배너: 받은 선수의 원터치 슛 · 헤더 찬스 (양 팀)", () => {
+  for (const atk of ["home", "away"]) {
+    const v = boxLinkView({ homeF: "2-2-2", awayF: "2-2-2", atk, carrierId: `${atk === "home" ? "h" : "a"}_FW2` });
+    const lb = (action) => ({ type: "duel", side: atk, attackingSide: atk, success: true, boxLink: true, action, via: action, playerId: `${atk === "home" ? "h" : "a"}_FW1`, receiverId: v.carrier.id, step: 3, toStep: 3 });
+    const gk = atk === "home" ? "마르텐" : "네리아";
+    const b1 = computeLayout({ ...v, lastBeat: lb("pass") }).banner;
+    const b2 = computeLayout({ ...v, lastBeat: lb("cross") }).banner;
+    const nm = v.carrier.name;
+    if (atk === "home") {
+      assert.equal(b1, `★ 컷백! ${nm} 원터치 슛 찬스, ${withJosa(gk, "과/와")} 1:1`);
+      assert.equal(b2, `★ 센터링! ${nm} 헤더 찬스, ${withJosa(gk, "과/와")} 1:1`);
+    } else {
+      assert.equal(b1, `⚠ 상대 컷백! ${nm} 원터치 슛 위기, ${withJosa(gk, "과/와")} 1:1`);
+      assert.equal(b2, `⚠ 상대 센터링! ${nm} 헤더 위기, ${withJosa(gk, "과/와")} 1:1`);
+    }
+    // 연결 전(또는 다른 비트 뒤)은 원래 슈팅 찬스 · 위기 배너
+    assert.match(computeLayout(v).banner, atk === "home" ? /^★ 슈팅 찬스/ : /^⚠ 슈팅 위기/);
+  }
+});
+
 test("resolvePreview: 토글한 스킬의 변형으로 바꾸고, 자동 진행 중 확정할 수 없는 패스 후보는 지운다", () => {
   const v = makeView({ homeF: "1-3-2", awayF: "2-2-2", atk: "home", step: 0, carrierId: "h_DF1", defenderId: "a_FW1", receiverId: "h_MF1" });
   v.humanSide = "home";
@@ -965,7 +1112,9 @@ function assertRangeInvariants(view, L, aspect, tokenSize, where) {
   }
   if (L.receiverId) {
     const r = T.find((t) => t.side === atk && t.id === L.receiverId);
-    assert.ok(ahead(r.y), `${where}: 패스 후보는 공 앞`);
+    // ④ 박스 연결: 받는 선수는 박스 안 (공 앞이 아닐 수 있다)
+    if (step >= 3) assert.equal(zoneAtY(r.y), zoneFor(atk, step), `${where}: 박스 연결 후보는 박스 안`);
+    else assert.ok(ahead(r.y), `${where}: 패스 후보는 공 앞`);
   }
 }
 

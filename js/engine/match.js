@@ -20,6 +20,16 @@
  *  - 연계 특성(traits.json, 팀워크 증폭), 원터치·헤더, 받는 선수 직접 고르기(decision.receiverId).
  *  - 간파(readBoost / negateRead, 사용권), 필살기(개인 게이지, shot/pass/save, 합체기), 일반 액티브 새 어휘(skills.js).
  *
+ * 2026-09-29 (사용자 결정):
+ *  - 짝 표: 드리블 ↔ 태클, 패스(땅볼) ↔ 인터셉트, 크로스(공중볼) ↔ 버티기(×holdVsCross), 중거리 슛 ↔ 버티기(×holdVsMidrange).
+ *    태클·인터셉트는 크로스에 빗나감(×missMult). 간파(readBoost / negateRead)는 버티기 ↔ 크로스도 다른 짝과 똑같이 다룬다.
+ *  - 박스 연결 (④ 슈팅 찬스, lineIndex 3): 슛 외에 컷백 패스(action "pass" → 받은 선수 원터치 슛)와
+ *    센터링(action "cross", 크로서만 → 받은 선수 헤더). 연결 자체가 GK 와의 듀얼(GK 세이브 값 × boxLink.gkMult, 짝 없음).
+ *    성공 → 공은 line 3 그대로, 받은 선수가 carrier (원터치 · receivedVia · 연계 +1 · 게이지 onReceive).
+ *    실패 → GK 가 잡음 = 세이브와 같음 (이벤트 "save", 상대 골킥 / 빠른 배급 GK 면 중원).
+ *    포제션당 1회 (ball.boxLinkUsed). 자동(A안 예외)은 boxLinkEval 규칙 — 받는 선수 마무리 값 ≥ autoRatio × 내 슛 값이거나
+ *    받는 선수의 필살 슛이 준비(합체기 포함)되고 내게 준비된 필살 슛이 없을 때만 연결.
+ *
  * 순수 로직. 난수는 state.rngState 로만 (함수 단위로 createRngFromState → getState 저장).
  */
 
@@ -52,10 +62,13 @@ export const START_POS_BY_LINE = ["DF", "MF", "FW"];
 export const LINE_LABELS = ["FW 라인", "MF 라인", "DF 라인", "골키퍼"];
 export const ACTIONS_ATTACK = ["dribble", "pass", "cross", "shoot"];
 export const ACTIONS_DEFENSE = ["tackle", "intercept", "hold"];
-/** 짝: 공격 → 그것을 읽는 수비 (§13.2-1) */
-export const COUNTER = { dribble: "tackle", pass: "intercept", cross: "intercept", shoot: "hold" };
+/**
+ * 짝: 공격 → 그것을 읽는 수비 (§13.2-1). 크로스(공중볼)는 몸으로 버티는 수비에 약하다 (2026-09-29).
+ * shoot ↔ hold 는 파이널 서드 중거리 슛만 (박스 슛은 GK 와 1:1 — 짝 없음).
+ */
+export const COUNTER = { dribble: "tackle", pass: "intercept", cross: "hold", shoot: "hold" };
 /** 수비 → 그것이 읽는 공격들 */
-export const COUNTERED = { tackle: ["dribble"], intercept: ["pass", "cross"], hold: ["shoot"] };
+export const COUNTERED = { tackle: ["dribble"], intercept: ["pass"], hold: ["cross", "shoot"] };
 export const ACTION_LABEL = {
   dribble: "드리블", pass: "패스", cross: "크로스", shoot: "슛", header: "헤더",
   tackle: "태클", intercept: "인터셉트", hold: "버티기", save: "세이브",
@@ -270,6 +283,30 @@ function ultCfg(m) {
   };
 }
 
+/** 박스 연결 설정 (config.match.boxLink): gkMult = 연결 듀얼의 GK 수비 배율, autoRatio = 자동 연결 기준 배율 */
+function boxLinkCfg(m) {
+  const b = m.boxLink || {};
+  return { gkMult: num(b.gkMult, 1), autoRatio: num(b.autoRatio, 1.25) || 1.25 };
+}
+
+/** ④(line 3)에서의 패스·크로스 = 박스 연결 */
+function isBoxLinkAction(action, line) {
+  return line >= 3 && (action === "pass" || action === "cross");
+}
+
+/**
+ * ④ 박스 연결이 막혔을 때(GK 가 잡음 = 세이브) 한 줄 — side(공격) 시점. attackOutcome 실패 줄과 같은 규칙:
+ * GK 의 배급 특성(counterPlan saveCounterLine) 0 = "막히면 상대 골킥", 아니면 "막히면 상대 역습, ○○부터".
+ */
+function boxLinkFailHint(state, data, side) {
+  const opp = otherSide(side);
+  const oppTeam = state && state[opp];
+  if (!data || !oppTeam) return "막히면 상대 골킥";
+  const gk = (state.duel && findPlayer(oppTeam, state.duel.defenderId)) || oppTeam.players.find((p) => p.position === "GK") || null;
+  const cp = counterPlan(data, 3, "save", fxOf(state, opp), gk, true);
+  return cp.start === 0 ? "막히면 상대 골킥" : `막히면 상대 역습, ${zoneNameFor(zoneOf(opp, cp.start), side)}부터`;
+}
+
 /* ------------------------------------------------------------------ */
 /* 연계 특성 · 합체기                                                     */
 /* ------------------------------------------------------------------ */
@@ -432,14 +469,15 @@ function kickoffLine(data) {
  *  chain: 패스·크로스 연계 스택, extraLine: DF 라인 뒤 추가 전진(슛 +20%), oneTouch: 패스·크로스(또는 라인 브레이커)로 박스 도착,
  *  receivedVia: "pass"|"cross"|null (받은 방법), lastPasserId: 킬패스·필살 패스 판정, receivedFresh: 받은 뒤 첫 듀얼 전,
  *  comboReadyId / comboFrom: 필살 패스를 받아 다음 듀얼에서 합체기를 쓸 수 있는 선수,
- *  pending: 다음 듀얼 한 번만 쓰는 공격 보너스 { beaten, interceptFail, nextBonus }
+ *  pending: 다음 듀얼 한 번만 쓰는 공격 보너스 { beaten, interceptFail, nextBonus },
+ *  boxLinkUsed: 이번 포제션에 박스 연결(④ 컷백·센터링)을 이미 했다 (포제션당 1회)
  */
 function newBall(carrierId, lineIndex, nextBonus) {
   const pending = emptyPending();
   pending.nextBonus = num(nextBonus, 0);
   return {
     carrierId, lineIndex, chain: 0, extraLine: false, oneTouch: false, receivedVia: null, lastPasserId: null,
-    receivedFresh: false, comboReadyId: null, comboFrom: null, pending,
+    receivedFresh: false, comboReadyId: null, comboFrom: null, pending, boxLinkUsed: false,
   };
 }
 
@@ -677,7 +715,20 @@ function crossPlan(team, carrier) {
   return { arrival: 3, candidates: crossCands(team, carrier) };
 }
 
+/**
+ * 박스 연결(④) 후보: FW 전원 + MF 1명 (carrier 제외, team.players 순서).
+ * 컷백(pass) = 슈팅 최고 MF, 센터링(cross) = 피지컬 최고 MF (크로스 후보와 같은 규칙). 동률은 슬롯 순서.
+ */
+function boxLinkCands(team, carrier, action) {
+  if (action === "cross") return crossCands(team, carrier);
+  const mfs = team.players.filter((p) => p.position === "MF" && p.id !== carrier.id);
+  const bestMf = bestOf(mfs, (p) => stat(p, "shoot"));
+  return team.players.filter((p) => p.id !== carrier.id && (p.position === "FW" || (bestMf && p.id === bestMf.id)));
+}
+
+/** 받는 선수 계획 { arrival, candidates, box? }. line 3 = 박스 연결 (도착 line 3, box: true) */
 function planFor(team, carrier, action, line, fx) {
+  if (line >= 3) return { arrival: 3, candidates: boxLinkCands(team, carrier, action), box: true };
   if (action === "cross") return crossPlan(team, carrier);
   return passPlan(team, carrier, line, fx && fx.extraLine);
 }
@@ -693,7 +744,12 @@ function attackOptionsFor(state, data, side, player, line, fx) {
   const out = { dribble: false, pass: false, cross: false, shoot: false };
   if (!player) return out;
   if (line >= 3) {
+    // ④ 슈팅 찬스: 슛 + 박스 연결(컷백 패스 · 센터링 = 크로서만), 연결은 포제션당 1회
     out.shoot = true;
+    if (!(state.ball && state.ball.boxLinkUsed)) {
+      out.pass = boxLinkCands(team, player, "pass").length > 0;
+      out.cross = canCross(data, player) && boxLinkCands(team, player, "cross").length > 0;
+    }
     return out;
   }
   out.dribble = true;
@@ -734,8 +790,37 @@ function receiverValue(state, data, side, player, action, arrival, combo = false
   return best;
 }
 
-/** 후보 중 기본 받는 선수 (동률 → players 순서). fx 에 필살 패스가 있으면 합체기 가치를 반영 */
+/**
+ * 박스 연결(④)로 받은 선수의 마무리 값 (원터치 슛 / 헤더 공격 값, GK 배율 제외 — 비교는 boxLinkEval 이 GK 기준을 맞춘다).
+ * receiverValue(도착 line 3 — 피니셔·타깃맨, 필살 패스면 합체기) + 받는 선수 자기 필살 슛: 받은 뒤 게이지
+ * (onReceive / 필살 패스면 receiverGauge)가 가득이면 AI 규칙(shot = 준비되면 사용)대로 ×shoot.
+ * @returns {{ value: number, ultReady: boolean, combo: boolean }} ultReady = 다음 슛에 필살 슛(합체기 포함)을 쓸 수 있다
+ */
+function boxReceiverValue(state, data, side, player, action, fx = null) {
+  const uc = ultCfg(matchCfg(data));
+  const passUlt = !!(fx && fx.ult && fx.ult.type === "pass");
+  const own = getPlayerUltimate(data, player);
+  const shotUlt = !!(own && own.ultimate.type === "shot");
+  const combo = passUlt && shotUlt;
+  let value = receiverValue(state, data, side, player, action, 3, passUlt);
+  let ultReady = combo;
+  if (!combo && shotUlt) {
+    const g = gaugeOf(state, side, player.id);
+    const gain = passUlt ? num(fx.ult.receiverGauge, uc.onUltPassReceive) : uc.onReceive;
+    if (g != null && g + gain >= uc.max) {
+      ultReady = true;
+      value *= num(own.ultimate.shoot, 1);
+    }
+  }
+  return { value: round6(value), ultReady, combo };
+}
+
+/**
+ * 후보 중 기본 받는 선수 (동률 → players 순서). fx 에 필살 패스가 있으면 합체기 가치를 반영.
+ * 박스 연결(plan.box)은 받는 선수 자기 필살 슛 준비까지 반영한 마무리 값 (boxReceiverValue).
+ */
 function defaultFromPlan(state, data, side, action, plan, fx = null) {
+  if (plan.box) return bestOf(plan.candidates, (p) => boxReceiverValue(state, data, side, p, action, fx).value);
   const combo = !!(fx && fx.ult && fx.ult.type === "pass");
   return bestOf(plan.candidates, (p) => receiverValue(state, data, side, p, action, plan.arrival, combo));
 }
@@ -824,6 +909,8 @@ function attackTendencyAt(state, data, side, player, line, o = {}) {
   const vals = {};
   for (const a of ACTIONS_ATTACK) {
     if (!opts[a]) continue;
+    // ④ 박스 연결은 성향값이 아니라 boxLinkEval 점수 (tendencyValues 가 carrier 에게만 더한다)
+    if (line >= 3 && a !== "shoot") continue;
     const ult = o.ultFor ? o.ultFor(a) : null;
     const header = a === "shoot" && line >= 3 && !!o.viaCross;
     const boxShot = !!(ult && ult.type === "shot" && ult.boxShot);
@@ -873,6 +960,8 @@ function defenseTendency(state, data, side, player) {
 /**
  * 성향값 (§13.2-9). side 가 공격 중이면 carrier(또는 playerId)의 공격 성향, 수비 중이면 듀얼 수비수의 수비 성향.
  * carrier 의 성향에는 받은 직후 특성과 AI 규칙상 쓸 필살기 효과가 들어간다. GK 듀얼(line 3) 수비는 {}.
+ * ④(line 3) carrier 의 pass / cross = 박스 연결 점수 (boxLinkEval.score — 마무리 값 ÷ autoRatio, 필살 슛 조건이면 ≥ 슛 값)
+ *  → 1위(동률 tieAttack)가 곧 자동 선택 (A안 예외 규칙을 같은 척도로 표현).
  * 상태를 바꾸지 않고 난수를 쓰지 않는다.
  */
 export function tendencyValues(state, data, side, playerId = null) {
@@ -884,12 +973,17 @@ export function tendencyValues(state, data, side, playerId = null) {
     const p = findPlayer(team, pid);
     if (!p) return {};
     const isCarrier = pid === state.ball.carrierId;
-    return attackTendencyAt(state, data, side, p, line, {
+    const vals = attackTendencyAt(state, data, side, p, line, {
       fresh: isCarrier && !!state.ball.receivedFresh,
       viaCross: isCarrier && state.ball.receivedVia === "cross",
       fx: isCarrier ? fxOf(state, side) : null,
-      ultFor: isCarrier ? (a) => aiUltFor(state, data, side, p, "attack", a) : null,
+      ultFor: isCarrier ? carrierUltFor(state, data, side, p) : null,
     });
+    if (isCarrier && line >= 3) {
+      const ev = boxLinkEval(state, data, side);
+      for (const a of ["pass", "cross"]) if (ev[a]) vals[a] = ev[a].score;
+    }
+    return vals;
   }
   if (line >= 3) return {};
   const pid = playerId || (state.duel && state.duel.defenderId);
@@ -917,8 +1011,9 @@ export function autoAction(state, data, side) {
   const m = matchCfg(data);
   const tc = tendCfg(m);
   if (state.attackingSide === side) {
-    if (num(state.ball.lineIndex, 0) >= 3) return "shoot";
-    return pickByTendency(tendencyValues(state, data, side), tc.tieA) || "dribble";
+    // ④: 슛 값 vs 박스 연결 점수 (tendencyValues) — boxLinkEval 규칙과 같다
+    const box = num(state.ball.lineIndex, 0) >= 3;
+    return pickByTendency(tendencyValues(state, data, side), tc.tieA) || (box ? "shoot" : "dribble");
   }
   if (num(state.ball.lineIndex, 0) >= 3) return "save";
   return pickByTendency(tendencyValues(state, data, side), tc.tieD) || "hold";
@@ -945,10 +1040,14 @@ function isComboReady(state, side, pid) {
   return state.attackingSide === side && !!state.ball && state.ball.comboReadyId === pid;
 }
 
-/** 필살 종류가 도착 line 에서 쓸 수 있는가 (합체기 판단용) */
+/**
+ * 필살 종류가 도착 line 에서 쓸 수 있는가 (합체기 판단용). pass 는 ④ 에서도 박스 연결(컷백·센터링)과 함께 쓸 수 있다 —
+ * ② 이하에서 받아 ④ 에 도착한 선수는 이번 포제션 박스 연결을 아직 안 했다 (ultimateUsable 과 같은 규칙).
+ * 박스 연결로 받은 선수의 값은 boxReceiverValue(마무리 값)라 여기의 pass 결과를 쓰지 않는다.
+ */
 function ultTypeUsableAt(type, line) {
   if (type === "shot") return line >= 2;
-  if (type === "pass") return line < 3;
+  if (type === "pass") return line <= 3;
   return false;
 }
 
@@ -969,7 +1068,14 @@ export function ultimateUsable(state, data, side, player, role, action = null) {
     if (role !== "attack" || line < 2) return { ok: false, reason: "파이널 서드·박스 슛에서만", skill, combo };
     if (action && action !== "shoot") return { ok: false, reason: "슛과 함께만", skill, combo };
   } else if (t === "pass") {
-    if (role !== "attack" || line >= 3) return { ok: false, reason: "패스·크로스에서만", skill, combo };
+    if (role !== "attack") return { ok: false, reason: "패스·크로스에서만", skill, combo };
+    if (line >= 3) {
+      // ④ 박스 연결(컷백·센터링)에서도 쓸 수 있다 — 연결이 가능할 때만 (포제션당 1회)
+      const opts = attackOptionsFor(state, data, side, player, line, fx);
+      if (!opts.pass && !opts.cross) {
+        return { ok: false, reason: state.ball && state.ball.boxLinkUsed ? "박스 연결은 포제션당 1회" : "연결할 동료 없음", skill, combo };
+      }
+    }
     if (action && action !== "pass" && action !== "cross") return { ok: false, reason: "패스·크로스와 함께만", skill, combo };
   } else if (t === "save") {
     if (role !== "defense" || line < 3) return { ok: false, reason: "GK 세이브에서만", skill, combo };
@@ -1015,6 +1121,90 @@ function aiUltFor(state, data, side, player, role, action) {
   if (!aiWantsUltimate(state, data, side, player, role, action)) return null;
   const skill = getPlayerUltimate(data, player);
   return Object.assign({}, skill.ultimate, { combo: isComboReady(state, side, player.id) });
+}
+
+/**
+ * carrier 성향값에 넣을 필살기 (action → ultimate|null). 이번 듀얼에 이미 커밋했으면 그 필살기(합체기 포함 — 게이지는 이미 0 이라
+ * aiUltFor 로는 다시 안 잡힌다), 아니면 AI 규칙상 쓸 필살기. AI 공격수가 먼저 커밋한 뒤의 뷰(view.boxLink)도 커밋 전과 같은 값을 낸다.
+ */
+function carrierUltFor(state, data, side, player) {
+  const fx = fxOf(state, side);
+  if (!fx.ult) return (a) => aiUltFor(state, data, side, player, "attack", a);
+  const u = fx.ult;
+  return (a) => ((u.type === "shot" && a === "shoot") || (u.type === "pass" && (a === "pass" || a === "cross"))
+    ? Object.assign({}, u, { combo: !!fx.combo })
+    : null);
+}
+
+/* ------------------------------------------------------------------ */
+/* 박스 연결 자동 규칙 (④, 2026-09-29)                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * ④(line 3) 박스 연결 자동 규칙 — A안 예외. 결정적, 상대의 선택을 읽지 않는다, 난수 없음. 사람 측 자동 · 상대 AI 공통.
+ *  shoot.value = carrier 슛 성향값 (받은 직후 피니셔·헤더·타깃맨, AI 규칙상 쓸 필살 슛·합체기 포함).
+ *  [pass|cross].value = 기본 받는 선수(defaultFromPlan — 필살 패스를 쓸 수 있으면 합체기 가치 반영)의 마무리 값
+ *    (boxReceiverValue: 원터치 슛·헤더, 특성, 합체기·자기 필살 슛)을 carrier 슛과 같은 GK 기준으로 맞춘 값
+ *    = 마무리 값 × (carrier 가 원터치로 받았으면 oneTouchGk, 아니면 1) ÷ oneTouchGk.
+ *  score = value ÷ autoRatio. forced(받는 선수 필살 슛 준비 · 합체기, 그리고 carrier 에게 준비된 필살 슛 없음)면 score > shoot.value (슛 값 + 1e-6 — tieAttack 순서와 무관하게 연결이 1위).
+ *  → 연결 조건 = score ≥ shoot.value ⇔ 마무리 값 ≥ autoRatio × 슛 값 (같은 GK 기준) 또는 forced.
+ *  ultimate = 연결에 carrier 의 필살 패스를 함께 쓴다 (AI 규칙: 도착이 박스면 사용).
+ *  auto = 자동 선택 { action, receiverId, ultimate } (동률 tieAttack 순서 — 기본 pass·cross 가 shoot 보다 앞).
+ * @returns {{ ratio: number, shoot: object|null, pass: object|null, cross: object|null, auto: object|null }}
+ */
+export function boxLinkEval(state, data, side) {
+  const m = matchCfg(data);
+  const bc = boxLinkCfg(m);
+  const out = { ratio: bc.autoRatio, shoot: null, pass: null, cross: null, auto: null };
+  if (!state || !state.ball || state.attackingSide !== side || num(state.ball.lineIndex, 0) < 3 || !state[side]) return out;
+  const team = state[side];
+  const carrier = findPlayer(team, state.ball.carrierId);
+  if (!carrier) return out;
+  const fx = fxOf(state, side);
+  const shootVal = num(attackTendencyAt(state, data, side, carrier, 3, {
+    fresh: !!state.ball.receivedFresh,
+    viaCross: state.ball.receivedVia === "cross",
+    fx,
+    ultFor: carrierUltFor(state, data, side, carrier),
+  }).shoot, 0);
+  const own = getPlayerUltimate(data, carrier);
+  // 이미 커밋한 필살 슛(AI 는 판정 전에 먼저 커밋 — 게이지 0)도 "준비된 필살 슛"이다
+  const shotUlt = fx.ult
+    ? fx.ult.type === "shot"
+    : !!(own && own.ultimate.type === "shot" && ultimateUsable(state, data, side, carrier, "attack", "shoot").ok);
+  out.shoot = { value: shootVal, ultimate: shotUlt };
+  const oneTouchGk = num(m.oneTouchGk, 0.85) || 1;
+  const gkBasis = (state.ball.oneTouch ? oneTouchGk : 1) / oneTouchGk;
+  const opts = attackOptionsFor(state, data, side, carrier, 3, fx);
+  for (const a of ["pass", "cross"]) {
+    if (!opts[a]) continue;
+    const plan = planFor(team, carrier, a, 3, fx);
+    let fxA = fx;
+    let ultimate = !!(fx.ult && fx.ult.type === "pass"); // 이미 커밋한 필살 패스
+    if (own && own.ultimate.type === "pass" && !fx.ult) {
+      const fxU = fxPlusUlt(fx, own, null);
+      const rU = defaultFromPlan(state, data, side, a, plan, fxU);
+      if (aiWantsUltimate(state, data, side, carrier, "attack", a, rU ? rU.id : null)) {
+        fxA = fxU;
+        ultimate = true;
+      }
+    }
+    const r = defaultFromPlan(state, data, side, a, plan, fxA);
+    if (!r) continue;
+    const fin = boxReceiverValue(state, data, side, r, a, fxA);
+    const value = round6(fin.value * gkBasis);
+    const forced = fin.ultReady && !shotUlt;
+    let score = round6(value / bc.autoRatio);
+    // 강제 연결은 동률 순서(tieAttack)에 기대지 않는다 — 슛 값보다 아주 조금 크게 (표시 반올림은 같음)
+    if (forced && score <= shootVal) score = round6(shootVal + 1e-6);
+    out[a] = { action: a, receiverId: r.id, value, score, forced, ultimate, receiverUltimate: fin.ultReady, combo: fin.combo };
+  }
+  const vals = { shoot: shootVal };
+  for (const a of ["pass", "cross"]) if (out[a]) vals[a] = out[a].score;
+  const action = pickByTendency(vals, tendCfg(m).tieA) || "shoot";
+  const pick = out[action] || null;
+  out.auto = { action, receiverId: pick ? pick.receiverId : null, ultimate: pick ? pick.ultimate : shotUlt };
+  return out;
 }
 
 function addGauge(state, data, side, pid, amount) {
@@ -1295,22 +1485,31 @@ export function getAttackActions(state, side, data = null, fx = null) {
   } else {
     shootHint = `GK와 1:1${header ? " · 헤더" : ""}${oneTouch ? " · 원터치" : ""}${ultShot ? ` · 필살${gk}` : ""}`;
   }
+  // ④ 박스 연결: 컷백 패스(→ 원터치 슛) · 센터링(크로서만 → 헤더), GK 와 경합, 포제션당 1회
+  const box = line >= 3;
+  const linkUsed = box && !!(state.ball && state.ball.boxLinkUsed);
+  const boxOff = linkUsed ? "박스 연결은 포제션당 1회" : "받을 동료 없음";
+  const boxFail = box && (opts.pass || opts.cross) ? boxLinkFailHint(state, data, side) : "";
   return [
     {
       action: "dribble", enabled: opts.dribble, label: "드리블",
-      hint: opts.dribble ? weak("dribble", "vs 태클에 약함") : line >= 3 ? "슛만 가능" : "불가",
+      hint: opts.dribble ? weak("dribble", "vs 태클에 약함") : box ? (opts.pass || opts.cross ? "박스 안 — 슛·연결만" : "슛만 가능") : "불가",
     },
     {
-      action: "pass", enabled: opts.pass, label: "패스",
+      action: "pass", enabled: opts.pass, label: box ? "컷백 패스" : "패스",
       hint: opts.pass
-        ? `→ ${receiverNameFor(state, data, side, "pass")} · ${weak("pass", "vs 인터셉트에 약함")}`
-        : line >= 3 ? "슛만 가능" : line === 2 ? "같은 라인 FW 동료 없음" : "패스 상대 없음",
+        ? box
+          ? `→ ${receiverNameFor(state, data, side, "pass")} 원터치 슛 · GK와 경합 (${boxFail})`
+          : `→ ${receiverNameFor(state, data, side, "pass")} · ${weak("pass", "vs 인터셉트에 약함")}`
+        : box ? boxOff : line === 2 ? "같은 라인 FW 동료 없음" : "패스 상대 없음",
     },
     {
-      action: "cross", enabled: opts.cross, label: "크로스",
+      action: "cross", enabled: opts.cross, label: box ? "센터링" : "크로스",
       hint: opts.cross
-        ? `→ ${receiverNameFor(state, data, side, "cross")} 헤더 · ${weak("cross", "vs 인터셉트에 약함")}`
-        : line >= 3 ? "슛만 가능" : line < 2 ? "파이널 서드에서만" : crosserOk ? "받을 동료 없음" : "크로서 특성 선수만",
+        ? box
+          ? `→ ${receiverNameFor(state, data, side, "cross")} 헤더 · GK와 경합 (${boxFail})`
+          : `→ ${receiverNameFor(state, data, side, "cross")} 헤더 · ${weak("cross", "vs 버티기에 약함")}`
+        : box ? (crosserOk ? boxOff : "크로서 특성 선수만") : line < 2 ? "파이널 서드에서만" : crosserOk ? "받을 동료 없음" : "크로서 특성 선수만",
     },
     {
       action: "shoot", enabled: opts.shoot, label: shootLabel,
@@ -1324,14 +1523,19 @@ export function getDefenseActions(state, side, data = null, fx = null) {
   const line = state.ball ? state.ball.lineIndex : 0;
   const isDef = state.attackingSide !== side && !!state.duel && !state.finished;
   const base = isDef && line < 3;
-  const pair = pairHint(data, fx || fxOf(state, side));
+  const fxD = fx || fxOf(state, side);
+  const pair = pairHint(data, fxD);
   const m = data && data.config && data.config.match;
-  const hvm = m ? fmtMult(num(m.holdVsMidrange, 1.5)) : "1.5";
+  // 버티기 짝: 크로스 ×holdVsCross · 중거리 슛 ×holdVsMidrange (간파 readMult 면 그 이상)
+  const rm = num(fxD.readMult, 0);
+  const holdPair = (base) => fmtMult(rm > 0 ? Math.max(rm, base) : base);
+  const hvc = m ? holdPair(num(m.holdVsCross, num(m.readBonus, 1.5))) : "1.7";
+  const hvm = m ? holdPair(num(m.holdVsMidrange, 1.5)) : "1.5";
   const off = line >= 3 ? "GK 세이브 자동" : "불가";
   return [
     { action: "tackle", enabled: base, label: "태클", hint: base ? `(수비+피지컬)/2 · 드리블 ${pair}` : off },
-    { action: "intercept", enabled: base, label: "인터셉트", hint: base ? `(수비+패스)/2 · 패스·크로스 ${pair} · 빠른 역습` : off },
-    { action: "hold", enabled: base, label: "버티기", hint: base ? `수비 · 짝 없음 · 중거리 슛 ×${hvm} · 역습 이점 없음(한 구역 물러나 시작)` : off },
+    { action: "intercept", enabled: base, label: "인터셉트", hint: base ? `(수비+패스)/2 · 패스 ${pair} · 빠른 역습` : off },
+    { action: "hold", enabled: base, label: "버티기", hint: base ? `수비 · 크로스 ×${hvc} · 중거리 슛 ×${hvm} · 역습 이점 없음(한 구역 물러나 시작)` : off },
   ];
 }
 
@@ -1407,6 +1611,8 @@ export function computeOdds(state, data, { action, defAction = null, useEffects 
   const line = num(ball.lineIndex, 0);
   const isGK = line >= 3;
   const dAction = isGK ? "save" : defAction;
+  // ④ 박스 연결(컷백·센터링): GK 가 튀어나와 끊는 듀얼 — GK 세이브 값 × boxLink.gkMult, 짝 없음, 원터치 배율 없음
+  const boxLink = isBoxLinkAction(action, line);
   const fxA = fxAOpt || (useEffects ? fxOf(state, atkSide) : emptyDuelEffects());
   const fxD = fxDOpt || (useEffects ? fxOf(state, defSide) : emptyDuelEffects());
   const staminaMax = num(m.staminaMax, 100);
@@ -1466,7 +1672,8 @@ export function computeOdds(state, data, { action, defAction = null, useEffects 
   if (isGK) {
     statD = stat(defender, "defense");
     coefD = num(m.actionCoef.save, 1) * modsD.save;
-    if (ball.oneTouch) gkTerm *= num(m.oneTouchGk, 0.85);
+    if (boxLink) gkTerm *= boxLinkCfg(m).gkMult;
+    else if (ball.oneTouch) gkTerm *= num(m.oneTouchGk, 0.85);
     if (fxD.ult && fxD.ult.type === "save") gkTerm *= num(fxD.ult.saveMult, 1);
   } else {
     statD = defenseStat(data, m, defender, dAction);
@@ -1474,10 +1681,15 @@ export function computeOdds(state, data, { action, defAction = null, useEffects 
     coverTerm = 1 + num(m.coverBonusPerExtraDefender, 0.1) * num(duel.coverCount) * modsD.coverBonus;
     const readMult = num(fxD.readMult, 0);
     if (dAction === "hold") {
-      // 버티기: 짝 없음(×1.0). 중거리 슛 상대면 ×holdVsMidrange (= 짝, 간파 ×readMult · 상대 negateRead 면 ×1.0)
+      // 버티기: 드리블·패스엔 짝 없음(×1.0). 크로스(공중볼) 상대면 ×holdVsCross, 중거리 슛 상대면 ×holdVsMidrange
+      // (= 짝: 간파 ×readMult · 상대 negateRead 면 ×1.0)
       if (action === "shoot" && midrange) {
         pair = "read";
         const base = num(m.holdVsMidrange, 1.5);
+        pairMult = negate ? 1 : readMult > 0 ? Math.max(readMult, base) : base;
+      } else if (action === "cross") {
+        pair = "read";
+        const base = num(m.holdVsCross, num(m.readBonus, 1.5));
         pairMult = negate ? 1 : readMult > 0 ? Math.max(readMult, base) : base;
       } else {
         pair = "hold";
@@ -1498,12 +1710,12 @@ export function computeOdds(state, data, { action, defAction = null, useEffects 
   const raw = att + def > 0 ? att / (att + def) : 0.5;
   const p = clamp(Number.isFinite(raw) ? raw : 0.5, num(m.minP, 0.1), num(m.maxP, 0.9));
   const links = bonus.links.slice();
-  if (isGK && ball.oneTouch) links.push("oneTouch");
+  if (isGK && ball.oneTouch && !boxLink) links.push("oneTouch");
   if (header) links.push("header");
   if (fxA.combo && (ultShot || ultPass)) links.push("combo");
   return {
     att, def, p, read: pair === "read" && pairMult > 1, pair, pairMult, negate, bonus, links, header, midrange,
-    modsA, modsD, carrier, defender, atkSide, defSide, action, defAction: dAction, isGK, line,
+    modsA, modsD, carrier, defender, atkSide, defSide, action, defAction: dAction, isGK, line, boxLink,
   };
 }
 
@@ -1559,7 +1771,7 @@ function counterPlan(data, line, defAction, fxD, defender, isGK) {
 function successTransition(state, data, side, carrier, action, fx, receiverId = null) {
   const team = state[side];
   const line = num(state.ball.lineIndex, 0);
-  const extra = !!(fx && fx.extraLine);
+  const extra = !!(fx && fx.extraLine) && line < 3; // 박스 연결(④)에는 추가 전진 없음
   let newLine;
   let receiver = carrier;
   if (action === "dribble") {
@@ -1728,6 +1940,8 @@ function resolveDuel(state, data) {
   ball.receivedFresh = false;
   ball.comboReadyId = null;
   ball.comboFrom = null;
+  const boxLink = !!odds.boxLink;
+  if (boxLink) ball.boxLinkUsed = true; // 박스 연결은 포제션당 1회
 
   // 필살기를 쓴 선수는 이 듀얼에서 게이지를 얻지 않는다 (쓰면 0)
   const ultUser = { [atkSide]: fxA.ult ? carrier.id : null, [defSide]: fxD.ult ? defender.id : null };
@@ -1738,15 +1952,19 @@ function resolveDuel(state, data) {
   const pc = pct(p);
   const tag = odds.pair === "read" && odds.pairMult > 1 ? " [짝]" : odds.pair === "miss" && odds.pairMult < 1 ? " [빗나감]" : "";
   const readTag = readBy ? " [간파]" : "";
-  const aLabel = action === "shoot" ? (line === 2 && odds.midrange ? "중거리 슛" : odds.header ? "헤더" : "슛") : ACTION_LABEL[action];
+  const aLabel = boxLink
+    ? (action === "cross" ? "센터링" : "컷백 패스")
+    : action === "shoot" ? (line === 2 && odds.midrange ? "중거리 슛" : odds.header ? "헤더" : "슛") : ACTION_LABEL[action];
   const dLabel = ACTION_LABEL[defAction] || defAction;
   const links = odds.links.map((id) => ({ id, label: LINK_LABELS[id] || id }));
   const common = {
     playerId: carrier.id, defenderId: defender.id, action, defAction, p, pair: odds.pair,
-    header: odds.header || undefined, oneTouch: isGK && ball.oneTouch ? true : undefined, links,
+    header: odds.header || undefined, oneTouch: isGK && ball.oneTouch && !boxLink ? true : undefined, links,
     readBy: readBy || undefined, ultimate: fxA.ult ? fxA.ult.skillId : undefined, defUltimate: fxD.ult ? fxD.ult.skillId : undefined,
     // 패스·크로스는 판정 전에 정한 받는 선수 (실패한 턴오버 이벤트에도 — 화면이 끊긴 패스 방향을 그린다)
     receiverId: (action === "pass" || action === "cross") && receiverId ? receiverId : undefined,
+    // ④ 박스 연결 (컷백 패스 · 센터링) — 성공 = duel, 실패 = save
+    boxLink: boxLink || undefined,
   };
   state.phase = "resolved";
 
@@ -1809,11 +2027,13 @@ function resolveDuel(state, data) {
         state.ball.comboReadyId = receiver.id;
         state.ball.comboFrom = { playerId: carrier.id, skillId: fxA.ult.skillId };
       }
-      const extra = fxA.extraLine ? (tr.extraLineShot ? " 슛 위력 +20%!" : " 한 구역 추가 전진!") : "";
+      const extra = fxA.extraLine && !boxLink ? (tr.extraLineShot ? " 슛 위력 +20%!" : " 한 구역 추가 전진!") : "";
       const verb = action === "cross" ? "크로스" : "패스";
       pushEvent(state, {
         type: "duel", side: atkSide, success: true, ...common, receiverId: receiver.id, via: action,
-        text: `${carrier.name} → ${receiver.name}, ${verb} 성공! ${defender.name}의 ${dLabel} 통과 (${pc}%)${tag}${readTag}${linkText(odds.links)} 연계 ${state.ball.chain}${extra}${failTag}`,
+        text: boxLink
+          ? `${carrier.name} → ${receiver.name}, ${aLabel} 성공! ${defender.name}(GK)를 넘김 (${pc}%)${linkText(odds.links)} 연계 ${state.ball.chain} — ${receiver.name} ${action === "cross" ? "헤더" : "원터치 슛"} 찬스`
+          : `${carrier.name} → ${receiver.name}, ${verb} 성공! ${defender.name}의 ${dLabel} 통과 (${pc}%)${tag}${readTag}${linkText(odds.links)} 연계 ${state.ball.chain}${extra}${failTag}`,
         ...beatPos(atkSide, line, atkSide, tr.newLine),
       });
     }
@@ -1833,9 +2053,11 @@ function resolveDuel(state, data) {
   pushEvent(state, {
     type: isGK ? "save" : "turnover", side: atkSide, success: false, ...common,
     counterStart: cp.start,
-    text: isGK
-      ? `${defender.name}, 세이브! ${carrier.name}의 ${aLabel} 막아냄 (${pc}%)${linkText(odds.links)}${counterTag}`
-      : `${defender.name}, ${dLabel}!${tag}${readTag} ${carrier.name}의 ${aLabel} 차단 (${pc}%)${counterTag}`,
+    text: boxLink
+      ? `${defender.name}(GK), ${carrier.name}의 ${action === "cross" ? "센터링을" : "컷백 패스를"} 끊어냄! (${pc}%)${linkText(odds.links)}${counterTag}`
+      : isGK
+        ? `${defender.name}, 세이브! ${carrier.name}의 ${aLabel} 막아냄 (${pc}%)${linkText(odds.links)}${counterTag}`
+        : `${defender.name}, ${dLabel}!${tag}${readTag} ${carrier.name}의 ${aLabel} 차단 (${pc}%)${counterTag}`,
     ...beatPos(atkSide, line, defSide, cp.start),
   });
   state.rngState = rng.getState();
@@ -2218,7 +2440,8 @@ function evaluateHuman(state, data, human, action, { fx = null, receiverId = nul
     const odds = computeOdds(state, data, { action, defAction, fxA: fxH, fxD: fxO });
     let exp = odds.p;
     let rid = receiverId;
-    if (line === 2 && action !== "shoot") {
+    // line 2 돌파·연결, ④ 박스 연결 = 득점 기대 (성공 × 받은/돌파한 선수의 박스 슛·원터치·헤더 골 확률)
+    if (line >= 2 && action !== "shoot") {
       const carrier = findPlayer(state[human], state.ball.carrierId);
       const tr = successTransition(state, data, human, carrier, action, fxH, receiverId);
       rid = tr.via ? tr.receiver.id : null;
@@ -2232,7 +2455,7 @@ function evaluateHuman(state, data, human, action, { fx = null, receiverId = nul
   return { p: 1 - odds.p, exp: 1 - odds.p, response: atkAction, receiverId: null };
 }
 
-/** line 2 에서 돌파한 뒤 박스 슛(vs GK) 골 확률 — 판정과 같은 규칙의 가상 상태로 계산 */
+/** line 2 에서 돌파한 뒤(또는 ④ 박스 연결 뒤) 박스 슛(vs GK) 골 확률 — 판정과 같은 규칙의 가상 상태로 계산 */
 function nextShotP(state, data, side, carrier, tr, action, defAction, fxA, fxD) {
   const opp = otherSide(side);
   const gk = state[opp].players.find((p) => p.position === "GK") || bestOf(state[opp].players, (p) => stat(p, "defense"));
@@ -2251,6 +2474,7 @@ function nextShotP(state, data, side, carrier, tr, action, defAction, fxA, fxD) 
     comboReadyId: recvUlt ? receiver.id : null,
     comboFrom: recvUlt ? { playerId: carrier.id, skillId: fxA.ult.skillId } : null,
     pending: pendingAfterSuccess(action, defAction, fxA, fxD),
+    boxLinkUsed: !!state.ball.boxLinkUsed || isBoxLinkAction(action, num(state.ball.lineIndex, 0)),
   });
   const pseudo = Object.assign({}, state, {
     ball: ball2,
@@ -2303,6 +2527,23 @@ function attackOutcome(state, data, human, action, { fx = null, receiverId = nul
     };
   }
   const tr = successTransition(state, data, human, carrier, action, fxH, receiverId);
+  if (isBoxLinkAction(action, line)) {
+    // ④ 박스 연결: 성공 = 박스 그대로 받은 선수 원터치 슛·헤더 찬스, 실패 = GK 가 잡음 (세이브와 같음)
+    const r = tr.receiver;
+    const finish = action === "cross" ? "헤더" : "원터치 슛";
+    return {
+      success: {
+        zone: zoneOf(human, tr.newLine), attackingSide: human, step: tr.newLine,
+        label: `${r.name} ${finish} 찬스`, short: `성공 ${r.name} ${action === "cross" ? "헤더" : "원터치"}`,
+        receiver: { id: r.id, name: r.name, side: human }, oneTouch: true, boxLink: true,
+      },
+      fail: Object.assign({}, lost, {
+        label: cp.start === 0 ? "GK가 끊어냄 → 상대 골킥" : `GK가 끊어냄 → 상대 역습, ${zn}부터`,
+        short: cp.start === 0 ? "실패 상대 골킥" : `실패 상대 역습(${zn})`,
+        boxLink: true,
+      }),
+    };
+  }
   const adv = advanceText(tr.newLine);
   const success = { zone: zoneOf(human, tr.newLine), attackingSide: human, step: tr.newLine, label: "", short: "" };
   if (action === "pass" || action === "cross") {
@@ -2411,10 +2652,11 @@ function passPreview(state, data, fx = null) {
   const atk = state.attackingSide;
   const team = state[atk];
   const line = num(state.ball.lineIndex, 0);
-  if (!team || line >= 3) return null;
+  if (!team) return null;
   const carrier = findPlayer(team, state.ball.carrierId);
   if (!carrier) return null;
   const fxA = fx || fxOf(state, atk);
+  // ④ 에서는 박스 연결(컷백) 받는 선수 — 도착 step 3 (공은 박스 그대로)
   if (!attackOptionsFor(state, data, atk, carrier, line, fxA).pass) return null;
   const plan = planFor(team, carrier, "pass", line, fxA);
   const choice = state.duel[atk + "Choice"];
@@ -2431,8 +2673,9 @@ function receiversView(state, data, fx = null) {
   const team = state[atk];
   const carrier = findPlayer(team, state.ball.carrierId);
   const line = num(state.ball.lineIndex, 0);
-  if (!carrier || line >= 3) return {};
+  if (!carrier) return {};
   const fxA = fx || fxOf(state, atk);
+  // ④ 박스 연결도 같은 모양 (arrival 3 = 지금 step, boxLink: true)
   const opts = attackOptionsFor(state, data, atk, carrier, line, fxA);
   const choice = state.duel[atk + "Choice"];
   const out = {};
@@ -2444,6 +2687,7 @@ function receiversView(state, data, fx = null) {
       def = plan.candidates.find((p) => p.id === choice.receiverId);
     }
     out[a] = { candidates: plan.candidates.map((p) => p.id), defaultId: def ? def.id : null, arrival: plan.arrival, zone: zoneOf(atk, plan.arrival) };
+    if (plan.box) out[a].boxLink = true;
     // 필살 패스를 함께 쓸 때의 기본 받는 선수 (합체기 가치 반영) — 필살 패스를 쓸 수 있을 때만
     const u = getPlayerUltimate(data, carrier);
     if (!fx && u && u.ultimate.type === "pass" && ultimateUsable(state, data, atk, carrier, "attack", a).ok) {
@@ -2464,10 +2708,52 @@ function expectedFor(state, data, side, role) {
   const committed = choice && choice.action ? (choice.committedAction || choice.action) : null;
   const values = (choice && choice.values) || tendencyValues(state, data, side, pid);
   const tc = tendCfg(matchCfg(data));
-  const action = committed || (role === "attack" ? (line >= 3 ? "shoot" : pickByTendency(values, tc.tieA)) : pickByTendency(values, tc.tieD));
+  // ④ 공격: 슛 값 vs 박스 연결 점수 (tendencyValues) 1위 = 자동 선택 (boxLinkEval 규칙)
+  const action = committed || (role === "attack" ? pickByTendency(values, tc.tieA) || (line >= 3 ? "shoot" : "dribble") : pickByTendency(values, tc.tieD));
   const rounded = {};
   for (const [k, v] of Object.entries(values)) rounded[k] = Math.round(v);
-  return { playerId: pid, action, values: rounded };
+  const out = { playerId: pid, action, values: rounded };
+  // 패스·크로스면 받는 선수 (커밋했으면 커밋한 선수, ④ 자동이면 boxLinkEval 의 받는 선수)
+  if (role === "attack" && (action === "pass" || action === "cross")) {
+    let rid = committed && choice.receiverId ? choice.receiverId : null;
+    if (!rid && line >= 3) {
+      const ev = boxLinkEval(state, data, side);
+      rid = ev[action] ? ev[action].receiverId : null;
+    }
+    out.receiverId = rid;
+  }
+  return out;
+}
+
+/** view.boxLink: ④ 공격 팀 carrier 의 박스 연결 상황과 자동 규칙 (값은 반올림) — line 3 결정 대기 중만, 아니면 null */
+function boxLinkView(state, data) {
+  const ball = state.ball || {};
+  if (!state.duel || state.finished || state.phase !== "decision" || num(ball.lineIndex, 0) < 3) return null;
+  const side = state.attackingSide;
+  const ev = boxLinkEval(state, data, side);
+  if (!ev.shoot) return null;
+  const choice = state.duel[side + "Choice"];
+  const bc = boxLinkCfg(matchCfg(data));
+  const opt = (o) => (o
+    ? {
+      receiverId: o.receiverId, value: Math.round(o.value), score: Math.round(o.score), forced: o.forced,
+      ultimate: o.ultimate, receiverUltimate: o.receiverUltimate, combo: o.combo,
+    }
+    : null);
+  return {
+    side,
+    used: !!ball.boxLinkUsed,
+    available: !!(ev.pass || ev.cross),
+    ratio: ev.ratio,
+    gkMult: bc.gkMult,
+    shoot: { value: Math.round(ev.shoot.value), ultimate: ev.shoot.ultimate },
+    pass: opt(ev.pass),
+    cross: opt(ev.cross),
+    // 이미 커밋한 측(AI 는 판정 전에 먼저 커밋)은 커밋한 선택이 곧 자동 선택이다
+    auto: choice && choice.action
+      ? { action: choice.committedAction || choice.action, receiverId: choice.receiverId || null, ultimate: !!choice.ultimate }
+      : Object.assign({}, ev.auto),
+  };
 }
 
 /**
@@ -2475,6 +2761,9 @@ function expectedFor(state, data, side, role) {
  * v0.2 필드 (§12.1): zone, attackStep, attackDir, remaining, receiverPreview, outcomes, outcomesBySkill, receiverPreviewBySkill, lastBeat.
  * v0.3 필드 (§13.4): version, expected, actions[].expectedPct/recommended, receivers, outcomesByReceiver, receiversBySkill,
  *  ultimate, ultimateOptions, gaanpa, opponentReading, ballState. 삭제: intent, revealToHome.
+ * 2026-09-29 박스 연결: ④(lineIndex 3) actions 의 pass(label "컷백 패스") / cross(label "센터링") 가 켜질 수 있다
+ *  (receivers / receiverPreview / outcomes / outcomesByReceiver / ultimateOptions(필살 패스) 도 ④ 에서 채워짐, arrival 3),
+ *  expectedPct = 득점 기대 (연결 성공 × 받은 선수 원터치 슛·헤더 골). ballState.boxLinkUsed, boxLink(boxLinkView), expected.attack.receiverId.
  */
 export function getMatchView(state, data, humanSide = undefined) {
   const m = matchCfg(data);
@@ -2727,7 +3016,9 @@ export function getMatchView(state, data, humanSide = undefined) {
     ballState: {
       oneTouch: !!ball.oneTouch, receivedVia: ball.receivedVia || null, receivedFresh: !!ball.receivedFresh,
       comboReadyId: ball.comboReadyId || null, pending: Object.assign(emptyPending(), ball.pending || {}),
+      boxLinkUsed: !!ball.boxLinkUsed,
     },
+    boxLink: active ? boxLinkView(state, data) : null,
     stage: state.stage,
     kind: state.kind,
     names: { home: state.home.name, away: state.away.name },
@@ -2735,6 +3026,8 @@ export function getMatchView(state, data, humanSide = undefined) {
     defender: personView(defender, def, defTeam, defender ? { coverCount: num(duel.coverCount) } : {}),
     needsDecision: need,
     actions,
+    // 짝 표 (공격 → 그것을 읽는 수비). UI 의 "짝" 칩은 이 값을 쓴다 (2026-09-29: 크로스 ↔ 버티기)
+    counter: Object.assign({}, COUNTER),
     skills,
     expected,
     receivers,

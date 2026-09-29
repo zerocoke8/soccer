@@ -384,6 +384,33 @@ export const SCENARIOS = [
       return !!ultOption(v) && v.gaanpa?.usable === true;
     },
   },
+  {
+    // 2026-09-29 박스 연결: ④ 에서 슛 외에 컷백 패스(→ 원터치 슛) · 센터링(크로서만 → 헤더). 연결은 GK 와의 듀얼, 포제션당 1회
+    name: "18_box_link_decision",
+    title: "④ 박스 연결 결정 — 슛 · 컷백 패스 · 센터링(크로서 울릭) 버튼, 받는 선수 후보는 박스 안 (자동 끔, 컷백 hover)",
+    matchKind: "friendly",
+    auto: false,
+    require: (s, { data }) => atk(s, "home", 3) && needs(s, "attack") && actionEnabled(s, data, "pass") && !!viewOf(s, data).receivers?.pass,
+    prefer: (s, { data }) => actionEnabled(s, data, "cross") && viewOf(s, data).receivers.pass.candidates.length >= 2,
+    interact: { type: "hover", actions: ["pass"] },
+  },
+  {
+    name: "19_box_link_beat_mid",
+    title: "④ 컷백 패스 성공 비트 중간 프레임 — 박스 안 연결 · 받은 선수 원터치 슛 준비 (컷백 클릭 600ms 뒤, 1x)",
+    matchKind: "friendly",
+    auto: false,
+    require: (s, { data }) => atk(s, "home", 3) && needs(s, "attack") && actionEnabled(s, data, "pass") &&
+      tryDecision(s, data, { action: "pass" }).events.some((e) => e.type === "duel" && e.success === true && e.boxLink === true),
+    prefer: (s) => s.possession >= 2,
+    interact: { type: "click", action: "pass", waitMs: 600 },
+    verify: (prev, live) => {
+      if (!live) return "캡처 시점 경기 상태를 읽지 못함";
+      const fresh = (live.events || []).slice((prev.events || []).length);
+      return fresh.some((e) => e.type === "duel" && e.success && e.boxLink)
+        ? true
+        : `박스 연결 성공 이벤트 없음 (${fresh.map((e) => e.type).join(",") || "-"})`;
+    },
+  },
 ];
 
 /** 사람 측 결정의 필살기(세이브형 제외) */
@@ -403,7 +430,8 @@ function comboOption(view) {
 //   build(data, { runSeed }) → { runState | null, teams?, summary, steps?, preferred? }
 //     runState: 주입할 런 (soccer.run). null = 저장된 런 없음 → 시작 화면. teams = 등록 팀 목록 (soccer.teams)
 //   진입: runState 가 있으면 시작 화면 "이어하기" 클릭 → steps 순서대로 → ready 선택자가 보일 때까지 기다린 뒤 캡처
-//   steps: [{ click: "css 선택자" } | { text: "버튼 글자 정규식" } | { wait: ms }]
+//   steps: [{ click: "css 선택자" } | { text: "버튼 글자 정규식" } | { wait: ms } |
+//           { drag: { from: "css", to: "css", release?: false, steps?, waitMs? } }]  — drag: 실제 마우스로 끌기 (release 가 아니면 누른 채 캡처, tools/shot.mjs dragStep)
 //   expect: 캡처 시점 확인 { screen: "start"|"setup"|"run", phase?: run phase, modal?: true | false | "css" (#modal-root 안) }
 //   런 상태는 walkRun(기본 정책으로 런을 걷다가 조건을 만족하는 첫 결정 시점)으로 찾는다 → 같은 runSeed 면 같은 상태.
 
@@ -531,6 +559,36 @@ export const OUTGAME_SCENARIOS = [
     expect: { screen: "setup", modal: false },
   },
   {
+    // 라인업 보드 (js/ui/lineup.js): 벤치 미르카(GK - · DF - · MF A · FW B)를 끌어 MF2(타린) 위에 — 누른 채 캡처
+    name: "og_setup_drag",
+    title: "편성 드래그 중 — 벤치 미르카를 MF2 위로: GK·DF 빨강(적성 없음) · MF·FW 초록(적성 표시), 고스트",
+    outgame: true,
+    build: () => ({ runState: null, summary: "저장된 런 없음 → [새 런 시작] → 미르카 카드 끌기" }),
+    steps: [{ text: "새 런 시작" }, { drag: { from: '.lu-card[data-pid="ch_cat_trickster"]', to: '.lu-slot[data-slot="MF2"]' } }],
+    ready: ".lu-ghost",
+    expect: { screen: "setup", modal: false },
+  },
+  {
+    // 놓기 확인 (--width/--height 를 바꿔 배율이 달라도 같은 자리에 놓이는지): 미르카 → MF2, 타린은 벤치로
+    name: "og_setup_drop",
+    title: "편성 드래그 놓기 — 미르카를 MF2 에 놓음 → 타린 벤치 (ready = MF2 에 미르카)",
+    outgame: true,
+    build: () => ({ runState: null, summary: "저장된 런 없음 → [새 런 시작] → 미르카 → MF2 놓기" }),
+    steps: [{ text: "새 런 시작" }, { drag: { from: '.lu-card[data-pid="ch_cat_trickster"]', to: '.lu-slot[data-slot="MF2"]', release: true } }],
+    ready: '.lu-slot[data-slot="MF2"][data-pid="ch_cat_trickster"]',
+    expect: { screen: "setup", modal: false },
+  },
+  {
+    // 빨강에 놓기: 미르카 → GK (적성 -) → 흔들림 + 안내 토스트, 변경 없음 (ready = GK 는 그대로 네리아)
+    name: "og_setup_reject",
+    title: "편성 빨강 자리에 놓기 — 미르카를 GK 에 놓음 → 거절 (흔들림 · 토스트, GK 네리아 그대로)",
+    outgame: true,
+    build: () => ({ runState: null, summary: "저장된 런 없음 → [새 런 시작] → 미르카 → GK 놓기" }),
+    steps: [{ text: "새 런 시작" }, { drag: { from: '.lu-card[data-pid="ch_cat_trickster"]', to: '.lu-slot[data-slot="GK"]', release: true, waitMs: 120 } }],
+    ready: '.lu-slot[data-slot="GK"][data-pid="ch_spirit_keeper"].lu-shake',
+    expect: { screen: "setup", modal: false },
+  },
+  {
     name: "og_training",
     title: "첫 훈련 턴 — 이벤트 모달 없음 (시작 이벤트가 있으면 0번으로 처리)",
     outgame: true,
@@ -566,6 +624,26 @@ export const OUTGAME_SCENARIOS = [
     },
     steps: [{ text: "미팅$" }, { text: "^구매$" }],
     ready: "#modal-root .modal select",
+    expect: { screen: "run", phase: "turn", modal: ".modal" },
+  },
+  {
+    // 미팅 라인업 보드: DF1 돌바르(GK B · DF A · MF C · FW -)를 끌어 FW1 위에 — FW 빨강(적성 없음) · GK/DF/MF 초록(맞바꾸기) · 누른 채 캡처
+    name: "og_meeting_drag",
+    title: "전술 미팅 드래그 중 — 돌바르(DF1)를 FW1 위로: FW 빨강 · 나머지 초록(⇄ 맞바꾸기), 고스트",
+    outgame: true,
+    build: (data, { runSeed }) => walkOrThrow("og_meeting_drag", data, { runSeed, ...MID_TURN }),
+    steps: [{ text: "미팅$" }, { drag: { from: '#modal-root .lu-slot[data-slot="DF1"]', to: '#modal-root .lu-slot[data-slot="FW1"]' } }],
+    ready: ".lu-ghost",
+    expect: { screen: "run", phase: "turn", modal: ".modal" },
+  },
+  {
+    // 미팅 놓기: DF1 돌바르 → GK (네리아와 맞바꾸기: 네리아 DF C 가능) — ready = GK 에 돌바르(p2), DF1 에 네리아(p1) (기본 편성 선수 id = 슬롯 순서)
+    name: "og_meeting_drop",
+    title: "전술 미팅 드래그 놓기 — 돌바르를 GK 에 놓음 → 네리아 DF1 (맞바꾸기)",
+    outgame: true,
+    build: (data, { runSeed }) => walkOrThrow("og_meeting_drop", data, { runSeed, ...MID_TURN }),
+    steps: [{ text: "미팅$" }, { drag: { from: '#modal-root .lu-slot[data-slot="DF1"]', to: '#modal-root .lu-slot[data-slot="GK"]', release: true } }],
+    ready: '#modal-root .lu-slot[data-slot="GK"][data-pid="p2"] ~ .lu-slot[data-slot="DF1"][data-pid="p1"]',
     expect: { screen: "run", phase: "turn", modal: ".modal" },
   },
   {

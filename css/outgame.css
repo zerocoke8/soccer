@@ -67,12 +67,28 @@
 .team-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: var(--panel-2); border-radius: var(--radius-sm); }
 
 /* ================================================================== */
-/* 편성: 왼쪽 가로 미니 필드(우리 골 왼쪽) | 오른쪽 서포트 · 전술 · 시작   */
+/* 편성: 머리 줄(시작 버튼) | 미니 필드 · 서포트/전술 | 아래 선수 풀 한 줄  */
 /* ================================================================== */
 .setup-screen { display: flex; flex-direction: column; }
-.setup-main { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 500px; gap: 12px; }
+.setup-screen .og-head { gap: 14px; }
+.setup-tip { line-height: 1.35; }
+.setup-start { display: flex; align-items: center; gap: 8px; flex: none; }
+.setup-start .btn { min-height: 38px; white-space: nowrap; }
+.setup-start .btn-primary { min-width: 110px; font-size: 16px; }
+.seed-field { display: flex; align-items: center; gap: 6px; }
+.seed-field .input { width: 128px; min-height: 38px; padding: 6px 10px; font-size: 13px; }
+.setup-main {
+  flex: 1 1 auto; min-height: 0; display: grid; gap: 12px;
+  grid-template-columns: minmax(0, 1fr) 350px;
+  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-areas: "pitch side" "pool pool";
+}
+.setup-pitch { grid-area: pitch; }
 .setup-pitch > .og-panel-body { flex: 1 1 auto; }
-.formation-sel .select { width: 290px; min-height: 34px; padding: 5px 10px; }
+.setup-side { grid-area: side; display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+.setup-side > .og-panel:not(.grow-panel) { flex: none; } /* 전술은 줄어들지 않는다 — 서포트 칩(.grow-panel)만 안쪽 스크롤 */
+.setup-pool { grid-area: pool; padding-bottom: 8px; }
+.formation-sel .select { width: 290px; min-height: 32px; padding: 4px 10px; font-size: 13px; }
 .mini-pitch {
   position: relative; flex: 1 1 auto; min-height: 0; border-radius: 12px; border: 1px solid #2c5a47;
   background:
@@ -94,44 +110,42 @@
 .mp-label.r { right: 10px; }
 .slot-card {
   position: absolute; transform: translate(-50%, -50%); z-index: 1;
-  display: flex; align-items: center; gap: 8px; width: 158px; min-height: 84px; padding: 18px 8px 8px 10px;
+  display: flex; align-items: center; gap: 8px; width: 164px; min-height: 76px; padding: 17px 8px 7px 10px;
   background: rgba(23, 29, 40, .94); border: 1px solid var(--border); border-radius: 12px;
   color: var(--text); cursor: pointer; text-align: left; box-shadow: 0 6px 16px rgba(0, 0, 0, .35);
-  transition: border-color .12s, transform .08s;
+  transition: border-color .12s, background-color .12s, box-shadow .12s, opacity .12s, scale .1s;
 }
 .slot-card:hover { border-color: var(--accent); }
-.slot-card:active { transform: translate(-50%, -50%) scale(.98); }
-.slot-card .slot-tag { position: absolute; left: 9px; top: 4px; font-size: 10.5px; line-height: 13px; font-weight: 800; color: var(--muted); letter-spacing: .03em; }
+.slot-card .slot-tag { position: absolute; left: 9px; top: 3px; font-size: 10.5px; line-height: 13px; font-weight: 800; color: var(--muted); letter-spacing: .03em; }
 .slot-card.pos-GK .slot-tag { color: var(--gold); }
 .slot-card.pos-DF .slot-tag { color: var(--accent-2); }
 .slot-card.pos-MF .slot-tag { color: var(--good); }
 .slot-card.pos-FW .slot-tag { color: #ff9f8a; }
-.slot-card > .apt { position: absolute; right: 7px; top: 5px; }
+.slot-card > .apt { position: absolute; right: 7px; top: 4px; }
 .slot-card .slot-nm { font-weight: 700; font-size: 14px; }
 .slot-card .trait-tag { align-self: flex-start; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .slot-card.empty { border-style: dashed; color: var(--muted); background: rgba(23, 29, 40, .7); }
-.slot-card.empty .slot-nm { font-weight: 400; font-size: 12px; white-space: normal; }
+.slot-card.empty .slot-nm { font-weight: 400; font-size: 12.5px; }
+.lu-empty-av { background: transparent; border-style: dashed; color: var(--muted); }
 .resonance { display: flex; flex-direction: column; gap: 4px; flex: none; }
-.setup-side { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
-.setup-side > .og-panel:not(.grow-panel) { flex: none; } /* 전술 · seed/시작은 줄어들지 않는다 — 서포트 목록(.grow-panel)만 안쪽 스크롤 */
 .setup-supports .og-scroll { padding-right: 2px; }
-.support-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.support-card {
-  display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 54px; padding: 7px 10px;
-  background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius-sm);
-  color: var(--text); cursor: pointer; text-align: left; width: 100%;
+.setup-supports.done .og-panel-title { color: var(--good); }
+/* 서포트 칩: 아바타 · 이름 · 희귀도 · 타입 (자세한 값은 title) */
+.sp-chips { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.sp-chip {
+  position: relative; display: flex; align-items: center; gap: 7px; min-width: 0; width: 100%; min-height: 42px; padding: 5px 22px 5px 7px;
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 9px;
+  color: var(--text); cursor: pointer; text-align: left;
 }
-.support-card:hover:not(:disabled) { border-color: var(--accent); }
-.support-card.selected { border-color: var(--accent); background: rgba(74, 163, 255, .1); }
-.support-card:disabled { opacity: .4; cursor: not-allowed; }
-.support-card .sp-name { min-width: 0; font-size: 14px; line-height: 1.25; word-break: keep-all; overflow-wrap: normal; }
-.support-card .sp-sub { line-height: 1.3; word-break: keep-all; overflow-wrap: normal; }
-.support-card .sp-sub .nw { white-space: nowrap; }
-.setup-start { gap: 10px; }
-.seed-field { flex: 1 1 auto; }
-.seed-note { flex: none; align-self: flex-end; padding-bottom: 10px; max-width: 150px; }
-.setup-start-btns { display: grid; grid-template-columns: 1fr 1.4fr; gap: 10px; }
-.setup-start-btns .btn { min-height: 48px; }
+.sp-chip:hover:not(:disabled) { border-color: var(--accent); }
+.sp-chip.selected { border-color: var(--accent); background: rgba(74, 163, 255, .12); }
+.sp-chip:disabled { opacity: .4; cursor: not-allowed; }
+.sp-chip-txt { gap: 0; min-width: 0; line-height: 1.25; }
+.sp-chip-nm { font-size: 12.5px; font-weight: 700; }
+.sp-check { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); font-size: 12px; color: var(--accent-2); font-weight: 800; }
+.tac-rows { display: flex; flex-direction: column; gap: 6px; }
+.tac-row { display: grid; grid-template-columns: 70px minmax(0, 1fr); align-items: center; gap: 8px; }
+.tac-row .select { min-height: 32px; padding: 4px 8px; font-size: 13px; }
 .trait-tag { display: inline-block; padding: 0 6px; border-radius: 6px; background: rgba(74, 163, 255, .16); color: var(--accent-2); font-weight: 700; white-space: nowrap; }
 
 /* 캐릭터 · 선수 고르기 (편성 슬롯 모달 · 호출권) */
@@ -142,9 +156,105 @@
   background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text); cursor: pointer;
 }
 .char-pick:hover:not(:disabled) { border-color: var(--accent); }
-.char-pick:disabled { opacity: .4; cursor: not-allowed; }
+.char-pick:disabled { opacity: .45; cursor: not-allowed; }
 .char-pick.current { border-color: var(--good); }
+.char-pick.pick-ok { box-shadow: inset 3px 0 0 var(--good); }
+.char-pick.pick-bad { box-shadow: inset 3px 0 0 var(--bad); }
 .char-pick .bar { margin-top: 3px; height: 5px; }
+
+/* ================================================================== */
+/* 라인업 보드 (js/ui/lineup.js): 편성 필드 · 선수 풀 · 전술 미팅 공용       */
+/*   끄는 동안(또는 탭으로 고른 동안) .lu-active: 놓을 수 있는 자리 .drop-ok(초록) · 불가 .drop-bad(빨강) ·     */
+/*   원래 자리 .drop-origin, 자리마다 .lu-hint 알약에 적성("MF A") · 이유. 슬롯 카드는 transform 으로 가운데 정렬이라 */
+/*   흔들림 · 확대는 개별 속성(translate · scale)으로 겹친다.                                                  */
+/* ================================================================== */
+.lu-pitch, .lu-pool { user-select: none; -webkit-user-select: none; }
+.lu-slot, .lu-card { touch-action: none; -webkit-touch-callout: none; }
+.lu-slot:not(.empty), .lu-card { cursor: grab; }
+html.lu-grabbing, html.lu-grabbing * { cursor: grabbing !important; }
+.lu-hint {
+  position: absolute; left: 50%; bottom: -10px; transform: translateX(-50%); z-index: 3;
+  display: none; max-width: 190px; overflow: hidden; text-overflow: ellipsis;
+  padding: 0 8px; border-radius: 999px; font-size: 11px; line-height: 18px; font-weight: 800; white-space: nowrap;
+  pointer-events: none; box-shadow: 0 2px 6px rgba(0, 0, 0, .45);
+}
+.drop-ok > .lu-hint, .drop-bad > .lu-hint, .drop-origin > .lu-hint, .illegal > .lu-hint { display: block; }
+.lu-slot.drop-ok, .lu-card.drop-ok {
+  border-color: var(--good); background: rgba(24, 66, 45, .96);
+  box-shadow: 0 0 0 2px rgba(61, 220, 132, .6), 0 6px 16px rgba(0, 0, 0, .35);
+}
+.lu-slot.drop-bad, .lu-card.drop-bad {
+  border-color: var(--bad); background: rgba(74, 26, 30, .96);
+  box-shadow: 0 0 0 2px rgba(255, 92, 92, .5), 0 6px 16px rgba(0, 0, 0, .35);
+}
+.drop-ok > .lu-hint { background: var(--good); color: #042a15; }
+.drop-bad > .lu-hint { background: var(--bad); color: #fff; }
+.drop-origin { border-style: dashed !important; opacity: .75; }
+.drop-origin > .lu-hint { background: var(--panel-3); color: var(--muted); }
+.lu-slot.drop-hover.drop-ok { scale: 1.07; box-shadow: 0 0 0 3px var(--good), 0 0 22px rgba(61, 220, 132, .45); z-index: 2; }
+.lu-slot.drop-hover.drop-bad { box-shadow: 0 0 0 3px var(--bad), 0 0 18px rgba(255, 92, 92, .35); z-index: 2; }
+.lu-card.drop-hover.drop-ok { box-shadow: 0 0 0 3px var(--good); }
+.lu-card.drop-hover.drop-bad { box-shadow: 0 0 0 3px var(--bad); }
+.lu-active .lu-slot:not(.drop-ok):not(.drop-bad):not(.drop-origin),
+.lu-active .lu-card:not(.drop-ok):not(.drop-bad):not(.drop-origin) { opacity: .5; }
+.lu-dragging { opacity: .3 !important; }
+.lu-selected { border-color: var(--accent) !important; box-shadow: 0 0 0 3px rgba(74, 163, 255, .6), 0 6px 16px rgba(0, 0, 0, .35) !important; }
+.lu-slot.illegal { border-color: var(--bad); }
+.illegal > .lu-hint { background: rgba(255, 92, 92, .9); color: #fff; }
+@keyframes lu-shake { 0%, 100% { translate: 0 0; } 20%, 60% { translate: -7px 0; } 40%, 80% { translate: 7px 0; } }
+.lu-shake { animation: lu-shake .4s ease-in-out; border-color: var(--bad) !important; }
+/* 끄는 카드 고스트: 스테이지(#stage) 안 논리 px. 마우스 = 포인터 오른쪽, 세로 가운데 (오른쪽 끝이면 .flip 왼쪽) —
+   놓을 자리(포인터 밑)와 그 카드 아래쪽의 안내 알약을 가리지 않게 (마우스 고스트는 ✔/✖ 만이라 짧다). 터치 · 펜(.touch) = 손가락에 가리지 않게 위쪽 */
+.lu-ghost {
+  position: absolute; left: 0; top: 0; z-index: 120; pointer-events: none;
+  display: flex; align-items: center; gap: 8px; padding: 5px 12px 5px 5px; border-radius: 999px;
+  background: rgba(23, 29, 40, .97); border: 2px solid var(--accent); box-shadow: var(--shadow);
+  transform: translate(22px, -50%) rotate(-2deg); white-space: nowrap;
+}
+.lu-ghost.flip { transform: translate(calc(-100% - 22px), -50%) rotate(2deg); }
+.lu-ghost.touch { transform: translate(-50%, calc(-100% - 36px)) rotate(-2deg); }
+.lu-ghost.ok { border-color: var(--good); }
+.lu-ghost.bad { border-color: var(--bad); }
+.lu-ghost-nm { font-weight: 800; font-size: 14px; }
+.lu-ghost-st { font-size: 11.5px; font-weight: 700; color: var(--muted); }
+.lu-ghost-st:empty { display: none; }
+.lu-ghost.ok .lu-ghost-st { color: var(--good); }
+.lu-ghost.bad .lu-ghost-st { color: var(--bad); }
+/* 선수 풀 (편성): 캐릭터 전원 한 줄. 배치된 선수 = 슬롯 표시, 벤치 = 점선. 풀 빈 곳에 놓으면 벤치로 */
+.lu-pool {
+  display: grid; grid-auto-flow: column; grid-auto-columns: minmax(136px, 1fr); gap: 8px;
+  overflow-x: auto; overflow-y: hidden; padding: 2px; border-radius: 10px; scrollbar-width: thin;
+}
+.lu-pool.drop-ok, .setup-pool.drop-ok { box-shadow: 0 0 0 2px rgba(61, 220, 132, .55) inset; background-color: rgba(61, 220, 132, .07); }
+.lu-pool.drop-hover.drop-ok, .setup-pool.drop-hover.drop-ok { box-shadow: 0 0 0 3px var(--good) inset; background-color: rgba(61, 220, 132, .13); }
+.setup-pool.drop-ok .lu-pool-tip { color: var(--good); font-weight: 700; }
+.lu-card {
+  position: relative; display: flex; flex-direction: column; align-items: stretch; gap: 5px; min-width: 0; padding: 7px 8px 8px;
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  color: var(--text); text-align: left; transition: border-color .12s, background-color .12s, box-shadow .12s, opacity .12s;
+}
+.lu-card:hover { border-color: var(--accent); }
+.lu-card.bench { border-style: dashed; border-color: var(--warn); }
+.lu-card.placed { background: var(--panel); }
+.lu-card .trait-tag { align-self: flex-start; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.lu-card-who { display: flex; align-items: center; gap: 7px; min-width: 0; padding-right: 34px; }
+.lu-card-nm { min-width: 0; font-size: 14px; }
+.lu-where { position: absolute; right: 6px; top: 6px; padding: 0 6px; border-radius: 6px; font-size: 10.5px; line-height: 17px; font-weight: 800; background: rgba(255, 179, 71, .18); color: var(--warn); }
+.lu-where.on { background: rgba(74, 163, 255, .2); color: var(--accent-2); }
+.lu-apts { display: flex; gap: 3px; }
+.lu-apt { flex: 1 1 0; display: inline-flex; align-items: center; justify-content: center; gap: 2px; min-width: 0; padding: 1px 0; border-radius: 6px; background: rgba(255, 255, 255, .04); }
+.lu-apt i { font-style: normal; font-size: 9.5px; font-weight: 700; color: var(--muted); }
+.lu-apt .apt { min-width: 16px; padding: 0 3px; font-size: 10.5px; }
+/* 풀 카드: 알약은 둘째 줄(희귀도 · 원소) 위에 — 끄는 동안 보고 싶은 적성 줄(GK/DF/MF/FW)을 가리지 않게 */
+.lu-card > .lu-hint { bottom: auto; top: 36px; }
+/* 전술 미팅: 작은 슬롯 카드 */
+.lu-pitch.compact .slot-card { width: 122px; min-height: 60px; gap: 6px; padding: 16px 6px 6px 7px; }
+.lu-pitch.compact .slot-card .slot-nm { font-size: 13px; }
+.lu-pitch.compact .lu-hint { max-width: 150px; font-size: 10.5px; }
+/* 미팅(작은 카드): 알약은 카드 바로 아래 빈틈에 — 카드의 스탯 줄을 가리지 않게 (3명 줄도 카드 사이가 40px 넘게 빈다) */
+.lu-pitch.compact .slot-card > .lu-hint { bottom: -21px; }
+/* 화면 읽기 전용 알림 (lineup.js live) */
+.lu-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
 /* ================================================================== */
 /* 훈련: 상단 바 | 훈련 칸 5열 + 행동 바 | 선수 패널                      */
@@ -302,15 +412,16 @@
 .log-list { display: flex; flex-direction: column; gap: 4px; max-height: 470px; font-size: 12.5px; }
 .log-list li { padding: 5px 9px; background: var(--panel-2); border-radius: 7px; color: var(--muted); }
 
-/* ---- 전술 미팅 (3열) ---- */
-.meeting-cols { display: grid; grid-template-columns: 250px 330px minmax(0, 1fr); gap: 18px; min-height: 0; }
+/* ---- 전술 미팅 (3열: 전술 | 포메이션 + 라인업 보드 | 스킬 상점) ---- */
+.meeting-cols { display: grid; grid-template-columns: 210px minmax(0, 1fr) 290px; gap: 18px; min-height: 0; }
 .meeting-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; }
 .meeting-col .divider { margin: 2px 0; }
-.pos-assign { gap: 6px; }
-.pos-assign .slot-tag { min-width: 36px; font-weight: 700; }
-.pos-assign .select { min-height: 34px; padding: 4px 8px; font-size: 13px; }
+.meeting-board .lu-pitch { flex: none; height: 430px; }
+.meeting-formation { flex-direction: row; align-items: center; gap: 8px; }
+.meeting-formation .select { width: 250px; min-height: 32px; padding: 4px 8px; font-size: 13px; }
 .shop-list { max-height: 500px; padding-right: 2px; }
 .shop-list .list-item { gap: 6px; }
+.shop-list .btn { flex: none; white-space: nowrap; }
 .shop-list .list-item.chosen { box-shadow: 0 0 0 1px var(--accent) inset; }
 
 /* ================================================================== */

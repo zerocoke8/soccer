@@ -1,12 +1,20 @@
 // js/ui/screens/setup.js — 편성 화면 (런 시작 전)
-// 가로 스테이지(1280×720): 왼쪽 = 가로 미니 필드(우리 골 왼쪽 — 경기 화면과 같은 방향)에 슬롯 7개 · 포메이션 · 원소 공명,
-//                         오른쪽 = 서포트 카드 선택 · 전술 지시 · seed · 시작 버튼
-import { h, avatar, openModal, closeOverlays, select, toast, panel } from '../dom.js';
+// 가로 스테이지(1280×720), 페이지 스크롤 없음:
+//   ┌ 머리 줄: ← 처음으로 · 편성 · 조작 안내 ················ seed · [기본 편성으로 시작] [런 시작] ┐
+//   │ 포메이션 · 배치: 가로 미니 필드(우리 골 왼쪽 — 경기 화면과 같은 방향), 슬롯 7개 │ 서포트 카드 (작은 칩 2열, n/6)   │
+//   │ 원소 공명 · 경고                                                         │ 전술 지시 3개                    │
+//   │ 선수 풀: 캐릭터 전원 카드 한 줄 (배치된 선수 = 슬롯 표시, 나머지 = 벤치)                                    │
+//   └──────────────────────────────────────────────────────────────────────────────────────┘
+// 배치는 라인업 보드(js/ui/lineup.js): 선수 카드를 끌어 슬롯에 놓기 (초록 = 가능 · 빨강 = 불가), 눌러서 고른 뒤 자리 누르기도 된다.
+import { h, avatar, select, toast, panel, openModal, closeOverlays } from '../dom.js';
 import {
-  STATS, slotsOf, positionOfSlot, POSITION_LABELS, ELEMENT_LABELS, ELEMENT_ICONS, STYLE_LABELS,
+  STATS, POSITIONS, slotsOf, positionOfSlot, POSITION_LABELS, ELEMENT_LABELS, ELEMENT_ICONS, STYLE_LABELS,
   RACE_LABELS, SUPPORT_TYPE_LABELS, TACTIC_MAIN_KEYS, TACTIC_LABELS, TACTIC_OPTIONS,
   APTITUDE_ORDER, FORMATIONS, randomSeed, traitInfo,
 } from '../labels.js';
+import { lineupBoard, reseat, slotSpot, slotOfId, checkMove, applyMove, badText } from '../lineup.js';
+
+export { slotSpot }; // 예전 위치 (test/outgame.test.mjs) — 이제 js/ui/lineup.js
 
 export function initSetup(data, seedPrefill = '') {
   const cfg = data?.config || {};
@@ -28,15 +36,6 @@ function aptBadge(apt) {
   return h('span', { class: ['badge', 'apt', a === '-' ? 'apt-none' : `apt-${a}`] }, a);
 }
 
-// 미니 필드 위 슬롯 자리 (%): 가로 = 포지션 줄 (GK 왼쪽 → FW 오른쪽), 세로 = 같은 포지션 안에서 고르게
-const LINE_X = { GK: 12.5, DF: 37.5, MF: 62.5, FW: 87.5 };
-export function slotSpot(slot, slots) {
-  const pos = positionOfSlot(slot);
-  const same = slots.filter((s) => positionOfSlot(s) === pos);
-  const i = Math.max(0, same.indexOf(slot));
-  return { x: LINE_X[pos] ?? 50, y: ((i + 1) / (same.length + 1)) * 100 };
-}
-
 export function renderSetup(root, ctx) {
   const { store, data, actions } = ctx;
   if (!store.setup) store.setup = initSetup(data);
@@ -47,62 +46,81 @@ export function renderSetup(root, ctx) {
   const supports = Array.isArray(data.supports) ? data.supports : [];
   const supportCount = Array.isArray(cfg.defaultSupports) && cfg.defaultSupports.length ? cfg.defaultSupports.length : 6;
   const slots = slotsOf(s.formation);
-  for (const k of Object.keys(s.squad)) if (!slots.includes(k)) delete s.squad[k];
+  for (const k of Object.keys(s.squad)) if (!slots.includes(k) || !charById.has(s.squad[k])) delete s.squad[k];
 
-  const rerender = () => ctx.render();
+  // 다시 그리기 전에 보드의 탭 선택 · 드래그를 걷는다 (문서에 건 Esc · 바깥 누름 리스너가 옛 보드에 남지 않게 — 키보드로 서포트 칩을 눌러도)
+  const rerender = () => { board.cancel(); ctx.render(); };
+  const aptOf = (cid, pos) => charById.get(cid)?.aptitude?.[pos] ?? '-';
 
-  // 연계 특성 (GDD v0.5 §9.10): 카드엔 이름, 목록엔 이름 + 효과
+  // 연계 특성 (GDD v0.5 §9.10): 카드엔 이름, 설명은 title
   function traitTag(id) {
     const t = traitInfo(id, data);
     return t ? h('span', { class: 'trait-tag tiny', title: t.description }, `${t.icon} ${t.name}`) : null;
   }
-  function traitLine(id) {
-    const t = traitInfo(id, data);
-    return t ? h('span', { class: 'tiny' }, h('span', { class: 'trait-tag' }, `${t.icon} ${t.name}`), h('span', { class: 'muted' }, ` ${t.description}`)) : null;
-  }
+  const elemLine = (c) => `${ELEMENT_ICONS[c.element] ?? ''} ${ELEMENT_LABELS[c.element] ?? c.element ?? ''} · ${STYLE_LABELS[c.style] ?? c.style ?? ''}`;
 
-  // ---- 슬롯 카드 (미니 필드 위 절대 위치) ----
-  function slotCard(slot) {
-    const pos = positionOfSlot(slot);
-    const cid = s.squad[slot];
-    const c = cid ? charById.get(cid) : null;
-    const apt = c ? (c.aptitude?.[pos] ?? '-') : null;
-    const spot = slotSpot(slot, slots);
-    return h('button', {
-      class: ['slot-card', pos === 'GK' ? 'gk' : '', `pos-${pos}`, c ? '' : 'empty'],
-      style: { left: `${spot.x}%`, top: `${spot.y}%` },
-      onclick: () => openSlotPicker(slot),
+  // ---- 라인업 보드: 미니 필드 슬롯 + 선수 풀 ----
+  const board = lineupBoard({
+    slots,
+    assign: s.squad,
+    bench: true,
+    ids: chars.map((c) => c.id),
+    aptOf,
+    nameOf: (cid) => charById.get(cid)?.name ?? cid,
+    colorOf: (cid) => charById.get(cid)?.portraitColor,
+    slotBody: (cid) => {
+      const c = charById.get(cid);
+      return [
+        avatar(c.portraitColor, c.name, 'sm'),
+        h('span', { class: 'grow col' },
+          h('span', { class: 'ellipsis slot-nm' }, c.name),
+          h('span', { class: 'tiny muted ellipsis' }, elemLine(c)),
+          c.trait ? traitTag(c.trait) : null),
+      ];
     },
-    h('span', { class: 'slot-tag' }, slot),
-    c ? avatar(c.portraitColor, c.name, 'sm')
-      : h('span', { class: 'avatar avatar-sm', style: { background: 'transparent', borderStyle: 'dashed' } }, '+'),
-    h('span', { class: 'grow col' },
-      h('span', { class: 'ellipsis slot-nm' }, c ? c.name : '비어 있음 — 탭하여 선택'),
-      c ? h('span', { class: 'tiny muted ellipsis' },
-        `${ELEMENT_ICONS[c.element] ?? ''} ${ELEMENT_LABELS[c.element] ?? c.element ?? ''} · ${STYLE_LABELS[c.style] ?? c.style ?? ''}`) : null,
-      c && c.trait ? traitTag(c.trait) : null),
-    c ? aptBadge(apt) : null,
-    );
-  }
+    poolBody: (cid) => {
+      const c = charById.get(cid);
+      const total = STATS.reduce((sum, st) => sum + (Number(c.baseStats?.[st]) || 0), 0);
+      const t = traitInfo(c.trait, data);
+      return [
+        h('span', { class: 'lu-card-who', title: `${c.name} · ${RACE_LABELS[c.race] ?? c.race ?? ''} · 스탯 합 ${total}${t ? `\n${t.icon} ${t.name}: ${t.description}` : ''}` },
+          avatar(c.portraitColor, c.name, 'sm'),
+          h('b', { class: 'lu-card-nm ellipsis' }, c.name)),
+        h('span', { class: 'tiny muted ellipsis' }, h('span', { class: `rarity-${c.rarity}` }, c.rarity ?? ''), ` · ${elemLine(c)}`),
+        c.trait ? traitTag(c.trait) : h('span', { class: 'tiny muted' }, '특성 없음'),
+        h('span', { class: 'lu-apts' }, POSITIONS.map((p) => h('span', { class: 'lu-apt' }, h('i', {}, p), aptBadge(c.aptitude?.[p])))),
+      ];
+    },
+    onChange: (next) => { s.squad = next; rerender(); },
+    onSlotTap: (slot) => openSlotPicker(slot),
+  });
 
+  // ---- 슬롯 탭 → 선수 고르기 모달 (드래그 대신 쓰는 탭 · 키보드 경로). 보드와 같은 규칙 · 같은 색 ----
+  // 필드 선수를 고르면 자리를 맞바꾸고(그 선수가 원래 자리에 설 수 있어야), 벤치 선수를 고르면 투입 (있던 선수는 벤치로).
   function openSlotPicker(slot) {
     const pos = positionOfSlot(slot);
-    const assignedSlotOf = (cid) => Object.entries(s.squad).find(([, v]) => v === cid)?.[0];
+    const model = { slots, assign: s.squad, aptOf, bench: true };
+    const nameOf = (cid) => charById.get(cid)?.name ?? cid;
     const sorted = [...chars].sort((a, b) =>
-      (APTITUDE_ORDER[a.aptitude?.[pos] ?? '-'] ?? 3) - (APTITUDE_ORDER[b.aptitude?.[pos] ?? '-'] ?? 3));
+      (APTITUDE_ORDER[aptOf(a.id, pos)] ?? 3) - (APTITUDE_ORDER[aptOf(b.id, pos)] ?? 3));
     const list = sorted.map((c) => {
-      const apt = c.aptitude?.[pos] ?? '-';
-      const disabled = apt === '-' || (pos === 'GK' && apt === 'C');
-      const where = assignedSlotOf(c.id);
+      const apt = aptOf(c.id, pos);
+      const where = slotOfId(s.squad, c.id);
+      const current = where === slot;
+      const move = { id: c.id, to: slot };
+      const chk = current ? { ok: true } : checkMove(model, move);
+      const why = chk.ok ? null : (chk.reason ? badText(pos, apt, chk.reason) : `${nameOf(chk.occupant)} → ${badText(chk.occPos, chk.occApt, chk.occReason)}`);
       const total = STATS.reduce((sum, st) => sum + (Number(c.baseStats?.[st]) || 0), 0);
-      const aptLine = ['GK', 'DF', 'MF', 'FW'].map((p) => `${p} ${c.aptitude?.[p] ?? '-'}`).join(' · ');
+      const aptLine = POSITIONS.map((p) => `${p} ${c.aptitude?.[p] ?? '-'}`).join(' · ');
+      const t = traitInfo(c.trait, data);
       return h('button', {
-        class: ['char-pick', where === slot ? 'current' : ''],
-        disabled,
+        type: 'button',
+        class: ['char-pick', current ? 'current' : '', chk.ok ? 'pick-ok' : 'pick-bad'],
+        disabled: !chk.ok,
+        title: why ? `놓을 수 없음 — ${why}` : '',
         onclick: () => {
-          if (where) delete s.squad[where];
-          s.squad[slot] = c.id;
           closeOverlays();
+          if (!current) s.squad = applyMove(s.squad, move);
           rerender();
         },
       },
@@ -111,12 +129,13 @@ export function renderSetup(root, ctx) {
         h('span', { class: 'row wrap' },
           h('b', {}, c.name),
           h('span', { class: ['tiny', `rarity-${c.rarity}`] }, c.rarity ?? ''),
-          where && where !== slot ? h('span', { class: 'badge' }, `${where} 배치 중`) : null,
-          where === slot ? h('span', { class: 'badge badge-good' }, '현재') : null),
+          current ? h('span', { class: 'badge badge-good' }, '현재')
+            : where ? h('span', { class: 'badge' }, `${where} ⇄ 맞바꾸기`) : h('span', { class: 'badge' }, '벤치'),
+          why ? h('span', { class: 'badge badge-bad' }, `✖ ${why}`) : null),
         h('span', { class: 'tiny muted' },
           `${RACE_LABELS[c.race] ?? c.race ?? ''} · ${ELEMENT_LABELS[c.element] ?? ''} · ${STYLE_LABELS[c.style] ?? ''} · 스탯 합 ${total}`),
         h('span', { class: 'tiny muted' }, aptLine),
-        c.trait ? traitLine(c.trait) : null),
+        t ? h('span', { class: 'tiny' }, h('span', { class: 'trait-tag' }, `${t.icon} ${t.name}`), h('span', { class: 'muted' }, ` ${t.description}`)) : null),
       aptBadge(apt),
       );
     });
@@ -124,13 +143,13 @@ export function renderSetup(root, ctx) {
       h('div', { class: 'row between' },
         h('h3', {}, `${slot} 슬롯 — ${POSITION_LABELS[pos] ?? pos} 적성`),
         h('button', { class: 'btn btn-sm btn-ghost', onclick: closeOverlays }, '닫기')),
-      pos === 'GK'
-        ? h('p', { class: 'tiny warn' }, 'GK는 적성 A/B 선수만 배치할 수 있습니다.')
-        : h('p', { class: 'tiny muted' }, '적성 C도 배치할 수 있지만 경기 스탯에 페널티가 붙습니다. "-"는 배치 불가.'),
+      h('p', { class: 'tiny muted' },
+        pos === 'GK' ? 'GK는 적성 A/B 선수만 배치할 수 있습니다. ' : '적성 C도 배치할 수 있지만 경기 스탯에 페널티가 붙습니다. "-"는 배치 불가. ',
+        '필드 선수를 고르면 자리를 맞바꿉니다. 필드에서 카드를 끌어 옮길 수도 있습니다.'),
       h('div', { class: 'pick-grid' }, list),
       s.squad[slot]
         ? h('div', { class: 'row end' },
-          h('button', { class: 'btn btn-ghost', onclick: () => { delete s.squad[slot]; closeOverlays(); rerender(); } }, '슬롯 비우기'))
+          h('button', { class: 'btn btn-ghost', onclick: () => { delete s.squad[slot]; closeOverlays(); rerender(); } }, '슬롯 비우기 (벤치로)'))
         : null,
     ), { className: 'modal-lg' });
   }
@@ -147,12 +166,13 @@ export function renderSetup(root, ctx) {
   for (const sl of slots) {
     const c = charById.get(s.squad[sl]);
     if (!c) continue;
-    const apt = c.aptitude?.[positionOfSlot(sl)] ?? '-';
+    const apt = aptOf(c.id, positionOfSlot(sl));
     if (apt === 'C') warnings.push(`${c.name} ${positionOfSlot(sl)} 적성 C (스탯 ×${cfg.aptitudeMult?.C ?? 0.75})`);
     if (apt === '-') warnings.push(`${c.name} ${positionOfSlot(sl)} 배치 불가`);
     if (positionOfSlot(sl) === 'GK' && apt === 'C') warnings.push('GK는 적성 A/B만 허용');
   }
   const missing = slots.filter((sl) => !s.squad[sl]);
+  const benchCount = chars.length - assigned.length;
 
   // 필드 아래 줄: 공명 배지 · 원소별 인원 · 경고 · 빈 슬롯
   const resonanceEl = h('div', { class: 'resonance' },
@@ -162,55 +182,59 @@ export function renderSetup(root, ctx) {
           `${ELEMENT_ICONS[el] ?? ''} ${ELEMENT_LABELS[el] ?? el} 공명 ${n}명${n >= strongP ? ' (강)' : ''} ✔`))
         : h('span', { class: 'badge' }, `원소 공명 없음 (같은 원소 ${minP}명 이상)`),
       Object.entries(elemCounts).filter(([, n]) => n < minP).map(([el, n]) =>
-        h('span', { class: 'tiny muted' }, `${ELEMENT_ICONS[el] ?? ''}${n}`))),
+        h('span', { class: 'tiny muted' }, `${ELEMENT_ICONS[el] ?? ''}${n}`)),
+      missing.length ? h('span', { class: 'tiny warn' }, `비어 있는 슬롯: ${missing.join(', ')}`) : null),
     warnings.length ? h('div', { class: 'row wrap' }, warnings.map((w) => h('span', { class: 'tiny warn' }, `⚠ ${w}`))) : null,
-    missing.length ? h('span', { class: 'tiny muted' }, `비어 있는 슬롯: ${missing.join(', ')}`) : null,
   );
 
-  // ---- 가로 미니 필드 (우리 골 = 왼쪽) ----
-  const pitch = h('div', { class: 'slot-cards mini-pitch' },
-    h('div', { class: 'mp-lines', 'aria-hidden': 'true' },
-      h('i', { class: 'mp-half' }), h('i', { class: 'mp-circle' }),
-      h('i', { class: 'mp-box l' }), h('i', { class: 'mp-box r' }),
-      h('i', { class: 'mp-goal l' }), h('i', { class: 'mp-goal r' }),
-      h('span', { class: 'mp-label l' }, '우리 골'), h('span', { class: 'mp-label r' }, '공격 방향 →')),
-    slots.map(slotCard));
-
+  // 포메이션: 바뀌면 남는 슬롯은 그대로, 없어진 슬롯의 선수는 설 수 있는 빈 슬롯으로 (lineup.js reseat), 못 앉으면 벤치
   const formationSel = select(Object.keys(FORMATIONS).map((f) => [f, `${f} (DF ${FORMATIONS[f].DF} · MF ${FORMATIONS[f].MF} · FW ${FORMATIONS[f].FW})`]),
-    s.formation, (v) => { s.formation = v; rerender(); }, { 'aria-label': '포메이션' });
+    s.formation, (v) => {
+      board.cancel();
+      s.squad = reseat(s.squad, slotsOf(v), aptOf);
+      s.formation = v;
+      rerender();
+    }, { 'aria-label': '포메이션' });
 
-  // ---- 서포트 ----
-  const supportGrid = h('div', { class: 'support-grid' }, supports.map((sp) => {
+  // ---- 서포트: 작은 칩 (아바타 · 이름 · 희귀도 · 타입), 누르면 선택/해제. 자세한 값은 title ----
+  const full = s.supportIds.length >= supportCount;
+  const supportGrid = h('div', { class: 'sp-chips' }, supports.map((sp) => {
     const selected = s.supportIds.includes(sp.id);
-    const full = s.supportIds.length >= supportCount;
+    const type = SUPPORT_TYPE_LABELS[sp.type] ?? sp.type ?? '';
+    const detail = [
+      `${sp.name}${sp.rarity ? ` (${sp.rarity})` : ''}`,
+      `타입 ${type}`,
+      sp.trainingBonus ? `훈련 효율 +${Math.round(sp.trainingBonus * 100)}%` : null,
+      sp.initialBond != null ? `초기 유대 ${sp.initialBond}` : null,
+      sp.description || null,
+    ].filter(Boolean).join(' · ');
     return h('button', {
-      class: ['support-card', selected ? 'selected' : ''],
+      type: 'button',
+      class: ['sp-chip', 'support-card', selected ? 'selected' : ''], // support-card = 예전 이름 (test/ui.smoke.test.mjs 가 찾는다), 모양은 .sp-chip
       disabled: !selected && full,
+      title: detail,
+      'aria-pressed': selected ? 'true' : 'false',
       onclick: () => {
         if (selected) s.supportIds = s.supportIds.filter((id) => id !== sp.id);
         else if (!full) s.supportIds = [...s.supportIds, sp.id];
         rerender();
       },
     },
-    avatar(sp.portraitColor, sp.name, 'sm'),
-    // 이름은 이름 줄 전체 폭을 쓰고 단어 단위로만 줄바꿈. 희귀도는 보조 줄 맨 앞, 보조 줄은 항목(" · ") 단위로만 줄바꿈
-    h('span', { class: 'grow col' },
-      h('span', { class: 'sp-name', title: `${sp.name}${sp.rarity ? ` (${sp.rarity})` : ''}` }, sp.name),
-      h('span', { class: 'tiny muted sp-sub' }, ...[
-        sp.rarity ? h('span', { class: ['nw', `rarity-${sp.rarity}`] }, sp.rarity) : null,
-        h('span', { class: 'nw' }, SUPPORT_TYPE_LABELS[sp.type] ?? sp.type),
-        sp.trainingBonus ? h('span', { class: 'nw' }, `효율 +${Math.round(sp.trainingBonus * 100)}%`) : null,
-        sp.initialBond != null ? h('span', { class: 'nw' }, `유대 ${sp.initialBond}`) : null,
-      ].filter(Boolean).flatMap((el, i) => (i ? [' · ', el] : [el])))),
-    selected ? h('span', { class: 'badge badge-accent' }, '✔') : null,
+    avatar(sp.portraitColor, sp.name, 'xs'),
+    h('span', { class: 'col sp-chip-txt' },
+      h('span', { class: 'sp-chip-nm ellipsis' }, sp.name),
+      h('span', { class: 'tiny muted ellipsis' },
+        sp.rarity ? h('span', { class: `rarity-${sp.rarity}` }, sp.rarity) : null, ` ${type}`,
+        sp.trainingBonus ? ` +${Math.round(sp.trainingBonus * 100)}%` : '')),
+    selected ? h('span', { class: 'sp-check', 'aria-hidden': 'true' }, '✔') : null,
     );
   }));
 
-  // ---- 전술 ----
-  const tacticsEl = h('div', { class: 'grid-3' }, TACTIC_MAIN_KEYS.map((key) =>
-    h('div', { class: 'field' },
-      h('label', {}, TACTIC_LABELS[key]),
-      select(TACTIC_OPTIONS[key], s.tactics[key], (v) => { s.tactics[key] = v; }))));
+  // ---- 전술 (한 줄 = 라벨 + 선택) ----
+  const tacticsEl = h('div', { class: 'tac-rows' }, TACTIC_MAIN_KEYS.map((key) =>
+    h('label', { class: 'tac-row' },
+      h('span', { class: 'tiny muted' }, TACTIC_LABELS[key]),
+      select(TACTIC_OPTIONS[key], s.tactics[key], (v) => { s.tactics[key] = v; }, { 'aria-label': TACTIC_LABELS[key] }))));
 
   // ---- 시작 ----
   function startCustom() {
@@ -238,41 +262,47 @@ export function renderSetup(root, ctx) {
     });
   }
 
-  const seedField = h('div', { class: 'field seed-field' },
-    h('label', {}, 'seed'),
+  const seedField = h('label', { class: 'seed-field', title: '같은 seed + 같은 선택 = 같은 결과. 비우면 랜덤 seed' },
+    h('span', { class: 'tiny muted' }, 'seed'),
     h('input', {
-      class: 'input', type: 'text', placeholder: '비우면 랜덤 seed', value: s.seed ?? '',
+      class: 'input', type: 'text', placeholder: '비우면 랜덤', value: s.seed ?? '',
       autocomplete: 'off', spellcheck: 'false', 'aria-label': 'seed',
       oninput: (e) => { s.seed = e.target.value; },
     }));
+
+  // 선수 풀 패널 전체 = "벤치로" 놓는 곳 (카드 위는 그 선수와 맞바꾸기 · 교체)
+  const poolPanel = panel(`선수 ${chars.length}명 — 필드 ${assigned.length}/${slots.length} · 벤치 ${benchCount}`, {
+    cls: 'setup-pool',
+    right: h('span', { class: 'tiny muted lu-pool-tip' }, '필드 선수를 이 칸에 끌어 놓으면 벤치 · 벤치 선수 카드 위에 놓으면 교체'),
+  }, board.pool);
+  board.addPoolZone(poolPanel);
 
   root.append(h('div', { class: 'screen og setup-screen' },
     h('header', { class: 'og-head' },
       h('button', { class: 'btn btn-sm btn-ghost', onclick: () => actions.goto('start') }, '← 처음으로'),
       h('h2', {}, '편성'),
-      h('span', { class: 'muted small grow' }, '슬롯을 눌러 선수를 고르세요 · 같은 원소 3명 이상이면 원소 공명')),
+      h('span', { class: 'muted small grow setup-tip' },
+        '선수 카드를 끌어 필드 자리에 놓으세요 — ', h('b', { class: 'good' }, '초록'), ' 가능 · ', h('b', { class: 'bad' }, '빨강'), ' 불가. 슬롯을 누르면 목록에서 고를 수도 있습니다.'),
+      h('div', { class: 'setup-start' },
+        seedField,
+        h('button', { class: 'btn', onclick: startDefault }, '기본 편성으로 시작'),
+        h('button', { class: 'btn btn-primary', onclick: startCustom }, '런 시작'))),
 
     h('div', { class: 'setup-main' },
-      panel('포메이션', { cls: 'setup-pitch', right: h('div', { class: 'formation-sel' }, formationSel) },
-        pitch, resonanceEl),
+      panel('포메이션 · 배치', { cls: 'setup-pitch', right: h('div', { class: 'formation-sel' }, formationSel) },
+        board.pitch, resonanceEl),
 
       h('div', { class: 'setup-side' },
-        // 서포트 목록은 데이터 개수만큼 늘어난다 → 이 패널만 남는 높이를 쓰고 안쪽 스크롤 (전술 · 시작 패널은 늘 보인다 — outgame.css)
-        panel(`서포트 카드 (${s.supportIds.length}/${supportCount})`, {
-          cls: 'grow-panel setup-supports',
+        // 서포트 칩은 데이터 개수만큼 늘어난다 → 이 패널만 남는 높이를 쓰고 안쪽 스크롤 (전술 패널은 늘 보인다 — outgame.css)
+        panel(`서포트 카드 ${s.supportIds.length}/${supportCount}`, {
+          cls: ['grow-panel', 'setup-supports', s.supportIds.length === supportCount ? 'done' : ''].filter(Boolean).join(' '),
           scroll: true,
-          right: h('span', { class: 'tiny muted' }, `${supports.length}장 중 ${supportCount}장 선택`),
+          right: h('span', { class: 'tiny muted' }, `${supports.length}장 중 ${supportCount}장 · 누르면 선택/해제`),
         }, supportGrid),
+        panel('전술 지시', { cls: 'setup-tactics', right: h('span', { class: 'tiny muted', title: '텐션 사용·듀얼 담당은 기본값을 따르며 런 중 전술 미팅에서 바꿀 수 있습니다.' }, '텐션·듀얼 담당은 미팅에서') },
+          tacticsEl)),
 
-        panel('전술 지시', {}, tacticsEl,
-          h('p', { class: 'tiny muted' }, '텐션 사용·듀얼 담당은 기본값을 따르며 런 중 전술 미팅에서 바꿀 수 있습니다.')),
-
-        h('div', { class: 'og-panel setup-start' },
-          h('div', { class: 'row' }, seedField,
-            h('p', { class: 'tiny muted seed-note' }, '같은 seed + 같은 선택 = 같은 결과.')),
-          h('div', { class: 'setup-start-btns' },
-            h('button', { class: 'btn', onclick: startDefault }, '기본 편성으로 시작'),
-            h('button', { class: 'btn btn-primary btn-lg', onclick: startCustom }, '런 시작'))),
-      )),
+      poolPanel,
+    ),
   ));
 }

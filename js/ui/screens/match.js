@@ -17,6 +17,13 @@
 //  - 연출: 크로스 포물선, 헤더, 연계 문구(킬패스!·원터치!·헤더!·침투!), 태클 실패 누운 모습, 필살기 공.
 //  기대 %·결과·후보·게이지는 전부 엔진 getMatchView 값이다. 이 파일은 규칙을 다시 계산하지 않는다.
 //
+// 2026-09-29 (사용자 결정): 짝 표 크로스 ↔ 버티기 (짝 칩은 view.counter), ④ 박스 연결.
+//  - ④ 결정 카드: 슛 + "컷백 → ○○"(→ 원터치 슛) + "센터링 → ○○"(크로서만 → 헤더). % = 득점 기대 (연결 성공 × 받은 선수 골),
+//    받는 선수는 박스 안 후보 토큰 탭(▾), 필살 패스 토글 가능 (받는 선수가 필살 슛 보유자면 합체기 이름).
+//  - 미리보기: 박스 안 짧은 패스(점선) · 센터링(포물선) + GK 가 튀어나오는 길(흰 점선), 끝 글자 = 원터치 슛 / 헤더.
+//  - 연출: 성공 = 받은 선수에게 (컷백! · 센터링!), GK 는 조금 튀어나왔다 복귀 → 받은 선수가 GK 와 1:1.
+//    실패 = GK 가 길목으로 튀어나와 잡음(🧤) → 세이브와 같은 흐름 (상대 골킥 / 빠른 배급 GK 면 역습).
+//
 // 가로 전용 (고정 스테이지 1280×720 — js/ui/stage.js, css/match.css). 세로 경기 화면·방향 전환은 없다 (?orient · 저장값은 무시).
 //  - 필드 좌표(layout.js)는 그대로, 픽셀 변환만 가로 (layout.js fieldToScreen 'land' — home 골 왼쪽, away 골 오른쪽, 필드 x 0 = 위).
 //    화면에 그리는 좌표는 전부 toPx(x, y) 를 거친다.
@@ -51,6 +58,21 @@ const STEP_MARKS = ['①', '②', '③', '④'];
 const RECV_ACTIONS = ['pass', 'cross'];
 const ACTION_ORDER = ['dribble', 'pass', 'cross', 'shoot', 'tackle', 'intercept', 'hold', 'save'];
 const MATCH_VERSION = 3; // §13.2-14: 이보다 낮은 저장 경기는 새로 만든다
+
+/* ④ 박스 연결 (2026-09-29): 슈팅 찬스(lineIndex 3)의 패스 = 컷백 (→ 받은 선수 원터치 슛), 크로스 = 센터링 (크로서만 → 헤더).
+   연결 자체가 GK 와의 듀얼 — 성공하면 공은 박스 그대로 받은 선수에게, 실패하면 GK 가 잡는다 (세이브와 같음). 포제션당 1회. */
+const isBoxLink = (view, action) => Number(view?.lineIndex) >= 3 && (action === 'pass' || action === 'cross');
+/**
+ * 액션 표시 이름 · 아이콘: ④ 박스 연결은 짧은 이름 (컷백 · 센터링). 우리 슛은 엔진 액션 이름 (센터링을 받은 뒤 "헤더",
+ * 파이널 서드 "중거리 슛") — 결정·성향 카드와 정보 줄이 같은 이름을 쓴다
+ */
+const shootLabel = (view) => (view?.actions || []).find((a) => a.action === 'shoot')?.label;
+const actName = (view, action) => (isBoxLink(view, action)
+  ? L.BOX_LINK_LABELS[action]
+  : (action === 'shoot' && shootLabel(view)) || (L.ACTION_LABELS[action] ?? action));
+const actIcon = (view, action) => (isBoxLink(view, action) ? L.BOX_LINK_ICONS[action] : L.ACTION_ICONS[action] ?? '');
+/** 짝 표 (공격 → 짝이 맞는 수비): 엔진 view.counter (크로스 ↔ 버티기), 없으면 labels.js 사본 */
+const counterOf = (view) => (view?.counter && typeof view.counter === 'object' ? view.counter : L.COUNTER);
 
 let GEN = 0; // renderMatch 호출마다 증가 → 이전 경기 화면이 예약한 콜백을 무효화
 
@@ -441,7 +463,8 @@ export function renderMatch(root, ctx) {
     if (view.receiverPreview && !sv?.receiverPreview) return m;
     let id = Lay.receiverId;
     const ea = view.expected?.attack?.action;
-    if (ea === 'pass' || ea === 'cross') id = sv?.receivers?.[ea]?.defaultId ?? id;
+    // 예상 받는 선수: 엔진 expected.attack.receiverId (커밋한 선수 · ④ 자동 연결 규칙의 선수) → 없으면 그 액션의 기본값
+    if (ea === 'pass' || ea === 'cross') id = view.expected?.attack?.receiverId ?? sv?.receivers?.[ea]?.defaultId ?? id;
     if (id && (Lay.receiverIds || []).includes(id)) m.set(id, []);
     return m;
   }
@@ -450,7 +473,7 @@ export function renderMatch(root, ctx) {
     const rs = shownView(view)?.receivers || {};
     const both = RECV_ACTIONS.filter((a) => rs[a]).length > 1;
     const sameForAll = RECV_ACTIONS.filter((a) => rs[a]).every((a) => picks.includes(a));
-    return both && !sameForAll ? `${t.name} ✓${L.ACTION_LABELS[picks[0]]}` : `${t.name} ✓`;
+    return both && !sameForAll ? `${t.name} ✓${actName(view, picks[0])}` : `${t.name} ✓`;
   }
 
   /**
@@ -474,6 +497,21 @@ export function renderMatch(root, ctx) {
       if (R) along(toPx(R.x, R.y), a === 'cross');
     }
     return out;
+  }
+  /**
+   * ④ 박스 연결 미리보기에서 GK 가 튀어나오는 길: GK → 연결 길 위 한 점 (크로스면 포물선 위 점) — [시작, 끝] 픽셀, 없으면 null.
+   * 끝점은 가운데(0.55)부터 앞뒤로 — 화살촉이 다른 토큰(뚫린 수비 · 후보) 위에 앉지 않는 첫 자리 (없으면 가장 덜 겹치는 자리)
+   */
+  function gkLane(Lay, c, r, curve) {
+    const def = Lay.attackingSide === 'home' ? 'away' : 'home';
+    const G = tokOf(Lay, Lay.defenderId, def);
+    if (!G) return null;
+    const obstacles = Lay.tokens.filter((t) => t !== G).map((t) => ({ ...tokenRect(t), w: 1 }));
+    const cands = [0.55, 0.45, 0.65, 0.35, 0.75].map((k) => {
+      const e = curve ? curvePoint(c, r, k) : lerp2(c, r, k);
+      return { e, box: { l: e[0] - 9, r: e[0] + 9, t: e[1] - 9, b: e[1] + 9 } };
+    });
+    return [toPx(G.x, G.y), (pickSpot(cands, obstacles) || cands[0]).e];
   }
   /** 선(a → b 픽셀, curve 면 크로스 포물선)을 따라 6px 점 박스 — 글자 자리 고르기의 장애물. 무게 0.5: 선보다 토큰을 덜 가리는 게 먼저 */
   function lineDots(a, b, curve = false) {
@@ -669,13 +707,13 @@ export function renderMatch(root, ctx) {
     track.setAttribute('aria-label', `공격 진행 ${tr.side === 'home' ? '우리' : '상대'} ${STEP_MARKS[tr.step] ?? ''} ${L.ATTACK_STEP_LABELS[tr.step] ?? ''}`);
   }
 
-  /** 상황 배너: 구역(또는 공격 팀·포제션)이 바뀔 때만 갱신 (GDD §9.5-3) */
+  /** 상황 배너: 구역(또는 공격 팀·포제션)이 바뀔 때만 갱신 (GDD §9.5-3). ④ 박스 연결 성공도 (구역 그대로, 받은 선수의 찬스) */
   function updateBanner(Lay, view, force = false) {
     if (!Lay) return;
     const text = Lay.banner || view?.lineLabel || '';
     const key = Lay.mode === 'penalties' || view?.finished
       ? `${Lay.mode}|${view?.finished ? 'end' : ''}|${text}`
-      : `${Lay.attackingSide}|${Lay.zone}|${view?.possession ?? ''}`;
+      : `${Lay.attackingSide}|${Lay.zone}|${view?.possession ?? ''}|${view?.ballState?.boxLinkUsed ? 'link' : ''}`;
     if (!force && key === bannerKey) return;
     bannerKey = key;
     const lv = Lay.highlight?.level;
@@ -709,13 +747,20 @@ export function renderMatch(root, ctx) {
     const oppName = nameOf(view, opp, o?.playerId) || '상대';
     const myName = nameOf(view, human, me?.playerId);
     const box = Number(view.lineIndex) >= 3;
+    // ④ 박스 연결 자동 규칙 (A안 예외 — 상대 수를 읽지 않음): 받는 선수 마무리 값 ≥ ratio × 내 슛 값, 또는 받는 선수 필살 슛 준비
+    const bl = box ? view.boxLink : null;
+    const linkRule = bl
+      ? `④ 자동 규칙: 받는 선수 마무리 값이 슛 값의 ${bl.ratio ?? 1.25}배 이상이거나 받는 선수의 필살 슛이 준비됐을 때만 연결` +
+        ` (슛 ${bl.shoot?.value ?? '-'}${RECV_ACTIONS.filter((k) => bl[k]).map((k) => ` · ${L.BOX_LINK_LABELS[k]} ${bl[k].score}`).join('')})`
+      : '';
+    const recvOf = (side, x) => (isBoxLink(view, x?.action) && x.receiverId ? ` → ${nameOf(view, side, x.receiverId)}` : '');
     let mine = '';
     let mineTitle = '';
     if (me) {
       mine = myRole === 'defense' && box
         ? '우리: 세이브(자동)'
-        : `우리: ${L.ACTION_LABELS[me.action] ?? me.action}`;
-      mineTitle = `우리 ${myName}의 예상 행동 — 자동이면 이것을 고른다`;
+        : `우리: ${actName(view, me.action)}${recvOf(human, me)}`;
+      mineTitle = `우리 ${myName}의 예상 행동 — 자동이면 이것을 고른다${myRole === 'attack' && linkRule ? `\n${linkRule}` : ''}`;
     }
     if (view.opponentReading) {
       return {
@@ -724,18 +769,29 @@ export function renderMatch(root, ctx) {
       };
     }
     if (!o) return { ...none, text: view.lineLabel ?? '', mine, mineTitle };
-    if (oppRole === 'defense' && box) return { ico: '🧤', text: `상대 GK ${withJosa(oppName, '과/와')} 1:1 — 세이브`, bubble: null, mine, mineTitle, reading: false };
+    if (oppRole === 'defense' && box) {
+      // 우리 ④: GK 세이브(자동) 상대. 컷백 · 센터링도 GK 와 경합 (GK 가 튀어나와 끊는다)
+      const links = (view.actions || []).filter((x) => x.enabled && isBoxLink(view, x.action)).map((x) => actName(view, x.action));
+      return {
+        ico: '🧤',
+        text: `상대 GK ${withJosa(oppName, '과/와')} 1:1 — 세이브${links.length ? ` · ${links.join('·')}도 GK와 경합` : ''}`,
+        title: `상대 GK ${oppName}: 슛은 세이브로, ${links.length ? `${links.join('·')}은 튀어나와 끊어서 막는다 (끊기면 세이브와 같음)` : '박스에서는 세이브 자동'}`,
+        bubble: null, mine, mineTitle, reading: false,
+      };
+    }
     const a = o.action;
+    // 성향값 근거. ④ 상대 공격이면 슛 값 vs 박스 연결 점수 (컷백 · 센터링)
     const vals = Object.entries(o.values || {}).filter(([, v]) => Number(v) > 0).sort((x, y) => y[1] - x[1]);
     const why = vals.length >= 2
-      ? ` · ${L.ACTION_LABELS[vals[0][0]] ?? vals[0][0]} ${vals[0][1]} > ${L.ACTION_LABELS[vals[1][0]] ?? vals[1][0]} ${vals[1][1]}`
+      ? ` · ${actName(view, vals[0][0])} ${vals[0][1]} > ${actName(view, vals[1][0])} ${vals[1][1]}`
       : '';
-    const kind = box ? (L.ACTION_LABELS[a] ?? a) : (L.ACTION_TYPE_LABELS[a] ?? L.ACTION_LABELS[a] ?? a);
+    const kind = box ? `${actName(view, a)}${recvOf(opp, o)}` : (L.ACTION_TYPE_LABELS[a] ?? L.ACTION_LABELS[a] ?? a);
     return {
-      ico: L.ACTION_ICONS[a] ?? '🎯',
+      ico: actIcon(view, a) || '🎯',
       text: `상대 ${oppName} ${kind}${why}`,
-      title: `상대 ${oppName}의 예상 행동: ${L.ACTION_LABELS[a] ?? a} (성향값 1위 — 자동은 늘 이것을 고른다)${why ? ` —${why.slice(2)}` : ''}`,
-      bubble: `${L.ACTION_ICONS[a] ?? ''} ${L.ACTION_LABELS[a] ?? a}`.trim(),
+      title: `상대 ${oppName}의 예상 행동: ${actName(view, a)}${recvOf(opp, o)} (성향값 1위 — 자동은 늘 이것을 고른다)${why ? ` —${why.slice(2)}` : ''}` +
+        `${linkRule ? `\n${linkRule}` : ''}`,
+      bubble: `${actIcon(view, a)} ${actName(view, a)}`.trim(),
       mine,
       mineTitle,
       reading: false,
@@ -878,6 +934,15 @@ export function renderMatch(root, ctx) {
     }
     const human = humanOf(view);
     const role = view.attackingSide === human ? 'attack' : 'defense';
+    if (!canDecide && !ui.auto && busy && !(role === 'defense' && Number(view.lineIndex) >= 3)) {
+      // 수동(자동 OFF)의 연출 중: 다음 결정의 성향 카드("자동 선택")를 미리 보이지 않는다 — 자동이 고른 것처럼 읽힌다.
+      // 연출이 끝나면 결정 카드가 나온다. (GK 세이브 자동 카드는 그대로)
+      setRow('wide', 1);
+      actGrid.replaceChildren(h('button', { class: 'btn act-btn', type: 'button', disabled: true },
+        h('span', { class: 'act-title' }, h('span', { class: 'act-nm' }, `⏳ ${view.lineLabel ?? '진행 중'}`)),
+        h('span', { class: 'btn-sub' }, '연출이 끝나면 직접 고른다')));
+      return;
+    }
     if (!canDecide) { drawAutoActions(view, role, setRow); return; }
 
     const acts = (Array.isArray(view.actions) ? view.actions : []).filter((a) => a.enabled !== false);
@@ -891,15 +956,31 @@ export function renderMatch(root, ctx) {
       recAction = null;
       for (const { a, i } of infos) if (i.ultOk && i.pct != null && i.pct > best) { best = i.pct; recAction = a.action; }
     }
-    const pairWith = role === 'defense' && !view.opponentReading ? L.COUNTER[view.expected?.attack?.action] ?? null : null;
+    // 짝 칩: 상대 예상 공격의 짝 수비 (엔진 view.counter — 크로스 ↔ 버티기)
+    const pairWith = role === 'defense' && !view.opponentReading ? counterOf(view)[view.expected?.attack?.action] ?? null : null;
     setRow(role === 'attack' ? 'atk' : 'def', acts.length);
     actGrid.replaceChildren(...infos.map(({ a, i }) =>
       actionButton(view, a, i, { role, rec: a.action === recAction, pair: pairWith === a.action })));
   }
 
+  /**
+   * ④ 박스 연결 + 필살 패스: 받는 선수가 필살 슛 보유자면 다음 슛이 합체기 → 합체기 이름 (combos.json, 없으면 "합체기"). 아니면 null.
+   * 엔진 규칙(필살 패스를 받은 선수가 필살기 보유자면 다음 듀얼에 합체기)과 같은 조건 — 박스에서 받은 선수가 쓰는 건 필살 슛뿐
+   */
+  function boxComboName(view, u, receiverId) {
+    if (!u || u.type !== 'pass' || !receiverId) return null;
+    const snap = playerSnap(humanOf(view), receiverId);
+    const skills = Array.isArray(data.skills) ? data.skills : [];
+    const shot = (Array.isArray(snap?.skillIds) ? snap.skillIds : []).map((id) => skills.find((s) => s.id === id)).find((s) => s?.ultimate?.type === 'shot');
+    if (!shot) return null;
+    return safe(() => match.comboName?.(data, u.skillId, shot.id)) || '합체기';
+  }
+
   function actionButton(view, a, info, { role, rec, pair }) {
     const enabled = info.ultOk;
-    const label = info.label ?? a.label ?? L.ACTION_LABELS[a.action] ?? a.action;
+    const box = isBoxLink(view, a.action);
+    // ④ 박스 연결은 짧은 이름 "컷백 → ○○" · "센터링 → ○○" (엔진 label "컷백 패스"는 title 에)
+    const label = box ? actName(view, a.action) : info.label ?? a.label ?? L.ACTION_LABELS[a.action] ?? a.action;
     const human = humanOf(view);
     const ri = info.ri;
     const rName = ri ? nameOf(view, human, ri.id) : '';
@@ -909,18 +990,26 @@ export function renderMatch(root, ctx) {
     const okLong = out?.success?.label ? `성공: ${out.success.label}` : okShort;
     const ngLong = out?.fail?.label ? `실패: ${out.fail.label}` : ngShort;
     const pctText = info.pct != null ? `${info.approx ? '≈' : ''}${info.pct}%` : '';
-    const hintText = stripRecvHint(info.hint ?? a.hint);
+    let hintText = stripRecvHint(info.hint ?? a.hint);
+    const u = ui.ultimate && info.ultOk ? ultOption(view) : null;
+    const combo = box ? boxComboName(view, u, ri?.id) : null;
+    if (box) {
+      // 막혔을 때 결과는 카드의 실패 줄(엔진 outcome)에 이미 있다 → 약점 줄은 경합 상대만 (엔진 힌트의 "(막히면 …)" 은 중복이라 뺀다)
+      hintText = [combo ? `💥 ${combo}` : null, hintText.replace(/\s*\(막히면[^)]*\)/, '') || 'GK와 경합', '포제션당 1회'].filter(Boolean).join(' · ');
+    }
     const formula = role === 'defense' ? hintText.split(' · ')[0] : '';
     const title = [
-      `${label}${rName ? ` → ${rName}` : ''}${pctText ? ` ${pctText}` : ''}${rec && enabled ? ' (추천)' : ''}${pair ? ' (짝)' : ''}`,
-      role === 'attack' && Number(view.lineIndex) === 2 && a.action !== 'shoot'
-        ? '% = 이번 공격 득점 기대 (돌파 × 박스 슛)'
-        : role === 'attack' ? (a.action === 'shoot' ? '% = 골 확률' : '% = 돌파 확률') : '% = 막을 확률 (상대 예상 행동 기준)',
+      `${box ? `${a.label ?? label}` : label}${rName ? ` → ${rName}` : ''}${pctText ? ` ${pctText}` : ''}${rec && enabled ? ' (추천)' : ''}${pair ? ' (짝)' : ''}`,
+      role !== 'attack' ? '% = 막을 확률 (상대 예상 행동 기준)'
+        : box ? `% = 득점 기대 (연결 성공 × ${rName || '받은 선수'} ${L.BOX_LINK_FINISH[a.action]} 골)`
+          : Number(view.lineIndex) === 2 && a.action !== 'shoot' ? '% = 이번 공격 득점 기대 (돌파 × 박스 슛)'
+            : a.action === 'shoot' ? '% = 골 확률' : '% = 돌파 확률',
+      box ? `GK가 튀어나와 끊으면 세이브와 같음 · 박스 연결은 포제션당 1회${combo ? ` · 필살 패스 → ${rName} 필살 슛 = 합체기 [${combo}]` : ''}` : null,
       hintText,
       out?.success?.label, out?.fail?.label,
       info.approx ? '≈ 스킬·필살기와 받는 선수 조합은 기본 결과 기준 (근사)' : null,
       !info.ultOk ? '필살기와 함께 쓸 수 없는 액션' : null,
-      ri && ri.candidates.length > 1 ? '필드의 후보 토큰을 탭하면 받는 선수가 바뀐다' : null,
+      ri && ri.candidates.length > 1 ? `필드의 후보 토큰을 탭하면 받는 선수가 바뀐다${box ? ' (박스 안 후보)' : ''}` : null,
     ].filter(Boolean).join('\n');
     const chips = [
       pair ? h('span', { class: 'chip chip-pair' }, '짝') : null,
@@ -942,7 +1031,8 @@ export function renderMatch(root, ctx) {
         h('span', { class: 'act-foot' }, ...chips, formula ? h('span', { class: 'act-formula' }, formula) : null),
       ];
     return h('button', {
-      class: ['btn', 'act-btn', enabled ? 'decide' : 'dim', rec && enabled ? 'rec' : '', info.ultOk && ui.ultimate && ultOption(view) ? 'ult-on' : ''],
+      class: ['btn', 'act-btn', enabled ? 'decide' : 'dim', rec && enabled ? 'rec' : '', info.ultOk && ui.ultimate && ultOption(view) ? 'ult-on' : '',
+        box ? 'box-link' : '', combo ? 'combo' : ''],
       type: 'button',
       disabled: !enabled,
       dataset: { action: a.action, receiver: ri?.id ?? '' },
@@ -957,7 +1047,7 @@ export function renderMatch(root, ctx) {
     },
     h('span', { class: 'act-title' },
       h('span', { class: 'act-nm' },
-        h('span', { class: 'act-ico' }, L.ACTION_ICONS[a.action] ?? ''),
+        h('span', { class: 'act-ico' }, actIcon(view, a.action)),
         h('span', { class: 'act-lbl' }, label),
         ri ? h('span', { class: 'act-rcv' },
           h('span', { class: 'act-arrow' }, '→'),
@@ -984,22 +1074,29 @@ export function renderMatch(root, ctx) {
       .filter(([k, v]) => Number(v) > 0 || k === ex.action)
       .sort((x, y) => ACTION_ORDER.indexOf(x[0]) - ACTION_ORDER.indexOf(y[0]));
     const hints = new Map((view.actions || []).map((a) => [a.action, a]));
+    const ratio = view.boxLink?.ratio ?? 1.25;
     setRow(role === 'attack' ? 'atk' : 'def', Math.max(1, entries.length), true);
     actGrid.replaceChildren(...entries.map(([k, v]) => {
       const auto = k === ex.action;
       const a = hints.get(k);
+      // ④ 박스 연결(컷백 · 센터링)의 값 = 연결 점수 (받는 선수 마무리 값 ÷ ratio, 필살 슛 조건이면 ≥ 슛 값) — 자동은 1위
+      const box = isBoxLink(view, k);
+      const rcv = box && auto && ex.receiverId ? nameOf(view, humanOf(view), ex.receiverId) : '';
       return h('button', {
         class: ['btn', 'act-btn', 'auto-view', auto ? 'auto-pick' : ''],
         type: 'button',
         disabled: true,
         dataset: { action: k },
-        title: `${L.ACTION_LABELS[k] ?? k} 성향값 ${v}${auto ? ' — 자동이면 이 액션' : ''}`,
+        title: box
+          ? `${actName(view, k)} 연결 점수 ${v} (받는 선수 마무리 값 ÷ ${ratio}, 받는 선수 필살 슛 준비면 슛 값 이상)${auto ? ` — 자동이면 이 액션${rcv ? ` → ${rcv}` : ''}` : ''}`
+          : `${L.ACTION_LABELS[k] ?? k} 성향값 ${v}${auto ? ' — 자동이면 이 액션' : ''}`,
       },
       h('span', { class: 'act-title' },
-        h('span', { class: 'act-nm' }, h('span', { class: 'act-ico' }, L.ACTION_ICONS[k] ?? ''), ` ${a?.label ?? L.ACTION_LABELS[k] ?? k}`),
+        h('span', { class: 'act-nm' }, h('span', { class: 'act-ico' }, actIcon(view, k)),
+          ` ${box ? actName(view, k) : a?.label ?? L.ACTION_LABELS[k] ?? k}${rcv ? ` → ${rcv}` : ''}`),
         h('b', { class: 'act-pct muted' }, String(v))),
-      h('span', { class: ['act-out', auto ? 'auto' : 'muted'] }, auto ? '자동 선택' : '성향값'),
-      a?.hint ? h('span', { class: 'act-why' }, stripRecvHint(a.hint)) : null);
+      h('span', { class: ['act-out', auto ? 'auto' : 'muted'] }, auto ? '자동 선택' : box ? '연결 점수' : '성향값'),
+      a?.hint ? h('span', { class: 'act-why' }, box ? stripRecvHint(a.hint).replace(/\s*\(막히면[^)]*\)/, '') : stripRecvHint(a.hint)) : null);
     }));
   }
 
@@ -1023,6 +1120,7 @@ export function renderMatch(root, ctx) {
           u.description,
           `필살 게이지 ${gaugeTxt}`,
           !u.usable && u.reason ? `(${u.reason})` : null,
+          u.usable && u.type === 'pass' && Number(view?.lineIndex) >= 3 ? '④ 박스 연결(컷백·센터링)과 함께 — 받는 선수가 필살 슛 보유자면 박스 안 합체기' : null,
           u.usable && !isSave ? '토글한 뒤 액션을 고르면 함께 쓴다' : null,
         ].filter(Boolean).join('\n'),
         onclick: () => {
@@ -1227,11 +1325,26 @@ export function renderMatch(root, ctx) {
         const R = tokOf(Lay, rid, atk);
         if (R) {
           const t2 = toPx(R.x, R.y);
-          if (action === 'cross') arrowCurve(c, t2, { startGap: rTok, endGap: rTok, color: '#ffd166', marker: 'mah-gold', cls: 'ar-cross' });
+          const curve = action === 'cross';
+          if (curve) arrowCurve(c, t2, { startGap: rTok, endGap: rTok, color: '#ffd166', marker: 'mah-gold', cls: 'ar-cross' });
           else arrowLine(c, t2, { startGap: rTok, endGap: rTok, dashed: true, color: '#ffd166', marker: 'mah-gold', cls: 'ar-pass' });
+          const at = (k) => (curve ? curvePoint(c, t2, k) : lerp2(c, t2, k));
+          const obs = lineDots(c, t2, curve);
+          if (out?.success?.boxLink || isBoxLink(view, action)) {
+            // ④ 박스 연결: 공은 박스 그대로 → 끝 글자 = 받은 선수의 마무리. GK 가 튀어나와 끊는 길(흰 점선)
+            const gl = gkLane(Lay, c, t2, curve);
+            if (gl) {
+              arrowLine(gl[0], gl[1], { startGap: rTok, endGap: 5, dashed: true, color: '#ffffff', marker: 'mah-white', cls: 'ar-gk', opacity: 0.6 });
+              obs.push(...lineDots(gl[0], gl[1]));
+              // GK 화살촉 옆은 비운다 — 마무리 글자가 GK 의 글자로 읽히지 않게
+              obs.push({ l: gl[1][0] - 22, r: gl[1][0] + 22, t: gl[1][1] - 22, b: gl[1][1] + 22, w: 2 });
+            }
+            // 마무리 글자("→ 원터치 슛" · "→ 헤더")는 받는 선수 쪽 끝에 — 받은 선수가 하는 일
+            arrowTip(at(0.8), `→ ${L.BOX_LINK_FINISH[action]}`, c, t2, obs, [at(0.68), at(0.9)]);
+            return;
+          }
           const z = zoneName(out?.success?.zone);
-          const at = (k) => (action === 'cross' ? curvePoint(c, t2, k) : lerp2(c, t2, k));
-          if (z) arrowTip(at(0.5), `→ ${z}`, c, t2, lineDots(c, t2, action === 'cross'), [at(0.7), at(0.3)]);
+          if (z) arrowTip(at(0.5), `→ ${z}`, c, t2, obs, [at(0.7), at(0.3)]);
         }
         return;
       } else if (action === 'shoot') {
@@ -1251,15 +1364,20 @@ export function renderMatch(root, ctx) {
     const d = D ? toPx(D.x, D.y) : null;
     const goal = toPx(Lay.goal.x, Lay.goal.y >= 50 ? 99 : 1);
     const ea = view?.expected?.attack?.action;
-    const recvId = (ea === 'pass' || ea === 'cross') ? view?.receivers?.[ea]?.defaultId ?? Lay.receiverId : Lay.receiverId;
-    const R = action === 'intercept' ? tokOf(Lay, recvId, atk) : null;
+    const recvId = (ea === 'pass' || ea === 'cross')
+      ? view?.expected?.attack?.receiverId ?? view?.receivers?.[ea]?.defaultId ?? Lay.receiverId
+      : Lay.receiverId;
+    // 받는 선수까지의 길을 막는 수비: 인터셉트 = 패스·크로스 길목, 버티기 = 크로스(공중볼)가 떨어지는 곳에서 몸싸움 (2026-09-29 짝)
+    const toRecv = action === 'intercept' || (action === 'hold' && ea === 'cross');
+    const R = toRecv ? tokOf(Lay, recvId, atk) : null;
+    const curve = !!R && ea === 'cross'; // 상대가 크로스를 올릴 것 같으면 길 = 포물선
     let pathTo;
     let endGap = 0;
     let alongs;
     if (R) {
       pathTo = toPx(R.x, R.y);
       endGap = rTok;
-      alongs = [0.5, 0.4, 0.6, 0.3, 0.7];
+      alongs = action === 'hold' ? [0.8, 0.72, 0.88, 0.64] : [0.5, 0.4, 0.6, 0.3, 0.7];
     } else {
       pathTo = action === 'hold' || !Lay.nextBall ? goal : toPx(Lay.nextBall.x, Lay.nextBall.y);
       const len0 = Math.hypot(pathTo[0] - c[0], pathTo[1] - c[1]) || 1;
@@ -1272,19 +1390,24 @@ export function renderMatch(root, ctx) {
     const vlen = Math.hypot(vv[0], vv[1]) || 1;
     const nrm = [-vv[1] / vlen, vv[0] / vlen];
     const half = tokPx * 0.45;
-    const others = (Lay.tokens || []).filter((t) => !(t.side === atk && t.id === Lay.carrierId)).map(tokenRect);
+    // ✕ 자리의 장애물: 토큰 + 보이는 이름표 (접히는 우리 수비수 이름표 제외 — 버티기 ✕ 가 받는 선수 이름표를 덮지 않게)
+    const others = [
+      ...(Lay.tokens || []).filter((t) => !(t.side === atk && t.id === Lay.carrierId)).map(tokenRect),
+      ...tagBoxes.filter((b) => b.role !== 'defender'),
+    ];
     const cutCands = [];
     for (const lat of [0, 0.8, -0.8]) {
       for (const a of alongs) {
-        const p = lerp2(c, pathTo, a);
+        const p = curve ? curvePoint(c, pathTo, a) : lerp2(c, pathTo, a);
         const q = [p[0] + nrm[0] * tokPx * lat, p[1] + nrm[1] * tokPx * lat];
         cutCands.push({ p: q, box: { l: q[0] - half, r: q[0] + half, t: q[1] - half, b: q[1] + half } });
       }
     }
     const cut = (pickSpot(cutCands, others) || cutCands[0]).p;
-    arrowLine(c, pathTo, { startGap: rTok, endGap, dashed: true, color: '#ffffff', marker: 'mah-white', cls: 'ar-lane', opacity: 0.75 });
+    if (curve) arrowCurve(c, pathTo, { startGap: rTok, endGap, color: '#ffffff', marker: 'mah-white', cls: 'ar-lane', opacity: 0.75 });
+    else arrowLine(c, pathTo, { startGap: rTok, endGap, dashed: true, color: '#ffffff', marker: 'mah-white', cls: 'ar-lane', opacity: 0.75 });
     crossMark(cut, tokPx * 0.4);
-    sideLabel(cut, L.ACTION_LABELS[action] ?? action, tokPx * 0.7, vv, lineDots(c, pathTo));
+    sideLabel(cut, L.ACTION_LABELS[action] ?? action, tokPx * 0.7, vv, lineDots(c, pathTo, curve));
   }
 
   /** 미리보기 글자 한 줄을 토큰 위 층에: 후보 자리 중 토큰이 없는 첫 자리 (없으면 가장 덜 가리는 자리). extra = 더 피할 박스 (화살표 선의 점) */
@@ -1341,7 +1464,7 @@ export function renderMatch(root, ctx) {
       svgEl('line', { ...common, class: `ar ${cls}`, stroke: color, opacity, 'stroke-dasharray': dashed ? '7 5' : null, 'marker-end': `url(#${marker})` }));
   }
   /** 포물선 화살표 (크로스): 필드 바깥쪽으로 휘는 2차 곡선 */
-  function arrowCurve(a, b, { startGap = 0, endGap = 0, color, marker, cls = '' }) {
+  function arrowCurve(a, b, { startGap = 0, endGap = 0, color, marker, cls = '', opacity = 1 }) {
     const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
     if (len < 1) return;
     const k0 = startGap / len;
@@ -1352,7 +1475,7 @@ export function renderMatch(root, ctx) {
     const d = `M${round1(s[0])},${round1(s[1])} Q${round1(cp[0])},${round1(cp[1])} ${round1(e[0])},${round1(e[1])}`;
     arrowG.append(
       svgEl('path', { d, class: 'ar-halo', 'stroke-dasharray': '7 5' }),
-      svgEl('path', { d, class: `ar ${cls}`, stroke: color, 'stroke-dasharray': '7 5', 'marker-end': `url(#${marker})` }));
+      svgEl('path', { d, class: `ar ${cls}`, stroke: color, opacity, 'stroke-dasharray': '7 5', 'marker-end': `url(#${marker})` }));
   }
   function crossMark(p, r) {
     for (const [dx, dy] of [[1, 1], [1, -1]]) {
@@ -1562,6 +1685,21 @@ export function renderMatch(root, ctx) {
       addCls(atk, ev.receiverId, 'catching');
       linkAt = R;
       if (D && ev.defAction === 'tackle') addCls(def, D.id, 'fallen');
+      // ④ 박스 연결 성공: GK 가 길목으로 튀어나왔지만 못 끊음 (재배치 때 골문으로 돌아가 받은 선수와 1:1)
+      if (ev.boxLink && D) moveTok(def, D.id, lerp(D, linkPoint(C, R, isCross, 0.55), 0.3));
+    } else if (ev.type === 'save' && ev.boxLink) {
+      // ④ 박스 연결 실패: GK 가 튀어나와 길목에서 잡는다 (🧤) → 세이브와 같은 흐름 (상대 골킥 · 빠른 배급 GK 면 역습)
+      const R = tokOf(prevL, failedReceiver(ev, prevL, prevView), atk);
+      let P = D ? lerp(C, D, 0.5) : C;
+      if (R) {
+        const mid = linkPoint(C, R, isCross, 0.55);
+        P = D ? lerp(mid, D, 0.25) : mid;
+        if (isCross) trailCurve(C, R, atk, !!ev.ultimate, 0.55);
+        else trail(C, P, atk, !!ev.ultimate);
+      }
+      if (D) { moveTok(def, D.id, P); addCls(def, D.id, 'claim'); }
+      placeBallAt(P.x, P.y);
+      if (ev.defUltimate && D) addCls(def, D.id, 'ult-act');
     } else if (ev.type === 'duel') {
       const to = prevL.nextBall || C;
       moveTok(atk, ev.playerId, to);
@@ -1601,10 +1739,17 @@ export function renderMatch(root, ctx) {
       if (ev.header) addCls(atk, C.id, 'header');
     }
     if (ev.ultimate && C?.id) addCls(atk, C.id, 'ult-act');
-    // 연계 문구 (성공한 비트만): 킬패스! · 원터치! · 헤더! · 침투! · 합체기!
+    // 연계 문구 (성공한 비트만): 킬패스! · 원터치! · 헤더! · 침투! · 합체기! — ④ 박스 연결 성공이면 앞에 "컷백!" · "센터링!"
     const ok = ev.type === 'goal' || (ev.type === 'duel' && ev.success) || (ev.type === 'penalty' && ev.success);
     const links = Array.isArray(ev.links) ? ev.links.map((l) => (typeof l === 'string' ? l : l?.label)).filter(Boolean) : [];
+    if (ok && ev.boxLink && ev.type === 'duel') links.unshift(`${L.BOX_LINK_LABELS[ev.action] ?? ''}!`);
     if (ok && links.length) later(() => linkPop(links.join(' '), linkAt, prevL), Math.round(T.act * k * 0.5));
+  }
+  /** 패스(직선) · 크로스(포물선) 길 위의 점 (필드 좌표) — t = 0 공 가진 선수 … 1 받는 선수 */
+  function linkPoint(C, R, curve, t) {
+    if (!curve) return lerp(C, R, t);
+    const q = curvePoint(toPx(C.x, C.y), toPx(R.x, R.y), t);
+    return fromPx(q[0], q[1]);
   }
 
   /** 실패한 패스·크로스가 향하던 선수: 엔진 이벤트(판정 때 정한 받는 선수) → 이번 비트의 사람 결정 → 직전 view 의 기본값 → 레이아웃 기본값 */
@@ -1675,6 +1820,8 @@ export function renderMatch(root, ctx) {
     if (!r) return;
     let at = nextL?.ball || { x: 50, y: 50 };
     if (ev.type === 'penalty') at = prevL?.ball || at;
+    // 세이브(④ 박스 연결 실패 = GK 캐치 포함): 잡은 GK 옆 — 재배치 뒤의 공(골킥 · 빠른 배급 GK 면 중원 역습 시작점)이 아니라
+    if (ev.type === 'save') at = tokOf(nextL, ev.defenderId, ev.side === 'away' ? 'home' : 'away') || at;
     let side;
     let x;
     let y;
@@ -1794,6 +1941,10 @@ export function renderMatch(root, ctx) {
     const read = ev.readBy ? ' (간파)' : '';
     switch (ev.type) {
       case 'duel':
+        if (ev.boxLink && (ev.action === 'pass' || ev.action === 'cross')) {
+          // ④ 박스 연결 성공: 받은 선수의 원터치 슛 · 헤더 찬스 (GK 와 1:1)
+          return { text: `${nm(atk, ev.playerId)} → ${nm(atk, ev.receiverId)} ${L.BOX_LINK_LABELS[ev.action]} 성공 · ${L.BOX_LINK_FINISH[ev.action]} 찬스`, tone: good };
+        }
         if (ev.action === 'pass' || ev.action === 'cross') {
           return { text: `${nm(atk, ev.playerId)} → ${nm(atk, ev.receiverId)} ${ev.action === 'cross' ? '크로스' : '패스'} 성공${read}`, tone: good };
         }
@@ -1801,6 +1952,8 @@ export function renderMatch(root, ctx) {
       case 'turnover':
         return { text: `${nm(def, ev.defenderId)} ${L.ACTION_LABELS[ev.defAction] ?? '수비'}! ${us ? '공 뺏김' : '공 탈취'}${read}`, tone: bad };
       case 'save':
+        // ④ 박스 연결 실패 = GK 가 튀어나와 잡음 (세이브와 같음)
+        if (ev.boxLink) return { text: `${nm(def, ev.defenderId)} ${ev.defUltimate ? '필살 ' : ''}캐치! ${L.BOX_LINK_LABELS[ev.action] ?? ''} 끊어냄`, tone: bad };
         return { text: `${nm(def, ev.defenderId)} ${ev.defUltimate ? '필살 ' : ''}세이브!`, tone: bad };
       case 'goal':
         return { text: us ? `골!! ${nm(atk, ev.playerId)}${ev.header ? ' (헤더)' : ''}` : `실점 — ${nm(atk, ev.playerId)}`, tone: good };
@@ -2016,7 +2169,7 @@ export function renderMatch(root, ctx) {
         class: 'btn btn-primary btn-block',
         type: 'button',
         onclick: () => { cardModal?.close(); tapToken(side, id); },
-      }, `받는 선수로 (${pickActs.map((a) => L.ACTION_LABELS[a]).join('·')})`) : null,
+      }, `받는 선수로 (${pickActs.map((a) => actName(view, a)).join('·')})`) : null,
       h('button', { class: 'btn btn-block', type: 'button', onclick: () => cardModal?.close() }, '닫기'));
     cardModal = openModal(content, { className: 'mini-card-modal', onClose: () => { cardModal = null; } });
   }

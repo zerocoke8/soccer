@@ -55,8 +55,14 @@ export const ACTION_TYPE_LABELS = {
   dribble: '드리블형', pass: '패스형', cross: '크로스형', shoot: '슈팅형',
   tackle: '태클형', intercept: '인터셉트형', hold: '버티기형', save: '세이브',
 };
-// 짝 (GDD v0.5 §9.8): 상대 공격 → 짝이 맞는 수비
-export const COUNTER = { dribble: 'tackle', pass: 'intercept', cross: 'intercept', shoot: 'hold' };
+// 짝 (GDD v0.5 §9.8): 상대 공격 → 짝이 맞는 수비. 2026-09-29: 크로스(공중볼) ↔ 버티기 (엔진 match.COUNTER · view.counter 와 같다 —
+// 경기 화면은 view.counter 를 먼저 쓰고, 이 표는 view 에 없을 때만)
+export const COUNTER = { dribble: 'tackle', pass: 'intercept', cross: 'hold', shoot: 'hold' };
+// ④ 박스 연결 (2026-09-29): 슈팅 찬스(lineIndex 3)의 패스 = 컷백 (→ 받은 선수 원터치 슛), 크로스 = 센터링 (크로서만 → 헤더).
+// 결정 카드 · 정보 줄 · 말풍선 · 연출 문구의 짧은 이름, 아이콘, 받은 선수의 마무리
+export const BOX_LINK_LABELS = { pass: '컷백', cross: '센터링' };
+export const BOX_LINK_ICONS = { pass: '↩️', cross: '⤴️' };
+export const BOX_LINK_FINISH = { pass: '원터치 슛', cross: '헤더' };
 export const ULT_TYPE_LABELS = { shot: '필살 슛', pass: '필살 패스', save: '필살 세이브' };
 
 // 연계 특성 (GDD v0.5 §9.10, data/traits.json). 이름·설명은 data.traits 가 있으면 그것을 쓰고(traitInfo), 아이콘은 여기만.

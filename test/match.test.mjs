@@ -215,8 +215,9 @@ test("1-FW 포메이션(2-3-1): line 2 에서 FW 캐리어의 패스 비활성, 
           assert.match(byName.pass.hint, /그룸바/);
         }
         if (ms.ball.lineIndex >= 3) {
+          // ④: 슛 + 박스 연결(컷백 패스 — 후보 = FW + 슈팅 최고 MF, 포제션당 1회)
           assert.equal(byName.dribble.enabled, false);
-          assert.equal(byName.pass.enabled, false);
+          assert.equal(byName.pass.enabled, !ms.ball.boxLinkUsed, "④ 컷백 패스 (외로운 FW 도 MF 에게)");
           assert.equal(byName.shoot.enabled, true);
         }
       }
@@ -702,7 +703,8 @@ test("v0.2 receiverPreview: pass 가능할 때만 존재, 패스 성공 시 실�
           assert.equal(v.receiverPreview, null, "승부차기/종료 중 receiverPreview 없음");
           return;
         }
-        const passOn = state.ball.lineIndex < 3 && match.getAttackActions(state, state.attackingSide).find((a) => a.action === "pass").enabled;
+        // ④ 에서도 박스 연결(컷백 패스)이 가능하면 받는 선수 미리보기가 있다 (도착 step 3)
+        const passOn = match.getAttackActions(state, state.attackingSide).find((a) => a.action === "pass").enabled;
         assert.equal(!!v.receiverPreview, passOn, `receiverPreview 존재 = pass 가능 (line ${state.ball.lineIndex})`);
         if (!passOn) nullChecked++;
         if (v.receiverPreview) {
@@ -758,6 +760,7 @@ test("v0.2 outcomes: 판정 후 공 구역·공격 팀 = 직전 view.outcomes[�
   const counts = { attack: { success: 0, fail: 0 }, defense: { success: 0, fail: 0 } };
   const seenActions = new Set();
   let viewChecked = 0;
+  let boxChecked = 0;
   for (let seed = 1; seed <= 150; seed++) {
     const home = homes[seed % homes.length];
     const away = oppSnapshot(OPP_POOL[seed % OPP_POOL.length]);
@@ -812,12 +815,19 @@ test("v0.2 outcomes: 판정 후 공 구역·공격 팀 = 직전 view.outcomes[�
         }
         counts[role][humanWon ? "success" : "fail"]++;
         seenActions.add(decision.action);
+        // ④ 박스 연결(컷백·센터링)도 같은 미리보기 = 실제 검사를 거친다
+        if (role === "attack" && before.lineIndex === 3 && decision.action !== "shoot") {
+          boxChecked++;
+          assert.equal(ev.boxLink, true);
+          if (humanWon) assert.equal(ev.receiverId, o.success.receiver.id, "박스 연결 받는 선수 = 미리보기");
+        }
       },
     });
   }
   for (const r of ["attack", "defense"]) for (const k of ["success", "fail"]) assert.ok(counts[r][k] > 50, `${r}.${k} ${counts[r][k]}`);
   for (const a of ["dribble", "pass", "shoot", "tackle", "intercept", "hold"]) assert.ok(seenActions.has(a), `액션 ${a} 검증됨`);
   assert.ok(viewChecked > 500, `view 비교 ${viewChecked}`);
+  assert.ok(boxChecked > 20, `박스 연결 결정 검증 ${boxChecked}`);
 });
 
 test("v0.3 outcomes 문구: 공격 = 상대 수비 예상 행동에 따른 역습 구역·세이브·골, 수비 = 손익(빠른 역습·빌드업·제쳐짐·+10%)·실점", () => {
@@ -859,19 +869,29 @@ test("v0.3 outcomes 문구: 공격 = 상대 수비 예상 행동에 따른 역�
   );
   assert.equal(v2.outcomes.shoot.success.label, "골! → 상대 킥오프");
   assert.equal(v2.outcomes.shoot.fail.label, "막히면 → 상대 빌드업부터");
-  // line 3: 슛만, 실패 = 세이브 → 상대 골킥 (빠른 배급 GK 면 중원부터)
+  // line 3: 슛 + 박스 연결(컷백 패스). 실패 = 세이브 / GK 가 끊어냄 → 상대 골킥 (빠른 배급 GK 면 중원부터)
   const s3g = clone(ms); s3g.ball.lineIndex = 3;
   const gk = s3g.away.players.find((p) => p.position === "GK");
   s3g.duel.defenderId = gk.id; s3g.duel.awayChoice = { action: "save", byAI: true };
   gk.trait = null;
   const v3 = match.getMatchView(s3g, data);
-  assert.deepEqual(Object.keys(v3.outcomes), ["shoot"]);
+  assert.deepEqual(Object.keys(v3.outcomes), ["pass", "shoot"], "MF carrier: 컷백 가능 (크로서 아님 → 센터링 없음)");
   assert.equal(v3.outcomes.shoot.fail.label, "세이브 → 상대 골킥");
   assert.equal(v3.outcomes.shoot.fail.zone, 4);
+  assert.equal(v3.outcomes.pass.fail.label, "GK가 끊어냄 → 상대 골킥");
+  assert.equal(v3.outcomes.pass.fail.short, "실패 상대 골킥");
+  assert.equal(v3.outcomes.pass.fail.zone, 4);
+  assert.equal(v3.outcomes.pass.success.zone, 5, "성공 = 박스 그대로");
+  assert.equal(v3.outcomes.pass.success.label, `${v3.receiverPreview.name} 원터치 슛 찬스`);
   gk.trait = "distributor";
   const v3d = match.getMatchView(s3g, data);
   assert.equal(v3d.outcomes.shoot.fail.label, "세이브 → 상대 역습, 중원부터");
   assert.equal(v3d.outcomes.shoot.fail.zone, 3);
+  assert.equal(v3d.outcomes.pass.fail.label, "GK가 끊어냄 → 상대 역습, 중원부터");
+  assert.equal(v3d.outcomes.pass.fail.zone, 3);
+  // 박스 연결을 이미 했으면 슛만
+  s3g.ball.boxLinkUsed = true;
+  assert.deepEqual(Object.keys(match.getMatchView(s3g, data).outcomes), ["shoot"]);
   // 상대 steal 스킬이 이미 커밋돼 있으면 역습이 한 구역 더 깊다 (판정에 그대로 적용되는 공개 정보)
   const s4 = clone(ms); s4.ball.lineIndex = 1; s4.duel.awayChoice = { ...s4.duel.awayChoice, action: "tackle" };
   s4.duel.effects.away.steal = { plus: 1, tension: 10, cappedNextBonus: 0.15 };
@@ -975,7 +995,12 @@ test("v0.2 이벤트 위치 필드: seq = 배열 인덱스(단조 증가), 비�
       if (RESOLVE_TYPES.includes(e.type)) {
         assert.equal(e.attackingSide, e.side);
         assert.ok(e.defenderId, `${e.type}.defenderId`);
-        if (e.type === "duel") { assert.equal(e.toAttackingSide, e.attackingSide); assert.ok(e.toStep > e.step); }
+        if (e.type === "duel") {
+          assert.equal(e.toAttackingSide, e.attackingSide);
+          // ④ 박스 연결 성공은 공이 박스 그대로 (step 3 → 3)
+          if (e.boxLink) assert.ok(e.step === 3 && e.toStep === 3, "박스 연결 = 박스 그대로");
+          else assert.ok(e.toStep > e.step);
+        }
         else assert.notEqual(e.toAttackingSide, e.attackingSide, "턴오버/세이브/골 → 공격 팀 교대");
       }
       if (e.type === "penalty") {
@@ -1031,7 +1056,9 @@ test("v0.2 getMatchView: 매 상태에서 상태 불변(JSON 동일, 난수 미�
           assert.equal(v.attackDir, "down");
           assert.deepEqual(v.remaining.lines, []);
           assert.equal(v.remaining.text, "남은 수비: GK");
-          assert.equal(v.receiverPreview, null);
+          // 상대의 박스 연결(컷백) 받는 선수 미리보기는 있을 수 있다 (step 3)
+          assert.equal(!!v.receiverPreview, !!(v.receivers && v.receivers.pass));
+          if (v.receiverPreview) assert.equal(v.receiverPreview.step, 3);
           assert.equal(v.needsDecision, null);
           assert.equal(v.outcomes, null);
         }

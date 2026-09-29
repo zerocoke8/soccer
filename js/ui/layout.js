@@ -13,6 +13,9 @@
 // 보강 규칙 (ARCHITECTURE §12.2 · §13.6):
 //  - 받는 선수 후보(receiver)는 패스·크로스가 도착하는 구역 안에 선다: fy = max(SHAPE.atk, 도착 구역 시작 + 2) → ③ 단계 FW 후보 = 86 (상대 박스).
 //    v0.3: view.receivers(패스·크로스 후보 전원)를 모두 receiver 로 그린다 (결정 중 탭해서 고른다). 크로스 후보 MF 도 박스에.
+//    2026-09-29 ④ 박스 연결(컷백·센터링, arrival = 3 = 지금 단계): 후보는 공과 같은 박스 안 (박스 시작 + INSET),
+//    공 가진 선수와 레인이 가까우면 다른 후보가 적은 쪽으로 비켜 선다 (BOX_LANE — 연결 화살표가 보이고, 다른 후보에게 가는 길을 막지 않게).
+//    연결 성공 직후 배너 = "★ 컷백! ○○ 원터치 슛 찬스".
 //  - 경기 종료 view: 마지막 비트가 끝난 뒤의 모습 — 턴오버/세이브면 공을 얻은 선수(수비수·GK)가 공을 갖고,
 //    골이면 공은 골문 안, carrier 없음 (finalFrame).
 //  - 좁고 높은 필드(aspect ≥ 1.1)에서 ④ 단계 GK 가 세로 간격을 못 얻으면 공을 자기 골 쪽으로 당긴다 (구역 · 뚫린 라인 앞 유지).
@@ -49,6 +52,14 @@ const PENALTY = { spot: 90, goal: 97, arcBase: 70, arcHalf: 6, arcSpan: 42, kick
 
 /** 패스 후보: 도착 구역 시작에서 이만큼 안쪽 (공격 방향 기준 %) */
 export const RECEIVER_INSET = 2;
+/**
+ * ④ 박스 연결(컷백·센터링) 후보의 가로 자리: 공 가진 선수와 레인이 gap 안으로 가까우면 shift 만큼 비켜 선다 — 다른 후보가 적은 쪽으로
+ * (다른 후보에게 가는 연결 길 위에 서지 않게), 같으면 필드 가운데 쪽. 비킨 자리는 [min, max] 안 (구역 이름 · 터치라인에서 떨어진다).
+ * 세로는 박스 시작 + INSET (공 가진 선수 바로 뒤라 같은 레인이면 연결 화살표가 보이지 않는다). 다만 공 가진 선수 → 후보 화살표가
+ * 다른 후보(또는 다른 선수) 위를 지나면 그 후보는 박스 안쪽 깊은 줄 deep (공 90 과 GK 97 사이 — 먼 쪽 포스트로 뛰어드는 자리)에 선다
+ * (boxDepths: 후보 ≤ 3 명의 가장자리/깊은 줄 조합 중 화살표가 가장 덜 가려지는 것). clear = 화살표와 다른 토큰 중심의 최소 거리 (토큰 지름 배).
+ */
+export const BOX_LANE = { gap: 16, shift: 16, min: 10, max: 90, deep: 93.5, clear: 0.6 };
 /** 듀얼 수비수를 세로로 밀 때 먼저 지키는 상한(GK 골문 97) · 절대 상한 */
 const DEF_SOFT_MAX = 97;
 const DEF_HARD_MAX = 99.5;
@@ -175,11 +186,13 @@ export function receiverCandidates(view) {
   const out = new Map();
   const r = v.receivers && typeof v.receivers === "object" ? v.receivers : null;
   const step = clampInt(v.attackStep ?? v.lineIndex, 0, 3);
+  // 도착 단계: 지금보다 앞 (최대 ③→④). ④ 박스 연결(컷백·센터링)은 도착 = ④ 그대로 (공은 박스에 남는다)
+  const validArrival = (a) => Number.isInteger(a) && a <= 3 && (a > step || (step >= 3 && a === 3));
   if (r) {
     for (const a of ["pass", "cross"]) {
       const x = r[a];
       if (!x || !Array.isArray(x.candidates)) continue;
-      const arrival = Number.isInteger(x.arrival) && x.arrival > step && x.arrival <= 3 ? x.arrival : Math.min(3, step + 1);
+      const arrival = validArrival(x.arrival) ? x.arrival : Math.min(3, step + 1);
       for (const id of x.candidates) {
         if (id == null) continue;
         const k = String(id);
@@ -193,7 +206,7 @@ export function receiverCandidates(view) {
   }
   const rp = v.receiverPreview;
   if (rp && rp.id != null && !out.has(String(rp.id))) {
-    const arrival = Number.isInteger(rp.step) && rp.step > step && rp.step <= 3 ? rp.step : Math.min(3, step + 1);
+    const arrival = validArrival(rp.step) ? rp.step : Math.min(3, step + 1);
     out.set(String(rp.id), { id: String(rp.id), actions: ["pass"], arrival });
   }
   return [...out.values()];
@@ -291,22 +304,29 @@ function playLayout(v, teams, geo, lastBeat) {
     }
   }
   const carrierX = carrier ? carrier.laneX : 50;
+  // ④ 박스 연결: 공 가진 선수 레인에서 떨어진(비키지 않는) 후보들의 레인 — 비키는 후보가 그 반대쪽으로 (boxLaneX)
+  const boxOthers = step >= 3 && carrier
+    ? [...landingOf.keys()].map((e) => e.laneX).filter((x) => Math.abs(x - carrier.laneX) >= BOX_LANE.gap)
+    : [];
 
   const specs = [];
   for (const e of A.list) {
     let role;
     let fy;
     let prio;
+    let fx = e.laneX;
     let nudge = -1; // 가로 자리가 없으면 자기 골 쪽(공 뒤)으로
     if (e === carrier) {
       role = "carrier";
       fy = ballFy;
     } else if (landingOf.has(e)) {
       role = "receiver";
-      // 받는 선수 후보: 패스·크로스가 도착하는 구역 안 (GDD §9.3 공격 팀 2 — 공보다 한 구역 앞)
+      // 받는 선수 후보: 패스·크로스가 도착하는 구역 안 (GDD §9.3 공격 팀 2 — 공보다 한 구역 앞).
+      // ④ 박스 연결은 도착 = 공과 같은 박스 (박스 시작 + INSET — 컷백은 뒤로 내준다), 공 가진 선수 레인에서 비켜 선다
       const landing = landingOf.get(e);
       fy = Math.max(SHAPE.atk[e.position][step], ZONES[Math.min(5, landing + 2) - 1].from + RECEIVER_INSET);
       nudge = 1;
+      if (step >= 3 && carrier) fx = boxLaneX(e.laneX, carrier.laneX, boxOthers);
     } else if (e.position === "GK") {
       role = "gk";
       fy = SHAPE.atk.GK[step];
@@ -320,7 +340,7 @@ function playLayout(v, teams, geo, lastBeat) {
         prio = PRIO.carrier;
       }
     }
-    specs.push({ e, role, fx: e.laneX, fy, prio, nudge, sideOrder: 0 });
+    specs.push({ e, role, fx, fy, prio, nudge, sideOrder: 0 });
   }
   for (const e of D.list) {
     const li = POS_BY_LINE.indexOf(e.position);
@@ -347,7 +367,12 @@ function playLayout(v, teams, geo, lastBeat) {
     specs.push({ e, role, fx, fy, nudge, sideOrder: 1 });
   }
 
-  const pos = placeAll(specs, toY, geo);
+  let pos = placeAll(specs, toY, geo);
+  // ④ 박스 연결: 후보의 깊이(박스 가장자리 / 안쪽 깊은 줄)를 연결 화살표가 다른 토큰 위를 지나지 않게 고른다
+  if (step >= 3 && carrier && !fin) {
+    const recv = specs.filter((s) => s.role === "receiver");
+    if (recv.length) pos = boxDepths(specs, recv, carrier, receiver, toY, geo);
+  }
 
   const cPos = carrier ? pos.get(carrier) : null;
   let ball;
@@ -414,6 +439,68 @@ function finalFrame(lb) {
     return { kind: lb.type, atk: toSide, step: toStep, holderId: lb.defenderId ?? null };
   }
   return null;
+}
+
+/**
+ * ④ 박스 연결 후보의 원하는 가로 %: 공 가진 선수 레인(cx)에서 BOX_LANE.gap 안이면 shift 만큼 비킨다.
+ * 방향 = 다른 후보(others: 비키지 않는 후보들의 레인)가 적은 쪽, 같으면 필드 가운데 쪽.
+ * 그쪽이 [min, max] 에 막혀 덜 비켜져도 반대쪽에 다른 후보가 있으면 그대로 (다른 후보에게 가는 길 위에 서지 않는 게 먼저), 없으면 반대쪽
+ */
+function boxLaneX(laneX, cx, others) {
+  if (Math.abs(laneX - cx) >= BOX_LANE.gap) return laneX;
+  const plus = others.filter((x) => x > cx).length;
+  const minus = others.filter((x) => x < cx).length;
+  const dir = plus !== minus ? (plus < minus ? 1 : -1) : cx <= 50 ? 1 : -1;
+  const at = (d) => clamp(cx + d * BOX_LANE.shift, BOX_LANE.min, BOX_LANE.max);
+  const x = at(dir);
+  if (Math.abs(x - cx) >= BOX_LANE.gap - EPS) return x;
+  return (dir > 0 ? minus : plus) > 0 ? x : at(-dir);
+}
+
+/**
+ * ④ 박스 연결 후보의 깊이: 후보마다 박스 가장자리(spec 의 fy) 또는 깊은 줄(BOX_LANE.deep) — 모든 조합(후보 ≤ 3 → ≤ 8)을 놓아 보고
+ * 벌점이 가장 적은 배치를 고른다 (동점이면 앞 조합 = 깊은 줄이 적은 쪽). 결정적.
+ * 벌점: 공 가진 선수 → 후보 선분이 다른 토큰 중심에서 BOX_LANE.clear × 지름 안을 지나면 — 다른 후보 10, 그 밖 3, 뚫린(반투명) 선수 1.
+ * 기본 받는 선수(receiver)의 화살표는 ×2 (먼저 보이는 화살표). 깊은 줄 후보 1명당 1 (가장자리가 기본).
+ * 고른 깊이를 specs 에 남기고 그 배치(pos)를 돌려준다.
+ */
+function boxDepths(specs, recv, carrier, receiver, toY, geo) {
+  const edge = recv.map((s) => s.fy);
+  const apply = (mask) => recv.forEach((s, i) => { s.fy = mask & (1 << i) ? BOX_LANE.deep : edge[i]; });
+  let best = null;
+  for (let mask = 0; mask < 1 << recv.length; mask++) {
+    apply(mask);
+    const pos = placeAll(specs, toY, geo);
+    const C = pos.get(carrier);
+    let score = 0;
+    recv.forEach((s, i) => {
+      if (mask & (1 << i)) score += 1;
+      const R = pos.get(s.e);
+      let pen = 0;
+      for (const [e, p] of pos) {
+        if (e === carrier || e === s.e) continue;
+        if (segDist(p, C, R, geo.aspect) >= geo.minD * BOX_LANE.clear) continue;
+        pen += p.role === "receiver" ? 10 : p.role === "broken" ? 1 : 3;
+      }
+      score += pen * (s.e === receiver ? 2 : 1);
+    });
+    if (!best || score < best.score) best = { score, mask, pos };
+  }
+  apply(best.mask);
+  return best.pos;
+}
+
+/** 점 p 와 선분 a–b 의 거리 (필드 폭 % 단위, 세로는 aspect 로 환산 — tokenDistance 와 같은 척도) */
+function segDist(p, a, b, aspect) {
+  const ax = a.x;
+  const ay = a.y / aspect;
+  const dx = b.x - ax;
+  const dy = b.y / aspect - ay;
+  const px = p.x - ax;
+  const py = p.y / aspect - ay;
+  const len2 = dx * dx + dy * dy;
+  const t = len2 > EPS ? clamp((px * dx + py * dy) / len2, 0, 1) : 0;
+  return Math.hypot(px - t * dx, py - t * dy);
 }
 
 /** 공을 자기 골 쪽으로 당길 때의 하한 (공격 방향 기준): 공 구역 시작, 뚫린 수비 라인보다 앞 */
@@ -659,6 +746,13 @@ function playBanner({ atk, step, zone, finished, lastBeat, remainingText, carrie
   const vs = defenderName ? ` vs ${defenderName}` : "";
   const duel = defenderName ? `${withJosa(C, "이/가")} ${withJosa(defenderName, "과/와")} 대결` : `${C} 전진`;
   const oneOnOne = gkName ? `, ${withJosa(gkName, "과/와")} 1:1` : "";
+
+  // ④ 박스 연결 직후 (마지막 비트 = 이 팀의 컷백·센터링 성공, 2026-09-29): 받은 선수(지금 carrier)의 원터치 슛 · 헤더 찬스
+  if (step === 3 && lastBeat && lastBeat.type === "duel" && lastBeat.success && lastBeat.boxLink && lastBeat.side === atk) {
+    const how = lastBeat.action === "cross" ? "센터링" : "컷백";
+    const fin = lastBeat.action === "cross" ? "헤더" : "원터치 슛";
+    return home ? `★ ${how}! ${C} ${fin} 찬스${oneOnOne}` : `⚠ 상대 ${how}! ${C} ${fin} 위기${oneOnOne}`;
+  }
   if (home) {
     if (step === 0) return `우리 빌드업 — ${C}${vs}`;
     if (step === 1) return `중원 싸움 — ${duel}`;
