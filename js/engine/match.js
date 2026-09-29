@@ -16,7 +16,7 @@
  *  - A안 자동 선택: 선수는 자기 성향값(tendencyValues) 1위 액션을 고른다 (결정적, 상대를 읽지 않음). 난수는 판정 주사위만.
  *  - 액션: 공격 dribble | pass | cross | shoot, 수비 tackle | intercept | hold, GK save. 의도 공개 단계 폐지.
  *  - 수비 3종 스탯·배율(짝 ×readBonus / 빗나감 ×missMult / hold, 중거리엔 ×holdVsMidrange), 뚫림 결과(제쳐짐 등),
- *    역습 시작 표(intercept·steal +1, 상한 counterCap, hold 한 구역 물러남, distributor). 킥오프는 kickoffLine(중원).
+ *    역습 시작 표(intercept·steal +1, 상한 counterCap, hold 한 구역 물러남; GK 가 잡으면 GK 배급). 킥오프는 kickoffLine(중원).
  *  - 연계 특성(traits.json, 팀워크 증폭), 원터치·헤더, 받는 선수 직접 고르기(decision.receiverId).
  *  - 간파(readBoost / negateRead, 사용권), 필살기(개인 게이지, shot/pass/save, 합체기), 일반 액티브 새 어휘(skills.js).
  *
@@ -26,25 +26,53 @@
  *  - 박스 연결 (④ 슈팅 찬스, lineIndex 3): 슛 외에 컷백 패스(action "pass" → 받은 선수 원터치 슛)와
  *    센터링(action "cross", 크로서만 → 받은 선수 헤더). 연결 자체가 GK 와의 듀얼(GK 세이브 값 × boxLink.gkMult, 짝 없음).
  *    성공 → 공은 line 3 그대로, 받은 선수가 carrier (원터치 · receivedVia · 연계 +1 · 게이지 onReceive).
- *    실패 → GK 가 잡음 = 세이브와 같음 (이벤트 "save", 상대 골킥 / 빠른 배급 GK 면 중원).
- *    포제션당 1회 (ball.boxLinkUsed). 자동(A안 예외)은 boxLinkEval 규칙 — 받는 선수 마무리 값 ≥ autoRatio × 내 슛 값이거나
- *    받는 선수의 필살 슛이 준비(합체기 포함)되고 내게 준비된 필살 슛이 없을 때만 연결.
+ *    실패 → GK 가 잡음 = 세이브와 같음 (이벤트 "save" → 그 GK 의 배급, 아래 결정 3).
+ *    포제션당 1회 (ball.boxLinkUsed). 자동(A안 예외)은 boxLinkEval 규칙 — 기대 골 비교 (아래 결정 4, 옛 autoRatio 규칙 폐지).
  *  - 에이스의 외침 (view.aceCall, aceCallFor): 받으면 필살기가 준비되는(게이지 ≥ aceCallGauge) · 합체기가 되는 받는 선수 한 명.
  *    이미 커밋한 공격(상대 AI)은 커밋한 받는 선수일 때만. 표시 전용 — 판정 · 자동 선택 · 난수를 바꾸지 않는다.
+ *
+ * 2026-09-29 (사용자 결정 3~7):
+ *  - GK 배급 (phase "distribution"): GK 가 인플레이에서 공을 잡으면(④ 세이브 · 박스 연결 차단) 상대 골킥 대신 그 GK 가 배급한다.
+ *    세이브 step 은 판정만 하고 phase "distribution" 으로 멈춘다 → 다음 step 이 배급 (한 step = 주사위 최대 한 번 유지).
+ *    짧은 패스 = 항상 성공, 빌드업(line 0)부터. 롱패스 = 주사위 한 번 (GK (패스+피지컬)/2 × actionCoef.longPass × (1 + 빠른 배급)
+ *    × 캐논 킥 vs 상대 최고 MF (수비+피지컬)/2, 짝·선택 없음) → 성공 = 중원(line 1)부터, 실패 = 상대가 중원(line 1)에서 공격
+ *    (이벤트 "turnover" + distribution: true — 공을 뺏긴 것이라 턴오버와 같은 흐름, 포제션 +1).
+ *    사람 측 배급 = needsDecision "distribution", decision { action: "short"|"long", skillId? }. 결정 없이 step = 전술
+ *    tactics.distribution (short | long | auto: 롱패스 확률 ≥ longPassAutoMin 이면 길게) — ai.decideDistribution (결정적).
+ *    경기를 끝내는 세이브(마지막 포제션)와 승부차기에는 배급이 없다.
+ *  - 박스 연결: 연결 판정의 GK 배율 boxLink.gkMult 0.6. 자동은 기대 골 비교 (boxLinkEval — 연결 성공 × 받은 선수 다음 슛 골 >
+ *    지금 슛 골일 때만 연결, 쓰일 필살기 포함, 미리보기와 같은 확률 함수). autoRatio 폐지. ④ 추천 = 자동 선택.
+ *  - 결정타 칩 (클래시 바 1단계, 표시 전용): 판정 이벤트마다 factors(computeOdds 가 실제로 곱한 배율) · decisive(승자 쪽으로
+ *    가장 크게 기운 요인) · upset(승자 확률 < upsetP). 확률 · 난수 소비 불변.
+ *  - 마지막 공격 보장: 정규(·연장) 포제션이 끝났을 때 정확히 lastAttackDeficit(1)골 뒤진 팀이 마지막 포제션을 갖지 않았으면
+ *    포제션 1개 추가 (단계당 1회, 이벤트 "lastAttack"). 그 포제션이 끝나면 (어떤 이유든) 종료 판정.
+ *  - 역방향 컷인 (표시 전용): 필살기가 막히면 판정 이벤트에 reverseCutin { kind: save | block | passCut, … }.
+ *
+ * 2026-09-30 (결함 수정, 판정 · 난수 불변):
+ *  - 마지막 포제션 문구: endForecast (checkEnd 와 같은 규칙의 순수 예측)로 "이 포제션이 끝나면 경기 종료"를 안다 →
+ *    미리보기(공격 · 수비 결과, ④ 힌트, 배급 롱패스 실패)가 역습 · GK 배급 대신 "경기 종료" · "승부차기" · "연장전" · "마지막 공격",
+ *    경기를 끝낸 비트에 matchEnd "end" | "penalties". 롱패스 실패 이벤트에 receiverId(향하던 MF) · starterId(세컨드볼 역습 시작).
+ *  - 결정타 칩: 규칙 상수(박스 연결 GK ×0.6)는 후보에서 빼고, "능력치 우위" = 순수 능력치 비로 다른 요인과 겨룬다
+ *    (같은 잣대 · 같은 순위 — 요인이 2%p 미만일 때만의 대체가 아니다). 크기 = 그 요인을 뺐을 때 승자 확률이 떨어지는 폭
+ *    (보너스 항목은 더하기 기준, clamp 포함), 가장 큰 크기가 decisiveMinDelta(2%p) 미만이면 칩 없음.
+ *  - 배급 추천 = "상황 따라" 규칙 (자동이 쓸 캐논 킥 포함, 전술과 무관).
  *
  * 순수 로직. 난수는 state.rngState 로만 (함수 단위로 createRngFromState → getState 저장).
  */
 
 import { createRng, createRngFromState } from "./rng.js";
-import { decideAttack, decideDefense } from "./ai.js";
+import { decideAttack, decideDefense, decideDistribution } from "./ai.js";
 import {
   collectMods,
+  collectModSources,
   applyActive,
   addSkillFx,
   getSkill,
   getPlayerActiveSkills,
   getPlayerUltimate,
   checkSkillUsable,
+  checkDistributionSkill,
+  isDistributionSkill,
   emptyDuelEffects,
   isGaanpaSkill,
   skillCost,
@@ -84,8 +112,17 @@ const MAX_AUTO_STEPS = 20000;
  * 경기장 5구역 (ARCHITECTURE §12.1, GDD v0.4 §9.2). 항상 home 시점 고정: Z1 = home 골 앞, Z5 = away 골 앞.
  */
 export const ZONE_NAMES = { 1: "우리 박스", 2: "우리 진영", 3: "중원", 4: "상대 진영", 5: "상대 박스" };
-/** 위치 필드(seq, zone, toZone, step, toStep, attackingSide, toAttackingSide)를 가진 "비트" 이벤트 타입 */
-export const BEAT_TYPES = ["kickoff", "counter", "duel", "turnover", "save", "goal", "penalty"];
+/**
+ * 위치 필드(seq, zone, toZone, step, toStep, attackingSide, toAttackingSide)를 가진 "비트" 이벤트 타입.
+ * distribution (2026-09-29) = GK 배급으로 공을 지킨 비트 (짧은 패스 · 롱패스 성공). 롱패스 실패는 "turnover" (distribution: true).
+ */
+export const BEAT_TYPES = ["kickoff", "counter", "duel", "turnover", "save", "goal", "penalty", "distribution"];
+/** GK 배급 선택지 (decision.action · tactics.distribution 의 short / long) */
+export const DISTRIBUTION_ACTIONS = ["short", "long"];
+/** 역방향 컷인 문구 (필살기가 막혔을 때 — 표시 전용) */
+export const REVERSE_CUTIN_TEXT = { save: "기적의 세이브!", block: "철벽 블록!", passCut: "필살 패스 차단!" };
+/** 포제션이 끝나면 경기가 끝나는 경우의 문구 (endForecast "end" · "penalties" — 미리보기 · 이벤트 공용, 2026-09-30) */
+const END_TEXT = { end: "경기 종료", penalties: "승부차기" };
 /** 공 위치(도착 구역 · 역습 시작 구역)를 바꾸는 액티브 스킬 effect — 역할별. getMatchView.outcomesBySkill 대상 */
 const POSITION_EFFECT = { attack: "extraLine", defense: "steal" };
 
@@ -98,7 +135,7 @@ export const DEFAULT_TRAITS = [
   { id: "runner", name: "침투", kind: "bonus", amp: true, params: { receivedDribbleBonus: 0.15 } },
   { id: "carrier", name: "볼 운반", kind: "bonus", amp: true, params: { dribbleStaminaMult: 0.7, buildupDribbleBonus: 0.1, buildupMaxLine: 1 } },
   { id: "wall", name: "철벽", kind: "mult", amp: false, params: { holdMult: 1.15 } },
-  { id: "distributor", name: "빠른 배급", kind: "position", amp: false, params: { saveCounterLine: 1 } },
+  { id: "distributor", name: "빠른 배급", kind: "position", amp: false, params: { longPassBonus: 0.25 } },
   { id: "captain", name: "주장", kind: "team", amp: false, params: { teamworkPlus: 10 } },
 ];
 /** combos.json 이 없을 때의 기본값 */
@@ -289,10 +326,13 @@ function ultCfg(m) {
   };
 }
 
-/** 박스 연결 설정 (config.match.boxLink): gkMult = 연결 듀얼의 GK 수비 배율, autoRatio = 자동 연결 기준 배율 */
+/**
+ * 박스 연결 설정 (config.match.boxLink): gkMult = 연결 듀얼의 GK 수비 배율 (2026-09-29: 0.6).
+ * autoRatio(옛 자동 연결 기준 배율)는 폐지 — 자동은 기대 골 비교 (boxLinkEval). config 에 남아 있어도 읽지 않는다.
+ */
 function boxLinkCfg(m) {
   const b = m.boxLink || {};
-  return { gkMult: num(b.gkMult, 1), autoRatio: num(b.autoRatio, 1.25) || 1.25 };
+  return { gkMult: num(b.gkMult, 1) };
 }
 
 /** ④(line 3)에서의 패스·크로스 = 박스 연결 */
@@ -301,16 +341,18 @@ function isBoxLinkAction(action, line) {
 }
 
 /**
- * ④ 박스 연결이 막혔을 때(GK 가 잡음 = 세이브) 한 줄 — side(공격) 시점. attackOutcome 실패 줄과 같은 규칙:
- * GK 의 배급 특성(counterPlan saveCounterLine) 0 = "막히면 상대 골킥", 아니면 "막히면 상대 역습, ○○부터".
+ * ④ 박스 연결이 막혔을 때(GK 가 잡음 = 세이브) 한 줄 — attackOutcome 실패 줄과 같은 규칙: 잡은 GK 가 배급한다 (2026-09-29).
+ * 마지막 포제션이라 막히면 경기가 끝나면 "막히면 경기 종료" (승부차기면 "막히면 승부차기") — endForecast (2026-09-30)
  */
 function boxLinkFailHint(state, data, side) {
-  const opp = otherSide(side);
-  const oppTeam = state && state[opp];
-  if (!data || !oppTeam) return "막히면 상대 골킥";
-  const gk = (state.duel && findPlayer(oppTeam, state.duel.defenderId)) || oppTeam.players.find((p) => p.position === "GK") || null;
-  const cp = counterPlan(data, 3, "save", fxOf(state, opp), gk, true);
-  return cp.start === 0 ? "막히면 상대 골킥" : `막히면 상대 역습, ${zoneNameFor(zoneOf(opp, cp.start), side)}부터`;
+  const fc = state && data ? endForecast(state, data, otherSide(side)) : null;
+  if (fc === "end" || fc === "penalties") return `막히면 ${END_TEXT[fc]}`;
+  return "막히면 상대 GK 배급";
+}
+
+/** side 팀 GK 가 서는 박스 구역 (home → Z1, away → Z5) — 배급 비트의 출발 구역 */
+export function gkZoneOf(side) {
+  return zoneOf(otherSide(side), 3);
 }
 
 /* ------------------------------------------------------------------ */
@@ -339,6 +381,19 @@ export function getTrait(data, player) {
 function traitParam(data, player, key) {
   const t = getTrait(data, player);
   return t && t.params ? num(t.params[key], 0) : 0;
+}
+
+/** 연계 특성 id → 이름 (칩 문구용, 없으면 id) */
+function traitName(data, id) {
+  const t = traitMap(data).get(id);
+  return t && t.name ? t.name : id;
+}
+
+/** 스킬 id → 이름 (칩 문구용, 없으면 fallback) */
+function skillName(data, id, fallback = "스킬") {
+  if (!id || !data || !Array.isArray(data.skills)) return fallback;
+  const sk = data.skills.find((s) => s && s.id === id);
+  return sk && sk.name ? sk.name : fallback;
 }
 
 /** 팀워크 증폭 배율 (§13.1 teamworkAmp). 주장 특성은 증폭 단계 계산용 팀워크를 더한다 */
@@ -453,6 +508,11 @@ export function createMatch({ data, seed, home, away, possessions, kind = "frien
     events: [],
     stats: { home: emptyStats(), away: emptyStats() },
     penalties: null,
+    // GK 배급 대기 (phase "distribution"): { side, gkId, from: "save"|"boxLink", possession } — 2026-09-29
+    distribution: null,
+    // 마지막 공격 보장: 준 포제션 { side, stage, possession } 과 단계별 사용 여부 (단계당 1회)
+    lastAttack: null,
+    lastAttackUsed: { regular: false, extraTime: false },
     finished: false,
     result: null,
   };
@@ -521,6 +581,10 @@ function pickDefender(linePlayers, carrier, tactics) {
   return bestOf(linePlayers, (p) => stat(p, "defense"));
 }
 
+/**
+ * 포제션 시작. reason "kickoff" | "counter" → 시작 비트 이벤트, "distribution" → 이벤트 없음 (GK 배급 비트가 시작 비트).
+ * 마지막 공격 보장으로 준 포제션이면 시작 이벤트에 lastAttack: true.
+ */
 function startPossession(state, data, side, lineIndex, reason, carry = {}) {
   const team = state[side];
   const carrier = pickStarter(team, lineIndex);
@@ -528,16 +592,25 @@ function startPossession(state, data, side, lineIndex, reason, carry = {}) {
   state.attackingSide = side;
   state.ball = newBall(carrier.id, clamp(num(lineIndex, 0), 0, 2), carry.nextBonus);
   state.possessionFx = { home: { teamMult: 1 }, away: { teamMult: 1 } };
-  const text =
-    reason === "kickoff"
-      ? `${team.name} 킥오프 — ${carrier.name} 시작`
-      : `${team.name} 역습! ${carrier.name}, 상대 ${LINE_LABELS[state.ball.lineIndex]}부터 공격${carry.nextBonus ? ` (첫 듀얼 +${pct(carry.nextBonus)}%)` : ""}`;
-  const line = state.ball.lineIndex;
-  pushEvent(state, {
-    type: reason === "kickoff" ? "kickoff" : "counter", side, playerId: carrier.id, text,
-    ...beatPos(side, line, side, line),
-  });
+  state.distribution = null;
+  if (reason !== "distribution") {
+    const text =
+      reason === "kickoff"
+        ? `${team.name} 킥오프 — ${carrier.name} 시작`
+        : `${team.name} 역습! ${carrier.name}, 상대 ${LINE_LABELS[state.ball.lineIndex]}부터 공격${carry.nextBonus ? ` (첫 듀얼 +${pct(carry.nextBonus)}%)` : ""}`;
+    const line = state.ball.lineIndex;
+    pushEvent(state, {
+      type: reason === "kickoff" ? "kickoff" : "counter", side, playerId: carrier.id, text,
+      ...(isLastAttackPossession(state) ? { lastAttack: true } : {}),
+      ...beatPos(side, line, side, line),
+    });
+  }
   setupDuel(state, data);
+}
+
+/** 지금 포제션이 마지막 공격 보장으로 준 포제션인가 */
+function isLastAttackPossession(state) {
+  return !!(state.lastAttack && state.lastAttack.possession === state.possession);
 }
 
 function setupDuel(state, data) {
@@ -576,9 +649,13 @@ function setupDuel(state, data) {
   if (!humanNeedsDecision(state, human)) commitAI(state, data, human); // 결정 없는 경우(GK 세이브) 자동
 }
 
-/** humanSide 가 이번 듀얼에서 결정해야 하면 "attack"|"defense", 아니면 null */
+/**
+ * humanSide 가 이번 듀얼에서 결정해야 하면 "attack"|"defense", GK 배급 차례면 "distribution" (2026-09-29), 아니면 null
+ */
 export function humanNeedsDecision(state, side) {
-  if (!state || state.finished || state.phase !== "decision" || !state.duel) return null;
+  if (!state || state.finished) return null;
+  if (state.phase === "distribution") return state.distribution && state.distribution.side === side ? "distribution" : null;
+  if (state.phase !== "decision" || !state.duel) return null;
   const choice = state.duel[side + "Choice"];
   if (choice && choice.action) return null;
   if (state.attackingSide === side) return "attack";
@@ -966,8 +1043,8 @@ function defenseTendency(state, data, side, player) {
 /**
  * 성향값 (§13.2-9). side 가 공격 중이면 carrier(또는 playerId)의 공격 성향, 수비 중이면 듀얼 수비수의 수비 성향.
  * carrier 의 성향에는 받은 직후 특성과 AI 규칙상 쓸 필살기 효과가 들어간다. GK 듀얼(line 3) 수비는 {}.
- * ④(line 3) carrier 의 pass / cross = 박스 연결 점수 (boxLinkEval.score — 마무리 값 ÷ autoRatio, 필살 슛 조건이면 ≥ 슛 값)
- *  → 1위(동률 tieAttack)가 곧 자동 선택 (A안 예외 규칙을 같은 척도로 표현).
+ * ④(line 3) carrier (2026-09-29 기대 골 규칙): { shoot, pass?, cross? } = boxLinkEval 의 기대 골 × 100 (%, 반올림 전)
+ *  → 자동 선택은 boxLinkEval.auto (연결이 슛보다 "커야" 연결 — 동률은 슛. autoAction · ai.decideAttack 이 그것을 쓴다).
  * 상태를 바꾸지 않고 난수를 쓰지 않는다.
  */
 export function tendencyValues(state, data, side, playerId = null) {
@@ -979,17 +1056,16 @@ export function tendencyValues(state, data, side, playerId = null) {
     const p = findPlayer(team, pid);
     if (!p) return {};
     const isCarrier = pid === state.ball.carrierId;
-    const vals = attackTendencyAt(state, data, side, p, line, {
+    if (isCarrier && line >= 3 && state.duel) {
+      const box = boxTendency(boxLinkEval(state, data, side));
+      if (box) return box;
+    }
+    return attackTendencyAt(state, data, side, p, line, {
       fresh: isCarrier && !!state.ball.receivedFresh,
       viaCross: isCarrier && state.ball.receivedVia === "cross",
       fx: isCarrier ? fxOf(state, side) : null,
       ultFor: isCarrier ? carrierUltFor(state, data, side, p) : null,
     });
-    if (isCarrier && line >= 3) {
-      const ev = boxLinkEval(state, data, side);
-      for (const a of ["pass", "cross"]) if (ev[a]) vals[a] = ev[a].score;
-    }
-    return vals;
   }
   if (line >= 3) return {};
   const pid = playerId || (state.duel && state.duel.defenderId);
@@ -1012,14 +1088,16 @@ export function pickByTendency(values, order) {
   return best;
 }
 
-/** 자동(A안) 액션: side 의 현재 역할에서 성향 1위 */
+/** 자동(A안) 액션: side 의 현재 역할에서 성향 1위. ④ 공격은 기대 골 규칙 (boxLinkEval.auto) */
 export function autoAction(state, data, side) {
   const m = matchCfg(data);
   const tc = tendCfg(m);
   if (state.attackingSide === side) {
-    // ④: 슛 값 vs 박스 연결 점수 (tendencyValues) — boxLinkEval 규칙과 같다
-    const box = num(state.ball.lineIndex, 0) >= 3;
-    return pickByTendency(tendencyValues(state, data, side), tc.tieA) || (box ? "shoot" : "dribble");
+    if (num(state.ball.lineIndex, 0) >= 3) {
+      const ev = state.duel ? boxLinkEval(state, data, side) : null;
+      return ev && ev.auto ? ev.auto.action : "shoot";
+    }
+    return pickByTendency(tendencyValues(state, data, side), tc.tieA) || "dribble";
   }
   if (num(state.ball.lineIndex, 0) >= 3) return "save";
   return pickByTendency(tendencyValues(state, data, side), tc.tieD) || "hold";
@@ -1147,40 +1225,37 @@ function carrierUltFor(state, data, side, player) {
 /* ------------------------------------------------------------------ */
 
 /**
- * ④(line 3) 박스 연결 자동 규칙 — A안 예외. 결정적, 상대의 선택을 읽지 않는다, 난수 없음. 사람 측 자동 · 상대 AI 공통.
- *  shoot.value = carrier 슛 성향값 (받은 직후 피니셔·헤더·타깃맨, AI 규칙상 쓸 필살 슛·합체기 포함).
- *  [pass|cross].value = 기본 받는 선수(defaultFromPlan — 필살 패스를 쓸 수 있으면 합체기 가치 반영)의 마무리 값
- *    (boxReceiverValue: 원터치 슛·헤더, 특성, 합체기·자기 필살 슛)을 carrier 슛과 같은 GK 기준으로 맞춘 값
- *    = 마무리 값 × (carrier 가 원터치로 받았으면 oneTouchGk, 아니면 1) ÷ oneTouchGk.
- *  score = value ÷ autoRatio. forced(받는 선수 필살 슛 준비 · 합체기, 그리고 carrier 에게 준비된 필살 슛 없음)면 score > shoot.value (슛 값 + 1e-6 — tieAttack 순서와 무관하게 연결이 1위).
- *  → 연결 조건 = score ≥ shoot.value ⇔ 마무리 값 ≥ autoRatio × 슛 값 (같은 GK 기준) 또는 forced.
- *  ultimate = 연결에 carrier 의 필살 패스를 함께 쓴다 (AI 규칙: 도착이 박스면 사용).
- *  auto = 자동 선택 { action, receiverId, ultimate } (동률 tieAttack 순서 — 기본 pass·cross 가 shoot 보다 앞).
- * @returns {{ ratio: number, shoot: object|null, pass: object|null, cross: object|null, auto: object|null }}
+ * ④(line 3) 박스 연결 자동 규칙 — 기대 골 비교 (2026-09-29 사용자 결정). 결정적, 상대의 선택을 읽지 않는다, 난수 없음.
+ * 사람 측 자동 · 상대 AI 공통. 미리보기(evaluateHuman)와 같은 확률 함수(boxExpect)로 계산한다:
+ *  shoot.exp = 지금 슛의 골 확률 (carrier 가 쓸 필살 슛 포함 — 이미 커밋했으면 그것, 아니면 AI 규칙 aiWantsUltimate · 합체기).
+ *  [pass|cross].exp = 연결 성공 × 받은 선수의 다음 슛 골 확률 (nextShotP: 원터치 · 헤더 · 킬패스 · 받은 뒤 준비되는 필살 슛 · 합체기).
+ *    받는 선수 = 기본 받는 선수 (defaultFromPlan — 필살 패스를 쓰면 합체기 가치 반영), carrier 의 필살 패스는 AI 규칙대로 (박스 도착 = 사용).
+ *  GK = 중립 (자세 선택 없음). GK 의 세이브(스킬 · 필살 세이브)는 양 팀 모두 규칙 자동이라 커밋했으면 그 효과, 아직이면 같은 규칙의
+ *    예측(ai.decideDefense)을 쓴다 (gkFxFor) — 커밋 전후 같은 값.
+ *  auto = 연결 기대 골 > 슛 골 확률일 때만 연결 (동률 = 슛), 연결 둘 중에는 기대 골 최고 (동률 tieAttack 순서).
+ *  value / score = exp × 100 (성향값 척도 — %). forced 는 폐지 (항상 false, 옛 뷰 호환).
+ * @returns {{ rule: "ev", gkMult: number, shoot: object|null, pass: object|null, cross: object|null, auto: object|null }}
  */
 export function boxLinkEval(state, data, side) {
   const m = matchCfg(data);
   const bc = boxLinkCfg(m);
-  const out = { ratio: bc.autoRatio, shoot: null, pass: null, cross: null, auto: null };
-  if (!state || !state.ball || state.attackingSide !== side || num(state.ball.lineIndex, 0) < 3 || !state[side]) return out;
+  const out = { rule: "ev", gkMult: bc.gkMult, shoot: null, pass: null, cross: null, auto: null };
+  if (!state || !state.ball || !state.duel || state.attackingSide !== side || num(state.ball.lineIndex, 0) < 3 || !state[side]) return out;
   const team = state[side];
   const carrier = findPlayer(team, state.ball.carrierId);
-  if (!carrier) return out;
+  if (!carrier || !findPlayer(state[otherSide(side)], state.duel.defenderId)) return out;
   const fx = fxOf(state, side);
-  const shootVal = num(attackTendencyAt(state, data, side, carrier, 3, {
-    fresh: !!state.ball.receivedFresh,
-    viaCross: state.ball.receivedVia === "cross",
-    fx,
-    ultFor: carrierUltFor(state, data, side, carrier),
-  }).shoot, 0);
+  const fxG = gkFxFor(state, data, side);
   const own = getPlayerUltimate(data, carrier);
-  // 이미 커밋한 필살 슛(AI 는 판정 전에 먼저 커밋 — 게이지 0)도 "준비된 필살 슛"이다
-  const shotUlt = fx.ult
-    ? fx.ult.type === "shot"
-    : !!(own && own.ultimate.type === "shot" && ultimateUsable(state, data, side, carrier, "attack", "shoot").ok);
-  out.shoot = { value: shootVal, ultimate: shotUlt };
-  const oneTouchGk = num(m.oneTouchGk, 0.85) || 1;
-  const gkBasis = (state.ball.oneTouch ? oneTouchGk : 1) / oneTouchGk;
+  // 슛: 이미 커밋한 필살 슛(AI 는 판정 전에 먼저 커밋 — 게이지 0), 아니면 AI 규칙상 쓸 필살 슛 (합체기 포함)
+  let fxS = fx;
+  let shotUlt = !!(fx.ult && fx.ult.type === "shot");
+  if (!fx.ult && own && own.ultimate.type === "shot" && aiWantsUltimate(state, data, side, carrier, "attack", "shoot")) {
+    fxS = fxPlusUlt(fx, own, comboFor(state, data, side, carrier, own));
+    shotUlt = true;
+  }
+  const shot = boxExpect(state, data, side, carrier, "shoot", fxS, fxG);
+  out.shoot = { action: "shoot", exp: shot.exp, p: shot.p, value: round6(shot.exp * 100), ultimate: shotUlt, combo: !!fxS.combo };
   const opts = attackOptionsFor(state, data, side, carrier, 3, fx);
   for (const a of ["pass", "cross"]) {
     if (!opts[a]) continue;
@@ -1197,20 +1272,72 @@ export function boxLinkEval(state, data, side) {
     }
     const r = defaultFromPlan(state, data, side, a, plan, fxA);
     if (!r) continue;
+    const ex = boxExpect(state, data, side, carrier, a, fxA, fxG, r.id);
     const fin = boxReceiverValue(state, data, side, r, a, fxA);
-    const value = round6(fin.value * gkBasis);
-    const forced = fin.ultReady && !shotUlt;
-    let score = round6(value / bc.autoRatio);
-    // 강제 연결은 동률 순서(tieAttack)에 기대지 않는다 — 슛 값보다 아주 조금 크게 (표시 반올림은 같음)
-    if (forced && score <= shootVal) score = round6(shootVal + 1e-6);
-    out[a] = { action: a, receiverId: r.id, value, score, forced, ultimate, receiverUltimate: fin.ultReady, combo: fin.combo };
+    const value = round6(ex.exp * 100);
+    out[a] = {
+      action: a, receiverId: r.id, exp: ex.exp, linkP: ex.p, finishP: ex.finishP, value, score: value, forced: false,
+      ultimate, receiverUltimate: fin.ultReady, combo: fin.combo,
+    };
   }
-  const vals = { shoot: shootVal };
-  for (const a of ["pass", "cross"]) if (out[a]) vals[a] = out[a].score;
-  const action = pickByTendency(vals, tendCfg(m).tieA) || "shoot";
-  const pick = out[action] || null;
-  out.auto = { action, receiverId: pick ? pick.receiverId : null, ultimate: pick ? pick.ultimate : shotUlt };
+  // 연결 둘 중 기대 골 최고 (동률 tieAttack 순서) → 슛보다 커야 연결
+  let link = null;
+  for (const a of tendCfg(m).tieA.filter((x) => x === "pass" || x === "cross").concat(["pass", "cross"])) {
+    const o = out[a];
+    if (o && (!link || o.exp > link.exp + 1e-12)) link = o;
+  }
+  out.auto = link && link.exp > shot.exp + 1e-12
+    ? { action: link.action, receiverId: link.receiverId, ultimate: link.ultimate }
+    : { action: "shoot", receiverId: null, ultimate: shotUlt };
   return out;
+}
+
+/** boxLinkEval → ④ carrier 성향값 { shoot, pass?, cross? } (기대 골 %). 평가가 없으면 null */
+export function boxTendency(ev) {
+  if (!ev || !ev.shoot) return null;
+  const vals = { shoot: ev.shoot.value };
+  for (const a of ["pass", "cross"]) if (ev[a]) vals[a] = ev[a].value;
+  return vals;
+}
+
+/** carrier 가 합체기 대기(필살 패스를 받음)면 그 합체기 { name, passerId, passerSkillId }, 아니면 null */
+function comboFor(state, data, side, player, skill) {
+  if (!isComboReady(state, side, player.id) || !state.ball.comboFrom) return null;
+  const from = state.ball.comboFrom;
+  return { name: comboName(data, from.skillId, skill.id) || "합체기", passerId: from.playerId, passerSkillId: from.skillId };
+}
+
+/**
+ * ④ 에서 side(공격)가 상대할 GK 효과: GK 측이 이미 커밋했으면 그 효과 (세이브는 양 팀 모두 규칙 자동), 아니면 같은 규칙
+ * (ai.decideDefense — 스킬 · 필살 세이브)의 예측. 커밋 전후 같은 값이라 사람 측 자동 · 상대 AI 가 같은 기대 골을 본다.
+ */
+function gkFxFor(state, data, side) {
+  const opp = otherSide(side);
+  const choice = state.duel && state.duel[opp + "Choice"];
+  const fx = fxOf(state, opp);
+  if (choice && choice.action) return fx;
+  const gk = findPlayer(state[opp], state.duel && state.duel.defenderId);
+  if (!gk) return fx;
+  const d = decideDefense(state, data, opp);
+  let f = fx;
+  if (d.skillId) f = fxPlusSkill(f, getSkill(data, d.skillId));
+  if (d.ultimate) {
+    const u = getPlayerUltimate(data, gk);
+    if (u) f = fxPlusUlt(f, u, null);
+  }
+  return f;
+}
+
+/**
+ * ④ 한 액션의 기대 골 (미리보기 · 자동 규칙 공용). shoot = 골 확률, pass/cross = 연결 성공 × 받은 선수 다음 슛 골 확률.
+ * @returns {{ p: number, exp: number, finishP: number|null, receiverId: string|null }}
+ */
+function boxExpect(state, data, side, carrier, action, fxA, fxG, receiverId = null) {
+  const odds = computeOdds(state, data, { action, defAction: "save", fxA, fxD: fxG });
+  if (action === "shoot") return { p: odds.p, exp: odds.p, finishP: null, receiverId: null };
+  const tr = successTransition(state, data, side, carrier, action, fxA, receiverId);
+  const fin = nextShotP(state, data, side, carrier, tr, action, "save", fxA, fxG);
+  return { p: odds.p, exp: odds.p * fin, finishP: fin, receiverId: tr.receiver.id };
 }
 
 function addGauge(state, data, side, pid, amount) {
@@ -1598,10 +1725,11 @@ function attackBonus(state, data, side, carrier, action, { midrange, header, box
 
 /**
  * 현재 듀얼의 공격력/수비력/성공률 (§13.2-3~5).
- * @param {{ action: string, defAction?: string|null, useEffects?: boolean, fxA?: object, fxD?: object }} opts
+ * @param {{ action: string, defAction?: string|null, useEffects?: boolean, fxA?: object, fxD?: object, explain?: boolean }} opts
  *   defAction null = 수비 선택 미지(짝·빗나감 없음, 계수 1). fxA/fxD = 효과 객체를 통째로 대신 쓴다(미리보기).
+ *   explain = 결정타 칩용 factors (실제로 곱한 배율 목록 — Π(atk) = att, Π(def) = def) 를 함께 돌려준다. 확률은 같다.
  */
-export function computeOdds(state, data, { action, defAction = null, useEffects = true, fxA: fxAOpt = null, fxD: fxDOpt = null } = {}) {
+export function computeOdds(state, data, { action, defAction = null, useEffects = true, fxA: fxAOpt = null, fxD: fxDOpt = null, explain = false } = {}) {
   const m = matchCfg(data);
   const uc = ultCfg(m);
   const atkSide = state.attackingSide;
@@ -1632,12 +1760,10 @@ export function computeOdds(state, data, { action, defAction = null, useEffects 
   };
   const stA = liveStamina(atkTeam, carrier.id);
   const stD = liveStamina(defTeam, defender.id);
-  const modsA = collectMods(atkTeam, carrier.id, {
-    ...base, action, phase: "attack", scoreDiff: scoreDiffFor(state, atkSide), opponentStyle: defender.style, stamina: stA,
-  });
-  const modsD = collectMods(defTeam, defender.id, {
-    ...base, action: dAction || "defense", phase: "defense", scoreDiff: scoreDiffFor(state, defSide), opponentStyle: carrier.style, stamina: stD,
-  });
+  const ctxA = { ...base, action, phase: "attack", scoreDiff: scoreDiffFor(state, atkSide), opponentStyle: defender.style, stamina: stA };
+  const ctxD = { ...base, action: dAction || "defense", phase: "defense", scoreDiff: scoreDiffFor(state, defSide), opponentStyle: carrier.style, stamina: stD };
+  const modsA = collectMods(atkTeam, carrier.id, ctxA);
+  const modsD = collectMods(defTeam, defender.id, ctxD);
   const pfx = state.possessionFx || {};
 
   // --- 공격력 ---
@@ -1719,10 +1845,194 @@ export function computeOdds(state, data, { action, defAction = null, useEffects 
   if (isGK && ball.oneTouch && !boxLink) links.push("oneTouch");
   if (header) links.push("header");
   if (fxA.combo && (ultShot || ultPass)) links.push("combo");
+
+  // --- 결정타 칩 (표시 전용): 위 att / def 의 곱셈 항을 그대로 쪼갠 목록 ---
+  let factors = null;
+  if (explain) {
+    factors = [];
+    const F = (side, id, mult, label, text, extra) => pushFactor(factors, side, id, mult, label, text, extra);
+    const boostA = boostApplies(fxA, action) ? num(fxA.attackMult, 1) : 1;
+    const isShoot = action === "shoot";
+    // 파워 슛의 중거리 계수 덮어쓰기는 스킬 몫으로 (기본 = 설정 계수)
+    const coefBaseA = isShoot && midrange && fxA.midrangeCoef != null ? attackCoef(m, action, { midrange, header }) : coefA;
+    const coefSkillA = coefBaseA ? coefA / coefBaseA : 1;
+    F("atk", "base", statA * coefBaseA, "공격 기본", `${ACTION_LABEL[action] || action} ${Math.round(statA * coefBaseA)}`, { base: true, stat: statA, coef: coefBaseA });
+    F("atk", "style", styleA, styleA > 1 ? "상성 우위" : "상성 불리", null, { group: "style" });
+    F("atk", "condition", condA, "컨디션", null, { group: "condition" });
+    F("atk", "stamina", stamA, "체력 저하", null, { group: "stamina" });
+    const srcA = collectModSources(atkTeam, carrier.id, ctxA).filter((s) => "attack" in s.mods || (isShoot && "shootPower" in s.mods));
+    F("atk", "passive", modsA.attack * (isShoot ? modsA.shootPower : 1), srcA.map((s) => s.name).join("·") || "패시브");
+    F("atk", "skill", boostA * (isShoot ? num(fxA.shootMult, 1) : 1) * coefSkillA, skillName(data, fxA.usedSkillId));
+    F("atk", "extraLine", isShoot && ball.extraLine ? 1.2 : 1, "추가 전진 슛");
+    if (bonus.capped) {
+      const scale = bonus.total > 0 && bonus.capped < bonus.total ? bonus.capped / bonus.total : 1;
+      const parts = Object.entries(bonus.parts).map(([id, add]) => ({ id, label: bonusLabel(data, state, id), add, eff: add * scale }));
+      F("atk", "bonus", 1 + bonus.capped, "보너스", `보너스 +${pct(bonus.capped)}%`, { parts, capped: bonus.capped < bonus.total });
+    }
+    F("atk", "ultimate", ultMultA, skillName(data, ultA && ultA.skillId, "필살기"), `필살 ×${fmtMult(ultMultA)}`);
+    F("atk", "combo", comboA, (fxA.combo && fxA.combo.name) || "합체기", `합체기 ×${fmtMult(comboA)}`);
+    F("atk", "teamwork", twTerm, "팀워크");
+    F("atk", "team", teamA, rallyName(data), null, { group: "team" });
+    F("atk", "resonance", Math.max(0, modBonusA), "공명·유물", null, { group: "resonance" });
+    // 수비: 기본 (버티기 = 수비 × holdMult, 철벽은 따로 · GK = 수비 × save 계수, 패시브 save 는 따로)
+    const wall = !isGK && dAction === "hold" ? traitParam(data, defender, "holdMult") : 0;
+    const wallMult = wall > 0 ? wall : 1;
+    const baseD = isGK ? statD * num(m.actionCoef.save, 1) : (statD / wallMult) * coefD;
+    F("def", "base", baseD, "수비 기본", `${ACTION_LABEL[dAction] || "수비"} ${Math.round(baseD)}`, { base: true, stat: isGK ? statD : statD / wallMult, coef: isGK ? num(m.actionCoef.save, 1) : coefD });
+    F("def", "wall", wallMult, traitName(data, "wall"));
+    F("def", "style", styleD, styleD > 1 ? "상성 우위" : "상성 불리", null, { group: "style" });
+    F("def", "condition", condD, "컨디션", null, { group: "condition" });
+    F("def", "stamina", stamD, "체력 저하", null, { group: "stamina" });
+    const srcD = collectModSources(defTeam, defender.id, ctxD).filter((s) => "defense" in s.mods || (isGK && "save" in s.mods));
+    F("def", "passive", modsD.defense * (isGK ? modsD.save : 1), srcD.map((s) => s.name).join("·") || "패시브");
+    F("def", "skill", num(fxD.defenseMult, 1), skillName(data, fxD.usedSkillId));
+    F("def", "cover", coverTerm, "커버 수비", `커버 +${pct(coverTerm - 1)}%`);
+    if (pair === "read") F("def", "pair", pairMult, num(fxD.readMult, 0) > 0 ? "간파 짝 적중" : "짝 적중");
+    else if (pair === "miss") F("def", "pair", pairMult, "짝 빗나감");
+    if (isGK) {
+      // 박스 연결 GK 배율 = 규칙 상수 (모든 연결에 같다 — 결정타 후보가 아니다, rule: true)
+      if (boxLink) F("def", "boxLinkGk", boxLinkCfg(m).gkMult, "연결 경합", `연결 GK ×${fmtMult(boxLinkCfg(m).gkMult)}`, { rule: true });
+      else if (ball.oneTouch) F("def", "oneTouch", num(m.oneTouchGk, 0.85), "원터치", `원터치 GK ×${fmtMult(num(m.oneTouchGk, 0.85))}`);
+      if (fxD.ult && fxD.ult.type === "save") F("def", "saveUlt", num(fxD.ult.saveMult, 1), skillName(data, fxD.ult.skillId, "필살 세이브"), `필살 세이브 ×${fmtMult(num(fxD.ult.saveMult, 1))}`);
+    }
+    if (ultShot) F("def", "ultShotGk", num(ultA.gkMult, 1), skillName(data, ultA.skillId, "필살 슛"), `필살 슛 ${isGK ? "GK" : "수비"} ×${fmtMult(num(ultA.gkMult, 1))}`);
+    F("def", "team", teamD, rallyName(data), null, { group: "team" });
+    F("def", "resonance", bonusD, "공명·유물", null, { group: "resonance" });
+  }
   return {
     att, def, p, read: pair === "read" && pairMult > 1, pair, pairMult, negate, bonus, links, header, midrange,
-    modsA, modsD, carrier, defender, atkSide, defSide, action, defAction: dAction, isGK, line, boxLink,
+    modsA, modsD, carrier, defender, atkSide, defSide, action, defAction: dAction, isGK, line, boxLink, factors,
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* 결정타 칩 (클래시 바 1단계, 2026-09-29) — 표시 전용                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 판정 배율 한 항목. base 가 아니면 ×1 은 뺀다. text 가 없으면 "라벨 ×배율".
+ * factor = { id, side: "atk"|"def", mult, label, text, base?, group?, parts?, … } — Π(side 의 mult) = 그쪽 판정값
+ */
+function pushFactor(list, side, id, mult, label, text = null, extra = null) {
+  if (!Number.isFinite(mult)) return;
+  const isBase = !!(extra && extra.base);
+  if (!isBase && Math.abs(mult - 1) < 1e-12) return;
+  list.push(Object.assign({ id, side, mult, label, text: text || `${label} ×${fmtMult(mult)}` }, extra || {}));
+}
+
+/** 보너스 합(attackBonus parts) 항목 이름 — 연계 특성은 데이터 이름 */
+function bonusLabel(data, state, id) {
+  if (id === "chain") return `연계 ${num(state.ball && state.ball.chain, 0)}`;
+  if (id === "beaten") return "제쳐짐";
+  if (id === "interceptFail") return "인터셉트 뚫림";
+  if (id === "next") return "첫 듀얼 보너스";
+  return traitName(data, id);
+}
+
+/** 함성(rally) 스킬 이름 — 이번 포제션 팀 판정 배율의 출처 */
+function rallyName(data) {
+  const sk = data && Array.isArray(data.skills) ? data.skills.find((s) => s && s.active && s.active.effect === "rally") : null;
+  return sk ? sk.name : "팀 판정";
+}
+
+const FACTOR_GROUP_TEXT = { style: "상성 우위", condition: "컨디션 우위", stamina: "체력 저하", team: "팀 판정", resonance: "공명·유물" };
+
+/**
+ * 판정 한 번의 결정타 칩 (표시 전용 — 확률 · 난수 불변). winner = 성공이면 공격("atk"), 아니면 수비("def").
+ *  후보 (2026-09-30 보완) = base(기본 공격 · 수비)와 rule(규칙 상수 — 박스 연결 GK ×0.6)을 뺀 배율. 보너스 합은 항목별
+ *   (그 항목을 빼면 보너스 = 1 + min(합 − 항목, 상한) — 더하기라 항목끼리 곱하지 않는다),
+ *   상성 · 컨디션 · 체력 · 팀 판정 · 공명은 양쪽을 합쳐 한 요인.
+ *  크기(effect) = 그 요인을 뺐을 때 승자 확률이 떨어지는 폭 (clamp 포함 — 상한 · 하한에 막혀 영향이 없던 요인은 0).
+ *  "능력치 우위"도 후보 하나 = 두 기본 항의 순수 능력치 비 (f.stat — 행동 계수 2.2 / 1.0 은 빼고). 크기 = 두 능력치를 같게 했을 때
+ *   승자 확률 하락폭 — 다른 요인과 같은 잣대로 겨룬다 (2026-09-30 재수정: 예전엔 모든 요인이 2%p 미만일 때만 후보였다).
+ *  decisive = 크기가 가장 큰 후보 (동률은 목록 앞 — 능력치 우위는 맨 끝이라 동률이면 요인). 가장 큰 크기도
+ *   config.match.decisiveMinDelta (0.02 = 2%p) 미만이면 null (팀워크 ×1.02 같은 작은 요인은 칩이 아니다).
+ *  upset = 승자의 확률 < config.match.upsetP (0.3).
+ * @returns {{ factors: object[], decisive: object|null, upset: boolean, winnerP: number }}
+ */
+function chipOf(factors, p, success, m) {
+  const winner = success ? "atk" : "def";
+  const winnerP = success ? p : 1 - p;
+  const list = factors || [];
+  const lo = num(m.minP, 0.1);
+  const hi = num(m.maxP, 0.9);
+  const winAt = (a, d) => {
+    const raw = a + d > 0 ? a / (a + d) : 0.5;
+    const q = clamp(Number.isFinite(raw) ? raw : 0.5, lo, hi);
+    return success ? q : 1 - q;
+  };
+  let A = 1;
+  let D = 1;
+  let statA = 0;
+  let statD = 0;
+  for (const f of list) {
+    if (f.side === "atk") A *= f.mult;
+    else D *= f.mult;
+    if (f.base) {
+      if (f.side === "atk") statA = num(f.stat, 0);
+      else statD = num(f.stat, 0);
+    }
+  }
+  // 후보: 빼면 공격 A / divA, 수비 D / divD
+  const cands = [];
+  const groups = new Map();
+  for (const f of list) {
+    if (f.base || f.rule || !(f.mult > 0)) continue;
+    if (f.id === "bonus" && Array.isArray(f.parts)) {
+      const total = f.parts.reduce((s, x) => s + num(x.add, 0), 0);
+      for (const part of f.parts) {
+        if (!(num(part.add, 0) > 0)) continue;
+        const without = 1 + Math.min(Math.max(0, total - part.add), f.mult - 1);
+        cands.push({ id: part.id, side: "atk", label: part.label, text: `${part.label} +${pct(part.eff)}%`, mult: 1 + part.eff, divA: f.mult / without, divD: 1 });
+      }
+      continue;
+    }
+    if (f.group) {
+      let g = groups.get(f.group);
+      if (!g) {
+        g = { id: f.group, side: null, group: true, divA: 1, divD: 1 };
+        groups.set(f.group, g);
+        cands.push(g);
+      }
+      if (f.side === "atk") g.divA *= f.mult;
+      else g.divD *= f.mult;
+      continue;
+    }
+    cands.push({ id: f.id, side: f.side, label: f.label, text: f.text, mult: f.mult, divA: f.side === "atk" ? f.mult : 1, divD: f.side === "atk" ? 1 : f.mult });
+  }
+  // 능력치 우위 = 순수 능력치 비를 없앴을 때 (두 기본 항의 능력치를 같게) — 다른 요인과 같은 잣대로 겨룬다 (2026-09-30 재수정:
+  //  예전엔 모든 요인이 2%p 미만일 때만 후보라 "철벽 ×1.15"(3.5%p)가 2.2배 능력치 차(19%p)를 제치고 칩이 됐다).
+  //  목록 맨 끝 → 동률이면 요인 쪽이 이긴다.
+  if (statA > 0 && statD > 0 && Math.abs(statA - statD) > 1e-9) cands.push({ id: "stat", stat: true, divA: statA / statD, divD: 1 });
+  const w0 = winAt(A, D);
+  const minDelta = num(m.decisiveMinDelta, 0.02) - 1e-12;
+  const deltaOf = (c) => w0 - winAt(A / c.divA, D / c.divD);
+  let best = null;
+  let bd = 0;
+  for (const c of cands) {
+    const delta = deltaOf(c);
+    if (delta > bd + 1e-12) {
+      bd = delta;
+      best = c;
+    }
+  }
+  let decisive = null;
+  if (best && bd >= minDelta) {
+    const effect = round6(bd);
+    if (best.stat) {
+      const r = success ? statA / statD : statD / statA;
+      decisive = { id: "stat", side: winner, favours: winner, label: "능력치 우위", text: `능력치 우위 ×${fmtMult(r)}`, mult: round6(r), effect, base: true };
+    } else if (best.group) {
+      // 양쪽 합산 요인 (상성 · 컨디션 · 체력 저하 · 팀 판정 · 공명): 승자 쪽으로 기운 배율. 체력 저하는 진 쪽 배율 (< 1)
+      const label = FACTOR_GROUP_TEXT[best.id] || best.id;
+      const tilt = success ? best.divA / best.divD : best.divD / best.divA;
+      const shown = best.id === "stamina" ? 1 / tilt : tilt;
+      decisive = { id: best.id, side: null, favours: winner, label, text: `${label} ×${fmtMult(shown)}`, mult: round6(shown), effect };
+    } else {
+      decisive = { id: best.id, side: best.side, favours: winner, label: best.label, text: best.text, mult: round6(best.mult), effect };
+    }
+  }
+  return { factors: list, decisive, upset: winnerP < num(m.upsetP, 0.3), winnerP };
 }
 
 /* ------------------------------------------------------------------ */
@@ -1733,15 +2043,14 @@ export function computeOdds(state, data, { action, defAction = null, useEffects 
  * 역습 시작 (§13.2-7): 기본(line 0 → 2, 1 → 1, 2 → 0, GK 세이브 → 0) + intercept +1 + steal +plus, 상한 counterCap.
  * intercept 의 +1 이 상한에 걸리면 capTension, steal 이 상한에 걸리면 cappedNextBonus.
  * hold → 공을 뺏은 자리에서 holdStartBack(기본 1) 구역 물러나 시작 (line 0 → 1, 1 → 0, 2 → 0), 빠른 역습 아님, steal 무시 (GDD #54).
- * distributor GK 의 세이브 → saveCounterLine.
+ * GK 가 잡으면(세이브 · 박스 연결 차단) start 0 + distribution: 곧바로 역습하지 않고 GK 배급 (2026-09-29 — 옛 saveCounterLine 폐지).
  */
 function counterPlan(data, line, defAction, fxD, defender, isGK) {
   const m = matchCfg(data);
   const cap = Math.round(num(m.counterCap, 2));
-  const out = { start: 0, capTension: 0, stealTension: 0, cappedNextBonus: 0, fast: false };
+  const out = { start: 0, capTension: 0, stealTension: 0, cappedNextBonus: 0, fast: false, distribution: false };
   if (isGK) {
-    out.start = clamp(Math.round(traitParam(data, defender, "saveCounterLine")), 0, cap);
-    out.fast = out.start > 0;
+    out.distribution = true;
     return out;
   }
   let s = Math.min(cap, line === 0 ? 2 : line === 1 ? 1 : 0);
@@ -1924,10 +2233,12 @@ function resolveDuel(state, data) {
   duel[atkSide + "Choice"] = Object.assign({}, atkChoice, { action, receiverId, committedAction: atkChoice.action });
   duel[defSide + "Choice"] = Object.assign({}, defChoice, { action: defAction, committedAction: defChoice.action || defAction });
 
-  const odds = computeOdds(state, data, { action, defAction });
+  const odds = computeOdds(state, data, { action, defAction, explain: true });
   const { carrier, defender, p } = odds;
   const rng = createRngFromState(state.rngState);
   const success = rng.chance(p);
+  // 결정타 칩 (표시 전용 — 확률 · 난수 불변)
+  const chip = chipOf(odds.factors, p, success, m);
 
   // 체력 소모
   let baseA = num(m.staminaCost && (m.staminaCost[action] != null ? m.staminaCost[action] : m.staminaCost.pass));
@@ -1971,7 +2282,10 @@ function resolveDuel(state, data) {
     receiverId: (action === "pass" || action === "cross") && receiverId ? receiverId : undefined,
     // ④ 박스 연결 (컷백 패스 · 센터링) — 성공 = duel, 실패 = save
     boxLink: boxLink || undefined,
+    // 결정타 칩 (2026-09-29): 실제로 곱한 배율 · 승자 쪽 결정 요인 · 대이변 (승자 확률 < upsetP)
+    factors: chip.factors, decisive: chip.decisive, upset: chip.upset,
   };
+  if (isLastAttackPossession(state)) common.lastAttack = true; // 마지막 공격 보장 포제션의 판정
   state.phase = "resolved";
 
   if (success) {
@@ -2048,17 +2362,21 @@ function resolveDuel(state, data) {
     return;
   }
 
-  // 실패 → 턴오버
+  // 실패 → 턴오버 (GK 가 잡으면 세이브 → GK 배급)
   state.stats[defSide].duelsWon += 1;
   incr(state.stats[defSide].playerDuelWins, defender.id);
   addTension(state, m, defSide, isGK ? num(m.tension && m.tension.save, 15) : num(m.tension && m.tension.steal, 15), odds.modsD);
   gain(defSide, defender.id, uc.onDuelWin);
   const cp = counterPlan(data, line, defAction, fxD, defender, isGK);
   if (cp.capTension || cp.stealTension) addTension(state, m, defSide, cp.capTension + cp.stealTension, odds.modsD);
-  const counterTag = cp.fast ? " 빠른 역습!" : "";
-  pushEvent(state, {
+  // 마지막 포제션이라 이 턴오버 · 세이브로 경기가 끝나면 역습 문구 없음 (2026-09-30)
+  const counterTag = cp.fast && !endsMatch(endForecast(state, data, defSide)) ? " 빠른 역습!" : "";
+  // 역방향 컷인 (표시 전용): 필살기가 막혔다 — GK 세이브 · 수비 블록 · 필살 패스 차단
+  const rc = fxA.ult ? reverseCutinOf(fxA, action, isGK, defSide, defender) : null;
+  const ev = pushEvent(state, {
     type: isGK ? "save" : "turnover", side: atkSide, success: false, ...common,
     counterStart: cp.start,
+    ...(rc ? { reverseCutin: rc } : {}),
     text: boxLink
       ? `${defender.name}(GK), ${carrier.name}의 ${action === "cross" ? "센터링을" : "컷백 패스를"} 끊어냄! (${pc}%)${linkText(odds.links)}${counterTag}`
       : isGK
@@ -2067,23 +2385,113 @@ function resolveDuel(state, data) {
     ...beatPos(atkSide, line, defSide, cp.start),
   });
   state.rngState = rng.getState();
+  if (cp.distribution) {
+    endPossession(state, data, defSide, 0, "distribution", { gkId: defender.id, from: boxLink ? "boxLink" : "save", saveEvent: ev });
+    return;
+  }
   endPossession(state, data, defSide, cp.start, "counter", { nextBonus: cp.cappedNextBonus });
 }
 
+/**
+ * 역방향 컷인 정보 (필살기가 막혔을 때, 표시 전용): 필살 슛 → GK 세이브 "기적의 세이브!" / 필드 수비 블록 "철벽 블록!",
+ * 필살 패스(합체기 준비 패스 포함) → 끊김 "필살 패스 차단!" (④ 박스 연결을 GK 가 잡은 것도).
+ */
+function reverseCutinOf(fxA, action, isGK, defSide, defender) {
+  const u = fxA.ult;
+  let kind = null;
+  if (u.type === "shot" && action === "shoot") kind = isGK ? "save" : "block";
+  else if (u.type === "pass" && (action === "pass" || action === "cross")) kind = "passCut";
+  if (!kind) return null;
+  return {
+    kind, side: defSide, playerId: defender.id, position: defender.position, text: REVERSE_CUTIN_TEXT[kind],
+    skillId: u.skillId, ultimateType: u.type, combo: !!fxA.combo,
+  };
+}
+
+/**
+ * 포제션 종료 → 다음 포제션. 포제션이 다 됐으면 종료 판정 (마지막 공격 보장 포함, checkEnd).
+ * reason "distribution" = GK 가 잡은 공 → 배급 대기 (phase "distribution"). 경기가 끝나면 배급 없음.
+ */
 function endPossession(state, data, nextSide, startLine, reason, carry = {}) {
   state.duel = null;
   state.phase = "possessionEnd";
   state.possession += 1;
   if (state.possession > state.possessionsTotal) {
-    if (checkEnd(state, data)) return;
+    if (checkEnd(state, data, nextSide)) {
+      // 이 포제션을 끝낸 비트 = 경기의 마지막 비트: matchEnd "end" | "penalties" (화면 결과 한 줄 — 역습 · 배급 문구 대신, 2026-09-30)
+      const lb = lastBeatEvent(state);
+      if (lb) lb.matchEnd = state.finished ? "end" : "penalties";
+      return;
+    }
+  }
+  if (reason === "distribution") {
+    startDistribution(state, data, nextSide, carry);
+    return;
   }
   startPossession(state, data, nextSide, startLine, reason, carry);
 }
 
-/** 종료/연장/승부차기 전이. true = 더 진행할 포제션 없음(종료 또는 승부차기) */
-function checkEnd(state, data) {
+/**
+ * 마지막 공격 보장 (2026-09-29): 이번 단계(정규 · 연장)의 포제션이 다 됐을 때 다음 포제션 팀(= 방금 끝난 포제션을 갖지 않은 팀)이
+ * 정확히 lastAttackDeficit(1)골 뒤지면 포제션 1개를 더 준다 (단계당 1회). 그 포제션은 평소처럼 시작한다 (킥오프 · 역습 · GK 배급).
+ * @returns {boolean} 줬으면 true
+ */
+function grantLastAttack(state, data, nextSide) {
+  if (!lastAttackDue(state, data, nextSide)) return false;
+  const deficit = Math.round(num(matchCfg(data).lastAttackDeficit, 1));
+  if (!state.lastAttackUsed) state.lastAttackUsed = { regular: false, extraTime: false };
+  state.lastAttackUsed[state.stage] = true;
+  state.possessionsTotal += 1;
+  state.lastAttack = { side: nextSide, stage: state.stage, possession: state.possession };
+  pushEvent(state, {
+    type: "lastAttack", side: nextSide, stage: state.stage, deficit, banner: "추가시간 — 마지막 공격!",
+    text: `추가시간 — 마지막 공격! ${state[nextSide].name} (${deficit}골 차)`,
+  });
+  return true;
+}
+
+/**
+ * 마지막 공격 보장 조건 (grantLastAttack · endForecast 공용, 순수): 이번 단계(정규 · 연장)에서 아직 주지 않았고
+ * nextSide 가 score 기준 정확히 lastAttackDeficit(1)골 뒤지면 true.
+ */
+function lastAttackDue(state, data, nextSide, score = state.score) {
+  const deficit = Math.round(num(matchCfg(data).lastAttackDeficit, 1));
+  if (deficit <= 0 || (nextSide !== "home" && nextSide !== "away")) return false;
+  if (state.stage !== "regular" && state.stage !== "extraTime") return false;
+  if (state.lastAttackUsed && state.lastAttackUsed[state.stage]) return false;
+  const s = score || {};
+  return num(s[nextSide]) - num(s[otherSide(nextSide)]) === -deficit;
+}
+
+/**
+ * 지금 포제션이 끝나면 무슨 일이 일어나는가 (순수 — checkEnd 와 같은 규칙, 2026-09-30). nextSide = 이어질 포제션의 팀,
+ * score = 그때 점수 (골이면 골 뒤 점수).
+ *  null = 남은 포제션이 있어 그대로 이어진다, "extraTime" = 동점 → 연장 돌입 (다음 포제션은 평소처럼),
+ *  "lastAttack" = 마지막 공격 보장으로 nextSide 에게 한 포제션 더, "end" = 경기 종료, "penalties" = 승부차기.
+ *  "end" · "penalties" 면 역습 · GK 배급 · 킥오프가 없다 → 미리보기 · 이벤트 문구가 "경기 종료" · "승부차기" 를 쓴다.
+ */
+export function endForecast(state, data, nextSide, score = state.score) {
+  if (!state || state.finished) return "end";
+  if (state.stage === "penalties") return "penalties";
+  if (possessionsLeft(state) > 1) return null;
+  const s = score || {};
+  const tied = num(s.home) === num(s.away);
+  if (!tied && lastAttackDue(state, data, nextSide, s)) return "lastAttack";
+  if (state.stage === "regular") return state.kind === "friendly" || !tied ? "end" : "extraTime";
+  if (state.stage === "extraTime") return tied ? "penalties" : "end";
+  return "end";
+}
+
+/** endForecast 결과가 "이 포제션으로 경기가 끝남"(종료 · 승부차기)인가 */
+function endsMatch(fc) {
+  return fc === "end" || fc === "penalties";
+}
+
+/** 종료/연장/승부차기 전이. true = 더 진행할 포제션 없음(종료 또는 승부차기). nextSide = 이어질 포제션의 팀 (마지막 공격 판정) */
+function checkEnd(state, data, nextSide = null) {
   const m = matchCfg(data);
   const tied = state.score.home === state.score.away;
+  if (!tied && grantLastAttack(state, data, nextSide)) return false;
   if (state.stage === "regular") {
     if (state.kind === "friendly" || !tied) {
       finishMatch(state, data);
@@ -2108,6 +2516,186 @@ function checkEnd(state, data) {
   }
   finishMatch(state, data);
   return true;
+}
+
+/* ------------------------------------------------------------------ */
+/* GK 배급 (2026-09-29 사용자 결정 3)                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * GK 가 인플레이에서 공을 잡은 뒤 배급 대기 (phase "distribution"). 공은 GK 가 들고 있다 (carrier = GK, lineIndex 0 —
+ * 뷰의 공격 팀 · 단계 기준, GK 는 자기 박스 gkZoneOf(side)). 듀얼 없음. 다음 step 이 배급을 판정한다.
+ * carry = { gkId, from: "save"|"boxLink", saveEvent } — saveEvent 에 nextDistribution: true 를 단다.
+ */
+function startDistribution(state, data, side, carry = {}) {
+  const team = state[side];
+  const gk = findPlayer(team, carry.gkId) || team.players.find((p) => p.position === "GK") || bestOf(team.players, (p) => stat(p, "defense"));
+  state.attackingSide = side;
+  state.ball = newBall(gk.id, 0, 0);
+  state.possessionFx = { home: { teamMult: 1 }, away: { teamMult: 1 } };
+  state.duel = null;
+  state.distribution = { side, gkId: gk.id, from: carry.from || "save", possession: state.possession };
+  state.phase = "distribution";
+  if (carry.saveEvent) carry.saveEvent.nextDistribution = true;
+}
+
+/** 롱패스를 다투는 상대 선수: 상대 최고 MF ((수비+피지컬)/2, 동률 슬롯 순서). MF 가 없으면 GK 아닌 선수 → 전원 */
+function longPassContest(team) {
+  const score = (p) => (stat(p, "defense") + stat(p, "physical")) / 2;
+  let cands = team.players.filter((p) => p.position === "MF");
+  if (!cands.length) cands = team.players.filter((p) => p.position !== "GK");
+  if (!cands.length) cands = team.players.slice();
+  return bestOf(cands, score);
+}
+
+/**
+ * GK 롱패스 성공 확률 (배급 판정 · 미리보기 · 자동 공용, 순수). 짝 · 선택 없는 자동 경합:
+ *  공격 = GK (패스+피지컬)/2 × actionCoef.longPass × (1 + 빠른 배급 longPassBonus) × 캐논 킥 longPass 배율
+ *  수비 = 상대 최고 MF (수비+피지컬)/2 × 1.0. p = clamp(공격 / (공격 + 수비), minP, maxP).
+ * @param {{ skill?: object|null, gkId?: string|null, explain?: boolean }} opts skill = 함께 쓸 배급 스킬 (캐논 킥)
+ * @returns {{ p, att, def, gk, contest, bonus, skillMult, factors }}
+ */
+export function longPassOdds(state, data, side, { skill = null, gkId = null, explain = false } = {}) {
+  const m = matchCfg(data);
+  const team = state[side];
+  const oppTeam = state[otherSide(side)];
+  const gid = gkId || (state.distribution && state.distribution.side === side ? state.distribution.gkId : null);
+  const gk = findPlayer(team, gid) || team.players.find((p) => p.position === "GK") || bestOf(team.players, (p) => stat(p, "defense"));
+  const contest = longPassContest(oppTeam);
+  const c = m.actionCoef || {};
+  const coef = num(c.longPass, num(c.pass, 2.2));
+  const baseA = ((stat(gk, "pass") + stat(gk, "physical")) / 2) * coef;
+  const bonus = traitParam(data, gk, "longPassBonus");
+  const skillMult = skill && skill.active ? num(skill.active.params && skill.active.params.longPass, 1.5) : 1;
+  const att = baseA * (1 + bonus) * skillMult;
+  const def = contest ? (stat(contest, "defense") + stat(contest, "physical")) / 2 : 0;
+  const raw = att + def > 0 ? att / (att + def) : 0.5;
+  const p = clamp(Number.isFinite(raw) ? raw : 0.5, num(m.minP, 0.1), num(m.maxP, 0.9));
+  let factors = null;
+  if (explain) {
+    factors = [];
+    pushFactor(factors, "atk", "base", baseA, "롱패스 기본", `롱패스 ${Math.round(baseA)}`, { base: true, stat: baseA / coef, coef });
+    pushFactor(factors, "atk", "distributor", 1 + bonus, traitName(data, "distributor"), `${traitName(data, "distributor")} +${pct(bonus)}%`);
+    pushFactor(factors, "atk", "skill", skillMult, skill ? skill.name : "스킬");
+    pushFactor(factors, "def", "base", def, "경합 기본", `경합 ${Math.round(def)}`, { base: true, stat: def, coef: 1 });
+  }
+  return { p, att, def, gk, contest, bonus, skillMult, coef, factors };
+}
+
+/** 배급 스킬 사용 가능 여부 + 효과 (배급 GK 가 가진 longPassBoost 스킬마다) — 미리보기 · 판정 공용 */
+export function distributionSkills(state, data, side) {
+  const d = state && state.distribution;
+  if (!d || d.side !== side) return [];
+  const gk = findPlayer(state[side], d.gkId);
+  if (!gk) return [];
+  return getPlayerActiveSkills(data, gk).filter(isDistributionSkill).map((sk) => ({
+    skill: sk, check: checkDistributionSkill(state, data, side, gk.id, sk), cost: skillCost(state[side], sk),
+  }));
+}
+
+/**
+ * 배급 판정 (phase "distribution" 의 step). decision = 사람 결정 { action: "short"|"long", skillId? } 또는 null (자동: ai.decideDistribution).
+ *  짧은 패스: 항상 성공 → 빌드업(line 0) 시작, pickStarter(0). 난수 없음, 체력 · 텐션 변화 없음.
+ *  롱패스: 주사위 한 번 (longPassOdds). 체력: GK −staminaCost.pass, 경합 MF −staminaCost.defend (피지컬 경감 — 듀얼과 같은 공식).
+ *   성공 → 텐션 +duelWin (GK 팀), 중원(line 1) 시작 pickStarter(1), 캐논 킥이면 첫 듀얼 +nextDuelBonus. 이벤트 "distribution".
+ *   실패 → 텐션 +steal (상대 — 가로챈 것과 같음), 이벤트 "turnover" (distribution: true, defAction "intercept"),
+ *   포제션 종료 → 상대가 중원(line 1)부터 공격 (역습 이벤트). 게이지 · 듀얼 승 통계는 바꾸지 않는다.
+ *  캐논 킥: 텐션 소모 + skill 이벤트 (effect "longPassBoost"), stats.skillsUsed +1.
+ */
+function resolveDistribution(state, data, decision = null) {
+  const m = matchCfg(data);
+  const d = state.distribution;
+  if (!d) throw new Error("match: 배급할 GK 가 없습니다");
+  const side = d.side;
+  const opp = otherSide(side);
+  const team = state[side];
+  const gk = findPlayer(team, d.gkId);
+  if (!gk) throw new Error("match: 배급 GK 를 찾을 수 없습니다");
+  let choice;
+  if (decision) {
+    const action = decision.action;
+    if (!DISTRIBUTION_ACTIONS.includes(action)) throw new Error(`match: 배급은 short | long 입니다 (받은 값: ${action})`);
+    let skillId = null;
+    if (decision.skillId) {
+      const sk = getSkill(data, decision.skillId);
+      if (action !== "long") throw new Error(`match: ${sk.name}은(는) 롱패스와 함께만 쓸 수 있습니다`);
+      const chk = checkDistributionSkill(state, data, side, gk.id, sk);
+      if (!chk.ok) throw new Error(`match: 스킬 ${sk.id} 사용 불가 — ${chk.reason}`);
+      skillId = sk.id;
+    }
+    choice = { action, skillId, byAI: false };
+  } else {
+    const c = decideDistribution(state, data, side);
+    choice = { action: c.action === "long" ? "long" : "short", skillId: c.action === "long" ? c.skillId || null : null, byAI: true };
+  }
+
+  const skill = choice.skillId ? getSkill(data, choice.skillId) : null;
+  if (skill) {
+    const cost = skillCost(team, skill);
+    team.tension = round1(num(team.tension) - cost);
+    state.stats[side].skillsUsed += 1;
+    const detail = addSkillFx({}, skill);
+    pushEvent(state, {
+      type: "skill", side, playerId: gk.id, skillId: skill.id, effect: skill.active.effect, gaanpa: false, cost,
+      text: `${gk.name}, [${skill.name}] 발동! ${detail}`,
+    });
+  }
+  const la = isLastAttackPossession(state) ? { lastAttack: true } : {};
+  const common = { playerId: gk.id, gkZone: gkZoneOf(side), from: d.from, distribution: true, byAI: choice.byAI, ...la };
+  state.distribution = null;
+
+  if (choice.action === "short") {
+    const starter = pickStarter(team, 0);
+    pushEvent(state, {
+      type: "distribution", side, action: "short", success: true, p: 1, receiverId: starter.id, ...common,
+      text: `${gk.name}, 짧은 패스 → ${starter.name} (빌드업부터)`,
+      ...beatPos(side, 0, side, 0),
+    });
+    startPossession(state, data, side, 0, "distribution");
+    return;
+  }
+
+  const lp = longPassOdds(state, data, side, { skill, gkId: gk.id, explain: true });
+  const rng = createRngFromState(state.rngState);
+  const success = rng.chance(lp.p);
+  state.rngState = rng.getState();
+  const chip = chipOf(lp.factors, lp.p, success, m);
+  spendStamina(state, m, side, gk, num(m.staminaCost && m.staminaCost.pass), null);
+  if (lp.contest) spendStamina(state, m, opp, lp.contest, num(m.staminaCost && m.staminaCost.defend), null);
+  const pc = pct(lp.p);
+  const longCommon = {
+    ...common, action: "long", p: lp.p, defenderId: lp.contest ? lp.contest.id : null, skillId: skill ? skill.id : undefined,
+    factors: chip.factors, decisive: chip.decisive, upset: chip.upset,
+  };
+  if (success) {
+    addTension(state, m, side, num(m.tension && m.tension.duelWin, 10), null);
+    const starter = pickStarter(team, 1);
+    const nextBonus = skill ? num(skill.active.params && skill.active.params.nextDuelBonus, 0) : 0;
+    pushEvent(state, {
+      type: "distribution", side, success: true, receiverId: starter.id, nextBonus: nextBonus || undefined, ...longCommon,
+      text: `${gk.name}, 롱패스! 중원의 ${starter.name}에게 연결 (${pc}%)${skill ? ` [${skill.name}]` : ""}${nextBonus ? ` 첫 듀얼 +${pct(nextBonus)}%` : ""}`,
+      ...beatPos(side, 0, side, 1),
+    });
+    startPossession(state, data, side, 1, "distribution", { nextBonus });
+    return;
+  }
+  addTension(state, m, opp, num(m.tension && m.tension.steal, 15), null);
+  const contestName = lp.contest ? lp.contest.name : "상대";
+  // receiverId = 롱패스가 향하던 우리 MF (화면이 끊긴 롱패스 방향을 그린다), starterId = 세컨드볼을 잡고 역습을 시작할 상대 선수
+  // (pickStarter(1) — 끊은 선수와 다를 수 있다). 마지막 포제션이라 경기가 끝나면 starterId 없음 · 문구 "경기 종료" (2026-09-30)
+  const fc = endForecast(state, data, opp);
+  const intended = pickStarter(team, 1);
+  const oppStarter = endsMatch(fc) ? null : pickStarter(state[opp], 1);
+  const next = endsMatch(fc)
+    ? END_TEXT[fc]
+    : `세컨드볼${oppStarter && lp.contest && oppStarter.id !== lp.contest.id ? ` → ${oppStarter.name}` : ""}, ${state[opp].name} 중원부터 공격`;
+  pushEvent(state, {
+    type: "turnover", side, success: false, defAction: "intercept", counterStart: 1, ...longCommon,
+    receiverId: intended ? intended.id : undefined, starterId: oppStarter ? oppStarter.id : undefined,
+    text: `${contestName}, 롱패스 차단! ${gk.name}의 롱패스 — ${next} (${pc}%)`,
+    ...beatPos(side, 0, opp, 1),
+  });
+  endPossession(state, data, opp, 1, "counter");
 }
 
 /* ------------------------------------------------------------------ */
@@ -2235,6 +2823,8 @@ function buildResult(state, provisional) {
     possessionsPlayed: Math.min(state.possession - 1, state.possessionsTotal),
     stage: state.stage,
     seed: state.seed,
+    // 마지막 공격 보장으로 준 포제션 (없으면 null) — 2026-09-29
+    lastAttack: state.lastAttack ? Object.assign({}, state.lastAttack) : null,
   };
   if (penalties) result.penalties = penalties;
   if (provisional) result.provisional = true;
@@ -2282,6 +2872,12 @@ export function step(state, data, decision = null, humanSide = undefined) {
 
   if (state.phase === "penalties") {
     penaltyKick(state, data);
+    return state;
+  }
+  if (state.phase === "distribution" && state.distribution) {
+    // GK 배급: 사람 측이면 decision { action: "short"|"long", skillId? } (없으면 전술 자동), 상대면 자동
+    const needD = humanNeedsDecision(state, human);
+    resolveDistribution(state, data, needD && decision && (decision.action || decision.skillId) ? decision : null);
     return state;
   }
   if (state.phase !== "decision" || !state.duel) {
@@ -2438,11 +3034,15 @@ function evaluateHuman(state, data, human, action, { fx = null, receiverId = nul
   const oppChoice = (duel && duel[opp + "Choice"]) || {};
   const reading = !!(duel && duel.gaanpaSide === opp && oppChoice.byAI && line < 3);
   if (role === "attack") {
-    let defAction = "save";
-    if (line < 3) {
-      if (reading) defAction = bestDefenseResponse(state, data, action, { fxA: fxH, fxD: fxO });
-      else defAction = oppChoice.action || autoAction(state, data, opp);
+    if (line >= 3) {
+      // ④ = 자동 규칙(boxLinkEval)과 같은 함수 · 같은 GK 효과 (커밋한 세이브 — AI GK 는 사람보다 먼저 커밋한다 — 아니면 같은 규칙의 예측)
+      const carrier = findPlayer(state[human], state.ball.carrierId);
+      const r = boxExpect(state, data, human, carrier, action, fxH, gkFxFor(state, data, human), receiverId);
+      return { p: r.p, exp: r.exp, response: "save", receiverId: r.receiverId };
     }
+    let defAction;
+    if (reading) defAction = bestDefenseResponse(state, data, action, { fxA: fxH, fxD: fxO });
+    else defAction = oppChoice.action || autoAction(state, data, opp);
     const odds = computeOdds(state, data, { action, defAction, fxA: fxH, fxD: fxO });
     let exp = odds.p;
     let rid = receiverId;
@@ -2505,7 +3105,9 @@ function nextShotP(state, data, side, carrier, tr, action, defAction, fxA, fxD) 
   }
   let fxG = emptyDuelEffects();
   const gkUlt = getPlayerUltimate(data, gk);
-  if (gkUlt && gkUlt.ultimate.type === "save" && aiWantsUltimate(pseudo, data, opp, gk, "defense", "save")) fxG = fxPlusUlt(fxG, gkUlt, null);
+  // ④ 박스 연결에 GK 가 필살 세이브를 쓰면 (커밋했거나 규칙상 쓸 예정 — fxD) 게이지 0 → 다음 슛에는 없다 (커밋 전후 같은 값)
+  const gkUsedNow = num(state.ball.lineIndex, 0) >= 3 && !!(fxD && fxD.ult && fxD.ult.type === "save");
+  if (!gkUsedNow && gkUlt && gkUlt.ultimate.type === "save" && aiWantsUltimate(pseudo, data, opp, gk, "defense", "save")) fxG = fxPlusUlt(fxG, gkUlt, null);
   return computeOdds(pseudo, data, { action: "shoot", defAction: "save", fxA: fxS, fxD: fxG }).p;
 }
 
@@ -2523,13 +3125,24 @@ function attackOutcome(state, data, human, action, { fx = null, receiverId = nul
   const oppZone = zoneOf(opp, cp.start);
   const zn = zoneNameFor(oppZone, human);
   const lost = { zone: oppZone, attackingSide: opp, step: cp.start, label: oppCounterText(cp.start, oppZone, human, ev.response === "hold"), short: cp.start === 0 ? "실패 상대 빌드업" : ev.response === "hold" ? `실패 상대 ${zn}부터` : `실패 상대 역습(${zn})` };
+  // GK 가 잡으면 (④ 세이브 · 박스 연결 차단) 상대 GK 배급 (2026-09-29) — 구역 = 상대 빌드업 구역, gkZone = GK 가 선 박스
+  const gkCatch = { distribution: true, gkZone: gkZoneOf(opp) };
+  // 마지막 포제션 (2026-09-30): 막히면 경기가 끝나면(종료 · 승부차기) 역습 · GK 배급 대신 "경기 종료" — endForecast (checkEnd 와 같은 규칙)
+  const failFc = endForecast(state, data, opp);
+  const failEnd = endsMatch(failFc) ? { matchEnd: failFc, short: `실패 ${END_TEXT[failFc]}` } : null;
+  const endLost = (head) => Object.assign({}, lost, failEnd, { label: `${head} → ${END_TEXT[failFc]}` });
   if (action === "shoot") {
-    const failLabel = line >= 3
-      ? (cp.start === 0 ? "세이브 → 상대 골킥" : `세이브 → 상대 역습, ${zn}부터`)
-      : (cp.start === 0 ? "막히면 → 상대 빌드업부터" : `막히면 → 상대 역습, ${zn}부터`);
+    const goal = goalOutcome(state, data, human);
+    if (line >= 3) {
+      return {
+        success: goal,
+        fail: failEnd ? endLost("세이브") : Object.assign({}, lost, gkCatch, { label: "세이브 → 상대 GK 배급", short: "실패 상대 GK 배급" }),
+      };
+    }
+    const failLabel = cp.start === 0 ? "막히면 → 상대 빌드업부터" : `막히면 → 상대 역습, ${zn}부터`;
     return {
-      success: { zone: zoneOf(opp, kickoffLine(data)), attackingSide: opp, step: kickoffLine(data), goal: true, label: "골! → 상대 킥오프", short: "성공 골!" },
-      fail: Object.assign({}, lost, { label: failLabel, short: line >= 3 ? (cp.start === 0 ? "실패 상대 골킥" : `실패 상대 역습(${zn})`) : lost.short }),
+      success: goal,
+      fail: failEnd ? endLost("막히면") : Object.assign({}, lost, { label: failLabel, short: lost.short }),
     };
   }
   const tr = successTransition(state, data, human, carrier, action, fxH, receiverId);
@@ -2543,11 +3156,13 @@ function attackOutcome(state, data, human, action, { fx = null, receiverId = nul
         label: `${r.name} ${finish} 찬스`, short: `성공 ${r.name} ${action === "cross" ? "헤더" : "원터치"}`,
         receiver: { id: r.id, name: r.name, side: human }, oneTouch: true, boxLink: true,
       },
-      fail: Object.assign({}, lost, {
-        label: cp.start === 0 ? "GK가 끊어냄 → 상대 골킥" : `GK가 끊어냄 → 상대 역습, ${zn}부터`,
-        short: cp.start === 0 ? "실패 상대 골킥" : `실패 상대 역습(${zn})`,
-        boxLink: true,
-      }),
+      fail: failEnd
+        ? Object.assign(endLost("GK가 끊어냄"), { boxLink: true })
+        : Object.assign({}, lost, gkCatch, {
+          label: "GK가 끊어냄 → 상대 GK 배급",
+          short: "실패 상대 GK 배급",
+          boxLink: true,
+        }),
     };
   }
   const adv = advanceText(tr.newLine);
@@ -2567,7 +3182,25 @@ function attackOutcome(state, data, human, action, { fx = null, receiverId = nul
     success.short = tr.newLine >= 3 ? "성공 박스 진입" : tr.newLine === 2 ? "성공 상대 진영" : "성공 중원";
   }
   if (tr.oneTouch) success.oneTouch = true;
-  return { success, fail: lost };
+  return { success, fail: failEnd ? endLost("뺏기면") : lost };
+}
+
+/**
+ * 골 결과 한 줄 (공격 결과 미리보기의 성공 · 수비 결과 미리보기의 뚫림 공용): scorer 가 넣은 뒤의 점수로 endForecast —
+ * 평소 "골! → 상대 킥오프" / "실점 → 우리 킥오프", 마지막 포제션이면 "→ 경기 종료" · "→ 연장전" · "→ 승부차기" ·
+ * "→ 상대/우리 마지막 공격" (2026-09-30). viewer = 문구 시점.
+ */
+function goalOutcome(state, data, scorer, viewer = scorer) {
+  const conceder = otherSide(scorer);
+  const s2 = Object.assign({}, state.score, { [scorer]: num(state.score && state.score[scorer]) + 1 });
+  const fc = endForecast(state, data, conceder, s2);
+  const kickoff = conceder === viewer ? "우리 킥오프" : "상대 킥오프";
+  const lastAtk = conceder === viewer ? "우리 마지막 공격" : "상대 마지막 공격";
+  const next = endsMatch(fc) ? END_TEXT[fc] : fc === "extraTime" ? "연장전" : fc === "lastAttack" ? lastAtk : kickoff;
+  const out = { zone: zoneOf(conceder, kickoffLine(data)), attackingSide: conceder, step: kickoffLine(data), goal: true };
+  if (endsMatch(fc)) out.matchEnd = fc;
+  if (scorer === viewer) return Object.assign(out, { label: `골! → ${next}`, short: "성공 골!" });
+  return Object.assign(out, { conceded: true, label: `뚫리면 — 실점 → ${next}`, short: "뚫리면 실점" });
 }
 
 /** 수비 결과 미리보기 한 액션 { success(막음), fail(뚫림) } — 손익 라벨 (§13.4) */
@@ -2601,11 +3234,20 @@ function defenseOutcome(state, data, human, dAction, { fx = null } = {}) {
   if (cp.capTension) stopLabel += ` · 텐션 +${cp.capTension}`;
   if (cp.stealTension) stopLabel += ` · 텐션 +${cp.stealTension}`;
   if (cp.cappedNextBonus) stopLabel += ` · 역습 첫 듀얼 ${bonusPctText(cp.cappedNextBonus)}`;
+  // 마지막 포제션 (2026-09-30): 막으면 경기가 끝나면 "막으면 — 경기 종료", 우리가 마지막 공격을 받으면 그 표시
+  const stopFc = endForecast(state, data, human);
+  if (endsMatch(stopFc)) {
+    stopLabel = `막으면 — ${END_TEXT[stopFc]}`;
+    stopShort = `막으면 ${END_TEXT[stopFc]}`;
+  } else if (stopFc === "lastAttack") {
+    stopLabel += " (추가시간 — 우리 마지막 공격)";
+  }
   const success = { zone: ourZone, attackingSide: human, step: cp.start, label: stopLabel, short: stopShort };
+  if (endsMatch(stopFc)) success.matchEnd = stopFc;
 
   let fail;
   if (ev.response === "shoot") {
-    fail = { zone: zoneOf(human, kickoffLine(data)), attackingSide: human, step: kickoffLine(data), goal: true, conceded: true, label: "뚫리면 — 실점 → 우리 킥오프", short: "뚫리면 실점" };
+    fail = goalOutcome(state, data, opp, human);
   } else {
     const oppNext = advanceLine(line, !!fxO.extraLine);
     const breach = oppNext >= 3
@@ -2712,10 +3354,12 @@ function expectedFor(state, data, side, role) {
   if (role === "defense" && line >= 3) return { playerId: pid, action: "save", values: {} };
   const choice = duel[side + "Choice"];
   const committed = choice && choice.action ? (choice.committedAction || choice.action) : null;
-  const values = (choice && choice.values) || tendencyValues(state, data, side, pid);
   const tc = tendCfg(matchCfg(data));
-  // ④ 공격: 슛 값 vs 박스 연결 점수 (tendencyValues) 1위 = 자동 선택 (boxLinkEval 규칙)
-  const action = committed || (role === "attack" ? pickByTendency(values, tc.tieA) || (line >= 3 ? "shoot" : "dribble") : pickByTendency(values, tc.tieD));
+  // ④ 공격: 기대 골 규칙 (boxLinkEval — 값 = 기대 골 %, 자동 = 연결이 슛보다 클 때만)
+  const box = role === "attack" && line >= 3 && !committed ? boxLinkEval(state, data, side) : null;
+  const values = (choice && choice.values) || (box && boxTendency(box)) || tendencyValues(state, data, side, pid);
+  const action = committed || (box && box.auto ? box.auto.action : null)
+    || (role === "attack" ? pickByTendency(values, tc.tieA) || (line >= 3 ? "shoot" : "dribble") : pickByTendency(values, tc.tieD));
   const rounded = {};
   for (const [k, v] of Object.entries(values)) rounded[k] = Math.round(v);
   const out = { playerId: pid, action, values: rounded };
@@ -2723,7 +3367,7 @@ function expectedFor(state, data, side, role) {
   if (role === "attack" && (action === "pass" || action === "cross")) {
     let rid = committed && choice.receiverId ? choice.receiverId : null;
     if (!rid && line >= 3) {
-      const ev = boxLinkEval(state, data, side);
+      const ev = box || boxLinkEval(state, data, side);
       rid = ev[action] ? ev[action].receiverId : null;
     }
     out.receiverId = rid;
@@ -2731,7 +3375,11 @@ function expectedFor(state, data, side, role) {
   return out;
 }
 
-/** view.boxLink: ④ 공격 팀 carrier 의 박스 연결 상황과 자동 규칙 (값은 반올림) — line 3 결정 대기 중만, 아니면 null */
+/**
+ * view.boxLink: ④ 공격 팀 carrier 의 박스 연결 상황과 자동 규칙 — line 3 결정 대기 중만, 아니면 null.
+ * 2026-09-29 기대 골 규칙: value = 기대 골 % (정수), exp = 기대 골 (0~1), 연결은 linkP(연결 성공) × finishP(받은 선수 다음 슛 골).
+ * score = value (옛 이름 호환), forced 항상 false, ratio null (autoRatio 폐지).
+ */
 function boxLinkView(state, data) {
   const ball = state.ball || {};
   if (!state.duel || state.finished || state.phase !== "decision" || num(ball.lineIndex, 0) < 3) return null;
@@ -2739,10 +3387,10 @@ function boxLinkView(state, data) {
   const ev = boxLinkEval(state, data, side);
   if (!ev.shoot) return null;
   const choice = state.duel[side + "Choice"];
-  const bc = boxLinkCfg(matchCfg(data));
   const opt = (o) => (o
     ? {
-      receiverId: o.receiverId, value: Math.round(o.value), score: Math.round(o.score), forced: o.forced,
+      receiverId: o.receiverId, value: Math.round(o.value), score: Math.round(o.score), exp: round6(o.exp),
+      linkP: round6(o.linkP), finishP: round6(o.finishP), forced: false,
       ultimate: o.ultimate, receiverUltimate: o.receiverUltimate, combo: o.combo,
     }
     : null);
@@ -2750,11 +3398,13 @@ function boxLinkView(state, data) {
     side,
     used: !!ball.boxLinkUsed,
     available: !!(ev.pass || ev.cross),
-    ratio: ev.ratio,
-    gkMult: bc.gkMult,
-    shoot: { value: Math.round(ev.shoot.value), ultimate: ev.shoot.ultimate },
+    rule: "ev",
+    ratio: null,
+    gkMult: ev.gkMult,
+    shoot: { value: Math.round(ev.shoot.value), exp: round6(ev.shoot.exp), ultimate: ev.shoot.ultimate, combo: ev.shoot.combo },
     pass: opt(ev.pass),
     cross: opt(ev.cross),
+    evAuto: Object.assign({}, ev.auto),
     // 이미 커밋한 측(AI 는 판정 전에 먼저 커밋)은 커밋한 선택이 곧 자동 선택이다
     auto: choice && choice.action
       ? { action: choice.committedAction || choice.action, receiverId: choice.receiverId || null, ultimate: !!choice.ultimate }
@@ -2860,6 +3510,93 @@ export function aceCallFor(state, data) {
   };
 }
 
+/* ------------------------------------------------------------------ */
+/* GK 배급 뷰 (2026-09-29)                                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * view.distribution: GK 배급 대기(phase "distribution") 중일 때 두 선택지의 확률 · 결과 미리보기, 아니면 null. 순수, 난수 없음.
+ * 문구는 viewer(human) 시점 — 우리 배급이면 "상대 중원 공격", 상대 배급이면 "우리 중원 공격".
+ * 마지막 포제션이라 롱패스가 막히면 경기가 끝나면 실패 문구 = "경기 종료" (fail.matchEnd — endForecast, 2026-09-30).
+ * recommended = "상황 따라" 규칙(확률 ≥ longPassAutoMin, 자동이 쓸 캐논 킥 포함 — recommendedSkillId)의 선택 (배급 전술과 무관,
+ *  전술이 auto 면 auto.action 과 같다). auto = 배급 전술을 따른 자동 선택.
+ * @returns {null | { side, gkId, gkName, from, needsDecision, tactic, autoMin, order: ["short","long"],
+ *   options: { short: Option, long: Option }, recommended, recommendedSkillId, auto: { action, skillId, p }, contest: { id, name, side },
+ *   skills: Array<{ skillId, name, description, effect, tension, cost, enabled, reason, p, pct, nextDuelBonus }> }}
+ *   Option = { action, label, p, pct, text, recommended, success: { zone, attackingSide, step, starterId, starterName, label, short },
+ *              fail: null | { zone, attackingSide, step, contestId, label, short, matchEnd? } }
+ */
+function distributionView(state, data, human) {
+  const d = state.distribution;
+  if (!d || state.phase !== "distribution" || state.finished) return null;
+  const m = matchCfg(data);
+  const side = d.side;
+  const opp = otherSide(side);
+  const us = side === human;
+  const team = state[side];
+  const gk = findPlayer(team, d.gkId);
+  if (!gk) return null;
+  const lp = longPassOdds(state, data, side, { gkId: gk.id });
+  const min = num(m.longPassAutoMin, 0.55);
+  const auto = decideDistribution(state, data, side);
+  // 추천 = "상황 따라" 규칙 (확률 기준 — 자동이 쓸 캐논 킥 포함, 배급 전술과 무관 · 2026-09-30). 전술이 auto 면 자동 선택과 같다
+  const byRule = decideDistribution(state, data, side, { tactic: "auto" });
+  const rec = byRule.action === "long" ? "long" : "short";
+  const sStart = pickStarter(team, 0);
+  const lStart = pickStarter(team, 1);
+  const lpPct = pct(lp.p);
+  const who = us ? "" : "상대 ";
+  // 롱패스가 막히면: 평소 상대 중원 공격 (세컨드볼) — 마지막 포제션이라 경기가 끝나면 "경기 종료" · "승부차기",
+  // 상대가 마지막 공격을 받으면 그 표시 (endForecast, 2026-09-30)
+  const failFc = endForecast(state, data, opp);
+  const failWho = us ? "상대" : "우리";
+  const failShort = endsMatch(failFc) ? `실패 ${END_TEXT[failFc]}` : `실패 ${failWho} 중원 공격`;
+  const failLabel = endsMatch(failFc)
+    ? `롱패스 차단 — ${END_TEXT[failFc]}`
+    : `세컨드볼 — ${failWho} 중원 공격${failFc === "lastAttack" ? ` (추가시간 — ${failWho} 마지막 공격)` : ""}`;
+  const options = {
+    short: {
+      action: "short", label: "짧은 패스", p: 1, pct: 100, recommended: rec === "short",
+      text: us ? "짧은 패스 100% — 빌드업부터" : "상대 짧은 패스 — 상대 빌드업부터",
+      success: {
+        zone: zoneOf(side, 0), attackingSide: side, step: 0, starterId: sStart.id, starterName: sStart.name,
+        label: `${who}빌드업부터 — ${sStart.name} 시작`, short: us ? "빌드업부터" : "상대 빌드업부터",
+      },
+      fail: null,
+    },
+    long: {
+      action: "long", label: "롱패스", p: round6(lp.p), pct: lpPct, recommended: rec === "long",
+      text: us ? `롱패스 ${lpPct}% — 성공 중원부터 / ${failShort}` : `상대 롱패스 ${lpPct}% — 성공 상대 중원부터 / ${failShort}`,
+      bonus: lp.bonus || 0,
+      success: {
+        zone: zoneOf(side, 1), attackingSide: side, step: 1, starterId: lStart.id, starterName: lStart.name,
+        label: `${who}중원부터 — ${lStart.name} 시작`, short: us ? "성공 중원부터" : "성공 상대 중원부터",
+      },
+      fail: Object.assign({
+        zone: zoneOf(opp, 1), attackingSide: opp, step: 1, contestId: lp.contest ? lp.contest.id : null,
+        label: failLabel, short: failShort,
+      }, endsMatch(failFc) ? { matchEnd: failFc } : {}),
+    },
+  };
+  const skills = distributionSkills(state, data, side).map(({ skill, check, cost }) => {
+    const ps = longPassOdds(state, data, side, { skill, gkId: gk.id }).p;
+    return {
+      skillId: skill.id, name: skill.name, description: skill.description || "", effect: skill.active.effect,
+      tension: num(skill.tension), cost, enabled: us && check.ok, reason: us ? check.reason : "결정 차례가 아님",
+      p: round6(ps), pct: pct(ps), nextDuelBonus: num(skill.active.params && skill.active.params.nextDuelBonus, 0),
+    };
+  });
+  return {
+    side, gkId: gk.id, gkName: gk.name, from: d.from, needsDecision: us,
+    tactic: (team.tactics && team.tactics.distribution) || "auto", autoMin: min,
+    contest: lp.contest ? { id: lp.contest.id, name: lp.contest.name, side: opp } : null,
+    order: ["short", "long"], options, recommended: rec, recommendedSkillId: rec === "long" ? byRule.skillId || null : null,
+    auto: { action: auto.action, skillId: auto.skillId || null, p: round6(auto.p) },
+    gkZone: gkZoneOf(side),
+    skills,
+  };
+}
+
 /**
  * UI용 뷰 (상태 변경 없음, 난수 소비 없음).
  * v0.2 필드 (§12.1): zone, attackStep, attackDir, remaining, receiverPreview, outcomes, outcomesBySkill, receiverPreviewBySkill, lastBeat.
@@ -2869,6 +3606,9 @@ export function aceCallFor(state, data) {
  *  (receivers / receiverPreview / outcomes / outcomesByReceiver / ultimateOptions(필살 패스) 도 ④ 에서 채워짐, arrival 3),
  *  expectedPct = 득점 기대 (연결 성공 × 받은 선수 원터치 슛·헤더 골). ballState.boxLinkUsed, boxLink(boxLinkView), expected.attack.receiverId.
  * 2026-09-29 에이스의 외침: aceCall (aceCallFor — 표시 전용, 판정·AI·난수에 영향 없음).
+ * 2026-09-29 (사용자 결정 3~7): distribution (GK 배급 대기 — needsDecision "distribution"), lastAttack (마지막 공격 보장),
+ *  ④ actions[].autoExpectedPct · 추천 = 자동(기대 골 규칙), boxLink.rule "ev" (value = 기대 골 %, exp · linkP · finishP).
+ *  배급 대기 중에는 phase "distribution", duel 없음, carrier = 배급 GK (lineIndex 0), actions · skills 는 비고 lineLabel "우리/상대 GK 배급".
  */
 export function getMatchView(state, data, humanSide = undefined) {
   const m = matchCfg(data);
@@ -2927,7 +3667,7 @@ export function getMatchView(state, data, humanSide = undefined) {
     }
     return out;
   };
-  if (need) {
+  if (need && active) {
     let best = null;
     let bv = -1;
     for (const a of actions) {
@@ -2938,6 +3678,16 @@ export function getMatchView(state, data, humanSide = undefined) {
       if (r.exp > bv + 1e-12) {
         bv = r.exp;
         best = a;
+      }
+    }
+    // ④ 공격 (2026-09-29): 추천 = 자동 선택 (기대 골 규칙 boxLinkEval — 자동이 쓸 필살기 포함).
+    // autoExpectedPct = 자동 규칙이 본 기대 골 % (필살기를 쓸 수 없으면 expectedPct 와 같다)
+    if (role === "attack" && line >= 3) {
+      const ev = boxLinkEval(state, data, human);
+      if (ev.auto) {
+        for (const a of actions) if (a.enabled && ev[a.action]) a.autoExpectedPct = pct(ev[a.action].exp);
+        const pick = actions.find((a) => a.enabled && a.action === ev.auto.action);
+        if (pick) best = pick;
       }
     }
     if (best) best.recommended = true;
@@ -3014,6 +3764,7 @@ export function getMatchView(state, data, humanSide = undefined) {
 
   let lineLabel;
   if (state.phase === "penalties") lineLabel = "승부차기";
+  else if (state.phase === "distribution" && state.distribution) lineLabel = `${state.distribution.side === human ? "우리" : "상대"} GK 배급`;
   else if (line >= 3) lineLabel = role === "attack" ? "슛 vs 상대 GK" : "상대 슛 vs 우리 GK";
   else lineLabel = `${role === "attack" ? "상대" : "우리"} ${LINE_LABELS[line]} ${role === "attack" ? "돌파" : "수비"}`;
 
@@ -3126,6 +3877,12 @@ export function getMatchView(state, data, humanSide = undefined) {
     boxLink: active ? boxLinkView(state, data) : null,
     // 에이스의 외침 (표시 전용): 받으면 필살기 준비 · 합체기가 되는 받는 선수 한 명 (양 팀 공격 모두) — aceCallFor
     aceCall: active ? aceCallFor(state, data) : null,
+    // GK 배급 대기 (phase "distribution", 2026-09-29) — distributionView
+    distribution: distributionView(state, data, human),
+    // 마지막 공격 보장 (2026-09-29): 준 포제션 { side, stage, possession, active } (active = 지금 그 포제션 진행 중)
+    lastAttack: state.lastAttack
+      ? Object.assign({}, state.lastAttack, { active: !state.finished && state.possession === state.lastAttack.possession })
+      : null,
     stage: state.stage,
     kind: state.kind,
     names: { home: state.home.name, away: state.away.name },

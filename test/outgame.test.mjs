@@ -47,6 +47,14 @@ test("아웃게임 CSS: vw/vh/dvh 단위 · 창 크기 media query 없음, 옛 4
   for (const sel of [".modal.modal-md", ".modal.modal-lg", ".modal.modal-xl", ".sheet.sheet-wide"]) assert.ok(base.includes(sel), `base.css 에 ${sel}`);
 });
 
+test("배급 전술 선택지 (labels TACTIC_OPTIONS.distribution) = 엔진 run.DISTRIBUTION_TACTICS (목록은 run.js 한 곳 — ai.js 도 가져다 쓴다)", async () => {
+  const Lb = await import(pathToFileURL(path.join(ROOT, "js/ui/labels.js")).href);
+  const run = await import(pathToFileURL(path.join(ROOT, "js/engine/run.js")).href);
+  assert.deepEqual(Lb.TACTIC_OPTIONS.distribution.map(([k]) => k).sort(), [...run.DISTRIBUTION_TACTICS].sort());
+  const aiSrc = fs.readFileSync(path.join(ROOT, "js/engine/ai.js"), "utf8");
+  assert.ok(/import \{ DISTRIBUTION_TACTICS \} from "\.\/run\.js"/.test(aiSrc) && !/const DISTRIBUTION_TACTICS\s*=/.test(aiSrc), "ai.js 는 사본을 두지 않는다");
+});
+
 test("편성 미니 필드 슬롯 자리: GK 왼쪽 → FW 오른쪽, 같은 줄은 위아래로 고르게", async () => {
   const { slotSpot } = await import(pathToFileURL(path.join(ROOT, "js/ui/screens/setup.js")).href);
   const { slotsOf, FORMATIONS } = await import(pathToFileURL(path.join(ROOT, "js/ui/labels.js")).href);
@@ -171,7 +179,12 @@ test("jsdom: 아웃게임 화면 전부 스테이지 안에 그려지고 주요 
   assert.ok($$(".setup-supports .sp-chip:not(.selected)").every((c) => !c.disabled), "편성: 5장이면 고를 수 있다");
   $$(".setup-supports .sp-chip:not(.selected)")[0].click();
   await until(() => $$(".setup-supports .sp-chip.selected").length === data.config.defaultSupports.length);
-  assert.equal($$(".setup-tactics .tac-row select").length, 3, "편성: 전술 3개");
+  assert.equal($$(".setup-tactics .tac-row select").length, 4, "편성: 전술 4개 (공격 성향 · 슛 타이밍 · 수비 성향 · 배급)");
+  // GK 배급 전술 (2026-09-29): 상황 따라(기본) · 짧게 · 길게
+  const distSel = $$(".setup-tactics .tac-row").find((r) => r.textContent.includes("배급"))?.querySelector("select");
+  assert.ok(distSel, "편성: 배급 전술 선택");
+  assert.deepEqual([...distSel.options].map((o) => [o.value, o.textContent]), [["auto", "상황 따라"], ["short", "짧게"], ["long", "길게"]], "편성: 배급 선택지");
+  assert.equal(distSel.value, data.config.defaultTactics.distribution ?? "auto", "편성: 배급 기본값");
   // 선수 풀: 캐릭터 전원 카드 (배치된 선수 = 슬롯 표시, 나머지 = 벤치), 적성 GK/DF/MF/FW
   const poolCards = $$(".setup-pool .lu-pool .lu-card");
   assert.equal(poolCards.length, data.characters.length, "편성: 선수 풀 = 캐릭터 전원");
@@ -346,11 +359,12 @@ test("jsdom: 아웃게임 화면 전부 스테이지 안에 그려지고 주요 
   inStage("#modal-root .modal.modal-md", "휴식 확인");
   assert.ok(btnByText(/^실행$/, $("#modal-root")), "휴식 확인: [실행]");
   closeModal();
-  // 전술 미팅: 3열 (전술 5 · 포메이션 + 라인업 보드(슬롯 7, 끌어서 맞바꾸기) · 스킬 상점)
+  // 전술 미팅: 3열 (전술 6 — 배급 포함 · 포메이션 + 라인업 보드(슬롯 7, 끌어서 맞바꾸기) · 스킬 상점)
   btnByText(/미팅$/, bar).click();
   inStage("#modal-root .modal.modal-xl .meeting-cols", "미팅");
   assert.equal($$("#modal-root .meeting-col").length, 3, "미팅: 3열");
-  assert.equal($$("#modal-root .meeting-col")[0].querySelectorAll("select").length, 5, "미팅: 전술 5개");
+  assert.equal($$("#modal-root .meeting-col")[0].querySelectorAll("select").length, 6, "미팅: 전술 6개 (배급 포함)");
+  assert.ok($$("#modal-root .meeting-col")[0].textContent.includes("배급"), "미팅: 배급 전술");
   assert.equal($$("#modal-root .meeting-board .lu-pitch.compact .lu-slot").length, 7, "미팅: 라인업 보드 슬롯 7개");
   assert.equal($$("#modal-root .meeting-board select").length, 1, "미팅: 포지션 드롭다운 대신 보드 (포메이션 선택만)");
   assert.equal($$("#modal-root .lu-pool").length, 0, "미팅: 벤치 없음 (7명 전원 배치)");

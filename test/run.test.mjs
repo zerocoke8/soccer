@@ -989,7 +989,7 @@ test("전술·저장 이행: readIntent → balanced, intentReveal modifier → 
   opp.tactics.defense = "readIntent";
   assert.equal(run.buildOpponentSnapshot(opp, d).tactics.defense, "balanced");
   for (const o of d.opponents) assert.ok(run.DEFENSE_TACTICS.includes(run.buildOpponentSnapshot(o, d).tactics.defense));
-  assert.deepEqual(run.normalizeTactics({ attack: "dribble", defense: "readIntent" }), { attack: "dribble", defense: "balanced" });
+  assert.deepEqual(run.normalizeTactics({ attack: "dribble", defense: "readIntent" }), { attack: "dribble", defense: "balanced", distribution: "auto" });
 
   // 옛 저장 런 (v0.2): readIntent 전술 + intentReveal modifier (감독의 수첩 유물 + 정찰 이벤트)
   const legacy = clone(s);
@@ -1071,4 +1071,33 @@ test("finishMatch: 승부차기 결과(penalties)가 record.goalMatches 항목�
   toMatch(s2);
   run.finishMatch(s2, d, { winner: "home", homeGoals: 2, awayGoals: 0 });
   assert.equal("penalties" in s2.record.goalMatches.at(-1), false);
+});
+
+test("GK 배급 전술 (2026-09-29): distribution short/long/auto — 없거나 잘못된 값은 auto, 옛 저장 런·등록 팀·상대 이행, 미팅으로 변경, 캐논 킥 힌트", () => {
+  const d = clone(data); d.config.eventChancePerTurn = 0; d.events = d.events.filter((e) => e.trigger !== "seasonStart");
+  assert.deepEqual(run.DISTRIBUTION_TACTICS, ["short", "long", "auto"]);
+  assert.equal(cfg.defaultTactics.distribution, "auto", "기본 전술 = 상황 따라");
+  assert.equal(run.normalizeTactics({}).distribution, "auto");
+  assert.equal(run.normalizeTactics({ distribution: "long" }).distribution, "long");
+  assert.equal(run.normalizeTactics({ distribution: "nope" }).distribution, "auto");
+  const s = run.createRun({ data: d, seed: "dist", tactics: { distribution: "short" } });
+  assert.equal(s.tactics.distribution, "short");
+  run.applyAction(s, d, { type: "meeting", tactics: { ...s.tactics, distribution: "long" } });
+  assert.equal(s.tactics.distribution, "long", "미팅으로 변경");
+  // 옛 저장 런 (distribution 없음) → migrateRun 이 auto 로, 멱등
+  const legacy = clone(s);
+  delete legacy.tactics.distribution;
+  assert.equal(run.buildTeamSnapshot(legacy, d).tactics.distribution, "auto", "스냅샷은 이행된 전술");
+  run.migrateRun(legacy);
+  assert.equal(legacy.tactics.distribution, "auto");
+  const once = JSON.stringify(legacy);
+  run.migrateRun(legacy);
+  assert.equal(JSON.stringify(legacy), once, "멱등");
+  // 상대 · 등록 팀
+  for (const o of d.opponents) assert.equal(run.buildOpponentSnapshot(o, d).tactics.distribution, "auto", o.id);
+  assert.equal(run.migrateRegisteredTeam({ tactics: { attack: "pass" }, players: [] }, d).tactics.distribution, "auto");
+  // 캐논 킥: GK 전용 학습 스킬, 주장 바르그 힌트
+  const ck = d.skills.find((x) => x.id === "sk_cannon_kick");
+  assert.deepEqual({ l: ck.learnable, p: ck.positions, e: ck.active.effect, t: ck.tension }, { l: true, p: ["GK"], e: "longPassBoost", t: 25 });
+  assert.ok(d.supports.find((x) => x.id === "sp_iron_captain").hintSkillIds.includes("sk_cannon_kick"));
 });

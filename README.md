@@ -21,14 +21,14 @@ npm run serve        # python -m http.server 8080  →  http://localhost:8080
 
 ```bash
 npm i                # devDependency(jsdom) 설치 — UI 스모크 테스트용. 없어도 엔진 테스트는 돌아간다
-npm test             # node --test (rng · run · match · v05 · layout · orient · stage · lineup · outgame · ui 스모크, 137 테스트)
-npm run sim          # node tools/sim.mjs --runs 300 --seed 1  (시즌별 승률·등급 분포·부상·우정 훈련·골)
-node tools/shot.mjs <출력폴더>   # 로컬 Chrome으로 경기(01~19)·아웃게임(og_*, 드래그 배치 포함) 시나리오 스크린샷 (puppeteer-core, 1280×720)
+npm test             # node --test (rng · run · match · v05 · layout · orient · stage · lineup · outgame · ui 스모크, 161 테스트)
+npm run sim          # node tools/sim.mjs --runs 300 --seed 1  (시즌별 승률·등급 분포·부상·우정 훈련·골 · 박스 연결 · GK 배급 · 마지막 공격 · 대이변)
+node tools/shot.mjs <출력폴더>   # 로컬 Chrome으로 경기(01~27 — GK 배급 23·24, 결정타 칩 25, 마지막 공격 26, 철벽 블록 27)·아웃게임(og_*, 드래그 배치 포함) 시나리오 스크린샷 (puppeteer-core, 1280×720)
 node tools/shot.mjs <출력폴더> --only og   # 아웃게임만 (--list 로 목록)
 node tools/shot.mjs <출력폴더> --width 1920 --height 1080   # 다른 창 크기에서 스테이지 배율·레터박스 확인
 ```
 
-밸런스 목표(자동 진행): 시즌1 승률 70~80% / 시즌2 50~60% / 시즌3 35~45%, 등급 중앙값 B, 런당 부상 0.5~1.5, 우정 훈련 3회 이상. 현재 값과 튠 이력은 [docs/ARCHITECTURE.md §9·§11](docs/ARCHITECTURE.md) 참고.
+밸런스 목표(자동 진행): 시즌1 승률 70~80% / 시즌2 50~60% / 시즌3 35~45%, 등급 중앙값 B, 런당 부상 0.5~1.5, 우정 훈련 3회 이상. 현재 값과 튠 이력은 [docs/ARCHITECTURE.md §9·§11](docs/ARCHITECTURE.md) 참고 (최신 시뮬 전/후: §17.14, v0.4.4 — 80.0 / 59.7 / 38.3%, 밸런스는 기능 정리 뒤 한 번에).
 
 ## 구조
 

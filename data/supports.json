@@ -57,7 +57,7 @@
     "initialBond": 20,
     "specialtyRate": 0.4,
     "hintRate": 0.25,
-    "hintSkillIds": ["sk_stone_shield", "sk_lockdown"],
+    "hintSkillIds": ["sk_stone_shield", "sk_lockdown", "sk_cannon_kick"],
     "failRateReduction": 0.03,
     "eventIds": ["ev_sp_iron_captain_60"],
     "portraitColor": "#6b7280",

@@ -541,7 +541,12 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
     const mine = s18.querySelector(".m-info .mine").textContent;
     assert.match(mine, /^우리: (슛|컷백|센터링)/, `우리 예상 행동 ${mine}`);
     if (v18.expected.attack.action !== "shoot") assert.ok(mine.includes(`→ ${nm(v18.expected.attack.receiverId)}`), "자동 연결의 받는 선수");
-    assert.match(s18.querySelector(".m-info .mine").title, /④ 자동 규칙: 받는 선수 마무리 값이 슛 값의 1\.25배 이상/);
+    // ④ 자동 규칙 (2026-09-29 기대 골): 연결 성공 × 받은 선수 골 > 지금 슛 골일 때만 연결 — 추천(엔진 recommended) = 자동 선택 = 정보 줄 "우리: …"
+    assert.match(s18.querySelector(".m-info .mine").title, /④ 자동 규칙 \(기대 골\): 연결 성공 × 받은 선수 골이 지금 슛 골보다 높을 때만 연결 — 슛 \d+%/);
+    const recBtn18 = s18.querySelector(".act-btn .chip-rec")?.closest("button");
+    assert.equal(recBtn18?.dataset.action, v18.expected.attack.action, "④ 추천 = 우리 자동 선택 (기대 골 규칙)");
+    assert.ok(mine.startsWith(`우리: ${recBtn18.querySelector(".act-lbl").textContent}`), `정보 줄 우리 자동 = 추천 카드 (${mine})`);
+    if (v18.expected.attack.action !== "shoot") assert.equal(recBtn18.dataset.receiver, v18.expected.attack.receiverId, "추천 카드 받는 선수 = 자동 연결 받는 선수");
     // 후보 전원 박스 안 (home 공격 → 필드 y ≥ 84), 탭할 수 있다
     const cands = [...new Set([...v18.receivers.pass.candidates, ...v18.receivers.cross.candidates])];
     for (const id of cands) {
@@ -707,8 +712,284 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
     assert.ok(!s22.querySelector(".m-field.charging"), "컷인이 뜨면 차지 끝");
     const gk = await until(() => s22.querySelector(".m-cutin.show .cut.cut-save"), 3000);
     assert.ok(gk && /기적의 세이브!/.test(gk.textContent), "③ GK 역방향 컷인");
+    assert.ok(gk.classList.contains("cut-rev") && gk.classList.contains("rev-save"), "역방향 컷인 종류 = save (이벤트 reverseCutin)");
     assert.ok(await until(() => !ui.busy, 8000), "연출 끝");
     assert.ok(!s22.querySelector(".m-cutin.show") && !s22.querySelector(".m-field.charging"), "컷인 · 차지 닫힘");
+    S.actions.resetToStart();
+  }
+
+  // ---- 2026-09-29 사용자 결정 3~7: GK 배급 · 결정타 칩 · 마지막 공격 · 역방향 컷인 ----
+  const Lb = await import(pathToFileURL(path.join(ROOT, "js/ui/labels.js")).href);
+  const { createRng: rngOf } = await import(pathToFileURL(path.join(ROOT, "js/engine/rng.js")).href);
+  /** 지금 경기 상태에서 decision 을 넣었을 때 pred(새 이벤트들)를 만족하는 주사위 상태 (없으면 null) — 연출 확인용, 판정 규칙은 그대로 */
+  const findRng = (decision, pred, tag) => {
+    for (let i = 1; i < 400; i++) {
+      const c = JSON.parse(JSON.stringify(S.store.match));
+      c.rngState = rngOf(`${tag}${i}`).getState();
+      const n0 = c.events.length;
+      S.match.step(c, S.store.data, decision);
+      if (pred(c.events.slice(n0))) return rngOf(`${tag}${i}`).getState();
+    }
+    return null;
+  };
+
+  // 23 GK 배급 결정: 세이브 뒤 우리 GK 가 자기 박스에서 공 — 카드 두 장 (짧은 패스 100% · 롱패스 p%) + 캐논 킥 토글 → 결정 { action, skillId? }
+  {
+    const { scr: s23, view: v23 } = inject("23_gk_distribution");
+    const d = v23.distribution;
+    assert.ok(d && v23.phase === "distribution" && v23.needsDecision === "distribution" && d.side === "home", "우리 GK 배급 결정 대기");
+    // 필드: GK = 공 (우리 박스), 받는 선수 = 짧은 패스 DF · 롱패스 MF (이름표 "(짧게)" · "(길게)"), 롱패스 경합 = 상대 MF (듀얼 수비 자리)
+    const gkTok = s23.querySelector(`.tok[data-side="home"][data-id="${d.gkId}"]`);
+    assert.equal(gkTok.dataset.role, "carrier", "배급 GK = 공 가진 선수");
+    assert.ok(Number(gkTok.dataset.y) < 16, `GK 는 우리 박스 안 (y ${gkTok.dataset.y})`);
+    const ballE = s23.querySelector(".m-ball");
+    assert.deepEqual([ballE.dataset.x, ballE.dataset.y], [gkTok.dataset.x, gkTok.dataset.y], "공 = GK");
+    for (const a of ["short", "long"]) {
+      const el = s23.querySelector(`.tok[data-side="home"][data-id="${d.options[a].success.starterId}"]`);
+      assert.equal(el.dataset.role, "receiver", `${a} 받는 선수`);
+      assert.match(el.querySelector(".tok-name").textContent, a === "long" ? /\(.*길게.*\)$/ : /\(.*짧게.*\)$/, `${a} 이름표`);
+      assert.ok(!el.classList.contains("pickable"), "배급 받는 선수는 탭 선택 아님 (카드로 고른다)");
+    }
+    if (d.contest) assert.equal(s23.querySelector(`.tok[data-side="away"][data-id="${d.contest.id}"]`).dataset.role, "defender", "롱패스 경합 상대 MF");
+    assert.ok(s23.querySelector(".zone.z1.ball-zone"), "공 구역 = 우리 박스");
+    assert.equal(s23.querySelectorAll(".m-track .trk.on").length, 0, "트랙: 아직 ① 전");
+    assert.match(s23.querySelector(".m-banner-txt").textContent, /배급 — 짧게 빌드업 · 길게 중원$/);
+    assert.ok(s23.querySelector(".m-info .expect").textContent.includes(`우리 GK ${d.gkName} 배급 — 롱패스 ${d.options.long.pct}%`), "정보 줄: 배급 GK · 롱패스 %");
+    assert.match(s23.querySelector(".m-info .mine").textContent, /^우리: (짧은 패스|롱패스)/, "정보 줄: 우리 자동 배급");
+    const grid = s23.querySelector(".action-grid");
+    assert.ok(grid.classList.contains("k-dist") && grid.classList.contains("n-2") && grid.classList.contains("deciding"), `배급 카드 두 장: ${grid.className}`);
+    const cards = [...s23.querySelectorAll("button[data-action]")];
+    assert.deepEqual(cards.map((b) => b.dataset.action), ["short", "long"], "짧은 패스 · 롱패스");
+    assert.ok(cards.every((b) => !b.disabled), "둘 다 고를 수 있다");
+    const [sb, lb] = cards;
+    assert.equal(sb.querySelector(".act-lbl").textContent, "짧은 패스");
+    assert.equal(sb.querySelector(".act-pct").textContent, "100%");
+    assert.ok(sb.textContent.includes("빌드업부터") && sb.textContent.includes("실패 없음"), "짧은 패스: 빌드업부터 · 실패 없음");
+    assert.equal(sb.querySelector(".act-rname").textContent, d.options.short.success.starterName);
+    assert.equal(lb.querySelector(".act-lbl").textContent, "롱패스");
+    assert.equal(lb.querySelector(".act-pct").textContent, `${d.options.long.pct}%`, "롱패스 % = 엔진");
+    assert.ok(lb.textContent.includes("성공 중원부터") && lb.textContent.includes("실패 상대 중원 공격"), "롱패스 성공 · 실패 한 줄");
+    assert.equal(s23.querySelectorAll(".chip-rec").length, 1, "추천 한 개");
+    assert.equal(s23.querySelector(".chip-rec").closest("button").dataset.action, d.recommended, "추천 = 엔진 recommended");
+    sb.dispatchEvent(new window.Event("pointerdown", { bubbles: true }));
+    assert.ok(s23.querySelector(".g-arrow line.ar-pass"), "짧은 패스 미리보기 = 점선");
+    assert.equal(s23.querySelector(".g-tip text")?.textContent, "→ 빌드업");
+    sb.dispatchEvent(new window.Event("pointerleave"));
+    lb.dispatchEvent(new window.Event("pointerdown", { bubbles: true }));
+    assert.ok(s23.querySelector(".g-arrow path.ar-long"), "롱패스 미리보기 = 포물선");
+    lb.dispatchEvent(new window.Event("pointerleave"));
+    assert.equal(s23.querySelectorAll(".g-arrow > *").length, 0, "미리보기 해제");
+    // 캐논 킥 토글 → 롱패스 % = 스킬 확률, 짧은 패스는 흐리게 (롱패스와만)
+    const ck = d.skills.find((k) => k.skillId === "sk_cannon_kick");
+    const kb = s23.querySelector('.skill-row [data-skill="sk_cannon_kick"]');
+    assert.ok(ck && kb && !kb.disabled, "캐논 킥 버튼");
+    kb.click();
+    assert.equal(s23.querySelector('.skill-row [data-skill="sk_cannon_kick"]').getAttribute("aria-pressed"), "true", "캐논 킥 켜짐");
+    assert.equal(s23.querySelector('button[data-action="long"] .act-pct').textContent, `${ck.pct}%`, "캐논 킥 롱패스 %");
+    assert.ok(s23.querySelector('button[data-action="short"]').disabled, "캐논 킥은 롱패스와만 → 짧은 패스 흐림");
+    const e0 = S.store.match.events.length;
+    s23.querySelector('button[data-action="long"]').click();
+    assert.deepEqual(ui.lastDecision, { action: "long", skillId: "sk_cannon_kick" }, "결정 { action: long, skillId }");
+    const fresh = S.store.match.events.slice(e0);
+    assert.ok(fresh.some((e) => e.type === "skill" && e.effect === "longPassBoost"), "캐논 킥 발동");
+    const beat = fresh.find((e) => (e.type === "distribution" || e.type === "turnover") && e.distribution);
+    assert.ok(beat && beat.action === "long", "롱패스 판정");
+    assert.ok(await until(() => !ui.busy, 6000), "연출 끝");
+    const va = S.match.getMatchView(S.store.match, S.store.data, "home");
+    if (beat.type === "distribution") {
+      assert.ok(va.attackingSide === "home" && va.lineIndex === 1, "롱패스 성공 → 중원부터");
+      assert.match(s23.querySelector(".m-banner-txt").textContent, /^롱패스 성공! 중원에서 시작/);
+    } else {
+      assert.equal(va.attackingSide, "away", "롱패스 실패 → 상대 중원 공격");
+      assert.match(s23.querySelector(".m-banner-txt").textContent, /세컨드볼!/);
+    }
+    S.actions.resetToStart();
+
+    // 짧은 패스: 결정 { action: short } → 빌드업(①) DF 부터, 결과 한 줄 · 배너 "GK 짧은 패스"
+    const { scr: s23b, view: v23b } = inject("23_gk_distribution");
+    const e1 = S.store.match.events.length;
+    s23b.querySelector('button[data-action="short"]').click();
+    assert.deepEqual(ui.lastDecision, { action: "short" }, "결정 { action: short }");
+    const sev = S.store.match.events.slice(e1).find((e) => e.type === "distribution");
+    assert.ok(sev && sev.action === "short" && sev.success && sev.receiverId === v23b.distribution.options.short.success.starterId, "짧은 패스 = 빌드업 DF");
+    assert.ok(await until(() => [...s23b.querySelectorAll(".m-pop")].some((el) => el.textContent.includes("짧은 패스 · 빌드업부터")), 3000), "결과 한 줄");
+    assert.ok(await until(() => !ui.busy, 6000), "연출 끝");
+    assert.match(s23b.querySelector(".m-banner-txt").textContent, /^GK 짧은 패스 — /);
+    S.actions.resetToStart();
+  }
+
+  // 상대 GK 배급 (자동): 카드 두 장은 자동 카드 (상대 선택에 "자동"), 상대 GK 말풍선 = 상대 배급, 스킬 묶음 = 안내 한 줄
+  {
+    // 18 (우리 ④)에서 슛이 상대 GK 에게 막히는 주사위 → 세이브 → 상대 GK 배급 대기
+    inject("18_box_link_decision");
+    const rsS = findRng({ action: "shoot" }, (evs) => evs.some((e) => e.type === "save" && e.nextDistribution), "osave");
+    assert.ok(rsS, "우리 슛이 막히는 주사위");
+    const ms = JSON.parse(JSON.stringify(S.store.match));
+    ms.rngState = rsS;
+    S.match.step(ms, S.store.data, { action: "shoot" });
+    assert.ok(ms.phase === "distribution" && ms.distribution.side === "away", "상대 GK 배급 대기 상태");
+    S.store.match = ms;
+    S.render();
+    const so = doc.querySelector(".match-screen");
+    const vo = S.match.getMatchView(ms, S.store.data, "home");
+    const d = vo.distribution;
+    assert.equal(vo.needsDecision, null, "상대 배급은 우리 결정 아님");
+    const cards = [...so.querySelectorAll("button[data-action]")];
+    assert.deepEqual(cards.map((b) => b.dataset.action), ["short", "long"]);
+    assert.ok(cards.every((b) => b.disabled && b.classList.contains("auto-view")), "자동 카드");
+    assert.equal(so.querySelector(".chip-auto")?.closest("button").dataset.action, d.auto.action, "상대 선택 = 엔진 auto");
+    assert.ok(so.querySelector('button[data-action="long"]').textContent.includes("실패 우리 중원 공격"), "상대 롱패스 실패 = 우리 중원 공격");
+    const gkBub = so.querySelector(`.tok[data-side="away"][data-id="${d.gkId}"] .tok-bubble`);
+    assert.equal(gkBub.textContent, `${Lb.DIST_ICONS[d.auto.action]} ${Lb.DIST_LABELS[d.auto.action]}`, "상대 GK 말풍선 = 상대 배급");
+    assert.match(so.querySelector(".m-info .expect").textContent, /상대 GK .+ 배급 — 롱패스 \d+% .*· 상대 선택: /);
+    assert.match(so.querySelector(".skill-row").textContent, /상대 GK 배급 중/);
+    assert.ok(so.querySelector(".zone.z5.ball-zone"), "공 구역 = 상대 박스");
+    S.actions.resetToStart();
+  }
+
+  // 2026-09-30 결함 수정: 캐논 킥 힌트(짧게) · 연출 중 정보 줄 = 고른 배급 · 첫 듀얼 보너스 표시 · 롱패스 경합 이름표 숨김 ·
+  // 세컨드볼 결과 한 줄(끊은 선수 → 역습 시작 선수) · 마지막 공격 배급의 "실패 경기 종료"
+  {
+    const { scr: sc } = inject("23_gk_distribution");
+    const kb = sc.querySelector('.skill-row [data-skill="sk_cannon_kick"]');
+    kb.click();
+    assert.match(sc.querySelector('button[data-action="long"] .act-hint').textContent, /^캐논 킥 첫 듀얼\+10%/, "캐논 킥 힌트가 맨 앞 (잘리지 않게)");
+    const rsOk = findRng({ action: "long", skillId: "sk_cannon_kick" }, (evs) => evs.some((e) => e.type === "distribution" && e.success), "ckok");
+    assert.ok(rsOk, "캐논 킥 롱패스 성공 주사위");
+    S.store.match.rngState = rsOk;
+    sc.querySelector('button[data-action="long"]').click();
+    assert.match(sc.querySelector(".m-info .mine").textContent, /^우리 선택: 롱패스 \d+% \+ 캐논 킥$/, "연출 중 정보 줄 = 고른 배급");
+    assert.ok(await until(() => sc.querySelector(".tok.tag-off"), 3000), "경합에 진 선수 이름표 숨김");
+    assert.ok(await until(() => !ui.busy, 6000), "연출 끝");
+    const vn = S.match.getMatchView(S.store.match, S.store.data, "home");
+    assert.equal(vn.needsDecision, "attack", "롱패스 성공 → 중원 우리 공격 결정");
+    assert.ok(vn.ballState.pending.nextBonus > 0, "첫 듀얼 보너스 대기");
+    const hints = [...sc.querySelectorAll("button[data-action] .act-hint")].map((e) => e.textContent);
+    assert.ok(hints.length && hints.every((t) => t.startsWith("첫 듀얼 +10%")), `첫 듀얼 보너스 표시: ${hints.join(" | ")}`);
+    S.actions.resetToStart();
+
+    // 롱패스 실패 (평소): 결과 한 줄 = "끊은 선수 롱패스 차단! → 역습 시작 선수 세컨드볼" (같은 선수면 "세컨드볼 — 상대 중원 공격")
+    const { scr: sf } = inject("23_gk_distribution");
+    const rsNg = findRng({ action: "long" }, (evs) => evs.some((e) => e.type === "turnover" && e.distribution), "lngf");
+    S.store.match.rngState = rsNg;
+    const f0 = S.store.match.events.length;
+    sf.querySelector('button[data-action="long"]').click();
+    const tev = S.store.match.events.slice(f0).find((e) => e.type === "turnover" && e.distribution);
+    assert.ok(tev && tev.starterId && tev.receiverId && !tev.matchEnd, "롱패스 실패 이벤트 starterId · receiverId");
+    assert.ok(await until(() => sf.querySelector(`.tok[data-side="home"][data-id="${tev.receiverId}"].tag-off`), 3000), "끊긴 받는 선수 이름표 숨김");
+    const nmA = (id) => S.store.match.away.players.find((p) => p.id === id).name;
+    const want = tev.starterId !== tev.defenderId ? `${nmA(tev.defenderId)} 롱패스 차단! → ${nmA(tev.starterId)} 세컨드볼` : `${nmA(tev.defenderId)} 롱패스 차단! 세컨드볼 — 상대 중원 공격`;
+    assert.ok(await until(() => [...sf.querySelectorAll(".m-pop")].some((el) => el.textContent.endsWith(want)), 4000), `결과 한 줄: ${want}`);
+    assert.ok(await until(() => !ui.busy, 6000), "연출 끝");
+    S.actions.resetToStart();
+
+    // 1골 뒤진 우리의 마지막 공격이 GK 배급으로 시작: 롱패스 실패 = 경기 종료 (카드 · 결과 한 줄)
+    inject("23_gk_distribution");
+    const ms = JSON.parse(JSON.stringify(S.store.match));
+    ms.possessionsTotal = ms.possession;
+    ms.score = { home: 0, away: 1 };
+    ms.lastAttack = { side: "home", stage: "regular", possession: ms.possession };
+    ms.lastAttackUsed = { regular: true, extraTime: false };
+    S.store.match = ms;
+    S.render();
+    const sl = doc.querySelector(".match-screen");
+    assert.ok(sl.querySelector('button[data-action="long"]').textContent.includes("실패 경기 종료"), "마지막 공격 롱패스: 실패 경기 종료");
+    const rsEnd = findRng({ action: "long" }, (evs) => evs.some((e) => e.type === "turnover" && e.distribution), "lend");
+    S.store.match.rngState = rsEnd;
+    sl.querySelector('button[data-action="long"]').click();
+    assert.ok(S.store.match.finished, "롱패스 실패로 경기 종료");
+    assert.ok(await until(() => [...sl.querySelectorAll(".m-pop")].some((el) => /롱패스 차단! — 경기 종료$/.test(el.textContent)), 4000), "결과 한 줄 = 경기 종료");
+    assert.ok(await until(() => !ui.busy, 6000), "연출 끝");
+    ui.resultShown = false;
+    S.actions.resetToStart();
+  }
+
+  // 25 결정타 칩 (클래시 바 1단계, 표시 전용): 결과 한 줄 맨 앞 칩 = 판정 이벤트 decisive.text, 색 종류 클래스, 대이변이면 금색 "대이변!".
+  // matchUi.decisiveChip = false (코드는 SHOW_DECISIVE_CHIP) 면 칩 없음 — 결과 한 줄은 그대로
+  {
+    const { scr: s25 } = inject("25_decisive_chip");
+    const e0 = S.store.match.events.length;
+    s25.querySelector('button[data-action="dribble"]').click();
+    const ev = S.store.match.events.slice(e0).find((e) => ["duel", "turnover"].includes(e.type) && e.decisive);
+    assert.ok(ev, "결정타 있는 판정");
+    const chip = await until(() => s25.querySelector(".m-pop .dchip:not(.dchip-upset)"), 3000);
+    assert.ok(chip, "결과 한 줄에 결정타 칩");
+    assert.equal(chip.textContent, ev.decisive.text, "칩 = 엔진 decisive.text");
+    assert.equal(chip.parentElement.firstElementChild, chip, "칩이 결과 한 줄 맨 앞");
+    assert.ok(chip.classList.contains(`k-${Lb.DECISIVE_KINDS[ev.decisive.id] ?? "base"}`), `색 종류 (${ev.decisive.id})`);
+    assert.equal(!!chip.parentElement.querySelector(".dchip-upset"), !!ev.upset, "대이변 표시 = 이벤트 upset");
+    assert.ok(await until(() => !ui.busy, 6000), "연출 끝");
+    S.actions.resetToStart();
+    // 대이변: 이긴 쪽 확률 < 30% 인 판정 (주사위만 바꿈) → 금색 "대이변!"
+    inject("25_decisive_chip");
+    const rsU = findRng({ action: "dribble" }, (evs) => evs.some((e) => e.upset), "upset");
+    assert.ok(rsU, "대이변 주사위");
+    S.store.match.rngState = rsU;
+    const s25u = doc.querySelector(".match-screen");
+    s25u.querySelector('button[data-action="dribble"]').click();
+    const up = await until(() => s25u.querySelector(".m-pop .dchip-upset"), 3000);
+    assert.ok(up && up.textContent === "대이변!", "대이변 칩");
+    assert.ok(await until(() => !ui.busy, 6000));
+    S.actions.resetToStart();
+    // 칩 끄기
+    ui.decisiveChip = false;
+    try {
+      const { scr: s25b } = inject("25_decisive_chip");
+      s25b.querySelector('button[data-action="dribble"]').click();
+      assert.ok(await until(() => s25b.querySelector(".m-pop"), 3000), "결과 한 줄은 그대로");
+      assert.equal(s25b.querySelectorAll(".dchip").length, 0, "칩 끄면 없음");
+      assert.ok(await until(() => !ui.busy, 6000));
+    } finally {
+      delete ui.decisiveChip;
+    }
+    S.actions.resetToStart();
+  }
+
+  // 26 마지막 공격 보장: 1골 뒤진 우리의 추가 포제션 — 배너 "⏱ 추가시간 — 마지막 공격!" (금색), 헤더 줄 "⏱ 추가시간", 로그 줄
+  {
+    const { scr: s26, view: v26 } = inject("26_last_attack");
+    assert.ok(v26.lastAttack?.active && v26.lastAttack.side === "home", "추가 포제션 진행 중");
+    assert.equal(s26.querySelector(".m-banner-txt").textContent, "⏱ 추가시간 — 마지막 공격!");
+    assert.ok(s26.querySelector(".m-banner").classList.contains("lv-last"), "배너 = 금색");
+    assert.match(s26.querySelector(".mh-sub").textContent, /⏱ 추가시간/);
+    assert.ok(s26.querySelector(".mh").classList.contains("last-attack"));
+    assert.ok(s26.querySelector(".match-log .log-line.ev-lastAttack")?.textContent.includes("추가시간 — 마지막 공격!"), "로그 줄");
+    // 포제션이 끝나면 경기 종료 → 결과 모달 (⏭). 앞 시나리오가 남긴 결과 모달 표시 여부는 지운다 (주입 경기는 새 경기가 아니라 초기화되지 않는다)
+    ui.resultShown = false;
+    [...s26.querySelectorAll("button")].find((b) => b.textContent === "⏭").click();
+    assert.ok(await until(() => [...doc.querySelectorAll("#modal-root button")].find((b) => b.textContent === "확인"), 3000), "결과 모달");
+    assert.ok(!s26.querySelector(".mh").classList.contains("last-attack"), "종료 뒤 추가시간 표시 없음");
+    ui.resultShown = false; // 결과 모달은 resetToStart → render 가 닫는다 (finishMatch 는 부르지 않는다)
+    S.actions.resetToStart();
+  }
+
+  // 27 역방향 컷인: ③ 필살 슛이 DF 에게 막힘 → "철벽 블록!" (막은 팀 쪽, .cut-rev.rev-block) · 필살 패스가 끊김 → "필살 패스 차단!" (.rev-passCut)
+  {
+    const { scr: s27 } = inject("27_df_block_cutin");
+    const e0 = S.store.match.events.length;
+    s27.querySelector(".skill-row .ult-btn:not(:disabled)").click();
+    s27.querySelector('button[data-action="shoot"]').click();
+    const ev = S.store.match.events.slice(e0).find((e) => e.type === "turnover" && e.reverseCutin);
+    assert.ok(ev && ev.reverseCutin.kind === "block", "DF 블록 이벤트");
+    const rc = await until(() => s27.querySelector(".m-cutin.show .cut.cut-rev.rev-block"), 4000);
+    assert.ok(rc && /철벽 블록!/.test(rc.textContent), "철벽 블록! 컷인");
+    assert.ok(rc.classList.contains(`side-${ev.reverseCutin.side}`) && rc.classList.contains("cut-save"), "막은 팀 쪽 · 역방향 스타일");
+    const blocker = S.store.match[ev.reverseCutin.side].players.find((p) => p.id === ev.reverseCutin.playerId);
+    assert.ok(rc.textContent.includes(blocker.name), "막은 선수 이름");
+    assert.ok(await until(() => !ui.busy, 8000), "연출 끝");
+    S.actions.resetToStart();
+
+    const { scr: s12p } = inject("12_ult_pass");
+    const rsP = findRng({ action: "pass", ultimate: true }, (evs) => evs.some((e) => e.reverseCutin?.kind === "passCut"), "pcut");
+    assert.ok(rsP, "필살 패스가 끊기는 주사위");
+    S.store.match.rngState = rsP;
+    const e1 = S.store.match.events.length;
+    s12p.querySelector(".skill-row .ult-btn:not(:disabled)").click();
+    s12p.querySelector('button[data-action="pass"]').click();
+    assert.ok(S.store.match.events.slice(e1).some((e) => e.reverseCutin?.kind === "passCut"), "필살 패스 차단 이벤트");
+    const pc = await until(() => s12p.querySelector(".m-cutin.show .cut.cut-rev.rev-passCut"), 4000);
+    assert.ok(pc && /필살 패스 차단!/.test(pc.textContent), "필살 패스 차단! 컷인");
+    assert.ok(await until(() => !ui.busy, 8000), "연출 끝");
     S.actions.resetToStart();
   }
 

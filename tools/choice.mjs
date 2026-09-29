@@ -180,6 +180,8 @@ function num(x, d = 0) {
  */
 export function policyDecision(policy, ms, data, side, need, ctx = {}) {
   if (policy === "auto" || !need) return null;
+  // GK 배급(needsDecision "distribution", 2026-09-29)은 모든 정책에서 전술 자동 (ai.decideDistribution) — 듀얼 결정 방식만 비교한다
+  if (need === "distribution") return null;
   const role = need;
   if (policy === "expD" || policy === "expA") {
     if ((policy === "expD") !== (role === "defense")) return null;

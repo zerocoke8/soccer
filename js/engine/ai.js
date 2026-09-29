@@ -3,18 +3,20 @@
  *
  * decideAttack(state, data, side)  → { action, receiverId|null, skillId|null, ultimate: boolean, gaanpa: "ticket"|null, values }
  * decideDefense(state, data, side) → { action, skillId|null, ultimate: boolean, gaanpa: "ticket"|null, values }
+ * decideDistribution(state, data, side) → { action: "short"|"long", skillId|null, p, pLong, pSkill, tactic, values } (GK 배급, 2026-09-29)
  *
  * A안 (GDD 9.9): 자동은 자기 성향값(match.tendencyValues) 1위 액션을 고른다 — 결정적, 상대를 읽지 않는다, 난수 없음.
  *  동률은 config.match.tendency.tieAttack / tieDefense 순서. 받는 선수 = 기본값(match.defaultReceiverId).
- *  ④ 박스 연결(2026-09-29): line 3 성향값의 pass / cross = match.boxLinkEval 점수 → 같은 1위 규칙이 A안 예외(연결 조건)가 된다.
+ *  ④ 박스 연결(2026-09-29 기대 골 규칙): line 3 은 match.boxLinkEval.auto (연결 기대 골 > 슛 골 확률일 때만 연결, 쓰일 필살기 포함).
  *  의도 예측·공개(predictIntent, aiRevealForOpponent)는 폐지.
  *
- * 전술 5항목:
- *   attack      : dribble / balanced / pass          → 성향값 ×tacticBonus (pass 는 크로스 포함)
- *   shootTiming : breakAll / midrange                → 중거리 성향 0 / ×tacticBonus
- *   defense     : tackle / balanced / intercept / hold → 성향값 ×tacticBonus
- *   tension     : save / immediate / clutch          → 일반 액티브 사용 시점
- *   duelPicker  : best / matchup                     → 수비 선수 선택 (match.js setupDuel)
+ * 전술 6항목:
+ *   attack       : dribble / balanced / pass          → 성향값 ×tacticBonus (pass 는 크로스 포함)
+ *   shootTiming  : breakAll / midrange                → 중거리 성향 0 / ×tacticBonus
+ *   defense      : tackle / balanced / intercept / hold → 성향값 ×tacticBonus
+ *   tension      : save / immediate / clutch          → 일반 액티브 사용 시점
+ *   duelPicker   : best / matchup                     → 수비 선수 선택 (match.js setupDuel)
+ *   distribution : short / long / auto                → GK 배급 (auto = 롱패스 확률 ≥ config.match.longPassAutoMin 이면 길게)
  *
  * 스킬 (§13.3): 효과 없는 사용 금지(버티기 + 소매치기, 박스에서 간파 등). 간파(스킬·사용권)는 레버리지 비트
  *  (line 2 공격·수비, 또는 동점·열세이고 남은 포제션 ≤ 3)에서만. 필살기는 match.aiWantsUltimate 규칙.
@@ -33,6 +35,10 @@ import {
   isShotContext,
   findPlayer,
   fxOf,
+  boxLinkEval,
+  boxTendency,
+  longPassOdds,
+  distributionSkills,
 } from "./match.js";
 import {
   getPlayerActiveSkills,
@@ -44,6 +50,8 @@ import {
   addSkillFx,
   emptyDuelEffects,
 } from "./skills.js";
+// GK 배급 전술 목록은 run.js 한 곳 (옛 저장 이행과 같은 목록)
+import { DISTRIBUTION_TACTICS } from "./run.js";
 
 const TIE_ATTACK = ["dribble", "pass", "cross", "shoot"];
 const TIE_DEFENSE = ["hold", "tackle", "intercept"];
@@ -195,14 +203,20 @@ export function decideAttack(state, data, side) {
   const line = num(state.ball && state.ball.lineIndex, 0);
   const carrier = findPlayer(team, state.ball && state.ball.carrierId);
   if (!carrier) throw new Error(`ai.decideAttack: ${side} 팀 공 소유자가 없습니다`);
-  const values = tendencyValues(state, data, side, carrier.id);
-  // ④(line 3): values = 슛 값 + 박스 연결 점수 (match.boxLinkEval — 마무리 값 ≥ autoRatio × 슛 값, 또는 받는 선수 필살 슛 준비)
-  const action = pickByTendency(values, tieOrder(m, "attack")) || (line >= 3 ? "shoot" : "dribble");
+  // ④(line 3): 기대 골 규칙 (match.boxLinkEval — 연결 성공 × 받은 선수 골 > 지금 슛 골일 때만 연결, 쓰일 필살기 포함)
+  const box = line >= 3 && state.duel ? boxLinkEval(state, data, side) : null;
+  const boxVals = box ? boxTendency(box) : null;
+  const values = boxVals || tendencyValues(state, data, side, carrier.id);
+  const action = boxVals && box.auto ? box.auto.action : pickByTendency(values, tieOrder(m, "attack")) || (line >= 3 ? "shoot" : "dribble");
   const skillId = chooseSkill(state, data, side, carrier, "attack", action);
   const fx = skillId ? fxWithSkill(state, side, data, skillId) : null;
   let receiverId = null;
   let ultimate = false;
-  if (action === "pass" || action === "cross") {
+  if (boxVals && box.auto) {
+    // ④: 기대 골을 계산한 받는 선수 · 필살기 그대로 (슛 = 쓸 필살 슛, 연결 = 필살 패스)
+    receiverId = action === "pass" || action === "cross" ? box.auto.receiverId : null;
+    ultimate = !!box.auto.ultimate && !fxOf(state, side).ult;
+  } else if (action === "pass" || action === "cross") {
     // 필살 패스를 쓸 수 있으면: 합체기 가치를 반영한 기본 받는 선수로 AI 규칙(받는 선수가 필살기 보유자 · 박스 도착 · 마지막 2포제션) 판단
     const ult = getPlayerUltimate(data, carrier);
     if (ult && ult.ultimate.type === "pass") {
@@ -249,4 +263,65 @@ export function decideDefense(state, data, side) {
   const skillIsGaanpa = !!(skillId && isGaanpaSkill(getSkill(data, skillId)));
   const gaanpa = !skillIsGaanpa && wantTicket(state, data, side) ? "ticket" : null;
   return { action, skillId, ultimate, gaanpa, values };
+}
+
+/* ------------------------------------------------------------------ */
+/* GK 배급 (2026-09-29)                                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 배급 스킬(캐논 킥) 자동 사용: 롱패스를 고를 때, 쓸 수 있고 텐션 ≥ max(비용, ai.minTension) 이며 전술 tension 규칙
+ * (immediate = 항상, save = 남은 포제션 ≤ 3, clutch = 동점·열세이고 남은 포제션 ≤ 3 — 배급은 슛 상황이 아니다)을 만족하면. 비용 최고 1개.
+ */
+function chooseDistributionSkill(state, data, side) {
+  const team = state[side];
+  const tactics = team.tactics || {};
+  const policy = tactics.tension || "immediate";
+  const left = possessionsLeft(state);
+  const diff = scoreDiffFor(state, side);
+  if (policy === "save" && !(left <= 3)) return null;
+  if (policy === "clutch" && !(diff <= 0 && left <= 3)) return null;
+  let best = null;
+  let bestCost = -1;
+  for (const { skill, check, cost } of distributionSkills(state, data, side)) {
+    if (!check.ok) continue;
+    const ai = skill.active.ai || {};
+    const base = num(skill.tension, 0);
+    const minT = base > 0 ? num(ai.minTension, 0) * (cost / base) : num(ai.minTension, 0);
+    if (num(team.tension, 0) < Math.max(cost, minT)) continue;
+    if (cost > bestCost) {
+      best = skill;
+      bestCost = cost;
+    }
+  }
+  return best;
+}
+
+/**
+ * GK 배급 자동 결정 (사람 측 자동 · 상대 AI 공통 — 결정적, 난수 없음, 상대 선택 없음(상대 MF 스탯만 읽는다)).
+ *  전술 tactics.distribution: short → 짧게, long → 길게, auto(기본) → 롱패스 성공 확률 ≥ config.match.longPassAutoMin(0.55) 이면
+ *  길게 (쓸 캐논 킥이 있으면 그 확률로도 판단), 아니면 짧게. 길게 + 캐논 킥 사용 규칙(chooseDistributionSkill)이면 skillId.
+ * opts.tactic = 전술 대신 쓸 값 (뷰의 추천 = { tactic: "auto" } — "상황 따라" 규칙, 2026-09-30)
+ * @returns {{ action: "short"|"long", skillId: string|null, p: number, pLong: number, pSkill: number|null, tactic: string, values: object }}
+ */
+export function decideDistribution(state, data, side, opts = {}) {
+  const m = cfgMatch(data);
+  const d = state && state.distribution;
+  const team = state && state[side];
+  if (!d || !team || d.side !== side) return { action: "short", skillId: null, p: 1, pLong: 0, pSkill: null, tactic: "auto", values: {} };
+  const raw = opts && opts.tactic != null ? opts.tactic : team.tactics && team.tactics.distribution;
+  const tactic = DISTRIBUTION_TACTICS.includes(raw) ? raw : "auto";
+  const min = num(m.longPassAutoMin, 0.55);
+  const pLong = longPassOdds(state, data, side, { gkId: d.gkId }).p;
+  const sk = chooseDistributionSkill(state, data, side);
+  const pSkill = sk ? longPassOdds(state, data, side, { skill: sk, gkId: d.gkId }).p : null;
+  let action;
+  if (tactic === "short") action = "short";
+  else if (tactic === "long") action = "long";
+  else action = pLong >= min || (pSkill != null && pSkill >= min) ? "long" : "short";
+  const skillId = action === "long" && sk ? sk.id : null;
+  return {
+    action, skillId, p: action === "long" ? (skillId ? pSkill : pLong) : 1, pLong, pSkill, tactic,
+    values: { short: 1, long: pLong },
+  };
 }

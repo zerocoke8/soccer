@@ -503,7 +503,7 @@ grade   = thresholds 로 결정, cappedGrade = min(grade, capByLosses[min(losses
 ```jsonc
 {
   "seed": 1, "rngState": 1, "kind": "goal", "possessionsTotal": 8, "possession": 1,
-  "attackingSide": "home", "phase": "decision",   // "decision" | "resolved" | "possessionEnd" | "extraTime" | "penalties" | "finished"
+  "attackingSide": "home", "phase": "decision",   // "decision" | "resolved" | "possessionEnd" | "extraTime" | "penalties" | "finished" | "distribution"(v0.4.4 GK 배급 대기 — §17.1)
   "home": { …TeamSnapshot, "tension": 20, "live": { "p1": { "stamina": 100 } } }, "away": { … },
   "ball": { "carrierId": "p3", "lineIndex": 0, "chain": 0, "extraLine": false },
   // lineIndex 0 = 상대 FW 라인, 1 = MF 라인, 2 = DF 라인, 3 = GK(슛)
@@ -569,7 +569,8 @@ p = clamp(att / (att + def), minP, maxP)
 |---|---|
 | 상대 FW 라인(line 0)에서 뺏음 | 2 (바로 DF 라인 공략) |
 | MF 라인(line 1) | 1 |
-| DF 라인(line 2) 또는 GK 세이브 | 0 |
+| DF 라인(line 2) | 0 |
+| GK 세이브 · 박스 연결 차단 | ~~0 (distributor GK 면 1)~~ → **GK 배급** (v0.4.4, §17.1): 짧은 패스 = 0, 롱패스 성공 = 1, 롱패스 실패 = 상대가 1 |
 | 버티기(hold)로 뺏음 | 위 기본값 − `match.holdStartBack`(기본 1), 최소 0 → line 0 에서 1, line 1·2 에서 0. intercept·steal 보너스 없음 (GDD #54) |
 | 킥오프 (경기 시작 · 골 후) | `match.kickoffLine` (기본 1 = 중원) (GDD #55) |
 `steal` 스킬: +1 (최대 2). 시작 carrier: line 0 → DF 중 pass 최고, line 1 → MF 중 dribble+pass 최고, line 2 → FW 중 shoot 최고 (`tactics.kickoffPlayerId`가 있고 라인이 맞으면 그 선수).
@@ -577,6 +578,7 @@ p = clamp(att / (att + def), minP, maxP)
 ### 7.6 종료
 - friendly: possessionsTotal 후 종료, 무승부 허용.
 - goal/arena: 동점이면 extraTimePossessions(각 팀 1회씩 공격) → 여전히 동점이면 승부차기 penaltyShots(슛 vs GK, 교대) → 동점이면 서든데스.
+- v0.4.4: 종료 판정 전에 **마지막 공격 보장**(정확히 1골 뒤진 다음 포제션 팀에 +1 포제션, 단계당 1회 — §17.7).
 
 ### 7.7 텐션 & 스킬
 - 텐션은 팀 게이지(0~max, 시작 start). 획득 ×(1 + tensionGain 보정).
@@ -1263,7 +1265,7 @@ GDD 9.6·9.7·9.16·9.17 대로:
 ## 15. v0.4.2 — 크로스 짝 = 버티기 · 박스 연결(④) · 드래그 배치 (GDD v0.5 0.1 #56~61)
 
 > 사용자 결정 (2026-09-29): ① 크로스의 짝 = 버티기 (패스 = 인터셉트) ② 크로스는 크로서만 (변경 없음) ③ 슈팅 찬스(④) 박스 연결 — 컷백·센터링, GK 와 판정, 실패 = 골킥, 포제션당 1회 ④ 자동 연결 조건 1.25배 / 필살기 ⑤ 편성·미팅 드래그 배치(초록/빨강), 편성 서포트 영역 축소 ⑥ **밸런스는 나중에 한 번에** — 이번 라운드는 수치를 맞추지 않고 시뮬만 기록 (§15.11).
-> 이 절이 v0.4.2 의 구현 기준이다. §13.2 · §13.3 · §13.4 · §14.4 중 여기서 바꾼 것은 **대체**, 나머지는 유지. `MATCH_VERSION` 은 3 그대로 — 옛 저장 경기의 ball 에 `boxLinkUsed` 가 없으면 false 로 읽는다. 커밋 전(로컬 작업 트리).
+> 이 절이 v0.4.2 의 구현 기준이다. §13.2 · §13.3 · §13.4 · §14.4 중 여기서 바꾼 것은 **대체**, 나머지는 유지. `MATCH_VERSION` 은 3 그대로 — 옛 저장 경기의 ball 에 `boxLinkUsed` 가 없으면 false 로 읽는다. 커밋 1dd0d8c. (v0.4.4 에서 바뀐 것: 15.2-6 실패 → GK 배급, 15.3 자동 규칙 → 기대 골, 15.6 gkMult 0.6 · autoRatio 삭제 — §17)
 
 ### 15.0 이번 라운드 소유권
 
@@ -1289,13 +1291,15 @@ GDD 9.6·9.7·9.16·9.17 대로:
 3. **기본 받는 선수** (`defaultFromPlan` → `boxReceiverValue`): 마무리 값 최고. 마무리 값 = `receiverValue(arrival 3)`(pass = shoot × actionCoef.shoot × (1 + finisher), cross = 헤더 스탯 × actionCoef.header × (1 + targetman + finisher), 필살 패스면 합체기 ×shoot×comboBonus) × 받는 선수 자기 필살 슛(받은 뒤 게이지 = 지금 + onReceive · 필살 패스면 receiverGauge ≥ gaugeMax 면 ×ultimate.shoot). 결정 `{ action, receiverId? }` — 후보가 아니면 throw (§13.2-10 과 같다).
 4. **판정** (`computeOdds`, `boxLink = line ≥ 3 && action ∈ {pass, cross}`): 공격 = 보통 pass / cross 공격값(cross = (패스+드리블)/2 × crosser +10%) × actionCoef, 보너스 합·필살기·boost 등 기존 규칙 그대로. 수비 = GK save 값 × `boxLink.gkMult` — 짝 · 빗나감 없음, **oneTouchGk 는 붙지 않는다**(연결 자체는 원터치 슛이 아님), 이번 듀얼에 커밋된 GK 필살 세이브(saveMult)는 붙는다. odds 에 `boxLink: true`.
 5. **성공** (`successTransition`, `resolveDuel`): 공 line 3 그대로, carrier = 받은 선수, `oneTouch = true`, `receivedVia = "pass" | "cross"`(cross → 다음 슛 = 헤더), `receivedFresh = true`, `lastPasserId`, chain +1, 받은 선수 게이지 +onReceive(필살 패스면 receiverGauge, 받은 선수가 unique 보유자면 `comboReadyId`), 연계 특성(킬패스 nextDuelBonus 등)은 §13.2 그대로. extraLine(라인 브레이커)은 line 3 에서 추가 전진이 없다. 공격 팀 텐션 duelWin.
-6. **실패**: GK 가 잡음 = 세이브와 같다 — `counterPlan` GK 규칙(시작 0, distributor GK 면 1), 수비 팀 텐션 save, 공격권 교대. 슛 수 · 슛 이벤트로 세지 않는다.
+6. **실패**: GK 가 잡음 = 세이브와 같다 — ~~`counterPlan` GK 규칙(시작 0, distributor GK 면 1)~~ → v0.4.4 `counterPlan` GK = `distribution: true` → 그 GK 의 배급 대기(`from: "boxLink"`, §17.1), 수비 팀 텐션 save, 공격권 교대. 슛 수 · 슛 이벤트로 세지 않는다.
 7. **포제션당 1회**: 판정 때(성공 · 실패 무관) `ball.boxLinkUsed = true`. `newBall` 이 false 로 시작 → 새 포제션마다 초기화. 그 뒤 line 3 = shoot 만.
 8. **체력**: `staminaCost.pass / cross` 그대로.
 9. **필살기** (`ultimateUsable`): pass 타입이 line 3 에서도 가능 — 연결(pass 또는 cross)이 켜져 있을 때만, 아니면 사유 "박스 연결은 포제션당 1회" / "연결할 동료 없음". 받은 선수가 필살 슛 보유자면 합체기(`comboReadyId`) → 다음 슛에서 comboBonus · combo 이벤트 (§13.2-12). shot · save 타입은 전과 같다.
 10. **스킬** (`checkSkillUsable`): line ≥ 3 에서 간파가 아닌 `extraLine`(라인 브레이커)과 받은 선수 보너스가 없는 `negateRead` = 사유 "박스에서는 효과 없음". 간파(꿰뚫어보기 · 매의 눈)는 전처럼 "박스에서는 간파 불가". **스루 패스**(negateRead + `nextDuelBonus`, `skills.hasLinkBonus`)는 연결에 쓸 수 있다 — 짝 무효는 GK 상대라 의미 없지만 받은 선수 다음 듀얼 +25%가 원터치 슛·헤더에 붙는다(필살 패스 바람의 실과 같은 규칙, 리뷰 수정 2026-09-29). 연결을 이미 했으면 "박스 연결은 포제션당 1회". 다른 액티브(boost · rally 등)는 연결 판정에 붙는다. ai.js `effectSensible`: extraLine 은 line < 3 에서만, negateRead 는 line 3 이면 nextDuelBonus 가 있고 액션이 pass · cross 일 때만.
 
 ### 15.3 자동 규칙 — `boxLinkEval(state, data, side)` (A안 예외, §13.2-9 · §13.3 보완)
+
+> **v0.4.4 에서 대체 — 기대 골 규칙 (§17.5).** 아래 비율 규칙(autoRatio · forced)은 기록으로 남긴다.
 
 ```text
 shoot.value = carrier 의 line 3 슛 성향값 (받은 직후 특성 · 헤더 · AI 규칙상 쓸 필살 슛 · 합체기 포함)
@@ -1347,6 +1351,7 @@ counter: { dribble, pass, cross, shoot }   // = COUNTER (§15.1)
 "holdVsCross": 1.7,                             // 버티기 vs 크로스 짝 배율 (= readBonus, 따로 조정 가능). 없으면 readBonus
 "boxLink": { "gkMult": 1.0, "autoRatio": 1.25 } // 연결 듀얼 GK 수비 배율 · 자동 연결 기준 배율 (없으면 1.0 · 1.25)
 ```
+- v0.4.4: `"boxLink": { "gkMult": 0.6 }` — autoRatio 삭제(읽지 않음), §17.10.
 
 ### 15.7 경기 화면 (screens/match.js · layout.js · labels.js · css/match.css)
 
@@ -1438,7 +1443,7 @@ counter: { dribble, pass, cross, shoot }   // = COUNTER (§15.1)
 
 ### 15.12 남은 문제 (GDD 16-25~28)
 
-1. **자동 연결 조건**이 득점 기대를 낮춘다(위). 시나리오 18: "추천" = 슛 39%, 자동 = 센터링 → 그룸바 31%. 밸런스 일괄 조정 때 먼저 — 배율 상향 또는 연결 성공 확률 반영.
+1. ~~**자동 연결 조건**이 득점 기대를 낮춘다(위). 시나리오 18: "추천" = 슛 39%, 자동 = 센터링 → 그룸바 31%.~~ → v0.4.4 기대 골 규칙 · GK ×0.6 (§17.5). 시나리오 18: 추천 = 자동 = 센터링 → 그룸바 41%.
 2. **라인 브레이커 모멘텀**: 라인 브레이커로 박스에 들어온 슛 +20%(extraLine)가 연결 뒤 받은 선수의 슛에도 이어진다 (규칙 그대로 둠 — 지울지 결정 필요).
 3. **GK 필살 세이브**는 슛인지 연결인지 모른 채 먼저 커밋되어, 연결이 오면 연결 듀얼에서 쓰인다.
 4. ~~엔진 힌트 문구~~ → 리뷰 수정: GK 배급 기준 (§15.4).
@@ -1452,7 +1457,7 @@ counter: { dribble, pass, cross, shoot }   // = COUNTER (§15.1)
 ## 16. v0.4.3 — 에이스의 외침 (표시 전용) · 필살기 3단 연출 (GDD v0.5 0.1 #62 · §9.17-5·6)
 
 > 사용자 결정 (2026-09-29): "에이스의 외침은 넣어보자". 받으면 필살기가 준비되는 · 합체기가 되는 받는 선수가 "줘!"를 외치고, 공 가진 선수 → 그 선수 금색 점선 + 배지. **표시 전용** — 판정 · 자동 선택(A안 · boxLinkEval) · AI · 난수 소비는 그대로. 같은 날 필살기 연출을 3단(차지 → 컷인 → GK 가 막으면 역방향 컷인)으로 (아트 전 틀).
-> `MATCH_VERSION` 3 그대로 (상태 모양 변경 없음). config 키 추가 없음 — `match.ultimate.aceCallGauge` 는 **읽기만**(없으면 `gaugeMax − onReceive`, 그래서 onReceive 를 바꾸면 문턱도 따라간다). 문턱을 따로 올리려면(GDD 16-29 ③) `data/config.json` 의 `match.ultimate` 에 `"aceCallGauge": 80` 처럼 키를 넣는다. 커밋 전(로컬 작업 트리).
+> `MATCH_VERSION` 3 그대로 (상태 모양 변경 없음). config 키 추가 없음 — `match.ultimate.aceCallGauge` 는 **읽기만**(없으면 `gaugeMax − onReceive`, 그래서 onReceive 를 바꾸면 문턱도 따라간다). 문턱을 따로 올리려면(GDD 16-29 ③) `data/config.json` 의 `match.ultimate` 에 `"aceCallGauge": 80` 처럼 키를 넣는다. 커밋 9d58905. (③ 역방향 컷인은 v0.4.4 에서 3종 — §17.8)
 
 ### 16.1 엔진 — `aceCallFor(state, data)` (match.js export) · `view.aceCall`
 
@@ -1531,5 +1536,261 @@ view.aceCall = null | {
 2. 합체기 외침은 `combos.json` 조합만 — 엔진은 목록에 없는 조합도 "합체기"로 쓰지만(`comboName` 없으면 "합체기"), 외침은 게이지 규칙으로만 뜬다.
 3. ~~외침은 상대가 필살 슛을 이미 커밋했어도 뜬다~~ → 리뷰 수정: 커밋한 측은 커밋한 받는 선수만 외친다 (§16.1). 드리블 · 슛을 커밋하면 상대 외침 없음.
 4. 차지 막(`backdrop-filter`)은 Chrome 기준. 지원하지 않는 브라우저에서는 어두운 막만(토큰 · 선 흑백은 그대로).
-5. ③ 역방향 컷인은 GK 세이브만 — 파이널 서드의 DF 블록(막힌 필살 슛의 82%)에는 없다. DF 블록판("철벽 블록!" 등)은 사용자 결정 (GDD 16-30).
+5. ~~③ 역방향 컷인은 GK 세이브만 — 파이널 서드의 DF 블록(막힌 필살 슛의 82%)에는 없다.~~ → v0.4.4 GDD #68: 철벽 블록 · 필살 패스 차단 추가 (§17.8).
 6. 결정성 테스트(`test/v05` 표시 전용)는 같은 엔진끼리 비교라 "뷰에 부작용 없음"만 보장한다. HEAD 대비 같은 결과는 scratchpad 스크립트로 확인했다 — 규칙 변경이 잦은 동안은 고정 골든 값을 두지 않는다(밸런스 작업 뒤 필요하면 추가).
+
+---
+
+## 17. v0.4.4 — GK 배급 · 박스 연결 기대 골 · 결정타 칩 · 마지막 공격 · 역방향 컷인 (GDD v0.5 0.1 #63~68)
+
+> 사용자 결정 (2026-09-29): ③ GK 배급 짧은 패스 · 롱패스 + 롱패스 스킬(캐논 킥) ④ 박스 연결 GK ×0.6 + 자동 = 기대 골 ⑤ 클래시 바는 **결정타 칩만** (테스트 후 뺄 수 있게) ⑥ 마지막 공격 보장 = **1골 차로 질 때만** ⑦ 역방향 컷인 (DF 블록 · 필살 패스 차단). ①② GK 자세(캐치/전진)는 **보류** (GDD 16-31). 밸런스는 #61 그대로 — 시뮬 전/후만 기록 (§17.14).
+> 이 절이 v0.4.4 의 구현 기준이다. §7.5(GK 세이브 행) · §15.2-6 · §15.3 · §15.6 · §16.3-③ 중 여기서 바꾼 것은 **대체**. `MATCH_VERSION` 3 그대로 — 새 상태 키(`distribution` · `lastAttack` · `lastAttackUsed`)가 없는 옛 저장 경기는 null / 미사용으로 읽는다. 결정적(시드 고정), 한 step = 주사위 최대 한 번. 커밋 전(로컬 작업 트리).
+
+### 17.0 이번 라운드 소유권
+
+| 담당 | 파일 |
+|---|---|
+| 경기 엔진 | js/engine/match.js, js/engine/ai.js, js/engine/skills.js, js/engine/run.js(배급 전술 이행), data/config.json · skills.json · traits.json · supports.json, test/match · v05 · run.test.mjs, tools/sim.mjs · choice.mjs · scenarios.mjs(22 우선순위 · 23~27) |
+| 경기 화면 | js/ui/screens/match.js, js/ui/layout.js, js/ui/labels.js, css/match.css, js/ui/screens/setup.js · training.js(배급 전술 select만), test/ui.smoke · layout · outgame.test.mjs |
+| 기획 | docs/GDD_v0.5.md, docs/ARCHITECTURE.md, README.md |
+
+### 17.1 GK 배급 — 흐름 (match.js)
+
+```text
+④ 판정 실패 & 수비 = GK (슛 세이브 · 박스 연결 차단)
+  counterPlan(isGK) → { start: 0, distribution: true }        // 옛 saveCounterLine(빠른 배급 → 1) 폐지
+  이벤트 "save" { counterStart: 0, toStep: 0, nextDistribution: true (배급이 이어질 때), reverseCutin? }
+  endPossession(defSide, 0, "distribution", { gkId, from: "save"|"boxLink", saveEvent })
+    possession += 1 → 포제션이 다 됐으면 checkEnd (마지막 공격 보장 · 종료 · 연장 · 승부차기) — 끝나면 배급 없음
+    startDistribution: attackingSide = GK 팀, ball = newBall(GK, lineIndex 0), duel = null,
+                       state.distribution = { side, gkId, from, possession }, phase = "distribution"
+다음 step (phase "distribution") → resolveDistribution(decision | null)
+  사람 측 배급(humanNeedsDecision = "distribution")이고 decision 이 있으면 그것, 아니면 ai.decideDistribution (전술 자동)
+```
+
+- **짧은 패스** (`short`): 주사위 없음, 체력 · 텐션 변화 없음. 이벤트 `"distribution"` → `startPossession(side, 0, "distribution")` (시작 선수 `pickStarter(0)` = DF 중 pass 최고). 시작 비트 이벤트(킥오프 · 역습)를 따로 넣지 않는다 — 배급 비트가 시작 비트.
+- **롱패스** (`long`): `longPassOdds` 한 번 → `rng.chance(p)`. 체력: GK −`staminaCost.pass`, 경합 MF −`staminaCost.defend` (피지컬 경감 — 듀얼과 같은 공식). 게이지 · `duelsWon` · `playerDuelWins` 는 바꾸지 않는다.
+  - 성공: GK 팀 텐션 +`tension.duelWin`, 이벤트 `"distribution"`, `startPossession(side, 1, "distribution", { nextBonus })` (시작 = `pickStarter(1)` MF 중 dribble+pass 최고, 캐논 킥이면 첫 듀얼 +nextDuelBonus).
+  - 실패: 상대 텐션 +`tension.steal`, 이벤트 `"turnover"`(distribution: true, defAction "intercept", counterStart 1) → `endPossession(opp, 1, "counter")` — **포제션 +1**, 상대가 중원(line 1)에서 공격(보통 역습 이벤트가 뒤따른다). 턴오버로 둔 이유: 끝난 경기의 마지막 비트는 turnover · save · goal 이라는 기존 레이아웃 테스트, 기존 턴오버 연출 재사용.
+- **배급 없음**: 그 세이브로 경기가 끝날 때(정규 · 연장 마지막 포제션, 마지막 공격 보장 포제션), 승부차기(`penaltyKick` 은 별도 흐름).
+- 마지막 공격 보장(§17.7)으로 준 포제션이 세이브 뒤 GK 팀 몫이면 그 포제션은 배급으로 시작한다.
+- 결정 검증: `action ∉ { short, long }` → throw, `skillId` 는 long 과만(아니면 throw), `checkDistributionSkill` 실패 → throw. `{ skillId }` 만 보내도 throw(듀얼과 달리 "스킬 먼저 쓰기" 없음).
+
+**롱패스 확률** — `longPassOdds(state, data, side, { skill?, gkId?, explain? })` (export, 판정 · 미리보기 · 자동 공용, 순수)
+
+```text
+att = GK (pass + physical)/2 × actionCoef.longPass (없으면 actionCoef.pass, 2.2) × (1 + traits distributor.longPassBonus 0.25) × skill.active.params.longPass (1.5)
+def = 상대 longPassContest = MF 중 (defense + physical)/2 최고 (동률 슬롯 순서; MF 없으면 GK 아닌 선수 → 전원) × 1.0
+p   = clamp(att / (att + def), minP, maxP)          // 짝 · 선택 · 스타일 · 컨디션 · 체력 보정 없음
+→ { p, att, def, gk, contest, bonus, skillMult, coef, factors (explain) }
+```
+
+### 17.2 캐논 킥 · 빠른 배급 (data · skills.js · ai.js)
+
+- `data/skills.json` `sk_cannon_kick` "캐논 킥": active, learnable, cost 120, tension 25, positions ["GK"], `active: { effect: "longPassBoost", params: { longPass: 1.5, nextDuelBonus: 0.1 }, phase: "distribution", ai: { useWhen: "distribution", minTension: 25 } }`. 스킬 26 → 27개(학습 16 → 17). `data/supports.json` 주장 바르그(`sp_iron_captain`) `hintSkillIds` 에 추가. 이벤트에는 넣지 않았다.
+- `data/traits.json` `distributor` "빠른 배급": `params { saveCounterLine: 1 }` → `{ longPassBonus: 0.25 }`, 설명 "이 골키퍼의 롱패스 배급 +25% (세이브 · 박스 연결 차단 뒤 GK 배급)".
+- skills.js: `ACTIVE_EFFECTS` += "longPassBoost", `DISTRIBUTION_EFFECTS = ["longPassBoost"]`, `isDistributionSkill(skill)`, `checkDistributionSkill(state, data, side, playerId, skill)` → `{ ok, reason }` (배급하는 GK 본인 · 보유 · 포지션 · 유스 아님 · phase "distribution" · 텐션). `checkSkillUsable` 은 배급 스킬을 듀얼에서 거절 — 사유 "GK 롱패스 배급에서만". `addSkillFx` 는 longPassMult · longPassNextBonus 를 기록(설명 문구용). 텐션 소모 · `skill` 이벤트(effect "longPassBoost") · `stats.skillsUsed` 는 match.js `resolveDistribution` 이 한다 (applyActive 는 듀얼 전용).
+- `distributionSkills(state, data, side)` (match.js export): 배급 GK 의 배급 스킬마다 `{ skill, check, cost }`.
+- ai.js `decideDistribution(state, data, side)` → `{ action, skillId, p, pLong, pSkill, tactic, values }` (사람 측 자동 · 상대 AI 공통, 결정적, 상대 **선택** 없음 — 상대 MF 스탯만):
+  - 전술 `short` → 짧게, `long` → 길게, `auto`(기본) → `pLong ≥ longPassAutoMin`(0.55) 이거나 쓸 캐논 킥의 확률 `pSkill ≥ longPassAutoMin` 이면 길게, 아니면 짧게.
+  - 길게일 때만 `chooseDistributionSkill`: 쓸 수 있고 텐션 ≥ max(비용, ai.minTension × 비용 비율)이며 전술 tension 규칙 — `immediate` 항상, `save` 남은 포제션 ≤ 3, `clutch` 동점·열세 && 남은 포제션 ≤ 3 (배급은 슛 상황이 아니므로 "또는 슛" 예외 없음). 비용 최고 1개.
+
+### 17.3 전술 `distribution` (run.js · config · 화면)
+
+- run.js `DISTRIBUTION_TACTICS = ["short", "long", "auto"]` (export), 기본 "auto". `normalizeTactics` 가 없거나 잘못된 값을 "auto" 로 → 옛 저장 런(`migrateRun`, 멱등) · 등록 팀 · 상대 데이터 모두 이행. config `defaultTactics.distribution: "auto"`.
+- labels.js `TACTIC_LABELS.distribution = '배급'`, `TACTIC_OPTIONS.distribution = [['auto','상황 따라'], ['short','짧게'], ['long','길게']]`, `TACTIC_SETUP_KEYS = [...TACTIC_MAIN_KEYS, 'distribution']`. 편성(setup.js) 전술 4줄, 전술 미팅(training.js) = 주요 3 + tension · duelPicker · distribution.
+
+### 17.4 getMatchView — GK 배급 (§12.1 · §13.4 · §15.4 보완)
+
+- 배급 대기 중: `phase "distribution"`, `needsDecision "distribution"`(사람 측 배급일 때만, 상대 배급이면 null), duel 없음(`defender` null), `carrier` = 배급 GK, `lineIndex` 0, `actions` · `skills` 는 빈 배열, `lineLabel` "우리 GK 배급" / "상대 GK 배급".
+- `view.distribution` (그 밖에는 null, 순수 · 난수 없음, 문구는 보는 쪽 시점):
+
+```js
+distribution: null | {
+  side, gkId, gkName, from: "save" | "boxLink", needsDecision: boolean, tactic, autoMin,   // autoMin = longPassAutoMin
+  gkZone,                                               // GK 가 선 박스 (gkZoneOf — home 1 · away 5)
+  contest: { id, name, side } | null,                   // 롱패스를 다투는 상대 MF
+  order: ["short", "long"],
+  recommended: "short" | "long",                        // "상황 따라" 규칙 = decideDistribution(…, { tactic: "auto" }) — 자동이 쓸 캐논 킥 포함, 배급 전술과 무관 (§17.16)
+  recommendedSkillId: string | null,                    // 추천이 캐논 킥 롱패스면 그 스킬
+  auto: { action, skillId, p },                         // ai.decideDistribution — 자동이면 고를 것 (상대 배급 = 상대 선택)
+  options: {
+    short: { action, label: "짧은 패스", p: 1, pct: 100, text: "짧은 패스 100% — 빌드업부터", recommended,
+             success: { zone, attackingSide, step: 0, starterId, starterName, label, short: "빌드업부터" }, fail: null },
+    long:  { action, label: "롱패스", p, pct, text: "롱패스 70% — 성공 중원부터 / 실패 상대 중원 공격", recommended, bonus,
+             success: { zone, attackingSide, step: 1, starterId, starterName, label, short: "성공 중원부터" },
+             fail: { zone, attackingSide: 상대, step: 1, contestId, label: "세컨드볼 — 상대 중원 공격", short: "실패 상대 중원 공격",
+                     matchEnd? } },            // 마지막 포제션이라 막히면 끝나면 label "롱패스 차단 — 경기 종료" · short "실패 경기 종료" (§17.16)
+  },
+  skills: [{ skillId, name, description, effect, tension, cost, enabled, reason, p, pct, nextDuelBonus }],   // 캐논 킥 켠 롱패스 확률
+}
+```
+- 상대 배급이면 text · short 가 "상대 롱패스 ○% — 성공 상대 중원부터 / 실패 우리 중원 공격", skills.enabled false(사유 "결정 차례가 아님").
+- 결정 `step(state, data, { action: "short" | "long", skillId? })`. 결정 없이 step = 전술 자동.
+- 미리보기 = 실제: `options.*.success/fail` 의 구역 · 공격 팀 · 단계가 실제 결과와 같다 (test/match 하네스에 배급 포함).
+
+### 17.5 박스 연결 — GK ×0.6 · 기대 골 자동 규칙 (§15.3 · §15.6 대체)
+
+- config `match.boxLink = { gkMult: 0.6 }` (1.0 → 0.6). `autoRatio` 삭제 — 남아 있어도 읽지 않는다.
+- `boxLinkEval(state, data, side)` → `{ rule: "ev", gkMult, shoot, pass, cross, auto }` (사람 측 자동 · 상대 AI 공통, 결정적, 상대 **선택** 없음, 난수 없음):
+
+```text
+fxG   = gkFxFor: GK 측이 이미 커밋했으면 그 효과(세이브 스킬 · 필살 세이브), 아니면 같은 규칙의 예측(ai.decideDefense) → 커밋 전후 같은 값 (GK 는 "중립" — 고르는 자세가 없다)
+shoot = boxExpect(carrier, "shoot", fxS, fxG)         fxS = 커밋한 필살 슛, 아니면 aiWantsUltimate 면 carrier 필살 슛(합체기 포함)
+        → { exp = 지금 슛 골 확률, value = exp × 100, ultimate, combo }
+pass|cross (켜진 것만): r = 기본 받는 선수 (defaultFromPlan — carrier 필살 패스를 AI 규칙상 쓰면 그 fx 로 고름 → ultimate: true)
+        ex = boxExpect(carrier, a, fxA, fxG, r)        → exp = 연결 p(GK × gkMult) × finishP(nextShotP: 원터치 · 헤더 · 킬패스 · 피니셔 · 타깃맨 ·
+                                                              받은 뒤 준비되는 필살 슛 · 합체기) — 결정 카드 expectedPct 와 같은 함수
+        → { receiverId, exp, linkP, finishP, value = score = exp × 100, forced: false, ultimate, receiverUltimate, combo }
+link  = pass · cross 중 exp 최고 (동률 tieAttack 순서 → pass 먼저)
+auto  = link.exp > shoot.exp (+1e-12) ? { action: link, receiverId, ultimate } : { action: "shoot", receiverId: null, ultimate }   // 동률 = 슛
+```
+- `boxTendency(ev)` → `{ shoot, pass?, cross? }` (기대 골 %). ④ carrier 의 `tendencyValues` 와 `expected.*.values` 가 이것 → `autoAction` · `ai.decideAttack` · `expectedFor` 가 기존 "1위 액션" 코드 그대로 기대 골 규칙을 따른다. forced(필살 슛 준비 강제 연결)는 폐지 — 필살기는 기대 골에 이미 들어간다.
+- 뷰 (§15.4 보완): ④ `actions[].recommended` = 자동 선택(기대 골 규칙), `actions[].autoExpectedPct` = 자동 규칙이 본 기대 골 %(자동이 쓸 필살기 포함 — 필살기를 쓸 수 없으면 expectedPct 와 같다). `view.boxLink = { side, used, available, rule: "ev", ratio: null, gkMult, shoot: { value, exp, ultimate, combo }, pass | cross: { receiverId, value, score, exp, linkP, finishP, forced: false, ultimate, receiverUltimate, combo } | null, evAuto, auto }` — `auto` 는 커밋한 측이면 커밋한 선택, `evAuto` 는 늘 규칙 값.
+- 연결 힌트 · 실패 줄: "→ ○○ 원터치 슛 · GK와 경합 (막히면 상대 GK 배급)", outcomes.fail label "GK가 끊어냄 → 상대 GK 배급" · short "실패 상대 GK 배급", ④ 슛 실패 "세이브 → 상대 GK 배급" (`distribution: true`, `gkZone` 포함). 마지막 포제션이라 막히면 경기가 끝나면 "(막히면 경기 종료)" · "세이브 → 경기 종료" · "실패 경기 종료" (§17.16).
+
+### 17.6 결정타 칩 (클래시 바 1단계 — 표시 전용)
+
+- `computeOdds(…, { explain: true })` 가 `factors` 를 함께 낸다 — 실제로 곱한 배율 목록 `{ id, side: "atk"|"def", mult, label, text, base?, group?, parts? }`. **Π(atk 의 mult) = att, Π(def 의 mult) = def** (base 항목 = 스탯 × 계수, ×1 항목은 뺀다). 확률 · 난수 소비는 explain 과 무관(같은 계산).
+  - id 예: atk = base · bonus(보너스 합 — parts 에 chain · beaten · interceptFail · next · 연계 특성별, 상한이면 비례 축소) · teamwork · skill · passive · ultimate(필살 ×2 등) · combo · extraLine · style · condition · stamina · team · resonance, def = base · pair(짝 적중 / 빗나감 / 간파 짝 적중) · cover · wall(철벽) · boxLinkGk · oneTouch · saveUlt · ultShotGk · skill · passive · style · condition · stamina · team · resonance.
+  - label 은 데이터 이름(연계 특성 · 스킬 · 필살기 이름, 함성 = rally 스킬 이름).
+- `chipOf(factors, p, success, m)` (판정 · 롱패스 공용, 2026-09-30 보완 — §17.16): winner = 성공이면 atk, 실패면 def. 후보 = base · **rule**(규칙 상수 — `boxLinkGk` ×0.6, 모든 연결에 같다)이 아닌 배율(보너스 합은 항목별 — 빼면 1 + min(합 − 항목, 상한), style · condition · stamina · team · resonance 는 양쪽 합쳐 한 요인). **effect** = 그 요인을 뺐을 때 승자 확률이 떨어지는 폭(clamp 포함). **능력치 우위**도 후보(목록 맨 끝) = **순수 능력치 비**(base 의 `stat` — 행동 계수 2.2 / 1.0 제외)를 같게 했을 때(divA = statA/statD)의 승자 확률 하락폭 — 다른 요인과 같은 잣대 · 같은 순위. **decisive** = effect 최대 후보 `{ id, side, favours, label, text, mult, effect }` (동률 목록 앞 → 능력치 우위와 동률이면 요인; 능력치 우위면 `{ id: "stat", label: "능력치 우위", text: "능력치 우위 ×1.25", base: true }`), 최대 effect < `match.decisiveMinDelta`(0.02)면 null. **upset** = 승자 확률 < `match.upsetP`(0.3).
+- 판정 이벤트(duel · turnover · save · goal, 롱패스의 distribution · turnover)에 `factors · decisive · upset`. 승부차기 · 짧은 패스에는 없음.
+- text 예: "짝 적중 ×1.7", "빗나감 ×0.8", "킬패스 +20%", "제쳐짐 +25%", "필살 ×2", "빠른 배급 +25%", "밀물의 벽 ×1.15", "능력치 우위 ×1.3".
+
+### 17.7 마지막 공격 보장 (match.js)
+
+- 상태: `lastAttack: null | { side, stage, possession }` (준 포제션), `lastAttackUsed: { regular, extraTime }` (단계당 1회).
+- `endPossession` → possession > possessionsTotal → `checkEnd(state, data, nextSide)` → 동점이 아니면 먼저 `grantLastAttack`:
+  - 조건: stage ∈ { regular, extraTime } · 그 단계 미사용 · `scoreDiffFor(nextSide) === −lastAttackDeficit`(1) · deficit > 0. nextSide = 이어질 포제션의 팀 = 방금 끝난 포제션을 갖지 않은 팀.
+  - 주면: `possessionsTotal += 1`, `lastAttack` 기록, 이벤트 `{ type: "lastAttack", side, stage, deficit, banner: "추가시간 — 마지막 공격!", text: "추가시간 — 마지막 공격! ○○ (1골 차)" }` → 평소 시작(킥오프 · 역습 · GK 배급).
+  - 그 포제션이 끝나면 다시 checkEnd → 이미 썼으니 평소 종료 판정(동점이면 목표 경기 연장 · 친선 무승부, 아니면 종료). 세이브로 끝나도 배급 없음.
+- 그 포제션의 시작 비트 · 판정 이벤트 · 배급 이벤트에 `lastAttack: true`. `view.lastAttack = { side, stage, possession, active }` (active = 끝나지 않았고 지금이 그 포제션), `getResult().lastAttack` 도.
+
+### 17.8 역방향 컷인 (표시 전용)
+
+- 필살기를 쓴 공격(`fxA.ult`)이 실패하면 판정 이벤트(save · turnover)에 `reverseCutin: { kind, side(막은 팀), playerId, position, text, skillId, ultimateType, combo }` (`REVERSE_CUTIN_TEXT` export):
+  - shot 필살기 + 슛 → GK 면 `save` "기적의 세이브!", 필드 수비면 `block` "철벽 블록!"
+  - pass 필살기 + 패스 · 크로스(④ 박스 연결 포함) → `passCut` "필살 패스 차단!"
+- 화면(`reverseOf` — 옛 저장 이벤트는 필살 슛 GK 세이브만 규칙으로 대신): 막는 동작(액션 + hold) 뒤 · 재배치 전 `.cut.cut-save.cut-rev.rev-<kind>` — 막은 선수 얼굴 · 막은 팀 쪽에서 들어옴, 아랫줄 "(상대) DF 돌바르 · 메테오 슛 봉쇄" / "… 차단". 색: save 얼음 · block 강철 · passCut 연보라. 길이 `T.revCut` 800 → 이후 `T.revCutShort` 700 (경기의 첫 역방향 컷인만 800 — GK 세이브도 이제 두 번째부터 700), 배속 비례, 바닥 `CUT_MIN.card` 170, ⏭ 생략.
+
+### 17.9 이벤트 요약
+
+| type | 언제 | 필드 (위치 필드 zone · toZone · step · toStep · attackingSide · toAttackingSide 는 beatPos 공통) |
+|---|---|---|
+| `save` (기존) | ④ 세이브 · 박스 연결 차단 | + `counterStart: 0`, `toStep: 0`, `nextDistribution: true`(배급이 이어질 때), `factors · decisive · upset`, `reverseCutin?`, `lastAttack?` |
+| `distribution` (신규 — `BEAT_TYPES` 에 추가) | 짧은 패스 · 롱패스 성공 | `side, playerId(GK), action("short" 또는 "long"), success: true, p, receiverId(시작 선수), defenderId?(롱패스 경합), skillId?, nextBonus?, gkZone, from, distribution: true, byAI, lastAttack?`, 롱패스면 `factors · decisive · upset`. 위치 = GK 팀 step 0 → step 0(짧게) · 1(길게) |
+| `turnover` + `distribution: true` | 롱패스 실패 | `action: "long", defAction: "intercept", counterStart: 1, defenderId(끊은 MF), receiverId(향하던 MF), starterId?(세컨드볼 역습 시작 — 경기가 끝나면 없음), p, factors · decisive · upset`, 위치 = GK 팀 step 0 → 상대 step 1. 뒤에 상대 `counter` (경기가 끝나면 없음) |
+| `skill` (기존) | 캐논 킥 | `effect: "longPassBoost", playerId(GK), cost` |
+| `lastAttack` (신규, 비트 아님) | 보장 포제션을 줄 때 | `side, stage, deficit, banner, text` |
+| duel · turnover · goal (기존) | 모든 판정 | + `factors · decisive · upset`, 보장 포제션이면 `lastAttack: true`, 필살기 실패면 `reverseCutin` |
+| (모든 비트) | 그 비트로 경기가 끝남 | `matchEnd: "end" | "penalties"` — 포제션을 끝낸 마지막 비트 (endPossession → checkEnd, §17.16) |
+
+### 17.10 config.match 추가 · 변경 ([가정] 그대로 — #61)
+
+```jsonc
+"actionCoef": { …, "longPass": 2.2 },   // GK 롱패스 계수 (없으면 actionCoef.pass)
+"boxLink": { "gkMult": 0.6 },           // 1.0 → 0.6, autoRatio 삭제
+"longPassAutoMin": 0.55,                // 배급 전술 "상황 따라" 의 롱패스 문턱
+"lastAttackDeficit": 1,                 // 마지막 공격 보장 점수 차 (0 이하 = 끔)
+"upsetP": 0.3,                          // 대이변: 승자 확률 < 이 값
+"decisiveMinDelta": 0.02                // 결정타 칩: 뺐을 때 승자 확률이 이만큼 이상 떨어지는 요인만 (2026-09-30)
+// defaultTactics.distribution: "auto"
+```
+
+### 17.11 경기 화면 (screens/match.js · layout.js · labels.js · css/match.css)
+
+- **배급 모양** (layout.js `distributionLayout`, `DISTRIBUTION = { gkFy: 9 }`): `view.phase "distribution"` 이면 공 = 배급 GK(자기 박스 안), 배급 팀 = ① 빌드업 모양 `SHAPE.atk[pos][0]`, 상대 = ① 수비 모양. 받는 선수 후보(receiver) = `options.short/long.success.starterId`(DF · MF, 제자리 — 이름표 "(짧게)" · "(길게)"), 경합 상대 MF = defender 역할로 롱패스 받는 선수와 같은 레인. zone = gkZone, `track = { side, step: 0, dir, gk: true }`(아직 ① 전 — `.m-track.pre`), `receiverId` = 자동 배급의 받는 선수, `dist = { short, long, contest }`. 배너 "🧤 ○○가 배급 — 짧게 빌드업 · 길게 중원" / "상대 GK ○○ 배급 — 롱패스면 중원 경합".
+- 배급 뒤 배너 (`playBanner`, `findPrevBeat`): 롱패스 성공 "롱패스 성공! {구역}에서 시작 — ○○", 짧은 패스 "GK 짧은 패스 — ○○가 빌드업 시작", 상대 롱패스를 끊은 역습 "세컨드볼! {구역}에서 공격 — ○○" (상대면 "⚠ …").
+- **배급 카드** (사람 차례): 두 장 — `DIST_ICONS`/`DIST_LABELS` ('➡️ 짧은 패스' · '🚀 롱패스') → 받는 선수, % , 성공 · 실패 줄(짧은 패스 "실패 없음"), 셋째 줄(짧은 패스 "항상 성공 · 체력 · 텐션 그대로", 롱패스 "경합 상대 ○○ · 빠른 배급 +25%"), 추천 = `distribution.recommended`. 스킬 묶음 = `distribution.skills`(캐논 킥) 토글 → 롱패스 카드 % = 스킬 %, 테두리 보라(`.skill-on`), 짧은 패스 카드 흐림. 결정 `{ action, skillId? }` (`data-action="short"|"long"`). 자동 진행 · 상대 배급 = 읽기 전용 카드에 고른 쪽 "자동"(`.chip-auto`), 상대 GK 말풍선 = 상대 선택, 스킬 묶음 = 안내 한 줄.
+- **정보 줄** (`distInfo`): "우리 GK 네리아 배급 — 롱패스 70% (경합: 상대 페린)" + 오른쪽 "우리: 롱패스 70%(+ 캐논 킥)", 상대면 "… · 상대 선택: …". 툴팁에 규칙 · 빠른 배급 · 전술.
+- **배급 연출**: 짧은 패스 = DF 에게 땅볼. 롱패스 = 중원 MF 에게 포물선 + 낙하 지점 경합 — 성공 우리 MF 가 잡음 · 상대 MF 뒤로("롱패스!", 캐논 킥이면 "캐논 킥!"), 실패(turnover distribution) 상대 MF 가 끊음 → 결과 "○○ 롱패스 차단! 세컨드볼 — 상대 중원 공격". 롱패스를 끊은 선수와 이어서 역습을 시작하는 선수(`pickStarter(1)`)가 다를 수 있어 재배치 때 공이 다른 MF 로 옮겨 간다(보통 턴오버와 같다).
+- **④**: 추천 = 자동 = 정보 줄 "우리: …"(시나리오 18: 센터링 → 그룸바). 정보 줄 툴팁 `boxRuleText` "④ 자동 규칙 (기대 골): … 슛 39% · 센터링 41% (연결 ○% × 헤더 ○%)", 상대 ④ 근거 "컷백 ○% > 슛 ○%"(값 = 기대 골 %, 이전 성향값), 카드 툴팁에 `autoExpectedPct` 가 다르면 "자동 기준 기대 골 ○%", 자동 진행 카드 값 = 기대 골 %. (옛 `bl.ratio` 기반 문구 삭제)
+- **결정타 칩** (`popChips`): 결과 한 줄 맨 앞 `.dchip.k-<kind>.side-<이긴 팀>` = `decisive.text`, 종류 `DECISIVE_KINDS` (pair = 이긴 팀 색 · link(연계 특성 · chain · oneTouch · teamwork · distributor) = 초록 · ult(ultimate · combo · saveUlt · ultShotGk) = 분홍 · edge(beaten · interceptFail · next) = 주황 · skill = 보라 · 그 밖 base = 흰색). upset 이면 금색 `.dchip-upset` "대이변!". 툴팁 "결정타: … (이긴 쪽 확률 ○%)". 결과 한 줄 수명 그대로, 4x(`.fast`)는 등장 애니메이션 없음. 로그 줄 title 에도 결정타. **끄기**: `export const SHOW_DECISIVE_CHIP = true` → false (테스트는 `matchUi.decisiveChip = false`).
+- **마지막 공격**: 보장 포제션의 첫 배너 "⏱ 추가시간 — 마지막 공격!"(상대 "⏱ 추가시간 — 상대 마지막 공격!", 금색 깜빡임 `.m-banner.lv-last`), 이후 배너 앞 "⏱ ", 점수판 `.mh.last-attack` 아랫줄 "… · ⏱ 추가시간"(상대면 "(상대)"), 로그 `.ev-lastAttack` 금색. 끝나면 결과 모달.
+- labels.js: `DIST_LABELS` · `DIST_ICONS` · `DECISIVE_KINDS` · 배급 전술(§17.3), `TRAIT_LABELS.distributor.description` 새 문구.
+
+### 17.12 테스트 (npm test 155 — rng 8, run 26, match 24, v05 50, layout 22, orient 5, stage 6, lineup 9, outgame 3, ui.smoke 2; 리뷰 수정 뒤 161 — §17.16)
+
+- **test/v05** (37 → 50): GK 배급 대기(phase · needsDecision · view.distribution 두 선택지) / 짧은 패스(주사위 없음 · line 0 pickStarter · 위치 필드 · 포제션 그대로) / 롱패스 확률 공식(계수 · 빠른 배급 · 캐논 킥 · clamp) / 롱패스 성공 · 실패(주사위 한 번 · 텐션 · 체력 · turnover distribution · 포제션 +1) / 캐논 킥(×1.5 · +10% · 텐션 · 롱패스와만 · 듀얼 불가 · 뷰) / 배급 전술(short · long · auto 문턱 · 캐논 킥 텐션 규칙 · 사람 자동 = 상대 AI · 결정적) / 배급 없음(경기를 끝내는 세이브 · 승부차기) / 박스 연결 실패 = 상대 GK 배급(from boxLink) / 기대 골 자동 규칙(동률 = 슛 · 미리보기와 같은 확률 · 양 팀) / 기대 골 + 필살기(받은 뒤 준비 · 합체기 · 내 필살 슛, 추천 = 자동) / 결정타 칩(모든 판정 · 롱패스에서 factors 곱 → att/def → clamp = 이벤트 p, decisive · upset, 판정 · 난수 불변) / 칩 예(짝 적중 · 제쳐짐 · 대이변 · 필살 ×2) / 마지막 공격(1골 차 · 단계당 1회 · 끝나면 종료 · 친선 동점 무승부 · 목표 경기 연장) / 마지막 공격 + GK 배급 / 역방향 컷인 정보 3종. 옛 autoRatio · "골킥(0) / 빠른 배급(1)" 테스트 2개는 새 규칙으로 교체.
+- **test/match**: 포제션 시작 비트에 배급 포함, 미리보기 = 실제 하네스에 GK 배급(구역 · 공격 팀 · 단계), line 3 실패 = 상대 GK 배급.
+- **test/run** (+1): 배급 전술 이행(없음 · 잘못된 값 → auto, 옛 런 · 등록 팀 · 상대, 미팅 변경, 캐논 킥 힌트).
+- **test/layout** (+2): 배급 대기 합성(4 포메이션² × 양 팀, 비율 범위 — GK 박스 · 빌드업 모양 · 받는 선수 · 경합 MF 레인), 배급 뒤 배너 3종.
+- **test/ui.smoke**: 23(배급 카드 · 이름표 · 캐논 킥 토글 → 롱패스 % · 짧은 패스 흐림 → 짧은 패스 결정 · 배너), 상대 배급(자동 카드 · 말풍선 · 스킬 안내), 18 추천 = 자동, 25(칩 글 · 종류 클래스 · 대이변 · 끄기), 26(배너 · 헤더 · 로그 · 종료 모달), 27(철벽 블록 · 필살 패스 차단 컷인).
+- **test/outgame**: 편성 전술 4줄 · 미팅 전술 6개(배급 포함).
+
+### 17.13 도구
+
+- **tools/scenarios.mjs** → 경기 01~27: `23_gk_distribution`(세이브 뒤 우리 배급 결정 — 네리아에 캐논 킥 주입, 자동 끔), `24_long_ball_mid`(롱패스 클릭 400ms 뒤, 성공 주사위), `25_decisive_chip`(드리블 클릭 1.7초 뒤 결과 줄 칩 — 짝 · 제쳐짐 · 킬패스 · 침투 우선), `26_last_attack`(1골 뒤진 우리의 추가 포제션 첫 결정), `27_df_block_cutin`(③ 메테오 슛이 DF 에게 막힘, 슛 클릭 2.85초 뒤 "철벽 블록!"). `22_ult_charge_mid` 는 ④ 우선(막히면 GK 세이브 컷인 — ui.smoke 가 GK 세이브를 쓴다). 새 도우미: `isDistribution`(export), `chipFor`(복제 상태에 결정을 넣은 판정의 decisive — 기존 `tryDecision` 사용).
+- **tools/sim.mjs** 경기 표 추가: "④ 연결 비율 우리/상대", "GK 배급/경기 짧게·길게 우리 · 상대", "롱패스 성공률 우리/상대 (캐논 킥/경기)", "마지막 공격/경기 우리/상대 (골%)", "대이변/경기 (판정 중 %) · 결정타 칩 %". 배급 이벤트는 필드 듀얼 지표에서 뺀다.
+- **tools/choice.mjs**: 배급(needsDecision "distribution")은 모든 정책에서 전술 자동 — 듀얼 결정 방식만 비교.
+
+### 17.14 검증 (구현 시점)
+
+- `npm test` 155 통과. `shot.mjs` 29 캡처(경기 01~27 · og_setup · og_meeting) 페이지 스크롤 없음 · 콘솔 에러 0, 18 · 23~27 · 03 · 13 · og_* 눈으로 확인. 추가 장면(상대 배급 · 롱패스 실패 3프레임 · 필살 패스 차단 컷인 · 대이변 칩 · 짝 칩 · 자동 배급 · 보장 포제션 부여 비트 · ④ 자동 카드)은 scratchpad `extra_shots.mjs` 로 캡처.
+- 시뮬 (`node tools/sim.mjs --runs 300 --seed 1`, **수치 조정 없음** — GDD #61). 화면 작업은 시뮬에 영향 없음(두 담당 같은 값):
+
+| 지표 | 전 (v0.4.3) | 후 (v0.4.4) |
+|---|---|---|
+| 시즌 승률 | 84.0 / 63.7 / 44.3% | 80.0 / 59.7 / 38.3% |
+| 골/경기 (우리 / 상대) | 2.48 (1.43 / 1.06) | 2.76 (1.49 / 1.27) |
+| 필드 듀얼/경기 | 15.7 | 15.6 |
+| 필살기/보유자 우리 / 상대 | 0.96 / 0.53 | 0.89 / 0.31 |
+| 합체기/경기 | 0.565 | 0.576 |
+| 헤더 슛/경기 | 0.62 | 0.34 |
+| 박스 연결/경기 컷백 · 센터링 (우리 / 상대) | 0.22 · 0.71 / 1.28 · 0.00 | 0.07 · 0.25 / 0.14 · 0.00 |
+| ④ 연결 비율 우리 / 상대 | — | 22.5% / 8.0% |
+| 박스 연결 성공률 · 다음 슛 골% | 52.5% · 78.3% | 64.1% · 79.3% |
+| 연장 / 승부차기 | 19.1% / 11.5% | 24.1% / 16.0% |
+| GK 배급/경기 짧게 · 길게 (우리 / 상대) | — | 0.00 · 0.58 / 0.00 · 0.48 |
+| 롱패스 성공률 우리 / 상대 (캐논 킥/경기) | — | 73.3% / 79.8% (0.003) |
+| 마지막 공격/경기 우리 / 상대 (골%) | — | 0.211 / 0.010 (29.6%) |
+| 대이변/경기 (판정 중) · 칩 붙은 판정 | — | 2.04 (10.1%) · 97.0% |
+
+- 하나씩: 마지막 공격 끔 → 77.3 / 57.0 / 37.0%, 배급 늘 짧게 → 77.7 / 57.7 / 40.0%, gkMult 1.0 → 거의 같음. 출력: scratchpad `eng/sim_before.txt` · `sim_after.txt`.
+
+### 17.15 남은 문제 (GDD 16-31~36)
+
+1. **GK 자세(캐치/전진)** 보류 — 넣으면 `boxLinkEval` 의 "GK 중립"(gkFxFor)과 칩 요인이 바뀐다.
+2. **롱패스가 거의 늘 선택**: 롱패스 p 가 대부분 0.65~0.85 라 `longPassAutoMin` 0.55 를 넘는다(계수 1.5 에서도). 계수 · 문턱 · 경합 공식 재검토. 리뷰 측정: 자동 1,169 배급 중 롱패스 1,166 (짧게 3 = 유스 GK), 같은 주사위로 롱 vs 짧게를 끝까지 돌리면 승률 차 +0.7%p(구간별 −0.1 ~ +1.5%p), 손익 분기 p ≈ 0.72~0.75 — 선택이 거의 결과를 바꾸지 않는다.
+3. **대이변 빈도** 경기당 약 2(판정의 10%) — `upsetP` 0.25 또는 슛 · 골만. 롱패스는 p ≥ 0.67 이라 실패가 거의 다 "대이변"(대이변 배지의 약 12%, 롱패스 실패 1,294 중 1,260) — 롱패스를 대이변 판정에서 뺄지도.
+4. **마지막 공격 쏠림**: 포제션 교대라 정규 마지막 포제션은 늘 away → 보장은 거의 늘 home (우리 0.21 · 상대 0.01/경기). PvP 대칭성 검토.
+5. **캐논 킥 AI** 는 tension 전술을 따라 기본(clutch)에서 거의 안 쓴다(경기당 0.003회) — 배급 스킬만 따로 규칙을 둘지. 캐논 킥을 가진 상대 GK 가 없어 상대 AI 경로는 실전에서 안 쓰인다 (한 S3 상대에게 줄지는 밸런스 때).
+6. **칩 없는 판정**: 이긴 쪽을 2%p 이상 도운 요인도 능력치 우위도 없으면 decisive null (판정의 약 8% — §17.16) — 칩 없이 결과 줄만 (대이변이면 "대이변!" 만).
+7. **배급 화면 붐빔**: "(짧게)/(길게)" 이름표 · 경합 강조 · 상대 말풍선이 한 화면에 — 4x 에서 확인 필요.
+8. ui.smoke 시나리오 20 블록이 경기를 끝내 `ui.resultShown` 을 남긴다(테스트 전용 누수 — 26 블록이 지우고 쓴다).
+9. **마지막 공격이 배급으로 시작할 때 자동(상황 따라)도 롱패스**: 실패하면 듀얼 한 번 없이 경기가 끝난다(보장 1,224번 중 19번). 그 포제션에선 역습 위험이 없어 짧은 패스가 조금 낫다(21 상태 × 200: 승 13.3 vs 14.3%, 표본 작음). 카드는 이제 "실패 경기 종료"를 보여 준다 — 자동 규칙을 바꿀지는 사용자 결정 (GDD 16-37).
+10. **④ 기대 골 규칙은 받는 선수의 일반 액티브를 보지 않는다** (필살기만 — 명세 그대로): 판정의 약 10% 에서 다음 슛 값이 최대 약 6%p 낮게 잡힌다. 나빠지는 연결은 없었다(0/498), 놓친 연결 23번(평균 0.11%p). 넣으려면 nextShotP 에 chooseSkill 예측 (GDD 16-38).
+11. **4x 에서 칩 읽기**: 결과 한 줄이 약 130~240ms, 역방향 컷인 200/175ms 만 보인다 — 4x 는 빠르게 보는 배속이라 그대로 둔다(최소 표시 시간을 두면 4x 가 느려진다). 칩 확인은 1x · 2x 로.
+
+### 17.16 리뷰 수정 (2026-09-30 — 판정 · 난수 · 승률 불변)
+
+v0.4.4 리뷰(화면 · 코드 · 규칙)에서 나온 결함을 고쳤다. 판정 규칙 · 확률 · 주사위 소비는 그대로 — 시뮬 승률 80.0 / 59.7 / 38.3%, 골 2.76 그대로이고 "결정타 칩 %"만 97.0 → 91.8% (작은 요인 칩이 빠짐).
+
+**① 마지막 포제션 문구** (match.js `endForecast` · `lastAttackDue`)
+- `endForecast(state, data, nextSide, score = state.score)` (export, 순수 — checkEnd 와 같은 규칙): 지금 포제션이 끝나면 `null`(남은 포제션 있음) · `"extraTime"`(동점 → 연장) · `"lastAttack"`(nextSide 가 마지막 공격 보장을 받음) · `"end"` · `"penalties"`. `grantLastAttack` 과 조건 함수 `lastAttackDue` 를 공유한다.
+- 미리보기: 공격 결과 실패(④ "세이브 → 경기 종료", 박스 연결 "GK가 끊어냄 → 경기 종료", 필드 "뺏기면 → 경기 종료", short "실패 경기 종료", `matchEnd`, `distribution` 없음) · 골(`goalOutcome` — "골! → 경기 종료 · 연장전 · 승부차기 · 상대 마지막 공격", 실점은 "뚫리면 — 실점 → …") · 수비 결과 막음("막으면 — 경기 종료", 우리가 보장을 받으면 "… (추가시간 — 우리 마지막 공격)") · ④ 연결 힌트 "(막히면 경기 종료)" · 배급 롱패스 실패("롱패스 차단 — 경기 종료", text "… / 실패 경기 종료").
+- 이벤트: 포제션을 끝내 경기를 끝낸 비트에 `matchEnd: "end" | "penalties"` (`endPossession` → checkEnd true). 끝나는 턴오버 · 세이브 문구에 " 빠른 역습!" 없음. 롱패스 실패 turnover 에 `receiverId`(향하던 MF — 끊긴 롱패스 방향) · `starterId`(세컨드볼 역습을 시작할 상대 선수 = `pickStarter(1)`, 끊은 선수와 다를 수 있다 — 경기가 끝나면 없음), 문구 "…롱패스 — 세컨드볼 → 셀마, ○○ 중원부터 공격"(시작 선수가 끊은 선수와 다를 때) / "…롱패스 — 경기 종료".
+
+**② 결정타 칩 보완** (`chipOf`, config `match.decisiveMinDelta` 0.02 — §17.6)
+- 규칙 상수 `boxLinkGk`(×0.6)는 `rule: true` — factors 곱에는 남고 후보에서 빠진다 (예전엔 성공한 박스 연결마다 "연결 GK ×0.6").
+- 크기 = 그 요인을 뺐을 때 승자 확률 하락폭 (보너스 항목은 더하기 기준, 상한 · clamp 포함 — 영향 없던 요인은 0). "능력치 우위" = **순수 능력치 비**(행동 계수 제외 — 예전엔 계수 2.2 가 들어가 GK 스탯이 낮아도 롱패스 성공에 "능력치 우위"가 붙었다).
+- **재수정 (같은 날, 최종 QA)**: 능력치 우위가 처음엔 "모든 요인 < 0.02 일 때만"의 대체라, 2~4%p 요인이 훨씬 큰 능력치 차를 제치고 칩이 됐다 (프로브: 요인 칩 839 중 182 = 21.7%, 3배 넘게 차이 41 — 예 "철벽 ×1.15" 3.5%p vs 수비 능력치 2.21배 19.4%p). 이제 능력치 우위를 후보 목록 끝에 넣어 같은 잣대로 순위를 매긴다 → 그 경우 0. 최대 크기 < 0.02 면 null (칩이 붙는 비율은 그대로).
+- 분포 (자동 목표 경기 240판, 판정 5,312, seed 1 — 판정 대비): 칩 91.7% — 능력치 우위 30.8% · 상성 24.6% · 짝 15.1% · 필살기 7.1% · 컨디션 2.9% · 스킬 2.2% · 빠른 배급 2.0% · 인터셉트 뚫림 1.9% · 킬패스 · 연계 1.2%. 재수정 전 같은 표본: 상성 30.2 · 짝 19.3 · 능력치 우위 8.6 · 필살기 7.6 · 컨디션 5.2 · 철벽 4.0%. ×1.05 이하 칩 0 (예전 9.6%). 대안(미적용): 요인 크기 ≥ 능력치 크기 × 0.5 면 요인 → 능력치 우위 19.2% · 상성 29.2% · 짝 17.7% (GDD 16-36).
+- 테스트 (v05 "결정타 칩 보완"): 빠른 배급 +25%(3.2%p ≥ 2%p)와 능력치 2배(11.3%p)가 둘 다 승자 편 → "능력치 우위 ×2", 거꾸로 GK 450 vs MF 400(능력치 2.2%p < 빠른 배급 4.4%p) → "빠른 배급 +25%".
+
+**③ 배급 추천** — `view.distribution.recommended` = `ai.decideDistribution(state, data, side, { tactic: "auto" })`("상황 따라" 규칙, 자동이 쓸 캐논 킥 포함), `recommendedSkillId`. 배급 전술이 auto 면 `auto.action` 과 같다. 전술이 short/long 이면 추천(확률 기준)과 자동(전술)이 다를 수 있다 — 필드 듀얼의 추천(기대 %) ↔ 자동(성향)과 같은 관계.
+
+**④ 화면** (screens/match.js · layout.js · css)
+- 롱패스 실패 결과 한 줄: `starterId` 가 끊은 선수와 다르면 "페린 롱패스 차단! → 셀마 세컨드볼"(공이 그 선수에게 간다), 같으면 "… 세컨드볼 — 상대 중원 공격", `matchEnd` 면 "페린 롱패스 차단! — 경기 종료". 경기가 끝난 마지막 모습(`finalFrame.laneId`)에서 끊은 선수는 롱패스 받을 선수의 레인(낙하 지점)에 공을 든 채.
+- 롱패스 경합 연출: 경합에 진 선수(성공 = 상대 MF, 실패 = 우리 받는 선수)의 이름표를 act 동안 숨긴다 (`.tok.tag-off .tok-name { visibility: hidden }` — 재배치 때 풀림).
+- 배급 카드 힌트: 캐논 킥을 켜면 맨 앞 "캐논 킥 첫 듀얼+10%", 그다음 "경합 ○○ · 빠른 배급 +25%" (긴 문구는 title).
+- 공격 카드: 이번 포제션 첫 듀얼 보너스(`ballState.pending.nextBonus` — 캐논 킥 · 소매치기 상한)가 있으면 약점 줄 맨 앞 "첫 듀얼 +10%" (% 에 이미 포함).
+- 정보 줄: 사람이 고른 배급의 연출 중 오른쪽 = "우리 선택: 롱패스 78% + 캐논 킥" (예전엔 자동 예상 "우리: 롱패스 70%").
+- 결과 한 줄 자리: 공 옆이 막히면 공 위 · 아래(가운데 맞춤) → 한 칸 더 위 · 아래 옆 → 필드 가운데 띠 (칩으로 줄이 길어져도 공 근처).
+- 상수: 역방향 컷인 문구 · 배급 선택지는 엔진 `match.REVERSE_CUTIN_TEXT` · `match.DISTRIBUTION_ACTIONS` (화면 사본은 대체값만). ai.js 는 `DISTRIBUTION_TACTICS` 를 run.js 에서 가져온다 (사본 없음).
+
+**⑤ 도구 · 테스트**
+- scenarios.mjs `20_ace_call` 은 정규 포제션 우선(마지막 공격 포제션은 `26_last_attack`) — 다시 포제션 3/6.
+- 테스트 161 (+6): v05 +5 (배급 대기 JSON 왕복 · 연장 마지막 공격 부여/종료 · 마지막 포제션 문구 · 칩 보완 · 배급 추천), outgame +1 (배급 전술 목록 = run.js 하나), match(수비 문구 하네스가 마지막 포제션 "막으면 — 경기 종료"를 확인), layout(롱패스 차단으로 끝난 모습의 레인), ui.smoke(캐논 킥 힌트 · "우리 선택" · 첫 듀얼 보너스 · 이름표 숨김 · 세컨드볼 문구 · 마지막 공격 배급 "실패 경기 종료" → "— 경기 종료").
+- 확인: `shot.mjs` 42 캡처 스크롤 · 콘솔 에러 없음, 추가 장면(마지막 공격 배급 카드 · 롱패스 실패로 종료 · 세컨드볼 문구 · 캐논 킥 힌트/정보 줄/다음 카드 · 마지막 수비 카드 · 박스 연결 결과 자리)은 scratchpad `gkfix/fix_shots.mjs`.

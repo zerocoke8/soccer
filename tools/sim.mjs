@@ -5,7 +5,8 @@
 // 기본 편성·기본 전술로 자동 완주. 정책: 훈련은 추천 칸, 체력 부족 추천이면 휴식(smart), 살 수 있는 스킬은 미팅 구매(smart),
 // 이벤트 0번, 유물 첫 번째, 루트 순환(런마다 시작점 회전), 경기는 match.simulateAuto (A안 자동).
 // 출력: 시즌별 목표 경기 승률, 평균 최종 스탯, 등급 분포, 런당 부상·우정 훈련, 경기 지표(골, 액티브·필살기·합체기·간파 사용,
-// 크로스·헤더, 수비·공격 선택 분포, 짝 비율) — 전체 경기와 시즌별 목표 경기로 나눠서. 종료 코드 0.
+// 크로스·헤더, 수비·공격 선택 분포, 짝 비율, ④ 연결 비율·성공률, GK 배급 짧게·길게·롱패스 성공률, 마지막 공격 보장·그 골,
+// 대이변 수) — 전체 경기와 시즌별 목표 경기로 나눠서. 종료 코드 0.
 //
 // --set      : data.config 값을 메모리에서 덮어쓴다 (예: --set match.readBonus=1.4). 파일은 바꾸지 않는다.
 // --oppScale : 상대 스탯을 시즌별(s2=1.03) 또는 팀별(op_s3_emberthrone=1.05) 배율 적용 (10 단위 반올림, 메모리만).
@@ -125,6 +126,10 @@ function holderCount(team) {
  * - midH / midA / midGoal*: 파이널 서드 중거리 슛(필살 슛 제외 — 전술 슛 타이밍 효과 확인용)
  * - boxPass / boxCross (…H / …A): ④ 박스 연결(컷백 패스 · 센터링) 시도, boxLinkOk: 연결 성공,
  *   boxShot / boxShotGoal: 연결 성공 뒤 받은 선수의 슛(원터치·헤더)과 골, boxCombo: 그 슛이 합체기 (2026-09-29)
+ * - boxChance (…H / …A): ④ 슈팅 찬스에서의 첫 판정 수 (슛 또는 연결 — 연결 비율의 분모)
+ * - GK 배급 (2026-09-29): distShort / distLong (…H / …A), distLongOk (…H / …A) 롱패스 성공, cannon 캐논 킥 사용
+ * - 마지막 공격 보장: lastAttack (…H / …A) 받은 수, lastAttackGoal (…H / …A) 그 포제션의 골
+ * - upsets: 대이변 (승자 확률 < upsetP) 판정 수, chipDecisive: 결정타 칩이 있는 판정 수, judged: 칩이 붙은 판정 수
  */
 export function matchMetrics(ms) {
   const r = match.getResult(ms);
@@ -141,18 +146,45 @@ export function matchMetrics(ms) {
     midH: 0, midA: 0, midGoalH: 0, midGoalA: 0,
     fieldDuels: 0, pairRead: 0, pairMiss: 0, pairHold: 0,
     boxPassH: 0, boxPassA: 0, boxCrossH: 0, boxCrossA: 0, boxLinkOk: 0, boxShot: 0, boxShotGoal: 0, boxCombo: 0,
+    boxChanceH: 0, boxChanceA: 0,
+    distShortH: 0, distShortA: 0, distLongH: 0, distLongA: 0, distLongOkH: 0, distLongOkA: 0, cannon: 0,
+    lastAttackH: 0, lastAttackA: 0, lastAttackGoalH: 0, lastAttackGoalA: 0,
+    upsets: 0, chipDecisive: 0, judged: 0,
     extraTime: ms.stage !== "regular" ? 1 : 0, penalties: r.penalties ? 1 : 0,
   };
   for (const a of ATK_ACTIONS) o[`atk_${a}`] = 0;
   for (const d of DEF_ACTIONS) o[`def_${d}`] = 0;
   for (const l of LINK_IDS) o[`link_${l}`] = 0;
   let afterLink = null; // 박스 연결 성공 → 같은 포제션의 다음 판정 = 받은 선수의 슛
+  let lastBoxPoss = null; // ④ 슈팅 찬스 첫 판정 (포제션당 1회)
   for (const e of ms.events) {
+    const sfx = e.side === "home" ? "H" : "A";
     if (e.type === "cutin") {
       if (e.ultimateType === "shot") o.ultShot++;
       else if (e.ultimateType === "pass") o.ultPass++;
       else if (e.ultimateType === "save") o.ultSave++;
       continue;
+    }
+    if (e.type === "skill" && e.effect === "longPassBoost") o.cannon++;
+    if (e.type === "lastAttack") o[`lastAttack${sfx}`]++;
+    if (Array.isArray(e.factors)) {
+      o.judged++;
+      if (e.upset) o.upsets++;
+      if (e.decisive) o.chipDecisive++;
+    }
+    if (e.distribution) {
+      // GK 배급 (짧은 패스 · 롱패스 성공 = distribution, 롱패스 실패 = turnover) — 필드 듀얼 지표에서 뺀다
+      if (e.action === "short") o[`distShort${sfx}`]++;
+      else {
+        o[`distLong${sfx}`]++;
+        if (e.success) o[`distLongOk${sfx}`]++;
+      }
+      continue;
+    }
+    if (e.type === "goal" && e.lastAttack) o[`lastAttackGoal${sfx}`]++;
+    if (FIELD_BEATS.has(e.type) && e.step === 3 && e.defAction === "save" && lastBoxPoss !== e.possession) {
+      lastBoxPoss = e.possession;
+      o[`boxChance${e.attackingSide === "home" ? "H" : "A"}`]++;
     }
     if (!FIELD_BEATS.has(e.type) || !e.action) continue;
     if (e.boxLink) {
@@ -243,8 +275,26 @@ export function accSummary(acc) {
     boxLinkSuccess: n && (avg("boxPassH") + avg("boxPassA") + avg("boxCrossH") + avg("boxCrossA"))
       ? avg("boxLinkOk") / (avg("boxPassH") + avg("boxPassA") + avg("boxCrossH") + avg("boxCrossA")) : 0,
     boxShotGoalRate: ratio("boxShotGoal", "boxShot"), boxCombos: avg("boxCombo"),
+    // ④ 연결 비율 = 연결 시도 / ④ 슈팅 찬스 (포제션당 첫 판정)
+    boxLinkRateHome: ratio2(s, ["boxPassH", "boxCrossH"], "boxChanceH"), boxLinkRateAway: ratio2(s, ["boxPassA", "boxCrossA"], "boxChanceA"),
+    // GK 배급 (2026-09-29)
+    distShortHome: avg("distShortH"), distShortAway: avg("distShortA"), distLongHome: avg("distLongH"), distLongAway: avg("distLongA"),
+    longPassSuccessHome: ratio("distLongOkH", "distLongH"), longPassSuccessAway: ratio("distLongOkA", "distLongA"),
+    cannon: avg("cannon"),
+    // 마지막 공격 보장
+    lastAttackHome: avg("lastAttackH"), lastAttackAway: avg("lastAttackA"),
+    lastAttackGoalRate: ratio2(s, ["lastAttackGoalH", "lastAttackGoalA"], null, ["lastAttackH", "lastAttackA"]),
+    // 결정타 칩
+    upsetsPerMatch: avg("upsets"), upsetRate: ratio("upsets", "judged"), decisiveRate: ratio("chipDecisive", "judged"),
     extraTimeRate: avg("extraTime"), penaltyRate: avg("penalties"),
   };
+}
+
+/** (Σ keys) / (s[den] 또는 Σ dens) — 0 이면 0 */
+function ratio2(s, keys, den, dens = null) {
+  const top = keys.reduce((a, k) => a + (s[k] || 0), 0);
+  const bot = dens ? dens.reduce((a, k) => a + (s[k] || 0), 0) : s[den] || 0;
+  return bot ? top / bot : 0;
 }
 
 /* ------------------------------------------------------------------ */
@@ -518,6 +568,11 @@ export function matchStatsTable(cols) {
     row("박스 연결/경기 컷백/센터링 우리 · 상대", (s) => `${fmt(s.boxPassHome)}/${fmt(s.boxCrossHome)} · ${fmt(s.boxPassAway)}/${fmt(s.boxCrossAway)}`),
     row("박스 연결 성공률 · 다음 슛 골%", (s) => (s.boxLinks ? `${pct(s.boxLinkSuccess)} · ${s.boxShotGoalRate ? pct(s.boxShotGoalRate) : "-"}` : "-")),
     row("박스 합체기/경기", (s) => fmt(s.boxCombos, 3)),
+    row("④ 연결 비율 우리/상대", (s) => `${pct(s.boxLinkRateHome)} / ${pct(s.boxLinkRateAway)}`),
+    row("GK 배급/경기 짧게·길게 우리 · 상대", (s) => `${fmt(s.distShortHome)}·${fmt(s.distLongHome)} · ${fmt(s.distShortAway)}·${fmt(s.distLongAway)}`),
+    row("롱패스 성공률 우리/상대 (캐논 킥/경기)", (s) => `${s.distLongHome ? pct(s.longPassSuccessHome) : "-"} / ${s.distLongAway ? pct(s.longPassSuccessAway) : "-"} (${fmt(s.cannon, 3)})`),
+    row("마지막 공격/경기 우리/상대 (골%)", (s) => `${fmt(s.lastAttackHome, 3)}/${fmt(s.lastAttackAway, 3)} (${s.lastAttackHome + s.lastAttackAway ? pct(s.lastAttackGoalRate) : "-"})`),
+    row("대이변/경기 (판정 중 %) · 결정타 칩 %", (s) => `${fmt(s.upsetsPerMatch)} (${pct(s.upsetRate)}) · ${pct(s.decisiveRate)}`),
     row("연장 / 승부차기", (s) => `${pct(s.extraTimeRate)} / ${pct(s.penaltyRate)}`),
   ]);
 }

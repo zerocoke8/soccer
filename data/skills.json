@@ -234,6 +234,19 @@
     "ultimate": null
   },
   {
+    "id": "sk_cannon_kick",
+    "name": "캐논 킥",
+    "kind": "active",
+    "learnable": true,
+    "cost": 120,
+    "tension": 25,
+    "positions": ["GK"],
+    "description": "GK 배급 롱패스 ×1.5. 성공하면 이번 공격의 첫 듀얼 +10%",
+    "passive": null,
+    "active": { "effect": "longPassBoost", "params": { "longPass": 1.5, "nextDuelBonus": 0.1 }, "phase": "distribution", "ai": { "useWhen": "distribution", "minTension": 25 } },
+    "ultimate": null
+  },
+  {
     "id": "sk_focus_finish",
     "name": "막판 집중",
     "kind": "passive",

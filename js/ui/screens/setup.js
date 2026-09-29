@@ -2,14 +2,14 @@
 // 가로 스테이지(1280×720), 페이지 스크롤 없음:
 //   ┌ 머리 줄: ← 처음으로 · 편성 · 조작 안내 ················ seed · [기본 편성으로 시작] [런 시작] ┐
 //   │ 포메이션 · 배치: 가로 미니 필드(우리 골 왼쪽 — 경기 화면과 같은 방향), 슬롯 7개 │ 서포트 카드 (작은 칩 2열, n/6)   │
-//   │ 원소 공명 · 경고                                                         │ 전술 지시 3개                    │
+//   │ 원소 공명 · 경고                                                         │ 전술 지시 4개 (+ 배급)           │
 //   │ 선수 풀: 캐릭터 전원 카드 한 줄 (배치된 선수 = 슬롯 표시, 나머지 = 벤치)                                    │
 //   └──────────────────────────────────────────────────────────────────────────────────────┘
 // 배치는 라인업 보드(js/ui/lineup.js): 선수 카드를 끌어 슬롯에 놓기 (초록 = 가능 · 빨강 = 불가), 눌러서 고른 뒤 자리 누르기도 된다.
 import { h, avatar, select, toast, panel, openModal, closeOverlays } from '../dom.js';
 import {
   STATS, POSITIONS, slotsOf, positionOfSlot, POSITION_LABELS, ELEMENT_LABELS, ELEMENT_ICONS, STYLE_LABELS,
-  RACE_LABELS, SUPPORT_TYPE_LABELS, TACTIC_MAIN_KEYS, TACTIC_LABELS, TACTIC_OPTIONS,
+  RACE_LABELS, SUPPORT_TYPE_LABELS, TACTIC_SETUP_KEYS, TACTIC_LABELS, TACTIC_OPTIONS,
   APTITUDE_ORDER, FORMATIONS, randomSeed, traitInfo,
 } from '../labels.js';
 import { lineupBoard, reseat, slotSpot, slotOfId, checkMove, applyMove, badText } from '../lineup.js';
@@ -24,7 +24,7 @@ export function initSetup(data, seedPrefill = '') {
     squad: { ...(dsq.slots || {}) },
     supportIds: Array.isArray(cfg.defaultSupports) ? [...cfg.defaultSupports] : [],
     tactics: {
-      attack: 'balanced', shootTiming: 'breakAll', defense: 'balanced', tension: 'clutch', duelPicker: 'best',
+      attack: 'balanced', shootTiming: 'breakAll', defense: 'balanced', tension: 'clutch', duelPicker: 'best', distribution: 'auto',
       ...(cfg.defaultTactics || {}),
     },
     seed: seedPrefill || '',
@@ -230,8 +230,8 @@ export function renderSetup(root, ctx) {
     );
   }));
 
-  // ---- 전술 (한 줄 = 라벨 + 선택) ----
-  const tacticsEl = h('div', { class: 'tac-rows' }, TACTIC_MAIN_KEYS.map((key) =>
+  // ---- 전술 (한 줄 = 라벨 + 선택): 공격 성향 · 슛 타이밍 · 수비 성향 · 배급 (GK 배급 2026-09-29) ----
+  const tacticsEl = h('div', { class: 'tac-rows' }, TACTIC_SETUP_KEYS.map((key) =>
     h('label', { class: 'tac-row' },
       h('span', { class: 'tiny muted' }, TACTIC_LABELS[key]),
       select(TACTIC_OPTIONS[key], s.tactics[key], (v) => { s.tactics[key] = v; }, { 'aria-label': TACTIC_LABELS[key] }))));

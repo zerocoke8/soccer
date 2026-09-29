@@ -64,6 +64,21 @@ export const BOX_LINK_LABELS = { pass: '컷백', cross: '센터링' };
 export const BOX_LINK_ICONS = { pass: '↩️', cross: '⤴️' };
 export const BOX_LINK_FINISH = { pass: '원터치 슛', cross: '헤더' };
 export const ULT_TYPE_LABELS = { shot: '필살 슛', pass: '필살 패스', save: '필살 세이브' };
+// GK 배급 (2026-09-29): 세이브 · 박스 연결 차단 뒤 GK 가 고른다 (엔진 view.distribution · decision { action: short|long }).
+// 결정 카드 · 정보 줄 · 말풍선 · 결과 한 줄의 이름과 아이콘
+export const DIST_LABELS = { short: '짧은 패스', long: '롱패스' };
+export const DIST_ICONS = { short: '➡️', long: '🚀' };
+// 결정타 칩 (클래시 바 1단계, 표시 전용 — 엔진 판정 이벤트 decisive.id): 색 종류.
+// pair = 짝 (이긴 팀 색 — 우리 파랑 · 상대 빨강), link = 연계 특성 · 연계 (초록), ult = 필살기 · 합체기 (분홍),
+// edge = 제쳐짐 · 인터셉트 뚫림 · 첫 듀얼 보너스 (주황), skill = 액티브 스킬 (보라). 나머지(능력치 · 상성 · 커버 …) = 기본(흰색)
+export const DECISIVE_KINDS = {
+  pair: 'pair',
+  killpass: 'link', runner: 'link', carrier: 'link', crosser: 'link', finisher: 'link', targetman: 'link', chain: 'link',
+  wall: 'link', distributor: 'link', oneTouch: 'link', teamwork: 'link',
+  ultimate: 'ult', combo: 'ult', saveUlt: 'ult', ultShotGk: 'ult',
+  beaten: 'edge', interceptFail: 'edge', next: 'edge',
+  skill: 'skill',
+};
 
 // 연계 특성 (GDD v0.5 §9.10, data/traits.json). 이름·설명은 data.traits 가 있으면 그것을 쓰고(traitInfo), 아이콘은 여기만.
 export const TRAIT_LABELS = {
@@ -74,7 +89,7 @@ export const TRAIT_LABELS = {
   runner: { name: '침투', icon: '💨', description: '패스를 받은 직후 드리블 +15%' },
   carrier: { name: '볼 운반', icon: '🐾', description: '드리블 체력 소모 −30%, 빌드업·중원 드리블 +10%' },
   wall: { name: '철벽', icon: '🧱', description: '버티기 ×1.0 → ×1.15' },
-  distributor: { name: '빠른 배급', icon: '📤', description: '이 골키퍼가 세이브하면 역습이 중원에서 시작' },
+  distributor: { name: '빠른 배급', icon: '📤', description: '이 골키퍼의 롱패스 배급 +25% (세이브 · 박스 연결 차단 뒤 GK 배급)' },
   captain: { name: '주장', icon: '©️', description: '팀워크 증폭 단계를 계산할 때 팀워크 +10' },
 };
 /** 연계 특성 표시 정보 { id, name, icon, description } — data.traits(있으면) 우선. 없는 id 면 null */
@@ -106,15 +121,19 @@ export const TOKEN_ROLE_LABELS = {
 
 export const CONDITION_LABELS = ['최악', '나쁨', '보통', '좋음', '최상'];
 
-export const TACTIC_LABELS = { attack: '공격 성향', shootTiming: '슛 타이밍', defense: '수비 성향', tension: '텐션 사용', duelPicker: '듀얼 담당' };
+export const TACTIC_LABELS = { attack: '공격 성향', shootTiming: '슛 타이밍', defense: '수비 성향', tension: '텐션 사용', duelPicker: '듀얼 담당', distribution: '배급' };
 export const TACTIC_OPTIONS = {
   attack: [['dribble', '드리블 위주'], ['balanced', '균형'], ['pass', '패스 위주']],
   shootTiming: [['breakAll', '라인 다 뚫고'], ['midrange', '기회 보이면 중거리']],
   defense: [['tackle', '태클 선호'], ['balanced', '균형'], ['intercept', '인터셉트 선호'], ['hold', '버티기 선호']],
   tension: [['save', '아끼기'], ['immediate', '즉시'], ['clutch', '결승골 상황만']],
   duelPicker: [['best', '최고 수비수'], ['matchup', '상성 유리']],
+  // GK 배급 (2026-09-29, 엔진 run.DISTRIBUTION_TACTICS): 상황 따라 = 롱패스 성공 확률이 config longPassAutoMin 이상이면 길게
+  distribution: [['auto', '상황 따라'], ['short', '짧게'], ['long', '길게']],
 };
 export const TACTIC_MAIN_KEYS = ['attack', 'shootTiming', 'defense'];
+// 편성 화면 · 전술 미팅의 전술 줄: 주요 3개 + 배급 (텐션 사용 · 듀얼 담당은 미팅에서만)
+export const TACTIC_SETUP_KEYS = [...TACTIC_MAIN_KEYS, 'distribution'];
 
 export const SKILL_KIND_LABELS = { passive: '패시브', active: '액티브', unique: '필살기' };
 

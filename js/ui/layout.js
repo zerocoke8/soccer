@@ -20,6 +20,10 @@
 //    골이면 공은 골문 안, carrier 없음 (finalFrame).
 //  - 좁고 높은 필드(aspect ≥ 1.1)에서 ④ 단계 GK 가 세로 간격을 못 얻으면 공을 자기 골 쪽으로 당긴다 (구역 · 뚫린 라인 앞 유지).
 //  - 가로로 놓을 자리가 없으면 규칙 방향(공과 멀어지는 쪽)으로만 세로를 조금 민다. 승부차기 반원이 모자라면 두 줄 지그재그.
+//  - 2026-09-29 GK 배급 대기 (view.phase "distribution" — distributionLayout): 공 = 배급 GK (자기 박스 안 DISTRIBUTION.gkFy),
+//    배급 팀은 빌드업(①) 모양, 상대는 ① 수비 모양. 받는 선수 후보 = 짧은 패스 DF · 롱패스 MF (엔진 view.distribution.options 의
+//    starterId, 제자리), 롱패스를 다투는 상대 MF(contest) = defender 역할 (롱패스 받는 선수와 같은 레인 — 낙하 지점 경합).
+//    zone = GK 박스 (gkZone), track.gk = true (아직 ① 전). 배급 비트 뒤 배너 = "롱패스 성공! 중원에서 시작" · 롱패스 실패 뒤 "세컨드볼!".
 
 export const ZONES = [
   { id: 1, from: 0, to: 16, name: "우리 박스" },
@@ -67,11 +71,13 @@ const DEF_HARD_MAX = 99.5;
 const GOAL_FRAME = { ballX: 58, ballFy: 99.5, gkX: 38 };
 /** 가로 자리가 없을 때 세로로 미는 단위·최대 횟수 */
 const NUDGE = { step: 1.5, max: 8 };
+/** GK 배급 대기: 배급 GK(공)의 세로 % (공격 방향 기준 — 자기 박스 0~16 안, 골문 앞 SHAPE.atk.GK[0] 보다 조금 앞) */
+export const DISTRIBUTION = { gkFy: 9 };
 
 // 엔진(match.js)과 같은 값의 사본 — layout 은 엔진 없이도 import 된다
 const POSITIONS = ["GK", "DF", "MF", "FW"];
 const POS_BY_LINE = ["FW", "MF", "DF", "GK"];
-const BEAT_TYPES = new Set(["kickoff", "counter", "duel", "turnover", "save", "goal", "penalty"]);
+const BEAT_TYPES = new Set(["kickoff", "counter", "duel", "turnover", "save", "goal", "penalty", "distribution"]);
 const EPS = 1e-9;
 
 /* ------------------------------------------------------------------ */
@@ -245,7 +251,16 @@ export function computeLayout(view, opts = {}) {
   const geo = { aspect, minD: tokenSize * 100, minDy: tokenSize * 100 * aspect };
   const teams = { home: normTeam(v, "home"), away: normTeam(v, "away") };
   const lastBeat = findLastBeat(v);
-  return isPenaltyView(v) ? penaltyLayout(v, teams, geo, lastBeat) : playLayout(v, teams, geo, lastBeat);
+  if (isPenaltyView(v)) return penaltyLayout(v, teams, geo, lastBeat);
+  const dist = distributionOf(v);
+  return dist ? distributionLayout(v, teams, geo, lastBeat, dist) : playLayout(v, teams, geo, lastBeat);
+}
+
+/** GK 배급 대기 view 의 distribution (엔진 view.distribution — phase "distribution", 종료 전). 아니면 null */
+function distributionOf(v) {
+  if (v.finished || v.phase !== "distribution") return null;
+  const d = v.distribution;
+  return d && typeof d === "object" && isSide(d.side) ? d : null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -319,6 +334,9 @@ function playLayout(v, teams, geo, lastBeat) {
     if (e === carrier) {
       role = "carrier";
       fy = ballFy;
+      // 롱패스를 끊고 끝난 경기: 끊은 선수 = 롱패스 받을 선수의 레인 (finalFrame.laneId)
+      const lane = fin && fin.laneId != null ? findEntry(D, fin.laneId) : null;
+      if (lane) fx = lane.laneX;
     } else if (landingOf.has(e)) {
       role = "receiver";
       // 받는 선수 후보: 패스·크로스가 도착하는 구역 안 (GDD §9.3 공격 팀 2 — 공보다 한 구역 앞).
@@ -389,7 +407,7 @@ function playLayout(v, teams, geo, lastBeat) {
 
   const gkEntry = defender && defender.position === "GK" ? defender : D.byPos.GK[0] || defender;
   const banner = playBanner({
-    atk, step, zone, finished, lastBeat, remainingText,
+    atk, step, zone, finished, lastBeat, prevBeat: findPrevBeat(v, lastBeat), remainingText,
     carrierName: carrier ? carrier.name : null,
     defenderName: defender ? defender.name : null,
     gkName: gkEntry ? gkEntry.name : null,
@@ -415,13 +433,82 @@ function playLayout(v, teams, geo, lastBeat) {
   };
 }
 
+/* ------------------------------------------------------------------ */
+/* GK 배급 대기 (2026-09-29)                                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * GK 배급 대기 (view.phase "distribution"): 세이브 · 박스 연결 차단 뒤 GK 가 자기 박스에서 공을 들고 배급을 고른다.
+ *  - 공 = 배급 GK (carrier, 세로 DISTRIBUTION.gkFy — 자기 박스 안). 배급 팀의 나머지는 빌드업(①) 모양 SHAPE.atk[pos][0].
+ *  - 받는 선수 후보(receiver) = 짧은 패스 받는 선수(options.short.success.starterId — DF) · 롱패스 받는 선수(options.long … — MF), 제자리.
+ *  - 상대 = ① 수비 모양 SHAPE.def[pos][0] (FW 가 전방 압박). 롱패스를 다투는 상대 MF(contest) = defender 역할,
+ *    롱패스 받는 선수와 같은 레인 (낙하 지점 경합 — 화면에서 둘이 마주 본다). 뚫린 라인 없음.
+ *  - zone = 배급 GK 의 박스 (gkZone — home 1 · away 5), track = { side, step: 0, dir, gk: true } (아직 ① 전), nextBall 없음.
+ *  - receiverId = 자동 배급(auto.action)의 받는 선수, dist = { short, long, contest } (받는 선수 · 경합 선수 id — 화면 미리보기용).
+ */
+function distributionLayout(v, teams, geo, lastBeat, dist) {
+  const atk = dist.side;
+  const def = otherSide(atk);
+  const toY = (fy) => (atk === "home" ? fy : 100 - fy);
+  const A = teams[atk];
+  const D = teams[def];
+  const opts = dist.options && typeof dist.options === "object" ? dist.options : {};
+  const starter = (a) => (opts[a] && opts[a].success ? opts[a].success.starterId : null);
+  const carrier = findEntry(A, dist.gkId) || findEntry(A, v.carrier && v.carrier.id) || A.byPos.GK[0] || null;
+  const shortE = findEntry(A, starter("short"));
+  const longE = findEntry(A, starter("long"));
+  const contest = findEntry(D, dist.contest && dist.contest.id);
+  const recv = new Set([shortE, longE].filter((e) => e && e !== carrier));
+
+  const specs = [];
+  for (const e of A.list) {
+    if (e === carrier) specs.push({ e, role: "carrier", fx: e.laneX, fy: DISTRIBUTION.gkFy, nudge: 1, sideOrder: 0 });
+    else if (recv.has(e)) specs.push({ e, role: "receiver", fx: e.laneX, fy: SHAPE.atk[e.position][0], nudge: 1, sideOrder: 0 });
+    else specs.push({ e, role: e.position === "GK" ? "gk" : "support", fx: e.laneX, fy: SHAPE.atk[e.position][0], nudge: e.position === "GK" ? 1 : -1, sideOrder: 0 });
+  }
+  for (const e of D.list) {
+    if (e === contest) specs.push({ e, role: "defender", fx: longE ? longE.laneX : e.laneX, fy: SHAPE.def[e.position][0], nudge: 1, sideOrder: 1 });
+    else specs.push({ e, role: e.position === "GK" ? "gk" : "support", fx: e.laneX, fy: SHAPE.def[e.position][0], nudge: 1, sideOrder: 1 });
+  }
+  const pos = placeAll(specs, toY, geo);
+  const cPos = carrier ? pos.get(carrier) : null;
+  const ball = cPos ? { x: cPos.x, y: cPos.y } : { x: 50, y: toY(DISTRIBUTION.gkFy) };
+  const zone = validZone(dist.gkZone) ?? zoneAtY(ball.y);
+  const remainingText = v.remaining && typeof v.remaining.text === "string" ? v.remaining.text : remainingFromTeam(D, 0);
+  const autoId = dist.auto && dist.auto.action === "long" ? longE : dist.auto && dist.auto.action === "short" ? shortE : null;
+  const gkName = carrier ? carrier.name : "GK";
+  const banner = atk === "home"
+    ? `🧤 ${withJosa(gkName, "이/가")} 배급 — 짧게 빌드업 · 길게 중원`
+    : `상대 GK ${gkName} 배급 — 롱패스면 중원 경합`;
+  return {
+    mode: "play",
+    ball,
+    tokens: buildTokens(teams, pos),
+    zone,
+    highlight: highlightFor(atk, zone, false),
+    track: { side: atk, step: 0, dir: attackDir(v, atk), gk: true },
+    remainingText,
+    banner,
+    attackingSide: atk,
+    attackStep: 0,
+    carrierId: carrier ? carrier.id : null,
+    defenderId: contest ? contest.id : null,
+    receiverId: autoId && recv.has(autoId) ? autoId.id : null,
+    receiverIds: A.list.filter((e) => recv.has(e)).map((e) => e.id),
+    nextBall: null,
+    goal: { x: 50, y: atk === "home" ? 100 : 0 },
+    dist: { short: shortE ? shortE.id : null, long: longE ? longE.id : null, contest: contest ? contest.id : null },
+  };
+}
+
 /**
  * 경기 종료 view 의 마지막 모습 (마지막 비트가 끝난 뒤). 엔진은 종료 시 다음 포제션을 시작하지 않으므로
  * view.carrier / attackingSide 는 판정 전(공을 잃은 쪽) 값이다 → lastBeat 로 판정 후 모습을 만든다.
- *  - turnover: 공을 뺏은 수비수가 carrier, 공을 얻은 팀(toAttackingSide)의 toStep 모양 (= 정상 진행의 역습 모양)
+ *  - turnover: 공을 뺏은 수비수가 carrier, 공을 얻은 팀(toAttackingSide)의 toStep 모양 (= 정상 진행의 역습 모양).
+ *    GK 롱패스 차단(distribution: true)이면 끊은 선수는 롱패스 받을 선수(receiverId)의 레인 (laneId)
  *  - save:     GK 가 공을 품에 (자기 골문 앞), GK 팀의 toStep 모양
  *  - goal:     공은 골문 안, carrier 없음, 득점 팀의 슛 단계 모양 (득점자는 슛한 자리)
- * @returns {null | { kind, atk, step, holderId, shooterId? }}
+ * @returns {null | { kind, atk, step, holderId, shooterId?, laneId? }}
  */
 function finalFrame(lb) {
   if (!lb || typeof lb !== "object") return null;
@@ -436,7 +523,9 @@ function finalFrame(lb) {
     let toStep;
     if (lb.toStep != null && Number.isFinite(Number(lb.toStep))) toStep = clampInt(lb.toStep, 0, 3);
     else toStep = lb.type === "save" ? 0 : [2, 1, 0, 0][fromStep]; // §7.5 역습 시작 (스킬 없음)
-    return { kind: lb.type, atk: toSide, step: toStep, holderId: lb.defenderId ?? null };
+    // GK 롱패스 차단으로 끝남 (distribution: true): 끊은 선수는 롱패스가 향하던 선수(receiverId)의 레인 — 낙하 지점에 그대로 (2026-09-30)
+    const laneId = lb.type === "turnover" && lb.distribution && lb.receiverId != null ? String(lb.receiverId) : null;
+    return { kind: lb.type, atk: toSide, step: toStep, holderId: lb.defenderId ?? null, laneId };
   }
   return null;
 }
@@ -726,16 +815,25 @@ function remainingFromTeam(D, step) {
 }
 
 /** 현재 상태의 상황 배너 한 줄 (언제 띄울지는 UI 가 정한다: 구역이 바뀌는 비트) */
-function playBanner({ atk, step, zone, finished, lastBeat, remainingText, carrierName, defenderName, gkName }) {
+function playBanner({ atk, step, zone, finished, lastBeat, prevBeat, remainingText, carrierName, defenderName, gkName }) {
   if (finished) return "경기 종료";
   if (!carrierName) return null;
   const home = atk === "home";
   const C = carrierName;
   const zoneName = (ZONES[zone - 1] || ZONES[2]).name;
 
+  // GK 배급 직후 (2026-09-29, 마지막 비트 = 이 팀의 배급): 짧은 패스 → 빌드업, 롱패스 성공 → 중원
+  if (lastBeat && lastBeat.side === atk && lastBeat.type === "distribution") {
+    if (lastBeat.action === "long") return home ? `롱패스 성공! ${zoneName}에서 시작 — ${C}` : `⚠ 상대 롱패스 성공! ${zoneName}에서 시작 — ${C}`;
+    return home ? `GK 짧은 패스 — ${withJosa(C, "이/가")} 빌드업 시작` : `상대 GK 짧은 패스 — ${withJosa(C, "이/가")} 빌드업 시작`;
+  }
   // 포제션 시작 직후 (마지막 비트가 이 팀의 킥오프/역습)
   if (lastBeat && lastBeat.side === atk && (lastBeat.type === "counter" || lastBeat.type === "kickoff")) {
     if (lastBeat.type === "counter") {
+      // 상대 GK 롱패스를 끊은 역습 (바로 앞 비트 = 롱패스 실패 turnover, distribution: true) = 세컨드볼
+      if (prevBeat && prevBeat.type === "turnover" && prevBeat.distribution && prevBeat.side !== atk) {
+        return home ? `세컨드볼! ${zoneName}에서 공격 — ${C}` : `⚠ 상대 세컨드볼! ${zoneName}에서 공격 — ${C}`;
+      }
       return home ? `역습! ${zoneName}에서 시작 — ${C}` : `⚠ 상대 역습! ${zoneName}에서 시작 — ${C}`;
     }
     // 킥오프는 중원(센터서클)에서 시작 (GDD #55). 설정으로 빌드업(line 0)이면 예전 문구
@@ -827,6 +925,16 @@ function findLastBeat(v) {
   for (let i = evs.length - 1; i >= 0; i--) {
     if (evs[i] && BEAT_TYPES.has(evs[i].type)) return evs[i];
   }
+  return null;
+}
+
+/** 마지막 비트 바로 앞의 비트 (view.recentEvents 안에서, seq 로 찾는다). 없으면 null */
+function findPrevBeat(v, lastBeat) {
+  const evs = Array.isArray(v.recentEvents) ? v.recentEvents : [];
+  if (!lastBeat) return null;
+  let i = evs.findIndex((e) => e && (e === lastBeat || (lastBeat.seq != null && e.seq === lastBeat.seq)));
+  if (i < 0) return null;
+  for (i -= 1; i >= 0; i--) if (evs[i] && BEAT_TYPES.has(evs[i].type)) return evs[i];
   return null;
 }
 

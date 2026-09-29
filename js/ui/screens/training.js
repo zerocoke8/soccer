@@ -281,7 +281,7 @@ export function renderTraining(root, ctx, { inert = false } = {}) {
             h('h4', { class: 'og-panel-title' }, '전술 지시'),
             L.TACTIC_MAIN_KEYS.map(fieldSel),
             h('div', { class: 'divider' }),
-            ['tension', 'duelPicker'].map(fieldSel)),
+            ['tension', 'duelPicker', 'distribution'].map(fieldSel)),
           h('section', { class: 'meeting-col meeting-board' },
             h('div', { class: 'row between' },
               h('h4', { class: 'og-panel-title' }, '포메이션 · 포지션'),

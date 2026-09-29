@@ -70,6 +70,9 @@ const SNAPSHOT_MODIFIER_KEYS = ["shootPower", "defense", "tensionGain", "stamina
 export const DEFENSE_TACTICS = ["tackle", "balanced", "intercept", "hold"];
 /** 폐지된 전술 값 → 이행 값 (§13.5). readIntent(의도 따라가기)는 의도 공개 폐지로 balanced. */
 const LEGACY_DEFENSE_TACTICS = { readIntent: "balanced" };
+/** GK 배급 전술 (2026-09-29): short 짧게 · long 길게 · auto 상황 따라 (롱패스 성공 확률 ≥ config.match.longPassAutoMin 이면 길게) */
+export const DISTRIBUTION_TACTICS = ["short", "long", "auto"];
+const DEFAULT_DISTRIBUTION_TACTIC = "auto";
 /** 폐지된 modifier 키 → 새 키 (§13.5). 옛 저장 런의 intentReveal(의도 공개 +1)은 간파 사용권 1로 바꾼다. */
 const LEGACY_MODIFIER_KEYS = { intentReveal: "gaanpaTicket" };
 /** 옛 저장 런에서 intentReveal 을 주던 유물 → 새 유물이 추가로 주는 modifier (rl_coach_notebook: gaanpaCostHalf) */
@@ -245,6 +248,7 @@ function opponentStrength(opponent) {
 
 /**
  * 전술 이행: 폐지된 값을 새 값으로 바꾼 사본 (readIntent → balanced). 입력은 바꾸지 않는다.
+ * 2026-09-29: GK 배급 전술 distribution 이 없거나 잘못된 값이면 "auto" (옛 저장 런 · 등록 팀 · 상대 데이터).
  * @param {object|null|undefined} tactics
  * @returns {object}
  */
@@ -253,6 +257,7 @@ export function normalizeTactics(tactics) {
   if (typeof t.defense === "string" && Object.prototype.hasOwnProperty.call(LEGACY_DEFENSE_TACTICS, t.defense)) {
     t.defense = LEGACY_DEFENSE_TACTICS[t.defense];
   }
+  if (!DISTRIBUTION_TACTICS.includes(t.distribution)) t.distribution = DEFAULT_DISTRIBUTION_TACTIC;
   return t;
 }
 
@@ -286,6 +291,7 @@ function migrateModifierList(mods) {
 /**
  * 옛 저장 런을 v0.3 규칙으로 이행한다 (in-place, 멱등). 상태를 반환한다.
  * - tactics.defense readIntent → balanced
+ * - tactics.distribution 없음 → "auto" (2026-09-29 GK 배급 전술)
  * - modifiers intentReveal → gaanpaTicket (옛 감독의 수첩이면 gaanpaCostHalf 추가)
  * UI 가 저장된 런을 불러온 직후 불러도 되고, 상태를 바꾸는 공개 API(applyAction 등)도 진입 시 부른다.
  * @param {RunState} state
@@ -295,7 +301,7 @@ export function migrateRun(state) {
   if (!state || typeof state !== "object") return state;
   if (state.tactics && typeof state.tactics === "object") {
     const t = normalizeTactics(state.tactics);
-    if (t.defense !== state.tactics.defense) state.tactics = t;
+    if (t.defense !== state.tactics.defense || t.distribution !== state.tactics.distribution) state.tactics = t;
   }
   const mods = migrateModifierList(state.modifiers);
   if (mods !== state.modifiers) state.modifiers = mods;

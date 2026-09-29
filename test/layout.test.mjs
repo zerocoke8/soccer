@@ -271,7 +271,60 @@ function assertPlayLayout(view, L, where) {
   if (carrierId) assert.ok(L.banner && L.banner.length > 0, `${where}: banner 있음`);
 }
 
-const BEAT_SET = new Set(["kickoff", "counter", "duel", "turnover", "save", "goal", "penalty"]);
+const BEAT_SET = new Set(["kickoff", "counter", "duel", "turnover", "save", "goal", "penalty", "distribution"]);
+
+/**
+ * GK 배급 대기 레이아웃 (2026-09-29, view.phase "distribution"): 배급 GK = 공 (자기 박스 = gkZone), 나머지 13명은 전부 GK 앞,
+ * 받는 선수 후보 = 짧은 패스 · 롱패스 받는 선수 (view.distribution.options.*.success.starterId), defender = 롱패스 경합 상대 MF,
+ * 뚫린 라인 없음, track = ① 전 (gk: true), 배너 = "… 배급 …". exact = 세로가 빌드업 모양 그대로인지도 (기본 비율)
+ */
+function assertDistributionLayout(view, L, where, { exact = true } = {}) {
+  const d = view.distribution;
+  const atk = d.side;
+  const def = other(atk);
+  const gkZone = atk === "home" ? 1 : 5;
+  const toY = (fy) => (atk === "home" ? fy : 100 - fy);
+  assert.equal(L.mode, "play", where);
+  assertCommon(view, L, where);
+  assert.equal(L.attackingSide, atk, `${where}: 배급 팀`);
+  assert.equal(L.zone, gkZone, `${where}: zone = 배급 GK 의 박스`);
+  if (d.gkZone != null) assert.equal(d.gkZone, gkZone, `${where}: 엔진 gkZone`);
+  assert.equal(zoneAtY(L.ball.y), gkZone, `${where}: 공 y=${L.ball.y} 는 GK 박스 안`);
+  assert.deepEqual(L.track, { side: atk, step: 0, dir: atk === "home" ? "up" : "down", gk: true }, `${where}: track (① 전)`);
+  assert.equal(L.nextBall, null);
+  assert.deepEqual(L.highlight, { zone: gkZone, level: null, label: "" }, `${where}: 강조 없음`);
+  const find = (side, id) => L.tokens.find((t) => t.side === side && t.id === String(id));
+  const gk = find(atk, d.gkId);
+  assert.equal(L.carrierId, String(d.gkId));
+  assert.ok(gk && gk.role === "carrier" && gk.position === "GK", `${where}: 배급 GK = carrier`);
+  assert.deepEqual({ x: gk.x, y: gk.y }, L.ball, `${where}: 공 = GK`);
+  const ahead = (y) => (atk === "home" ? y > L.ball.y : y < L.ball.y);
+  for (const t of L.tokens) if (t !== gk) assert.ok(ahead(t.y), `${where}: ${t.side} ${t.id} y=${t.y} 는 GK(공 ${L.ball.y}) 앞`);
+  const want = [...new Set([d.options.short.success.starterId, d.options.long.success.starterId].map(String))];
+  assert.deepEqual(L.tokens.filter((t) => t.role === "receiver").map((t) => t.id).sort(), want.slice().sort(), `${where}: 받는 선수 = 짧은 패스 · 롱패스 받는 선수`);
+  assert.deepEqual(L.receiverIds.slice().sort(), want.slice().sort());
+  assert.deepEqual(L.dist, {
+    short: String(d.options.short.success.starterId), long: String(d.options.long.success.starterId), contest: d.contest ? String(d.contest.id) : null,
+  }, `${where}: dist`);
+  const defs = L.tokens.filter((t) => t.role === "defender");
+  if (d.contest) {
+    assert.equal(defs.length, 1, `${where}: 롱패스 경합 1명`);
+    assert.equal(defs[0].side, def);
+    assert.equal(defs[0].id, String(d.contest.id));
+    assert.equal(defs[0].position, "MF", `${where}: 경합 = 상대 MF`);
+    assert.equal(L.defenderId, String(d.contest.id));
+  }
+  assert.equal(L.tokens.filter((t) => ["broken", "cover"].includes(t.role)).length, 0, `${where}: 뚫린 · 커버 없음`);
+  if (exact) {
+    for (const t of L.tokens) {
+      if (t === gk) continue;
+      const shape = t.side === atk ? SHAPE.atk : SHAPE.def;
+      assert.equal(t.y, toY(shape[t.position][0]), `${where}: ${t.side} ${t.id} 세로 = ① 모양`);
+    }
+  }
+  assert.ok(typeof L.banner === "string" && /배급/.test(L.banner) && !/undefined|null|NaN/.test(L.banner), `${where}: banner "${L.banner}"`);
+  assert.match(L.remainingText, /^남은 수비: /);
+}
 
 /**
  * 경기 종료 레이아웃 (인플레이로 끝남): 마지막 비트가 끝난 뒤의 모습.
@@ -624,6 +677,9 @@ function playAndCheck(ms, label, seen) {
     } else if (view.finished) {
       assertFinishedLayout(view, L, where);
       seen.add(`finished-${view.lastBeat.type}`);
+    } else if (view.phase === "distribution") {
+      assertDistributionLayout(view, L, where);
+      seen.add(`dist-${view.distribution.side}`);
     } else {
       assertPlayLayout(view, L, where);
       seen.add(`${view.attackingSide}${view.attackStep ?? view.lineIndex}`);
@@ -639,6 +695,7 @@ function playAndCheck(ms, label, seen) {
       });
     } else {
       if (old.finished) assertFinishedLayout(old, LO, `${where} (v0.1 view)`);
+      else if (old.phase === "distribution") assertDistributionLayout(old, LO, `${where} (v0.1 view)`);
       else assertPlayLayout(old, LO, `${where} (v0.1 view)`);
       // receiver 역할만 빼면 위치·역할이 같다 (receiver 는 receivers/receiverPreview 가 있어야 표시되고, 도착 구역에 선다)
       const strip = (T) => T.tokens.map((t) => [t.id, L.receiverIds.includes(t.id) ? null : t.y, t.role === "receiver" ? "support" : t.role]);
@@ -677,7 +734,7 @@ test("실제 엔진 경기: 4×4 포메이션 · 여러 seed · 매 step view �
       matches++;
     }
   }
-  for (const k of ["home0", "home1", "home2", "home3", "away0", "away1", "away2", "away3", "regression", "finished-turnover", "finished-goal"]) {
+  for (const k of ["home0", "home1", "home2", "home3", "away0", "away1", "away2", "away3", "regression", "finished-turnover", "finished-goal", "dist-home", "dist-away"]) {
     assert.ok(seen.has(k), `실제 경기에서 ${k} 상황이 나와야 함 (${[...seen].join(",")})`);
   }
   assert.equal(matches, 16 * 3 + data.opponents.length * 2);
@@ -732,6 +789,17 @@ test("경기 종료 모습 (합성): 턴오버·세이브 → 공을 얻은 선�
   assert.equal(L4.carrierId, "a_FW1");
   assert.equal(L4.attackingSide, "away");
   assert.equal(L4.zone, 2, "line 0 에서 뺏기면 상대는 line 2 (우리 진영) 에서");
+  // GK 롱패스 차단으로 끝남 (2026-09-30): 끊은 상대 MF 는 롱패스 받을 선수(receiverId)의 레인 — 낙하 지점에서 공을 든 모습
+  const lb5 = { type: "turnover", side: "home", playerId: "h_GK", defenderId: "a_MF1", receiverId: "h_MF2", action: "long", attackingSide: "home", step: 0, zone: 2, toAttackingSide: "away", toStep: 1, toZone: 3 };
+  const L5 = computeLayout({ ...base("home", 0, "h_GK"), lastBeat: { ...lb5, distribution: true } });
+  const L5o = computeLayout({ ...base("home", 0, "h_GK"), lastBeat: lb5 });
+  assert.equal(L5.carrierId, "a_MF1");
+  const c5 = L5.tokens.find((t) => t.id === "a_MF1");
+  const r5 = L5.tokens.find((t) => t.id === "h_MF2");
+  const c5o = L5o.tokens.find((t) => t.id === "a_MF1");
+  const r5o = L5o.tokens.find((t) => t.id === "h_MF2");
+  // 받을 선수의 레인 = 평소 모습에서 그 선수의 가로 자리 (끊은 선수가 그 레인에 서면 받을 선수가 옆으로 비킨다)
+  assert.ok(Math.abs(c5.x - r5o.x) < 1e-6 && Math.abs(c5o.x - r5o.x) > 1 && Math.abs(r5.x - c5.x) > 1, `끊은 선수 x ${c5.x} = 받을 선수 레인 ${r5o.x} (평소 ${c5o.x}, 받을 선수 ${r5.x})`);
 });
 
 test("실제 엔진: 종료 view 300경기 — 마지막 모습의 공은 항상 공을 얻은 쪽 (턴오버·세이브) 또는 골문 안 (골)", () => {
@@ -1092,6 +1160,15 @@ function assertRangeInvariants(view, L, aspect, tokenSize, where) {
   }
   for (const t of T) assert.ok(t.x >= X_MIN - TOL && t.x <= X_MAX + TOL && t.y >= 0 && t.y <= 100, `${where}: ${t.id} 범위`);
   if (L.mode !== "play" || view.finished) return;
+  if (view.phase === "distribution" && view.distribution) {
+    // GK 배급 대기: 공 = 배급 GK (자기 박스), 나머지는 전부 GK 앞 (세로는 규칙 방향으로만 밀릴 수 있다)
+    const side = view.distribution.side;
+    assert.equal(zoneAtY(L.ball.y), side === "home" ? 1 : 5, `${where}: 배급 공 구역`);
+    const g = T.find((t) => t.side === side && t.id === String(view.distribution.gkId));
+    assert.deepEqual({ x: g.x, y: g.y }, L.ball, `${where}: 배급 GK = 공`);
+    for (const t of T) if (t !== g) assert.ok(side === "home" ? t.y > L.ball.y : t.y < L.ball.y, `${where}: ${t.id} 는 GK 앞`);
+    return;
+  }
   const atk = view.attackingSide;
   const step = view.attackStep ?? view.lineIndex;
   assert.equal(zoneAtY(L.ball.y), zoneFor(atk, step), `${where}: 공 구역`);
@@ -1237,5 +1314,96 @@ test("가로 화면 범위 (aspect 0.40–0.8, tokenSize 0.04–0.095 — 스테
   for (const turn of ["home", "away"]) {
     const pv = { ...base, phase: "penalties", stage: "penalties", penalties: { home: 1, away: 1, turn, taken: { home: 2, away: 2 }, suddenDeath: false } };
     for (const [aspect, tokenSize] of LAND_RANGE) assertRangeInvariants(pv, computeLayout(pv, { aspect, tokenSize }), aspect, tokenSize, `land pen ${turn} @${aspect}`);
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* 2026-09-29 GK 배급 대기 (view.phase "distribution")                   */
+/* ------------------------------------------------------------------ */
+
+/** 합성 배급 대기 view: side 의 GK 가 공, 짧은 패스 = 첫 DF, 롱패스 = 마지막 MF, 경합 = 상대 마지막 MF */
+function makeDistView(homeF, awayF, side, autoAction = "long") {
+  const base = makeView({ homeF, awayF, atk: side, step: 0, carrierId: null, defenderId: null, phase: "distribution" });
+  const A = base.players[side];
+  const Dp = base.players[other(side)];
+  const gk = A.find((p) => posOfSynthetic(p) === "GK");
+  const df = A.find((p) => posOfSynthetic(p) === "DF");
+  const mf = A.filter((p) => posOfSynthetic(p) === "MF").slice(-1)[0];
+  const cmf = Dp.filter((p) => posOfSynthetic(p) === "MF").slice(-1)[0];
+  gk.isCarrier = true;
+  return {
+    ...base,
+    carrier: { id: gk.id, name: gk.name, side },
+    distribution: {
+      side, gkId: gk.id, gkName: gk.name, gkZone: side === "home" ? 1 : 5, needsDecision: side === "home",
+      contest: { id: cmf.id, name: cmf.name, side: other(side) },
+      order: ["short", "long"], recommended: "long", auto: { action: autoAction, p: autoAction === "long" ? 0.7 : 1 },
+      options: {
+        short: { action: "short", p: 1, pct: 100, success: { starterId: df.id, starterName: df.name } },
+        long: { action: "long", p: 0.7, pct: 70, success: { starterId: mf.id, starterName: mf.name } },
+      },
+      skills: [],
+    },
+  };
+}
+
+test("GK 배급 대기 (합성): GK 가 자기 박스에서 공 · 팀은 빌드업 모양 · 받는 선수 = 짧은 패스 DF · 롱패스 MF · 경합 상대 MF (4 포메이션² × 양 팀, 가로 · 세로 비율 범위)", () => {
+  for (const homeF of FORMS) {
+    for (const awayF of FORMS) {
+      for (const side of ["home", "away"]) {
+        for (const autoAction of ["short", "long"]) {
+          const view = makeDistView(homeF, awayF, side, autoAction);
+          const where = `${homeF} vs ${awayF} ${side} 배급(${autoAction})`;
+          const L = computeLayout(view);
+          assertDistributionLayout(view, L, where);
+          // 자동 배급의 받는 선수 = receiverId (자동 진행 중 이름표)
+          assert.equal(L.receiverId, String(view.distribution.options[autoAction].success.starterId), `${where}: receiverId = 자동 배급의 받는 선수`);
+          // 경합 상대 MF = 롱패스 받는 선수와 같은 레인 (낙하 지점에서 마주 본다), 받는 선수보다 앞
+          const R = L.tokens.find((t) => t.side === side && t.id === L.dist.long);
+          const Dc = L.tokens.find((t) => t.id === L.dist.contest);
+          assert.equal(Dc.x, R.x, `${where}: 경합 상대 = 롱패스 받는 선수 레인`);
+          assert.ok(side === "home" ? Dc.y > R.y : Dc.y < R.y, `${where}: 경합 상대는 받는 선수 앞 (자기 골 쪽)`);
+          assert.match(L.banner, side === "home" ? /^🧤 .+ 배급 — 짧게 빌드업 · 길게 중원$/ : /^상대 GK .+ 배급 — 롱패스면 중원 경합$/, where);
+          for (const [aspect, tokenSize] of [...LAND_RANGE, ...UI_RANGE]) {
+            const LR = computeLayout(view, { aspect, tokenSize });
+            assertRangeInvariants(view, LR, aspect, tokenSize, `${where} @${aspect}/${tokenSize}`);
+            assert.equal(LR.zone, side === "home" ? 1 : 5);
+          }
+        }
+      }
+    }
+  }
+  // 종료된 view 는 배급 대기 모양이 아니다 (마지막 비트 모습)
+  const fin = { ...makeDistView("2-2-2", "2-2-2", "home"), finished: true };
+  assert.equal(computeLayout(fin).dist, undefined, "종료 view = 배급 레이아웃 아님");
+});
+
+test("GK 배급 뒤 배너 (합성): 롱패스 성공 → '롱패스 성공! 중원에서 시작', 짧은 패스 → 'GK 짧은 패스 — ○○이 빌드업 시작', 롱패스 차단 뒤 역습 → '세컨드볼!'", () => {
+  for (const atk of ["home", "away"]) {
+    const home = atk === "home";
+    const pre = home ? "h" : "a";
+    const opp = home ? "a" : "h";
+    const gkId = `${pre}_GK`;
+    // 롱패스 성공 → 중원(②) MF 가 공
+    const long = makeView({ homeF: "2-2-2", awayF: "2-2-2", atk, step: 1, carrierId: `${pre}_MF1`, defenderId: `${opp}_MF1`, extra: {
+      lastBeat: { type: "distribution", side: atk, action: "long", success: true, playerId: gkId, receiverId: `${pre}_MF1`, attackingSide: atk, step: 0, toAttackingSide: atk, toStep: 1 },
+    } });
+    const bl = computeLayout(long).banner;
+    assert.ok(bl.includes("롱패스 성공! 중원에서 시작") && bl.includes(NAMES[atk].MF1) && (home ? !bl.startsWith("⚠") : bl.startsWith("⚠ 상대")), `롱패스 배너 ${bl}`);
+    // 짧은 패스 → 빌드업(①) DF 가 공
+    const short = makeView({ homeF: "2-2-2", awayF: "2-2-2", atk, step: 0, carrierId: `${pre}_DF1`, defenderId: `${opp}_FW1`, extra: {
+      lastBeat: { type: "distribution", side: atk, action: "short", success: true, playerId: gkId, receiverId: `${pre}_DF1`, attackingSide: atk, step: 0, toAttackingSide: atk, toStep: 0 },
+    } });
+    const bs = computeLayout(short).banner;
+    assert.equal(bs, `${home ? "" : "상대 "}GK 짧은 패스 — ${withJosa(NAMES[atk].DF1, "이/가")} 빌드업 시작`);
+    // 상대 GK 롱패스를 끊은 역습 (바로 앞 비트 = turnover distribution: true) → 세컨드볼
+    const lost = { type: "turnover", side: other(atk), distribution: true, action: "long", success: false, playerId: `${opp}_GK`, defenderId: `${pre}_MF1`, seq: 7, attackingSide: other(atk), step: 0, toAttackingSide: atk, toStep: 1 };
+    const counter = { type: "counter", side: atk, playerId: `${pre}_MF1`, seq: 8, attackingSide: atk, step: 1, toAttackingSide: atk, toStep: 1 };
+    const sb = makeView({ homeF: "2-2-2", awayF: "2-2-2", atk, step: 1, carrierId: `${pre}_MF1`, defenderId: `${opp}_MF1`, extra: { lastBeat: counter, recentEvents: [lost, counter] } });
+    const bsb = computeLayout(sb).banner;
+    assert.ok(bsb.includes("세컨드볼! 중원에서 공격") && (home ? bsb.startsWith("세컨드볼") : bsb.startsWith("⚠ 상대 세컨드볼")), `세컨드볼 배너 ${bsb}`);
+    // 평범한 역습(앞 비트가 배급 아님)은 그대로 "역습!"
+    const plain = makeView({ homeF: "2-2-2", awayF: "2-2-2", atk, step: 1, carrierId: `${pre}_MF1`, defenderId: `${opp}_MF1`, extra: { lastBeat: counter, recentEvents: [{ ...lost, distribution: undefined }, counter] } });
+    assert.match(computeLayout(plain).banner, /역습! 중원에서 시작/);
   }
 });

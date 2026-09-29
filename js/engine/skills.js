@@ -8,6 +8,8 @@
  *   getPlayerUltimate(data, player) 로 조회.
  * - 간파 = readBoost(수비) 또는 행동 제한 없는 negateRead(공격) 일반 액티브 (isGaanpaSkill). 스루 패스처럼 actions 가 있는
  *   negateRead 는 간파가 아니다 (상대 선택을 읽지 않는 패스 스킬).
+ * - 2026-09-29 GK 배급: longPassBoost (캐논 킥, phase "distribution") — 듀얼이 아니라 GK 롱패스 배급에서만 쓴다
+ *   (isDistributionSkill · checkDistributionSkill). 텐션 소모·이벤트는 match.js 의 배급 판정이 한다 (applyActive 는 듀얼 전용).
  *
  * 순수 로직. DOM/Date/Math.random 사용 금지. 난수 필요 없음.
  *
@@ -18,8 +20,13 @@
 
 export const MOD_KEYS = ["attack", "defense", "staminaCost", "tensionGain", "save", "shootPower", "coverBonus"];
 
-/** v0.3 일반 액티브 effect 어휘 (§13.1). 이전 reveal / recover / chainBoost / shield 는 폐지 */
-export const ACTIVE_EFFECTS = ["boost", "extraLine", "powerShot", "readBoost", "negateRead", "steal", "rally"];
+/**
+ * v0.3 일반 액티브 effect 어휘 (§13.1). 이전 reveal / recover / chainBoost / shield 는 폐지.
+ * longPassBoost (2026-09-29): GK 롱패스 배급 ×params.longPass, 성공하면 공격 첫 듀얼 +params.nextDuelBonus — 배급 전용
+ */
+export const ACTIVE_EFFECTS = ["boost", "extraLine", "powerShot", "readBoost", "negateRead", "steal", "rally", "longPassBoost"];
+/** 듀얼이 아니라 GK 배급(match phase "distribution")에서 쓰는 effect */
+export const DISTRIBUTION_EFFECTS = ["longPassBoost"];
 /** 필살기 종류 */
 export const ULTIMATE_TYPES = ["shot", "pass", "save"];
 
@@ -73,6 +80,11 @@ export function getPlayerUltimate(data, player) {
 export function hasLinkBonus(skill) {
   const a = skill && skill.active;
   return !!(a && a.effect === "negateRead" && Number(a.params && a.params.nextDuelBonus) > 0);
+}
+
+/** GK 배급 스킬 (캐논 킥 — effect longPassBoost): 듀얼에서는 쓸 수 없고 롱패스 배급에서만 */
+export function isDistributionSkill(skill) {
+  return !!(skill && skill.active && DISTRIBUTION_EFFECTS.includes(skill.active.effect));
 }
 
 /** 간파 스킬: 수비 readBoost, 또는 행동 제한 없는 공격 negateRead (§13.2-8) */
@@ -157,10 +169,35 @@ export function matchesWhen(when, ctx, ownerStamina, staminaMax) {
  */
 export function collectMods(team, playerId, ctx) {
   const mods = emptyMods();
-  if (!team || !Array.isArray(team.players)) return mods;
   if (!ctx || !ctx.data) throw new Error("skills.collectMods: ctx.data 가 필요합니다");
-  const staminaMax = ctx.staminaMax || 100;
+  forEachActivePassive(team, playerId, ctx, (sk) => {
+    const m = sk.passive.mods || {};
+    for (const k of Object.keys(m)) {
+      if (!(k in mods)) continue;
+      const v = Number(m[k]);
+      if (Number.isFinite(v)) mods[k] *= v;
+    }
+  });
+  return mods;
+}
 
+/**
+ * collectMods 와 같은 규칙으로 이번 듀얼에 붙는 패시브 스킬 목록 (결정타 칩 이름용 — 표시 전용).
+ * @returns {Array<{ skillId: string, name: string, ownerId: string, mods: object }>}
+ */
+export function collectModSources(team, playerId, ctx) {
+  const out = [];
+  if (!ctx || !ctx.data) throw new Error("skills.collectModSources: ctx.data 가 필요합니다");
+  forEachActivePassive(team, playerId, ctx, (sk, owner) => {
+    out.push({ skillId: sk.id, name: sk.name, ownerId: owner.id, mods: Object.assign({}, sk.passive.mods || {}) });
+  });
+  return out;
+}
+
+/** 이번 듀얼(ctx)에 발동하는 패시브 스킬마다 fn(skill, owner) — collectMods · collectModSources 공용 */
+function forEachActivePassive(team, playerId, ctx, fn) {
+  if (!team || !Array.isArray(team.players)) return;
+  const staminaMax = ctx.staminaMax || 100;
   for (const owner of team.players) {
     if (!owner || owner.isYouth) continue;
     const ids = Array.isArray(owner.skillIds) ? owner.skillIds : [];
@@ -175,15 +212,9 @@ export function collectMods(team, playerId, ctx) {
       const ownerLive = team.live && team.live[owner.id];
       const ownerStamina = ownerLive && Number.isFinite(ownerLive.stamina) ? ownerLive.stamina : undefined;
       if (!matchesWhen(pv.when, ctx, ownerStamina, staminaMax)) continue;
-      const m = pv.mods || {};
-      for (const k of Object.keys(m)) {
-        if (!(k in mods)) continue;
-        const v = Number(m[k]);
-        if (Number.isFinite(v)) mods[k] *= v;
-      }
+      fn(sk, owner);
     }
   }
-  return mods;
 }
 
 /* ------------------------------------------------------------------ */
@@ -286,6 +317,13 @@ export function addSkillFx(fx, skill) {
       return `막으면 역습 +${numOr(p.plus, 1)}`;
     case "rally":
       return `전원 체력 +${numOr(p.stamina, 30)}${p.clearBeaten ? ", 제쳐짐 해제" : ""}${p.teamMult ? `, 이번 포제션 팀 판정 ×${numOr(p.teamMult, 1)}` : ""}`;
+    case "longPassBoost": {
+      // GK 배급 전용 (match.js 배급 판정이 읽는다 — 듀얼 효과 객체에는 쓰이지 않음)
+      const lp = numOr(p.longPass, 1.5);
+      fx.longPassMult = numOr(fx.longPassMult, 1) * lp;
+      fx.longPassNextBonus = Math.max(numOr(fx.longPassNextBonus, 0), numOr(p.nextDuelBonus, 0));
+      return `롱패스 ×${lp}${p.nextDuelBonus ? ` · 성공하면 첫 듀얼 +${Math.round(numOr(p.nextDuelBonus, 0) * 100)}%` : ""}`;
+    }
     default:
       return "";
   }
@@ -318,6 +356,8 @@ export function checkSkillUsable(state, data, side, playerId, skill, role) {
   if (Array.isArray(skill.positions) && skill.positions.length && !skill.positions.includes(player.position)) {
     return { ok: false, reason: "포지션 조건 불충족" };
   }
+  // GK 배급 스킬(캐논 킥)은 듀얼에서 쓰지 않는다 — 배급 결정은 checkDistributionSkill
+  if (isDistributionSkill(skill)) return { ok: false, reason: "GK 롱패스 배급에서만" };
   const phase = skill.active.phase || "any";
   if (phase !== "any" && phase !== role) {
     return { ok: false, reason: phase === "attack" ? "공격 시에만" : "수비 시에만" };
@@ -347,6 +387,28 @@ export function checkSkillUsable(state, data, side, playerId, skill, role) {
 
 export function isSkillUsable(state, data, side, playerId, skill, role) {
   return checkSkillUsable(state, data, side, playerId, skill, role).ok;
+}
+
+/**
+ * GK 배급 스킬(longPassBoost) 사용 가능 여부 — match phase "distribution" 에서 배급하는 GK 만, 롱패스와 함께.
+ * @returns {{ ok: boolean, reason: string|null }}
+ */
+export function checkDistributionSkill(state, data, side, playerId, skill) {
+  if (!isDistributionSkill(skill) || skill.kind !== "active") return { ok: false, reason: "배급 스킬이 아님" };
+  const team = state && state[side];
+  if (!team) return { ok: false, reason: "팀 없음" };
+  const player = (team.players || []).find((p) => p.id === playerId);
+  if (!player) return { ok: false, reason: "선수 없음" };
+  if (player.isYouth) return { ok: false, reason: "유스 선수는 스킬 없음" };
+  if (!Array.isArray(player.skillIds) || !player.skillIds.includes(skill.id)) return { ok: false, reason: "보유하지 않은 스킬" };
+  if (Array.isArray(skill.positions) && skill.positions.length && !skill.positions.includes(player.position)) {
+    return { ok: false, reason: "포지션 조건 불충족" };
+  }
+  const d = state.distribution;
+  if (state.phase !== "distribution" || !d || d.side !== side || d.gkId !== playerId) return { ok: false, reason: "GK 롱패스 배급에서만" };
+  const cost = skillCost(team, skill);
+  if ((team.tension || 0) < cost) return { ok: false, reason: "텐션 부족" };
+  return { ok: true, reason: null };
 }
 
 /**

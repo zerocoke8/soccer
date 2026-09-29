@@ -58,10 +58,10 @@
   {
     "id": "distributor",
     "name": "빠른 배급",
-    "description": "이 골키퍼가 세이브하면 역습이 빌드업이 아니라 중원에서 시작",
+    "description": "이 골키퍼의 롱패스 배급 +25% (세이브 · 박스 연결 차단 뒤 GK 배급)",
     "kind": "position",
     "amp": false,
-    "params": { "saveCounterLine": 1 }
+    "params": { "longPassBonus": 0.25 }
   },
   {
     "id": "captain",

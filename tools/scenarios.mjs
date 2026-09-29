@@ -144,6 +144,8 @@ export function buildScenarioState(data, scenario, { runSeed = 1, maxSeeds, maxS
 /* ------------------------------------------------------------------ */
 
 export const isDuel = (s) => !!(s && !s.finished && s.phase === "decision" && s.duel && s.ball);
+/** GK 배급 대기 (2026-09-29): 세이브 · 박스 연결 차단 뒤 phase "distribution" */
+export const isDistribution = (s) => !!(s && !s.finished && s.phase === "distribution" && s.distribution);
 export const atk = (s, side, line) => isDuel(s) && s.attackingSide === side && s.ball.lineIndex === line;
 export const needs = (s, role) => match.humanNeedsDecision(s, "home") === role;
 export const carrierOf = (s) => {
@@ -419,9 +421,11 @@ export const SCENARIOS = [
     matchKind: "friendly",
     auto: false,
     require: (s, { data }) => isDuel(s) && s.attackingSide === "home" && needs(s, "attack") && viewOf(s, data).aceCall?.side === "home",
+    // 정규 포제션의 외침 (마지막 공격 보장 포제션은 26_last_attack 이 보여준다 — 2026-09-30)
     prefer: (s, { data }) => {
       const c = viewOf(s, data).aceCall;
-      return c.reason === "gauge" && c.ultimateType === "shot" && c.actions.includes("pass") && s.ball.lineIndex >= 1 && s.ball.lineIndex <= 2;
+      const lastAttack = !!(s.lastAttack && s.lastAttack.possession === s.possession);
+      return !lastAttack && c.reason === "gauge" && c.ultimateType === "shot" && c.actions.includes("pass") && s.ball.lineIndex >= 1 && s.ball.lineIndex <= 2;
     },
   },
   {
@@ -451,7 +455,8 @@ export const SCENARIOS = [
       const u = ultOption(viewOf(s, data));
       return !!u && u.type === "shot" && !u.comboName;
     })(),
-    prefer: (s) => !s.events.some((e) => e.type === "cutin") && s.ball.lineIndex >= 2,
+    // ④ (GK 1:1) 우선 — 막히면 GK 역방향 컷인 "기적의 세이브!" (③ 은 DF 블록 "철벽 블록!" — 27_df_block_cutin)
+    prefer: (s) => !s.events.some((e) => e.type === "cutin") && s.ball.lineIndex >= 3,
     interact: { type: "steps", steps: [{ click: ".skill-row .ult-btn:not(:disabled)" }, { wait: 120 }, { press: "shoot", waitMs: 150 }] },
     verify: (prev, live) => {
       if (!live) return "캡처 시점 경기 상태를 읽지 못함";
@@ -459,7 +464,101 @@ export const SCENARIOS = [
       return fresh.some((e) => e.type === "cutin" && e.ultimateType === "shot") ? true : `필살 슛 컷인 이벤트 없음 (${fresh.map((e) => e.type).join(",") || "-"})`;
     },
   },
+  // ---- 2026-09-29 사용자 결정 3~7 (엔진 준비 — UI 는 view.distribution · 이벤트 필드로 그린다) ----
+  {
+    // GK 배급: 우리 GK 가 세이브(또는 박스 연결 차단)한 뒤 needsDecision "distribution" — 짧은 패스 100% / 롱패스 % + 캐논 킥
+    name: "23_gk_distribution",
+    title: "GK 배급 결정 — 세이브 뒤 짧은 패스 · 롱패스 두 선택지 + 캐논 킥 (네리아에 캐논 킥 주입, 자동 끔)",
+    matchKind: "friendly",
+    auto: false,
+    adjustSetup: (setup) => {
+      const gk = setup.home.players.find((p) => p.position === "GK");
+      if (gk) gk.skillIds = [...new Set([...(gk.skillIds || []), "sk_cannon_kick"])];
+    },
+    require: (s) => isDistribution(s) && needs(s, "distribution"),
+    prefer: (s, { data }) => {
+      const d = viewOf(s, data).distribution;
+      return !!d && d.skills.some((k) => k.enabled) && s.possession >= 2;
+    },
+  },
+  {
+    // 롱패스 비트 중간: GK → 중원 MF (성공하는 주사위의 상태) — 버튼 data-action="long" 을 누른다
+    name: "24_long_ball_mid",
+    title: "GK 롱패스 비트 중간 프레임 — 롱패스 클릭 400ms 뒤 (1x, 성공: 중원 MF 에게)",
+    matchKind: "friendly",
+    auto: false,
+    require: (s, { data }) => isDistribution(s) && needs(s, "distribution") &&
+      tryDecision(s, data, { action: "long" }).events.some((e) => e.type === "distribution" && e.action === "long" && e.success === true),
+    prefer: (s) => s.possession >= 2,
+    interact: { type: "click", action: "long", waitMs: 400 },
+    verify: (prev, live) => {
+      if (!live) return "캡처 시점 경기 상태를 읽지 못함";
+      const fresh = (live.events || []).slice((prev.events || []).length);
+      return fresh.some((e) => e.type === "distribution" && e.action === "long" && e.success)
+        ? true
+        : `롱패스 성공 비트 없음 (${fresh.map((e) => e.type).join(",") || "-"})`;
+    },
+  },
+  {
+    // 결정타 칩 (클래시 바 1단계): 판정 결과 한 줄 앞의 칩 (예: "짝 적중 ×1.7", "제쳐짐 +25%") — 결과 한 줄이 떠 있는 시점 (act 0.8 + move 0.65 뒤)
+    name: "25_decisive_chip",
+    title: "결정타 칩 — 드리블 판정 결과 줄 앞 칩 (능력치 아닌 요인 우선), 드리블 클릭 1.7초 뒤 (1x)",
+    matchKind: "friendly",
+    auto: false,
+    require: (s, { data }) => isDuel(s) && s.attackingSide === "home" && s.ball.lineIndex <= 2 && needs(s, "attack") &&
+      actionEnabled(s, data, "dribble") && !!chipFor(s, data, { action: "dribble" }),
+    // 대표 칩(짝 적중 · 제쳐짐 · 킬패스 · 침투 · 빗나감)이 나오는 판정 우선
+    prefer: (s, { data }) => {
+      const c = chipFor(s, data, { action: "dribble" });
+      return !!c && ["pair", "beaten", "killpass", "runner"].includes(c.id) && s.possession >= 2;
+    },
+    interact: { type: "click", action: "dribble", waitMs: 1700 },
+    verify: (prev, live) => {
+      if (!live) return "캡처 시점 경기 상태를 읽지 못함";
+      const fresh = (live.events || []).slice((prev.events || []).length);
+      return fresh.some((e) => ["duel", "turnover", "save", "goal"].includes(e.type) && e.decisive)
+        ? true
+        : `결정타 칩 있는 판정 없음 (${fresh.map((e) => e.type).join(",") || "-"})`;
+    },
+  },
+  {
+    // 마지막 공격 보장: 1골 뒤진 우리가 마지막 포제션을 갖지 않았으면 +1 포제션 — "추가시간 — 마지막 공격!" (view.lastAttack.active)
+    name: "26_last_attack",
+    title: "마지막 공격 보장 — 1골 뒤진 우리의 추가시간 포제션 (배너 '추가시간 — 마지막 공격!', 첫 결정, 자동 끔)",
+    matchKind: "friendly",
+    auto: false,
+    require: (s) => !s.finished && !!s.lastAttack && s.lastAttack.side === "home" && s.possession === s.lastAttack.possession &&
+      (isDuel(s) || isDistribution(s)),
+    prefer: (s) => isDuel(s) && needs(s, "attack"),
+  },
+  {
+    // 역방향 컷인 "철벽 블록!": ③ 필살 슛(메테오 — 박스 슛 취급)이 DF 에게 막힌 비트. 경기의 첫 필살기(차지 0.4 + 컷인 1.0) →
+    // 액션 0.8 + 멈춤 0.25 → 역방향 컷인 0.8 한가운데 ≈ 2.85초
+    name: "27_df_block_cutin",
+    title: "철벽 블록 역방향 컷인 — ③ 메테오 슛(필살 토글 + 슛)이 DF 에게 막힘, 슛 클릭 2.85초 뒤 (1x)",
+    matchKind: "friendly",
+    auto: false,
+    require: (s, { data }) => atk(s, "home", 2) && needs(s, "attack") && (() => {
+      const u = ultOption(viewOf(s, data));
+      return !!u && u.type === "shot";
+    })() && tryDecision(s, data, { action: "shoot", ultimate: true }).events.some((e) => e.type === "turnover" && e.reverseCutin && e.reverseCutin.kind === "block"),
+    prefer: (s) => !s.events.some((e) => e.type === "cutin"),
+    interact: { type: "steps", steps: [{ click: ".skill-row .ult-btn:not(:disabled)" }, { wait: 120 }, { press: "shoot", waitMs: 2850 }] },
+    verify: (prev, live) => {
+      if (!live) return "캡처 시점 경기 상태를 읽지 못함";
+      const fresh = (live.events || []).slice((prev.events || []).length);
+      return fresh.some((e) => e.type === "turnover" && e.reverseCutin && e.reverseCutin.kind === "block")
+        ? true
+        : `DF 블록(reverseCutin block) 이벤트 없음 (${fresh.map((e) => e.type).join(",") || "-"})`;
+    },
+  },
 ];
+
+/** 복제 상태에 사람 결정을 넣었을 때 판정 이벤트의 결정타 칩 (없으면 null) */
+function chipFor(s, data, decision) {
+  const ev = tryDecision(s, data, decision).events.find((e) => ["duel", "turnover", "save", "goal"].includes(e.type) && Array.isArray(e.factors));
+  return ev && ev.decisive ? ev.decisive : null;
+}
 
 /** 사람 측 결정의 필살기(세이브형 제외) */
 function ultOption(view) {
