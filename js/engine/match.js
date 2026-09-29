@@ -16,7 +16,7 @@
  *  - A안 자동 선택: 선수는 자기 성향값(tendencyValues) 1위 액션을 고른다 (결정적, 상대를 읽지 않음). 난수는 판정 주사위만.
  *  - 액션: 공격 dribble | pass | cross | shoot, 수비 tackle | intercept | hold, GK save. 의도 공개 단계 폐지.
  *  - 수비 3종 스탯·배율(짝 ×readBonus / 빗나감 ×missMult / hold, 중거리엔 ×holdVsMidrange), 뚫림 결과(제쳐짐 등),
- *    역습 시작 표(intercept·steal +1, 상한 counterCap, hold 0, distributor).
+ *    역습 시작 표(intercept·steal +1, 상한 counterCap, hold 한 구역 물러남, distributor). 킥오프는 kickoffLine(중원).
  *  - 연계 특성(traits.json, 팀워크 증폭), 원터치·헤더, 받는 선수 직접 고르기(decision.receiverId).
  *  - 간파(readBoost / negateRead, 사용권), 필살기(개인 게이지, shot/pass/save, 합체기), 일반 액티브 새 어휘(skills.js).
  *
@@ -418,8 +418,13 @@ export function createMatch({ data, seed, home, away, possessions, kind = "frien
     side: null,
     text: `경기 시작 — ${state.home.name} vs ${state.away.name} (${total}포제션)`,
   });
-  startPossession(state, data, "home", 0, "kickoff");
+  startPossession(state, data, "home", kickoffLine(data), "kickoff");
   return state;
+}
+
+/** 킥오프 시작 line (경기 시작·실점 후 공통, GDD #55): 기본 1 = 중원(센터서클)에서 MF 가 시작 */
+function kickoffLine(data) {
+  return clamp(Math.round(num(matchCfg(data).kickoffLine, 1)), 0, 2);
 }
 
 /**
@@ -1326,7 +1331,7 @@ export function getDefenseActions(state, side, data = null, fx = null) {
   return [
     { action: "tackle", enabled: base, label: "태클", hint: base ? `(수비+피지컬)/2 · 드리블 ${pair}` : off },
     { action: "intercept", enabled: base, label: "인터셉트", hint: base ? `(수비+패스)/2 · 패스·크로스 ${pair} · 빠른 역습` : off },
-    { action: "hold", enabled: base, label: "버티기", hint: base ? `수비 · 짝 없음 · 중거리 슛 ×${hvm} · 역습 이점 없음` : off },
+    { action: "hold", enabled: base, label: "버티기", hint: base ? `수비 · 짝 없음 · 중거리 슛 ×${hvm} · 역습 이점 없음(한 구역 물러나 시작)` : off },
   ];
 }
 
@@ -1508,7 +1513,8 @@ export function computeOdds(state, data, { action, defAction = null, useEffects 
 
 /**
  * 역습 시작 (§13.2-7): 기본(line 0 → 2, 1 → 1, 2 → 0, GK 세이브 → 0) + intercept +1 + steal +plus, 상한 counterCap.
- * intercept 의 +1 이 상한에 걸리면 capTension, steal 이 상한에 걸리면 cappedNextBonus. hold → 항상 0 (steal 무시).
+ * intercept 의 +1 이 상한에 걸리면 capTension, steal 이 상한에 걸리면 cappedNextBonus.
+ * hold → 공을 뺏은 자리에서 holdStartBack(기본 1) 구역 물러나 시작 (line 0 → 1, 1 → 0, 2 → 0), 빠른 역습 아님, steal 무시 (GDD #54).
  * distributor GK 의 세이브 → saveCounterLine.
  */
 function counterPlan(data, line, defAction, fxD, defender, isGK) {
@@ -1520,8 +1526,11 @@ function counterPlan(data, line, defAction, fxD, defender, isGK) {
     out.fast = out.start > 0;
     return out;
   }
-  if (defAction === "hold") return out;
   let s = Math.min(cap, line === 0 ? 2 : line === 1 ? 1 : 0);
+  if (defAction === "hold") {
+    out.start = clamp(s - Math.max(0, Math.round(num(m.holdStartBack, 1))), 0, cap);
+    return out;
+  }
   if (defAction === "intercept") {
     if (s + 1 > cap) out.capTension = num(m.counterCapTension, 10);
     else {
@@ -1756,10 +1765,10 @@ function resolveDuel(state, data) {
       pushEvent(state, {
         type: "goal", side: atkSide, success: true, ...common,
         text: `${carrier.name}, ${aLabel}… 골!!! (${pc}%)${readTag}${linkText(odds.links)}  [${state.home.name} ${state.score.home} : ${state.score.away} ${state.away.name}]`,
-        ...beatPos(atkSide, line, defSide, 0),
+        ...beatPos(atkSide, line, defSide, kickoffLine(data)),
       });
       state.rngState = rng.getState();
-      endPossession(state, data, defSide, 0, "kickoff");
+      endPossession(state, data, defSide, kickoffLine(data), "kickoff");
       return;
     }
 
@@ -2175,8 +2184,10 @@ function advanceText(step) {
 }
 
 /** 상대 역습(시작 단계 start, 구역 zone) 한 줄 — viewer 시점 */
-function oppCounterText(start, zone, viewer) {
-  return start === 0 ? "공 뺏김 — 상대 빌드업부터" : `상대 역습 — ${zoneNameFor(zone, viewer)}부터`;
+function oppCounterText(start, zone, viewer, hold = false) {
+  if (start === 0) return "공 뺏김 — 상대 빌드업부터";
+  // 버티기로 뺏긴 공은 역습이 아니다: 뺏긴 자리에서 한 구역 물러나 시작 (GDD #54)
+  return hold ? `공 뺏김 — 상대 ${zoneNameFor(zone, viewer)}부터 (버티기)` : `상대 역습 — ${zoneNameFor(zone, viewer)}부터`;
 }
 
 function bonusPctText(x) {
@@ -2281,13 +2292,13 @@ function attackOutcome(state, data, human, action, { fx = null, receiverId = nul
   const cp = counterPlan(data, line, ev.response, fxO, defender, line >= 3);
   const oppZone = zoneOf(opp, cp.start);
   const zn = zoneNameFor(oppZone, human);
-  const lost = { zone: oppZone, attackingSide: opp, step: cp.start, label: oppCounterText(cp.start, oppZone, human), short: cp.start === 0 ? "실패 상대 빌드업" : `실패 상대 역습(${zn})` };
+  const lost = { zone: oppZone, attackingSide: opp, step: cp.start, label: oppCounterText(cp.start, oppZone, human, ev.response === "hold"), short: cp.start === 0 ? "실패 상대 빌드업" : ev.response === "hold" ? `실패 상대 ${zn}부터` : `실패 상대 역습(${zn})` };
   if (action === "shoot") {
     const failLabel = line >= 3
       ? (cp.start === 0 ? "세이브 → 상대 골킥" : `세이브 → 상대 역습, ${zn}부터`)
       : (cp.start === 0 ? "막히면 → 상대 빌드업부터" : `막히면 → 상대 역습, ${zn}부터`);
     return {
-      success: { zone: zoneOf(opp, 0), attackingSide: opp, step: 0, goal: true, label: "골! → 상대 킥오프", short: "성공 골!" },
+      success: { zone: zoneOf(opp, kickoffLine(data)), attackingSide: opp, step: kickoffLine(data), goal: true, label: "골! → 상대 킥오프", short: "성공 골!" },
       fail: Object.assign({}, lost, { label: failLabel, short: line >= 3 ? (cp.start === 0 ? "실패 상대 골킥" : `실패 상대 역습(${zn})`) : lost.short }),
     };
   }
@@ -2329,6 +2340,10 @@ function defenseOutcome(state, data, human, dAction, { fx = null } = {}) {
   if (cp.start === 0) {
     stopLabel = dAction === "hold" ? "막으면 — 우리 공격, 빌드업부터 (역습 이점 없음)" : "막으면 — 우리 공격, 빌드업부터";
     stopShort = "막으면 빌드업";
+  } else if (dAction === "hold") {
+    // 버티기: 역습 이점 없이 뺏은 자리에서 한 구역 물러나 시작 (GDD #54)
+    stopLabel = `막으면 — 우리 공격, ${zn}부터 (역습 이점 없음, 한 구역 물러남)`;
+    stopShort = `막으면 ${zn}부터`;
   } else if (cp.fast) {
     stopLabel = `막으면 — 빠른 역습, ${zn}부터`;
     stopShort = `막으면 빠른역습(${zn})`;
@@ -2343,7 +2358,7 @@ function defenseOutcome(state, data, human, dAction, { fx = null } = {}) {
 
   let fail;
   if (ev.response === "shoot") {
-    fail = { zone: zoneOf(human, 0), attackingSide: human, step: 0, goal: true, conceded: true, label: "뚫리면 — 실점 → 우리 킥오프", short: "뚫리면 실점" };
+    fail = { zone: zoneOf(human, kickoffLine(data)), attackingSide: human, step: kickoffLine(data), goal: true, conceded: true, label: "뚫리면 — 실점 → 우리 킥오프", short: "뚫리면 실점" };
   } else {
     const oppNext = advanceLine(line, !!fxO.extraLine);
     const breach = oppNext >= 3

@@ -651,7 +651,9 @@ function playBanner({ atk, step, zone, finished, lastBeat, remainingText, carrie
     if (lastBeat.type === "counter") {
       return home ? `역습! ${zoneName}에서 시작 — ${C}` : `⚠ 상대 역습! ${zoneName}에서 시작 — ${C}`;
     }
-    return home ? `킥오프 — ${withJosa(C, "이/가")} 빌드업 시작` : `상대 킥오프 — ${withJosa(C, "이/가")} 빌드업 시작`;
+    // 킥오프는 중원(센터서클)에서 시작 (GDD #55). 설정으로 빌드업(line 0)이면 예전 문구
+    const where = step === 0 ? "빌드업 시작" : `${zoneName}에서 시작`;
+    return home ? `킥오프 — ${withJosa(C, "이/가")} ${where}` : `상대 킥오프 — ${withJosa(C, "이/가")} ${where}`;
   }
 
   const vs = defenderName ? ` vs ${defenderName}` : "";

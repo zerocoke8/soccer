@@ -8,6 +8,8 @@ import { createRng } from "../js/engine/rng.js";
 const data = loadData();
 const cfg = data.config;
 const M = cfg.match;
+/** 킥오프를 빌드업(line 0)에서 시작하는 데이터 사본 — DF carrier 에서 시작해야 하는 테스트용 (GDD #55 이전 규칙) */
+const DATA_KICK0 = { ...data, config: { ...cfg, match: { ...M, kickoffLine: 0 } } };
 
 /** 우리 기본 편성(시즌 성장 가정 배율) 스냅샷 */
 function homeSnapshot(mult = 1.0, seed = "home") {
@@ -48,7 +50,8 @@ test("createMatch: 검증과 초기 상태", () => {
   assert.equal(ms.away.tension, M.tension.start);
   assert.deepEqual(ms.score, { home: 0, away: 0 });
   assert.ok(ms.ball.carrierId && ms.duel && ms.duel.defenderId);
-  assert.equal(ms.ball.lineIndex, 0);
+  assert.equal(ms.ball.lineIndex, M.kickoffLine, "킥오프 = 중원(kickoffLine)");
+  assert.equal(ms.home.players.find((p) => p.id === ms.ball.carrierId).position, "MF", "중원 킥오프는 MF 가 시작");
   assert.ok(ms.duel.awayChoice && ms.duel.awayChoice.action, "AI(away)가 먼저 결정");
   assert.equal(ms.duel.homeChoice, null);
   for (const p of home.players) assert.equal(ms.home.live[p.id].stamina, M.staminaMax);
@@ -724,6 +727,7 @@ test("v0.2 receiverPreview: pass 가능할 때만 존재, 패스 성공 시 실�
 });
 
 test("v0.2 pickReceiver 결정적: 동률이면 team.players 순서의 첫 선수 (미리보기 = 실제)", () => {
+  const data = DATA_KICK0; // DF 빌드업에서 MF 에게 패스
   const home = homeSnapshot(1.2);
   const mfs = home.players.filter((p) => p.position === "MF");
   assert.ok(mfs.length >= 2);
@@ -833,7 +837,10 @@ test("v0.3 outcomes 문구: 공격 = 상대 수비 예상 행동에 따른 역�
     assert.equal(v0.outcomes.dribble.fail.label, "상대 역습 — 우리 진영부터");
     assert.equal(v0.outcomes.dribble.fail.short, "실패 상대 역습(우리 진영)");
   }
-  assert.equal(withDef(ms, 0, "hold").outcomes.dribble.fail.label, "공 뺏김 — 상대 빌드업부터", "버티기로 뺏기면 역습 이점 없음");
+  // 버티기로 뺏기면 역습 이점 없이 뺏긴 자리에서 한 구역 물러남: line 0(기본 2) → 상대 line 1 = 중원 (GDD #54)
+  assert.equal(withDef(ms, 0, "hold").outcomes.dribble.fail.label, "공 뺏김 — 상대 중원부터 (버티기)");
+  assert.equal(withDef(ms, 0, "hold").outcomes.dribble.fail.short, "실패 상대 중원부터");
+  assert.equal(withDef(ms, 0, "hold").outcomes.dribble.fail.zone, 3);
   // 공격 line 1: 성공 = 상대 진영(Z4). 실패 = 태클 → 중원(Z3), 인터셉트 → 빠른 역습 우리 진영(Z2), 버티기 → 빌드업(Z4)
   assert.equal(withDef(ms, 1, "tackle").outcomes.dribble.success.label, "상대 진영 진입 — 중거리 슛 가능");
   assert.equal(withDef(ms, 1, "tackle").outcomes.dribble.fail.label, "상대 역습 — 중원부터");
@@ -848,7 +855,7 @@ test("v0.3 outcomes 문구: 공격 = 상대 수비 예상 행동에 따른 역�
   assert.equal(withDef(ms, 2, "intercept").outcomes.dribble.fail.label, "상대 역습 — 중원부터");
   assert.deepEqual(
     { zone: v2.outcomes.shoot.success.zone, goal: v2.outcomes.shoot.success.goal, side: v2.outcomes.shoot.success.attackingSide },
-    { zone: 4, goal: true, side: "away" },
+    { zone: match.zoneOf("away", M.kickoffLine), goal: true, side: "away" }, // 실점 → 상대 킥오프 = 중원
   );
   assert.equal(v2.outcomes.shoot.success.label, "골! → 상대 킥오프");
   assert.equal(v2.outcomes.shoot.fail.label, "막히면 → 상대 빌드업부터");
@@ -888,8 +895,9 @@ test("v0.3 outcomes 문구: 공격 = 상대 수비 예상 행동에 따른 역�
         const base = L === 0 ? 2 : L === 1 ? 1 : 0;
         const o = v.outcomes;
         assert.equal(o.tackle.success.zone, match.zoneOf("home", base));
-        assert.equal(o.hold.success.zone, match.zoneOf("home", 0), "버티기 → 항상 빌드업");
-        assert.equal(o.hold.success.label, "막으면 — 우리 공격, 빌드업부터 (역습 이점 없음)");
+        const holdStart = Math.max(0, base - M.holdStartBack);
+        assert.equal(o.hold.success.zone, match.zoneOf("home", holdStart), "버티기 → 뺏은 자리에서 한 구역 물러남");
+        assert.equal(o.hold.success.label, holdStart === 0 ? "막으면 — 우리 공격, 빌드업부터 (역습 이점 없음)" : "막으면 — 우리 공격, 중원부터 (역습 이점 없음, 한 구역 물러남)");
         assert.equal(o.intercept.success.zone, match.zoneOf("home", Math.min(2, base + 1)));
         if (L === 0) {
           assert.equal(o.tackle.success.label, "막으면 — 우리 역습, 상대 진영부터");
@@ -962,7 +970,7 @@ test("v0.2 이벤트 위치 필드: seq = 배열 인덱스(단조 증가), 비�
       if (e.type === "kickoff" || e.type === "counter") {
         assert.equal(e.zone, e.toZone);
         assert.equal(e.attackingSide, e.side);
-        if (e.type === "kickoff") assert.equal(e.step, 0);
+        if (e.type === "kickoff") assert.equal(e.step, M.kickoffLine, "킥오프 = 중원 (GDD #55)");
       }
       if (RESOLVE_TYPES.includes(e.type)) {
         assert.equal(e.attackingSide, e.side);
@@ -1055,6 +1063,7 @@ test("v0.2 getMatchView: 매 상태에서 상태 불변(JSON 동일, 난수 미�
 });
 
 test("v0.2 스킬 변형 미리보기: 라인 브레이커(extraLine)·소매치기(steal)를 액션과 함께 쓰면 실제 결과 = outcomesBySkill / receiverPreviewBySkill (1-3-2, 울릭 DF1)", () => {
+  const data = DATA_KICK0; // 울릭(DF)이 킥오프 carrier 가 되도록 빌드업 킥오프
   // 회귀: 울릭(sk_line_breaker)이 유일한 DF → line 0 carrier. 라인 브레이커 + 패스면 공은 MF 가 아니라 FW(line 2)에게 간다.
   // 소매치기는 MF 전원에게 붙여 수비 성공 시 역습 시작 구역이 한 칸 깊어지는 경로를 검증한다.
   const squad = { GK: "ch_spirit_keeper", DF1: "ch_wolf_winger", MF1: "ch_elf_playmaker", MF2: "ch_human_runner", MF3: "ch_cat_trickster", FW1: "ch_giant_striker", FW2: "ch_human_captain" };

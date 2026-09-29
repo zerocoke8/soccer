@@ -121,6 +121,8 @@
     "passChainBonus": 0.1,
     "counterCap": 2,
     "counterCapTension": 10,
+    "holdStartBack": 1,
+    "kickoffLine": 1,
     "coverBonusPerExtraDefender": 0.1,
     "teamworkPassBonusPer100": 0.1,
     "staminaCost": { "dribble": 8, "pass": 4, "cross": 4, "shoot": 5, "defend": 4 },

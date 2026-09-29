@@ -540,7 +540,7 @@ export function getResult(state)  // { kind, home, away, winner: "home"|"away"|"
 ```
 
 ### 7.3 포제션 진행
-1. **시작**: 킥오프 또는 역습. 공격 팀의 시작 선수와 lineIndex 결정(§7.5). chain = 0.
+1. **시작**: 킥오프 또는 역습. 공격 팀의 시작 선수와 lineIndex 결정(§7.5). chain = 0. 킥오프(경기 시작·골 후)는 `match.kickoffLine`(기본 1 = 중원, MF 시작 — GDD #55).
 2. **듀얼 준비**: 수비 라인 = lineIndex에 대응하는 상대 라인(0→FW, 1→MF, 2→DF). 수비 선수 선택 = 수비 팀 `tactics.duelPicker` (`best`: 관련 수비 스탯 최고, `matchup`: 공격자 스타일에 유리한 선수 우선). 라인의 나머지 선수 수 = coverCount.
 3. **선택**: AI 측(항상 away; 자동이면 home도)이 먼저 결정. 인간 측에는 `intentReveal`(상대 팀 스냅샷의 intentReveal + modifiers.intentReveal 단계 상승)에 따라 공개: `full` = 정확히, `partial` = 실제 + 무작위 1개(순서 섞음), `none` = null.
    - 공격 가능 액션: line 0·1: dribble, pass. line 2: dribble, pass(같은 라인 FW 동료가 있을 때만), shoot(midrangeShoot 계수). line 3(GK): shoot만, 수비 선택 없음(GK는 save).
@@ -569,7 +569,9 @@ p = clamp(att / (att + def), minP, maxP)
 |---|---|
 | 상대 FW 라인(line 0)에서 뺏음 | 2 (바로 DF 라인 공략) |
 | MF 라인(line 1) | 1 |
-| DF 라인(line 2) 또는 GK 세이브, 골 후 킥오프 | 0 |
+| DF 라인(line 2) 또는 GK 세이브 | 0 |
+| 버티기(hold)로 뺏음 | 위 기본값 − `match.holdStartBack`(기본 1), 최소 0 → line 0 에서 1, line 1·2 에서 0. intercept·steal 보너스 없음 (GDD #54) |
+| 킥오프 (경기 시작 · 골 후) | `match.kickoffLine` (기본 1 = 중원) (GDD #55) |
 `steal` 스킬: +1 (최대 2). 시작 carrier: line 0 → DF 중 pass 최고, line 1 → MF 중 dribble+pass 최고, line 2 → FW 중 shoot 최고 (`tactics.kickoffPlayerId`가 있고 라인이 맞으면 그 선수).
 
 ### 7.6 종료
