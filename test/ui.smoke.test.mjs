@@ -610,6 +610,108 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
     S.actions.resetToStart();
   }
 
+  // 20 · 21 에이스의 외침 (2026-09-29, 표시 전용 view.aceCall): "줘!" 말풍선(금색) + 금색 점선 + 배지, 같은 받는 선수 미리보기면 점선 숨김,
+  // 공이 움직이면(비트 연출) 걷힌다. 21 = 상대 공격 중 상대 받는 선수의 외침. 12(자동) = 정보 줄 "자동: ○○에게 연결 예정"
+  {
+    const { scr: s20, view: v20 } = inject("20_ace_call");
+    const ac = v20.aceCall;
+    assert.ok(ac && ac.side === "home" && ac.reason === "gauge", "우리 받는 선수의 외침");
+    const callers = [...s20.querySelectorAll(".tok.calling")];
+    assert.equal(callers.length, 1, "외침은 한 명");
+    assert.equal(callers[0].dataset.id, ac.playerId);
+    assert.ok(callers[0].classList.contains("has-bubble") && callers[0].querySelector(".tok-bubble").textContent === "줘!", "말풍선 줘!");
+    assert.ok(callers[0].classList.contains("named"), "외치는 선수 이름표");
+    assert.ok(s20.querySelector(".g-ace .ace-line"), "금색 점선");
+    assert.equal(s20.querySelector(".g-ace-tip .ace-badge text").textContent, `★ 연결하면 ${ac.ultimateName}`, "배지");
+    // 외치는 선수를 받는 선수로 고르고 패스 미리보기 → 같은 길이라 점선 숨김, 떼면 다시
+    s20.querySelector(`.tok[data-side="home"][data-id="${ac.playerId}"]`).click();
+    const pb = s20.querySelector('button[data-action="pass"]');
+    assert.equal(pb.dataset.receiver, ac.playerId);
+    pb.dispatchEvent(new window.Event("pointerdown", { bubbles: true }));
+    assert.ok(s20.querySelector(".m-field").classList.contains("ace-off"), "같은 받는 선수 미리보기 → 점선 숨김");
+    pb.dispatchEvent(new window.Event("pointerleave"));
+    assert.ok(!s20.querySelector(".m-field").classList.contains("ace-off"), "미리보기 해제 → 점선 다시");
+    const db = s20.querySelector('button[data-action="dribble"]');
+    if (db) {
+      db.dispatchEvent(new window.Event("pointerdown", { bubbles: true }));
+      assert.ok(!s20.querySelector(".m-field").classList.contains("ace-off"), "다른 미리보기(드리블)면 점선 그대로");
+      db.dispatchEvent(new window.Event("pointerleave"));
+    }
+    // 결정 → 비트 연출 시작과 함께 외침은 걷힌다 (판정 · 결정은 그대로: 외침은 표시 전용)
+    s20.querySelector('button[data-action="pass"]').click();
+    assert.deepEqual(ui.lastDecision, { action: "pass", receiverId: ac.playerId });
+    assert.equal(s20.querySelectorAll(".tok.calling").length, 0, "연출 중 줘! 없음");
+    assert.equal(s20.querySelectorAll(".g-ace > *, .g-ace-tip > *").length, 0, "연출 중 점선 없음");
+    assert.ok(await until(() => !ui.busy, 6000), "연출 끝");
+    S.actions.resetToStart();
+
+    const { scr: s21, view: v21 } = inject("21_ace_call_opponent");
+    const oc = v21.aceCall;
+    assert.ok(oc && oc.side === "away" && v21.needsDecision === "defense", "상대 공격 · 우리 수비 결정 중 상대의 외침");
+    // 상대는 먼저 커밋 → 외침 = 실제로 공이 갈 선수 (커밋한 패스 · 크로스의 받는 선수)
+    assert.ok(oc.expected && oc.actions.includes(v21.expected.attack.action) && v21.expected.attack.receiverId === oc.playerId, "상대 외침 = 커밋한 받는 선수");
+    const oTok = s21.querySelector(`.tok[data-side="away"][data-id="${oc.playerId}"]`);
+    assert.ok(oTok.classList.contains("calling") && oTok.querySelector(".tok-bubble").textContent === "줘!", "상대 받는 선수 줘!");
+    const carrierBub = s21.querySelector(`.tok[data-side="away"][data-id="${v21.carrier.id}"] .tok-bubble`).textContent;
+    assert.ok(carrierBub && carrierBub !== "줘!", "상대 carrier 의 예상 행동 말풍선은 그대로");
+    assert.equal(s21.querySelector(".g-ace-tip .ace-badge text").textContent, `★ 연결하면 ${oc.ultimateName}`);
+    // 인터셉트 미리보기는 상대 예상 받는 선수(= 외치는 선수)에게 가는 길 → 점선 숨김 (화살표와 점선이 같은 곳을 가리킨다)
+    const ib = s21.querySelector('button[data-action="intercept"]');
+    ib.dispatchEvent(new window.Event("pointerdown", { bubbles: true }));
+    assert.ok(s21.querySelector(".m-field").classList.contains("ace-off"), "인터셉트 길 = 외치는 선수 → 점선 숨김");
+    ib.dispatchEvent(new window.Event("pointerleave"));
+    assert.ok(!s21.querySelector(".m-field").classList.contains("ace-off"), "미리보기 해제 → 점선 다시");
+    assert.doesNotMatch(s21.querySelector(".m-info .mine").textContent, /연결 예정/, "상대 외침에는 자동 문구 없음");
+    S.actions.resetToStart();
+
+    // 12 (자동 진행): 합체기 외침 배지 + 정보 줄 "자동: 그룸바에게 연결 예정" (우리 자동이 그 선수에게 보낼 때만)
+    const { scr: s12, view: v12 } = inject("12_ult_pass", { auto: true });
+    const cc = v12.aceCall;
+    assert.ok(cc && cc.reason === "combo" && cc.expected, "합체기 외침 · 자동이 그 선수에게");
+    assert.equal(s12.querySelector(".g-ace-tip .ace-badge.combo text").textContent, `💥 ${cc.comboName} 가능`, "합체기 배지");
+    const mine = s12.querySelector(".m-info .mine");
+    assert.ok(mine.classList.contains("ace"), "정보 줄 금색");
+    assert.equal(mine.textContent, `자동: ${cc.name}에게 연결 예정`);
+    ui.auto = false;
+    S.actions.resetToStart();
+    // 수동 결정 중에는 자동 문구 없음 (말풍선 · 점선만)
+    const { scr: s12m } = inject("12_ult_pass");
+    assert.doesNotMatch(s12m.querySelector(".m-info .mine").textContent, /연결 예정/);
+    assert.ok(s12m.querySelector(".tok.calling"), "수동이어도 외침은 보인다");
+    S.actions.resetToStart();
+  }
+
+  // 22 필살기 3단 연출: ① 차지(필드 흑백 · 사용자 빛남 · 듀얼 상대만 색) → ② 컷인 → (막히면) ③ GK 역방향 컷인 "기적의 세이브!"
+  {
+    const { scr: s22, view: v22 } = inject("22_ult_charge_mid");
+    const { createRng } = await import(pathToFileURL(path.join(ROOT, "js/engine/rng.js")).href);
+    // 필살 슛이 막히는 주사위를 찾아 넣는다 (연출 확인용 — 판정 규칙은 그대로)
+    let rs = null;
+    for (let i = 1; i < 400 && !rs; i++) {
+      const c = JSON.parse(JSON.stringify(S.store.match));
+      c.rngState = createRng(`gksave${i}`).getState();
+      const n0 = c.events.length;
+      S.match.step(c, S.store.data, { action: "shoot", ultimate: true });
+      if (c.events.slice(n0).some((e) => e.type === "save" && e.ultimate)) rs = createRng(`gksave${i}`).getState();
+    }
+    assert.ok(rs, "필살 슛이 막히는 주사위");
+    S.store.match.rngState = rs;
+    s22.querySelector(".skill-row .ult-btn:not(:disabled)").click();
+    s22.querySelector('button[data-action="shoot"]').click();
+    const user = await until(() => s22.querySelector(".m-field.charging .tok.charge-user"), 1000);
+    assert.ok(user, "차지: 사용자 빛남");
+    assert.equal(user.dataset.id, v22.carrier.id, "사용자 = 공 가진 선수");
+    const foe = s22.querySelector(".m-field.charging .tok.charge-foe");
+    assert.ok(foe && foe.dataset.id === v22.defender.id, "듀얼 상대(GK)만 색");
+    assert.ok(await until(() => s22.querySelector(".m-cutin.show .cut:not(.cut-save)"), 1500), "② 컷인");
+    assert.ok(!s22.querySelector(".m-field.charging"), "컷인이 뜨면 차지 끝");
+    const gk = await until(() => s22.querySelector(".m-cutin.show .cut.cut-save"), 3000);
+    assert.ok(gk && /기적의 세이브!/.test(gk.textContent), "③ GK 역방향 컷인");
+    assert.ok(await until(() => !ui.busy, 8000), "연출 끝");
+    assert.ok(!s22.querySelector(".m-cutin.show") && !s22.querySelector(".m-field.charging"), "컷인 · 차지 닫힘");
+    S.actions.resetToStart();
+  }
+
   // 17 스킬 묶음 7개 이상: 2열(.many) + 상자 안 스크롤(.over) — 묶음이 필드 위로 자라지 않는다. 일반 액티브 ✦ 비용은 2열에서도 보인다
   {
     const { scr: s17 } = inject("17_skill_row_many");

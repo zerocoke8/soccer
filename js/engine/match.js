@@ -29,6 +29,8 @@
  *    실패 → GK 가 잡음 = 세이브와 같음 (이벤트 "save", 상대 골킥 / 빠른 배급 GK 면 중원).
  *    포제션당 1회 (ball.boxLinkUsed). 자동(A안 예외)은 boxLinkEval 규칙 — 받는 선수 마무리 값 ≥ autoRatio × 내 슛 값이거나
  *    받는 선수의 필살 슛이 준비(합체기 포함)되고 내게 준비된 필살 슛이 없을 때만 연결.
+ *  - 에이스의 외침 (view.aceCall, aceCallFor): 받으면 필살기가 준비되는(게이지 ≥ aceCallGauge) · 합체기가 되는 받는 선수 한 명.
+ *    이미 커밋한 공격(상대 AI)은 커밋한 받는 선수일 때만. 표시 전용 — 판정 · 자동 선택 · 난수를 바꾸지 않는다.
  *
  * 순수 로직. 난수는 state.rngState 로만 (함수 단위로 createRngFromState → getState 저장).
  */
@@ -277,9 +279,13 @@ function tendCfg(m) {
 
 function ultCfg(m) {
   const u = m.ultimate || {};
+  const max = num(u.gaugeMax, 100);
+  const onReceive = num(u.onReceive, 15);
   return {
-    start: num(u.gaugeStart, 30), max: num(u.gaugeMax, 100), onDuelWin: num(u.onDuelWin, 20), onReceive: num(u.onReceive, 15),
+    start: num(u.gaugeStart, 30), max, onDuelWin: num(u.onDuelWin, 20), onReceive,
     onGoal: num(u.onGoal, 30), onUltPassReceive: num(u.onUltPassReceive, 50), comboBonus: num(u.comboBonus, 1.2),
+    // 에이스의 외침 (표시 전용): 받으면 필살기가 준비되는 게이지 문턱. 없으면 gaugeMax − onReceive (받으면 가득)
+    aceCall: num(u.aceCallGauge, max - onReceive),
   };
 }
 
@@ -2756,6 +2762,104 @@ function boxLinkView(state, data) {
   };
 }
 
+/* ------------------------------------------------------------------ */
+/* 에이스의 외침 (2026-09-29, 표시 전용 — 판정·AI·난수 불변)               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * view.aceCall: 지금 공격 팀 carrier 의 받는 선수 후보(패스 · 크로스, ④ 박스 연결 포함) 중 "공을 달라"고 외치는 선수 한 명.
+ *  - reason "combo": carrier 의 필살 패스가 준비(또는 이번 듀얼에 커밋)됐고, 받는 선수의 필살기가 combos.json 에서 그 필살 패스와 합체기.
+ *  - reason "gauge": 받는 선수의 필살 게이지 ≥ aceCallGauge (config.match.ultimate.aceCallGauge, 없으면 gaugeMax − onReceive
+ *    = 받으면 가득) — 받은 뒤 필살기가 준비된다.
+ *  두 경우 모두 받는 선수의 필살기가 받은 뒤 쓸 수 있는 종류여야 한다 (shot = line ≥ 2, pass = line ≤ 3 — ultTypeUsableAt,
+ *  단 ④ 박스 연결로 받으면 연결을 이미 썼으므로 필살 패스는 제외).
+ *  한 듀얼(비트)에 한 명: combo > gauge, 같으면 그 액션의 기본 받는 선수(combo 는 필살 패스를 쓴다고 본 기본값) → players 순서.
+ *  공격 팀이 이미 커밋했으면(상대 AI 는 사람보다 먼저 커밋) 커밋한 액션 · 받는 선수만 후보 — 그 선수가 조건에 맞을 때만 외침,
+ *  드리블 · 슛을 커밋했거나 다른 선수에게 보내면 null (상대 외침 = 실제로 공이 갈 곳, expected 는 늘 true).
+ *  actions = 그 선수에게 닿는 액션(같은 이유) — ["pass"] · ["cross"] · ["pass", "cross"] (커밋한 측은 커밋한 액션 하나).
+ *  expected = 공격 팀의 예상 공격(커밋한 선택, 없으면 자동 결정 ai.decideAttack)이 이 선수에게 가는가 — 정보 줄 "자동: ○○에게 연결 예정".
+ *  결정적, 상대 선택을 보지 않는다(expected 는 공격 팀 자기 선택), 난수·상태 변경 없음.
+ * @returns {null | { side, playerId, name, reason: "gauge"|"combo", actions: string[], arrival: number, boxLink: boolean,
+ *   ultimateSkillId, ultimateName, ultimateType, comboName: string|null, passSkillId: string|null, gauge: number|null, threshold: number,
+ *   expected: boolean, expectedAction: string|null }}
+ */
+export function aceCallFor(state, data) {
+  if (!state || state.finished || state.phase !== "decision" || !state.duel || !state.ball) return null;
+  const side = state.attackingSide;
+  const team = state[side];
+  const carrier = team ? findPlayer(team, state.ball.carrierId) : null;
+  if (!carrier) return null;
+  const uc = ultCfg(matchCfg(data));
+  const line = num(state.ball.lineIndex, 0);
+  const fx = fxOf(state, side);
+  const opts = attackOptionsFor(state, data, side, carrier, line, fx);
+  // carrier 의 필살 패스: 이번 듀얼에 커밋했으면 그것(AI 는 판정 전에 먼저 커밋 — 게이지 0), 아니면 지금 쓸 수 있는 필살 패스
+  const own = getPlayerUltimate(data, carrier);
+  const passSkillId = fx.ult
+    ? (fx.ult.type === "pass" ? fx.ult.skillId : null)
+    : (own && own.ultimate.type === "pass" ? own.id : null);
+  const found = [];
+  for (const a of ["pass", "cross"]) {
+    if (!opts[a]) continue;
+    const plan = planFor(team, carrier, a, line, fx);
+    if (!plan.candidates.length) continue;
+    const passReady = !!passSkillId && (fx.ult ? true : ultimateUsable(state, data, side, carrier, "attack", a).ok);
+    const fxU = passReady && !fx.ult ? fxPlusUlt(fx, own, null) : fx;
+    const defIds = {
+      combo: passReady ? (defaultFromPlan(state, data, side, a, plan, fxU) || {}).id : null,
+      gauge: (defaultFromPlan(state, data, side, a, plan, fx) || {}).id,
+    };
+    for (const p of plan.candidates) {
+      const u = getPlayerUltimate(data, p);
+      // 받은 뒤 쓸 수 있는 필살기만: 도착 line 에서 쓸 수 있는 종류, 박스 연결로 받으면 연결을 이미 써서 필살 패스는 못 쓴다 (슛만)
+      if (!u || !ultTypeUsableAt(u.ultimate.type, plan.arrival) || (plan.box && u.ultimate.type === "pass")) continue;
+      const cName = passReady ? comboName(data, passSkillId, u.id) : null;
+      const g = gaugeOf(state, side, p.id);
+      const reason = cName ? "combo" : g != null && g >= uc.aceCall ? "gauge" : null;
+      if (!reason) continue;
+      found.push({
+        p, a, reason, u, cName, plan,
+        rank: [reason === "combo" ? 0 : 1, defIds[reason] === p.id ? 0 : 1, team.players.indexOf(p)],
+      });
+    }
+  }
+  if (!found.length) return null;
+  // 예상 공격: 커밋한 측은 커밋한 선택, 아니면 자동 결정 (사람 측 자동 · 상대 AI 와 같은 ai.decideAttack — 순수, 난수 없음)
+  const choice = state.duel[side + "Choice"];
+  const committed = !!(choice && choice.action);
+  // 커밋한 AI 가 간파 중이면 판정 때 우리 수비를 보고 액션을 바꾼다(bestAttackResponse) → "공이 갈 곳"을 확정할 수 없어 외치지 않는다
+  if (committed && choice.byAI && state.duel.gaanpaSide === side) return null;
+  const exp = committed
+    ? { action: choice.committedAction || choice.action, receiverId: choice.receiverId || null }
+    : (() => { const d = decideAttack(state, data, side); return { action: d.action, receiverId: d.receiverId || null }; })();
+  // 이미 커밋한 측(상대 AI — 사람이 고르기 전에 먼저 커밋)은 실제로 보낼 선수만 외친다: 커밋한 액션(패스 · 크로스)의 받는 선수가
+  // 조건에 맞을 때만, 드리블 · 슛을 커밋했거나 다른 선수에게 보내면 외침 없음 (수비하는 사람에게 "공이 갈 곳"이 틀리지 않게)
+  const pool = committed ? found.filter((f) => f.a === exp.action && f.p.id === exp.receiverId) : found;
+  if (!pool.length) return null;
+  const cmp = (x, y) => x.rank[0] - y.rank[0] || x.rank[1] - y.rank[1] || x.rank[2] - y.rank[2];
+  const best = pool.slice().sort(cmp)[0];
+  const actions = pool.filter((f) => f.p === best.p && f.reason === best.reason).map((f) => f.a);
+  const expected = actions.includes(exp.action) && exp.receiverId === best.p.id;
+  return {
+    side,
+    playerId: best.p.id,
+    name: best.p.name,
+    reason: best.reason,
+    actions,
+    arrival: best.plan.arrival,
+    boxLink: !!best.plan.box,
+    ultimateSkillId: best.u.id,
+    ultimateName: best.u.name,
+    ultimateType: best.u.ultimate.type,
+    comboName: best.cName || null,
+    passSkillId: best.reason === "combo" ? passSkillId : null,
+    gauge: gaugeOf(state, side, best.p.id),
+    threshold: uc.aceCall,
+    expected,
+    expectedAction: expected ? exp.action : null,
+  };
+}
+
 /**
  * UI용 뷰 (상태 변경 없음, 난수 소비 없음).
  * v0.2 필드 (§12.1): zone, attackStep, attackDir, remaining, receiverPreview, outcomes, outcomesBySkill, receiverPreviewBySkill, lastBeat.
@@ -2764,6 +2868,7 @@ function boxLinkView(state, data) {
  * 2026-09-29 박스 연결: ④(lineIndex 3) actions 의 pass(label "컷백 패스") / cross(label "센터링") 가 켜질 수 있다
  *  (receivers / receiverPreview / outcomes / outcomesByReceiver / ultimateOptions(필살 패스) 도 ④ 에서 채워짐, arrival 3),
  *  expectedPct = 득점 기대 (연결 성공 × 받은 선수 원터치 슛·헤더 골). ballState.boxLinkUsed, boxLink(boxLinkView), expected.attack.receiverId.
+ * 2026-09-29 에이스의 외침: aceCall (aceCallFor — 표시 전용, 판정·AI·난수에 영향 없음).
  */
 export function getMatchView(state, data, humanSide = undefined) {
   const m = matchCfg(data);
@@ -3019,6 +3124,8 @@ export function getMatchView(state, data, humanSide = undefined) {
       boxLinkUsed: !!ball.boxLinkUsed,
     },
     boxLink: active ? boxLinkView(state, data) : null,
+    // 에이스의 외침 (표시 전용): 받으면 필살기 준비 · 합체기가 되는 받는 선수 한 명 (양 팀 공격 모두) — aceCallFor
+    aceCall: active ? aceCallFor(state, data) : null,
     stage: state.stage,
     kind: state.kind,
     names: { home: state.home.name, away: state.away.name },

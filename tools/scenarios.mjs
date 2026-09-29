@@ -305,13 +305,14 @@ export const SCENARIOS = [
     interact: { type: "steps", steps: [{ click: ".skill-row .ult-btn:not(:disabled)" }, { wait: 150 }, { hover: ["pass"] }] },
   },
   {
+    // 2026-09-29 필살기 3단 연출: 차지(합체기는 첫 필살기가 아니라 0.3초) → 두 컷인 1.0초씩 → 이름 1.1초 → 2.8초 = 이름 카드 한가운데
     name: "13_combo_cutin",
-    title: "합체기 컷인 — 바람의 유성 발동 (슛 클릭 뒤 2.4초, 1x: 두 컷인 → 이름 카드)",
+    title: "합체기 컷인 — 바람의 유성 발동 (슛 클릭 뒤 2.8초, 1x: 차지 → 두 컷인 → 이름 카드)",
     matchKind: "friendly",
     auto: false,
     require: (s, { data }) => isDuel(s) && s.attackingSide === "home" && needs(s, "attack") && !!comboOption(viewOf(s, data)),
     prefer: (s) => s.ball.lineIndex === 2,
-    interact: { type: "steps", steps: [{ click: ".skill-row .ult-btn:not(:disabled)" }, { wait: 120 }, { press: "shoot", waitMs: 2400 }] },
+    interact: { type: "steps", steps: [{ click: ".skill-row .ult-btn:not(:disabled)" }, { wait: 120 }, { press: "shoot", waitMs: 2800 }] },
     verify: (prev, live) => {
       if (!live) return "캡처 시점 경기 상태를 읽지 못함";
       const fresh = (live.events || []).slice((prev.events || []).length);
@@ -409,6 +410,53 @@ export const SCENARIOS = [
       return fresh.some((e) => e.type === "duel" && e.success && e.boxLink)
         ? true
         : `박스 연결 성공 이벤트 없음 (${fresh.map((e) => e.type).join(",") || "-"})`;
+    },
+  },
+  {
+    // 2026-09-29 에이스의 외침 (표시 전용): 받으면 필살기가 준비되는 받는 선수 "줘!" + 금색 점선 + 배지 "★ 연결하면 메테오 슛"
+    name: "20_ace_call",
+    title: "에이스의 외침 — 우리 공격 결정, 받으면 필살 슛이 준비되는 그룸바 '줘!' · 금색 점선 · 배지 (자동 끔, hover 없음)",
+    matchKind: "friendly",
+    auto: false,
+    require: (s, { data }) => isDuel(s) && s.attackingSide === "home" && needs(s, "attack") && viewOf(s, data).aceCall?.side === "home",
+    prefer: (s, { data }) => {
+      const c = viewOf(s, data).aceCall;
+      return c.reason === "gauge" && c.ultimateType === "shot" && c.actions.includes("pass") && s.ball.lineIndex >= 1 && s.ball.lineIndex <= 2;
+    },
+  },
+  {
+    // 상대 공격 중 상대 받는 선수의 외침 — 수비할 때 공이 어디로 갈지 보인다 (상대 AI 는 먼저 커밋 → 커밋한 받는 선수일 때만 외침).
+    // 친선 상대에는 필살기가 없어 FW 에게 업화의 일격을 준다
+    name: "21_ace_call_opponent",
+    title: "에이스의 외침 (상대) — 우리 수비 결정 중 상대 AI 가 패스를 커밋한 FW '줘!' · 금색 점선 · 배지 (상대 FW 에 업화의 일격 주입, 자동 끔)",
+    matchKind: "friendly",
+    auto: false,
+    adjustSetup: (setup) => {
+      const fw = setup.away.players.find((p) => p.position === "FW");
+      if (fw) fw.skillIds = [...new Set([...(fw.skillIds || []), "sk_boss_strike"])];
+    },
+    require: (s, { data }) => isDuel(s) && s.attackingSide === "away" && needs(s, "defense") && viewOf(s, data).aceCall?.side === "away",
+    prefer: (s, { data }) => {
+      const c = viewOf(s, data).aceCall;
+      return c.actions.includes("pass") && s.ball.lineIndex === 1 && s.possession >= 2;
+    },
+  },
+  {
+    // 필살기 3단 연출 ① 차지: 필드 흑백, 사용자(필살 슛) 빛남 · 듀얼 상대만 색 — 슛 클릭 150ms 뒤 (경기의 첫 필살기면 차지 0.4초)
+    name: "22_ult_charge_mid",
+    title: "필살기 차지 중간 프레임 — 메테오 슛 토글 + 슛 클릭 150ms 뒤 (1x): 필드 흑백 · 그룸바 빛남 · 상대 GK/수비만 색",
+    matchKind: "friendly",
+    auto: false,
+    require: (s, { data }) => isDuel(s) && s.attackingSide === "home" && needs(s, "attack") && (() => {
+      const u = ultOption(viewOf(s, data));
+      return !!u && u.type === "shot" && !u.comboName;
+    })(),
+    prefer: (s) => !s.events.some((e) => e.type === "cutin") && s.ball.lineIndex >= 2,
+    interact: { type: "steps", steps: [{ click: ".skill-row .ult-btn:not(:disabled)" }, { wait: 120 }, { press: "shoot", waitMs: 150 }] },
+    verify: (prev, live) => {
+      if (!live) return "캡처 시점 경기 상태를 읽지 못함";
+      const fresh = (live.events || []).slice((prev.events || []).length);
+      return fresh.some((e) => e.type === "cutin" && e.ultimateType === "shot") ? true : `필살 슛 컷인 이벤트 없음 (${fresh.map((e) => e.type).join(",") || "-"})`;
     },
   },
 ];

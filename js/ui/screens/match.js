@@ -12,7 +12,14 @@
 //  - 결정 카드 (아래 가운데 한 줄): 공격은 켜진 액션만 (최대 4), 수비는 3. 제목 "드리블 41%" + 성공/실패 한 줄씩(엔진 Outcome.short) + "추천".
 //  - 받는 선수: 후보 전원이 도착 구역에 선다(layout.js). 결정 중 후보 토큰 탭 = 선택, 길게 누르기 = 미니 카드. 결정 { action, receiverId }.
 //  - 필살기: 토큰 게이지 링(준비되면 빛남), 스킬 묶음(.skill-row) 필살기 버튼(합체기면 합체기 이름) 토글 → 결정 { …, ultimate: true }.
-//    cutin/combo 이벤트 = 전체 화면 컷인 1.5초(배속 비례, 스킵 시 생략), 합체기는 두 컷인 + 이름.
+//    cutin/combo 이벤트 = 3단 연출 (2026-09-29, 아트 전 틀): ① 차지 0.4초(필드 흑백 · 사용자와 듀얼 상대만 색 · 사용자 빛남)
+//    ② 전체 화면 컷인 1.0초 — 경기의 첫 필살기만 이 길이, 이후는 합계 1.2초(차지 0.3 + 컷인 0.9). 합체기는 차지 + 두 컷인 + 이름
+//    ③ 필살 슛을 GK 가 막으면(④ 세이브) GK 역방향 컷인 0.8초 "기적의 세이브!" — ③ 파이널 서드의 DF 블록(turnover)에는 없음.
+//    전부 배속 비례, ⏭ 스킵 시 생략. 차지 중에는 선 · 배지 층도 흑백 (css .m-field.charging .pitch-svg).
+//  - 에이스의 외침 (표시 전용, view.aceCall): 받으면 필살기가 준비 · 합체기가 되는 받는 선수 토큰에 "줘!" 말풍선(금색),
+//    공 가진 선수 → 그 선수 금색 점선 + 배지("★ 연결하면 메테오 슛" / "💥 바람의 유성 가능"). 양 팀 공격 모두 — 상대는 먼저
+//    커밋하므로 커밋한 받는 선수일 때만 외친다(= 실제로 공이 갈 곳, 엔진 aceCallFor). 같은 받는 선수의
+//    미리보기 화살표가 떠 있는 동안은 점선을 숨긴다. 자동 진행이고 우리 자동이 그 선수에게 보내면 정보 줄 "자동: ○○에게 연결 예정".
 //  - 간파 버튼(스킬 또는 사용권, 비용·사유) = 즉시 사용({ gaanpa }, 결정 대기 유지). 일반 액티브는 토글 후 액션과 함께.
 //  - 연출: 크로스 포물선, 헤더, 연계 문구(킬패스!·원터치!·헤더!·침투!), 태클 실패 누운 모습, 필살기 공.
 //  기대 %·결과·후보·게이지는 전부 엔진 getMatchView 값이다. 이 파일은 규칙을 다시 계산하지 않는다.
@@ -42,12 +49,18 @@ import * as L from '../labels.js';
 const BEAT_FALLBACK = ['kickoff', 'counter', 'duel', 'turnover', 'save', 'goal', 'penalty'];
 const ACTION_BEATS = new Set(['duel', 'turnover', 'save', 'goal', 'penalty']);
 // 1x 기준 ms. GDD §9.4: 액션 0.8 + 재배치 0.65 + 결과(읽는 시간) 0.95 ≈ 비트당 2.4초. 2x·4x 는 1/speed 로 비례 단축.
-// 컷인 1.5초 (GDD v0.5 §9.17-5), 합체기 = 두 컷인 1.0초씩 + 이름 1.1초.
+// 필살기 (GDD v0.5 §9.17-5, 2026-09-29): 차지 0.4 + 컷인 1.0 (경기의 첫 필살기), 이후 차지 0.3 + 컷인 0.9 = 1.2초.
+// 합체기 = 차지 + 두 컷인 1.0초씩 + 이름 1.1초. 필살 슛이 막히면 GK 역방향 컷인 0.8초.
 const T = {
   act: 800, move: 650, result: 950, hold: 250, goal: 900,
-  cutin: 1500, comboCut: 1000, comboName: 1100,
+  charge: 400, chargeShort: 300, cutin: 1000, cutinShort: 900, gkSave: 800, comboCut: 1000, comboName: 1100,
   start: 700, idle: 300, longPress: 450,
 };
+// 필살기 연출의 바닥 길이 (ms, 배속 반영 뒤). 4x 에서도 걸리지 않게 둔다 — 4x = 차지 100/75 · 컷인 250/225 · GK 세이브 200
+// (바닥에 걸리면 "첫 필살기 > 이후"와 배속 비례가 무너진다)
+const CUT_MIN = { charge: 60, card: 200 };
+// 에이스의 외침 말풍선 글자
+const ACE_BUBBLE = '줘!';
 // 토큰 지름 = 필드 폭(골과 나란한 쪽 = 규칙 영역 높이) × 8.3%, 30~48px. 스테이지 1280×720: 규칙 영역 1244×528 → 44px
 const TOKEN = { ratio: 0.083, min: 30, max: 48 };
 // 글자 크기 (px) — CSS 와 같게 (자리 고르기의 글자 폭 추정 textWidth 에 쓴다): 이름표 · 말풍선 · 미리보기 글자 · 결과 한 줄 · 연계 문구
@@ -142,18 +155,23 @@ export function renderMatch(root, ctx) {
     h('div', { class: 'pl-spot top' }), h('div', { class: 'pl-spot bottom' }));
   const trailG = svgEl('g', { class: 'g-trail' });
   const arrowG = svgEl('g', { class: 'g-arrow' });
+  // 에이스의 외침 점선 (미리보기 화살표 아래 층, hideArrow 가 지우지 않는다)
+  const aceG = svgEl('g', { class: 'g-ace' });
   const svg = svgEl('svg', { class: 'pitch-svg', 'aria-hidden': 'true', focusable: 'false' },
     svgEl('defs', {}, arrowMarker('mah-gold', '#ffd166'), arrowMarker('mah-white', '#ffffff')),
-    trailG, arrowG);
+    trailG, aceG, arrowG);
   // 미리보기 글자(도착 구역 · 차단 액션 이름)는 토큰 위 층에 — 토큰이 없는 쪽을 골라 놓는다 (tipSpot)
   const tipG = svgEl('g', { class: 'g-tip' });
-  const svgTop = svgEl('svg', { class: 'pitch-svg top', 'aria-hidden': 'true', focusable: 'false' }, tipG);
+  const aceTipG = svgEl('g', { class: 'g-ace-tip' }); // 에이스의 외침 배지 (토큰 위 층)
+  const svgTop = svgEl('svg', { class: 'pitch-svg top', 'aria-hidden': 'true', focusable: 'false' }, aceTipG, tipG);
   const tokLayer = h('div', { class: 'tok-layer' });
   const ballEl = h('div', { class: 'm-ball', 'aria-hidden': 'true' }, h('span', {}, '⚽'));
   const popLayer = h('div', { class: 'pop-layer', 'aria-hidden': 'true' });
   const goalFx = h('div', { class: 'goal-fx', 'aria-hidden': 'true' });
+  // 필살기 차지: 잔디 전체를 흑백으로 (사용자 · 듀얼 상대 토큰은 이 막 위에 색 그대로 — css .m-field.charging)
+  const chargeVeil = h('div', { class: 'charge-veil', 'aria-hidden': 'true' });
   // 규칙 영역: 좌표의 기준 사각형 (구역·선·토큰·공·화살표·결과 한 줄). 잔디(.pitch)는 스테이지 전체, 규칙 영역은 위·아래 HUD 사이
-  const field = h('div', { class: 'm-field' }, bg, tokLayer, ballEl, svg, svgTop, popLayer, goalFx);
+  const field = h('div', { class: 'm-field' }, bg, chargeVeil, tokLayer, ballEl, svg, svgTop, popLayer, goalFx);
   const grass = h('div', { class: 'pitch' }, field);
   // 아래 가운데: 정보 줄(상대 예상 행동 근거) + 결정 카드 한 줄
   const info = h('div', { class: 'm-info' });
@@ -191,6 +209,8 @@ export function renderMatch(root, ctx) {
   let lastDecision = null;   // 사람이 보낸 마지막 결정 (실패한 패스의 받는 선수 연출용)
   let cardModal = null;
   let tagBoxes = [];         // 이름 라벨·말풍선이 놓인 자리 (픽셀 박스)
+  let curAce = null;         // 지금 그린 에이스의 외침 (aceInfo) — 같은 받는 선수의 미리보기 화살표면 점선을 숨긴다
+  let aceSig = null;         // 점선 모양 서명: 같으면 다시 그려도 페이드 없이
   const tokEls = new Map();
   const timers = new Set();
   const reduced = prefersReducedMotion();
@@ -524,18 +544,27 @@ export function renderMatch(root, ctx) {
     return out;
   }
 
-  /** 이름 라벨(carrier · defender · 받는 선수)과 예상 행동 말풍선의 자리: key → { label: 'lbl-…' 클래스, bubble: 'bub-…' 클래스 } */
-  function placeTags(Lay, named, bubbleKey, bubbleText, lanes = []) {
+  /**
+   * 이름 라벨(carrier · defender · 받는 선수 · 외치는 선수)과 말풍선(상대 예상 행동 · 에이스의 외침 "줘!")의 자리:
+   * key → { label: 'lbl-…' 클래스, bubble: 'bub-…' 클래스 }. bubbles = [{ key, text }] — 앞의 것부터 자리를 잡는다
+   */
+  function placeTags(Lay, named, bubbles = [], lanes = []) {
     const rects = new Map(Lay.tokens.map((t) => [`${t.side}:${t.id}`, tokenRect(t)]));
     const ball = ballRect(Lay);
     const taken = []; // 이미 놓인 글자
     const obstaclesFor = (key) => [...[...rects].filter(([k]) => k !== key).map(([, r]) => r), ball, ...lanes, ...taken];
     const out = new Map();
     out.boxes = taken; // 놓인 글자 자리 (미리보기 글자가 피한다)
-    const bubTok = bubbleKey ? Lay.tokens.find((t) => `${t.side}:${t.id}` === bubbleKey) : null;
-    if (bubTok && bubbleText) {
-      const pick = pickSpot(bubbleCands(bubTok, bubbleText), obstaclesFor(bubbleKey));
-      out.set(bubbleKey, { label: '', bubble: pick.cls });
+    for (const b of bubbles) {
+      const bubTok = b && b.key && b.text ? Lay.tokens.find((t) => `${t.side}:${t.id}` === b.key) : null;
+      if (!bubTok) continue;
+      // 연계 특성 아이콘(토큰 오른쪽 위 16px — css .tok-trait, tokenRect 밖)도 되도록 가리지 않게 (자기 · 이웃 토큰)
+      const traits = Lay.tokens.filter((t) => t.trait).map((t) => {
+        const [tx, ty] = toPx(t.x, t.y);
+        return { l: tx + tokPx * 0.3, r: tx + tokPx * 0.3 + 16, t: ty - tokPx * 0.72, b: ty - tokPx * 0.72 + 16, w: 0.6 };
+      });
+      const pick = pickSpot(bubbleCands(bubTok, b.text), [...obstaclesFor(b.key), ...traits]);
+      out.set(b.key, { label: '', bubble: pick.cls });
       taken.push({ ...pick.box, w: 1.5 });
     }
     const order = ['carrier', 'defender', 'receiver'];
@@ -565,6 +594,7 @@ export function renderMatch(root, ctx) {
       extra.ult ? 'has-ult' : '',
       extra.ult?.ready ? 'ult-ready' : '',
       extra.ult?.combo ? 'ult-combo' : '',
+      extra.calling ? 'calling' : '',
     ].filter(Boolean).join(' ');
   }
 
@@ -583,13 +613,20 @@ export function renderMatch(root, ctx) {
     const oppKey = oppDuelKey(view);
     const rtags = receiverTags(view, Lay);
     const atk = Lay.attackingSide;
+    const ace = aceInfo(view, Lay);
     const named = new Map();
     for (const t of Lay.tokens) {
       const key = `${t.side}:${t.id}`;
       if (t.role === 'carrier' || t.role === 'defender') named.set(key, t.name);
       else if (t.role === 'receiver' && t.side === atk && rtags.has(t.id)) named.set(key, labelText(t, rtags.get(t.id), view));
     }
-    const tags = placeTags(Lay, named, ei.bubble ? oppKey : null, ei.bubble, previewLanes(Lay, view));
+    // 외치는 선수는 이름도 (자동 진행 중 예상 받는 선수가 아니어도 누가 외치는지 보이게)
+    if (ace && !named.has(ace.key)) named.set(ace.key, ace.R.name);
+    const bubbles = [];
+    if (ei.bubble && oppKey) bubbles.push({ key: oppKey, text: ei.bubble });
+    if (ace) bubbles.push({ key: ace.key, text: ACE_BUBBLE });
+    // 이름표 · 말풍선은 미리보기 길과 외침 점선도 피한다 (점 박스 — 토큰보다 덜 싫다)
+    const tags = placeTags(Lay, named, bubbles, [...previewLanes(Lay, view), ...(ace ? aceDots(ace) : [])]);
     tagBoxes = tags.boxes || [];
     const deciding = !busy && paused(view) && view?.attackingSide === humanOf(view);
     for (const t of Lay.tokens) {
@@ -598,11 +635,13 @@ export function renderMatch(root, ctx) {
       const el = tokenEl(t);
       const ult = view?.ultimate?.[t.side]?.[t.id] || null;
       const picks = t.side === atk ? rtags.get(t.id) : null;
+      const calling = !!(ace && key === ace.key);
       el.className = tokenClass(t, tags.get(key), {
         named: named.has(key),
         picked: !!(deciding && picks && picks.length),
         pickable: !!(deciding && t.role === 'receiver' && t.side === atk),
         ult,
+        calling,
       });
       el.dataset.role = t.role;
       el.dataset.x = String(round1(t.x));
@@ -611,16 +650,20 @@ export function renderMatch(root, ctx) {
       const nm = named.get(key) ?? t.name;
       if (el._name.textContent !== nm) el._name.textContent = nm;
       el.setAttribute('aria-label', `${t.side === 'home' ? '우리' : '상대'} ${t.slot ?? t.position} ${t.name} — ${L.TOKEN_ROLE_LABELS[t.role] ?? t.role}` +
-        `${ult ? ` · 필살 게이지 ${Math.round(ult.gauge)}${ult.ready ? ' (준비)' : ''}` : ''}${deciding && t.role === 'receiver' && t.side === atk ? ' · 탭하면 받는 선수로' : ''}`);
+        `${ult ? ` · 필살 게이지 ${Math.round(ult.gauge)}${ult.ready ? ' (준비)' : ''}` : ''}${deciding && t.role === 'receiver' && t.side === atk ? ' · 탭하면 받는 선수로' : ''}` +
+        `${calling ? ` · "${ACE_BUBBLE}" ${ace.title}` : ''}`);
       place(el, t.x, t.y);
       el._bar.style.width = `${Math.round(clamp01(t.staminaRatio) * 100)}%`;
-      const bub = key === oppKey && ei.bubble ? ei.bubble : '';
+      const bub = key === oppKey && ei.bubble ? ei.bubble : calling ? ACE_BUBBLE : '';
       el._bubble.textContent = bub;
-      el._bubble.title = bub ? ei.text : '';
+      el._bubble.title = bub ? (calling ? ace.title : ei.text) : '';
       el.classList.toggle('has-bubble', !!bub);
-      el.classList.toggle('reading', !!(bub && ei.reading));
+      el.classList.toggle('reading', !!(bub && !calling && ei.reading));
     }
     for (const [key, el] of tokEls) if (!seen.has(key)) el.classList.add('gone');
+    // 외침 점선 · 배지 (재배치로 토큰이 움직이는 중이면 도착한 뒤 나타난다). 배지 자리는 결과 한 줄 · 미리보기 글자도 피한다
+    const badge = drawAce(Lay, ace, anim);
+    if (badge) tagBoxes.push(badge);
     placeBall(Lay);
     updateZones(Lay);
     updateTrack(Lay);
@@ -756,19 +799,28 @@ export function renderMatch(root, ctx) {
     const recvOf = (side, x) => (isBoxLink(view, x?.action) && x.receiverId ? ` → ${nameOf(view, side, x.receiverId)}` : '');
     let mine = '';
     let mineTitle = '';
+    let ace = false;
     if (me) {
       mine = myRole === 'defense' && box
         ? '우리: 세이브(자동)'
         : `우리: ${actName(view, me.action)}${recvOf(human, me)}`;
       mineTitle = `우리 ${myName}의 예상 행동 — 자동이면 이것을 고른다${myRole === 'attack' && linkRule ? `\n${linkRule}` : ''}`;
+      // 에이스의 외침: 자동 진행 중 우리 자동이 외치는 선수에게 보내면 (엔진 aceCall.expected — 새 판단 · 보너스 없음)
+      const ac = view.aceCall;
+      if (myRole === 'attack' && ac && ac.side === human && ac.expected && ui.auto && !paused(view)) {
+        mine = `자동: ${ac.name}에게 연결 예정`;
+        mineTitle = `${ac.name}${ac.reason === 'combo' ? `: 필살 패스를 받으면 합체기 [${ac.comboName}]` : `: 받으면 필살기 [${ac.ultimateName}] 준비`}` +
+          ` — 우리 자동(${actName(view, ac.expectedAction)})이 ${ac.name}에게 보낸다\n${mineTitle}`;
+        ace = true;
+      }
     }
     if (view.opponentReading) {
       return {
-        ico: '👁', text: `상대 ${withJosa(oppName, '이/가')} 우리 수를 읽는 중`, bubble: '👁 간파', mine, mineTitle, reading: true,
+        ico: '👁', text: `상대 ${withJosa(oppName, '이/가')} 우리 수를 읽는 중`, bubble: '👁 간파', mine, mineTitle, ace, reading: true,
         title: `상대 ${withJosa(oppName, '이/가')} 간파를 썼다 — 우리가 고른 액션을 보고 판정 때 가장 유리한 액션으로 바꾼다. 기대 %는 그 대응 기준`,
       };
     }
-    if (!o) return { ...none, text: view.lineLabel ?? '', mine, mineTitle };
+    if (!o) return { ...none, text: view.lineLabel ?? '', mine, mineTitle, ace };
     if (oppRole === 'defense' && box) {
       // 우리 ④: GK 세이브(자동) 상대. 컷백 · 센터링도 GK 와 경합 (GK 가 튀어나와 끊는다)
       const links = (view.actions || []).filter((x) => x.enabled && isBoxLink(view, x.action)).map((x) => actName(view, x.action));
@@ -776,7 +828,7 @@ export function renderMatch(root, ctx) {
         ico: '🧤',
         text: `상대 GK ${withJosa(oppName, '과/와')} 1:1 — 세이브${links.length ? ` · ${links.join('·')}도 GK와 경합` : ''}`,
         title: `상대 GK ${oppName}: 슛은 세이브로, ${links.length ? `${links.join('·')}은 튀어나와 끊어서 막는다 (끊기면 세이브와 같음)` : '박스에서는 세이브 자동'}`,
-        bubble: null, mine, mineTitle, reading: false,
+        bubble: null, mine, mineTitle, ace, reading: false,
       };
     }
     const a = o.action;
@@ -794,6 +846,7 @@ export function renderMatch(root, ctx) {
       bubble: `${actIcon(view, a)} ${actName(view, a)}`.trim(),
       mine,
       mineTitle,
+      ace,
       reading: false,
     };
   }
@@ -806,6 +859,155 @@ export function renderMatch(root, ctx) {
     if (view.attackingSide === human && Number(view.lineIndex) >= 3) return null;
     const id = view.attackingSide === human ? view.defender?.id : view.carrier?.id;
     return id ? `${opp}:${id}` : null;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* 에이스의 외침 (2026-09-29, 표시 전용 — 엔진 view.aceCall)                   */
+  /* ------------------------------------------------------------------ */
+  /**
+   * 지금 레이아웃에서 그릴 외침 → { call, key, R(외치는 토큰), C(공 가진 토큰), curve, action, text, title, combo } | null.
+   * 점선 모양 = 그 선수에게 닿는 액션: 패스로 닿으면 직선, 크로스(센터링)로만 닿으면 포물선 (자동이 고른 액션이 있으면 그것)
+   */
+  function aceInfo(view, Lay) {
+    const c = view?.aceCall;
+    if (!c || !Lay || Lay.mode !== 'play' || view.finished || view.phase !== 'decision' || c.side !== Lay.attackingSide) return null;
+    const R = tokOf(Lay, c.playerId, c.side);
+    const C = tokOf(Lay, Lay.carrierId, c.side);
+    if (!R || !C || R === C) return null;
+    const acts = Array.isArray(c.actions) ? c.actions : [];
+    const action = acts.includes(c.expectedAction) ? c.expectedAction : acts.includes('pass') ? 'pass' : acts[0] || 'pass';
+    const combo = c.reason === 'combo' && !!c.comboName;
+    const text = combo ? `💥 ${c.comboName} 가능` : `★ 연결하면 ${c.ultimateName}`;
+    const short = combo ? `💥 ${c.comboName}` : `★ ${c.ultimateName}`; // 붐비는 자리에서만 (drawAce)
+    const via = acts.map((a) => actName(view, a)).join('·');
+    const title = combo
+      ? `${c.name}: 필살 패스를 받으면 합체기 [${c.comboName}] (${via})`
+      : `${c.name}: 받으면 필살기 [${c.ultimateName}] 준비 — 게이지 ${Math.round(Number(c.gauge) || 0)} (${via})`;
+    return { call: c, key: `${c.side}:${c.playerId}`, R, C, curve: action === 'cross', action, text, short, combo, title };
+  }
+  /** 외침 점선의 점 박스 (이름표 · 말풍선 자리 고르기의 장애물) */
+  function aceDots(ace) {
+    const rTok = tokPx / 2 + 3;
+    const a = toPx(ace.C.x, ace.C.y);
+    const b = toPx(ace.R.x, ace.R.y);
+    // 토큰 안쪽 점은 빼고 (토큰 자체가 이미 장애물)
+    return lineDots(a, b, ace.curve).filter((d) => {
+      const cx = (d.l + d.r) / 2;
+      const cy = (d.t + d.b) / 2;
+      return Math.hypot(cx - a[0], cy - a[1]) > rTok && Math.hypot(cx - b[0], cy - b[1]) > rTok;
+    });
+  }
+  /**
+   * 외침 점선(공 가진 선수 → 외치는 선수, 금색 점) + 배지. 배지 자리 = 점선 위 여러 점의 양옆 · 점선 위 중 토큰 · 이름표 · 말풍선 ·
+   * 공을 가장 덜 가리는 자리 (tipText 와 같은 pickSpot). anim 이고 모양이 바뀌었으면 재배치(--t-move)가 끝난 뒤 나타난다.
+   * @returns 배지 박스 (없으면 null)
+   */
+  function drawAce(Lay, ace, anim) {
+    aceG.replaceChildren();
+    aceTipG.replaceChildren();
+    curAce = ace;
+    if (!ace) {
+      aceSig = null;
+      field.classList.remove('ace-off');
+      return null;
+    }
+    const a = toPx(ace.C.x, ace.C.y);
+    const b = toPx(ace.R.x, ace.R.y);
+    const sig = [ace.key, ace.text, ace.curve ? 'c' : 'l', round1(a[0]), round1(a[1]), round1(b[0]), round1(b[1])].join('|');
+    const fade = !!anim && !reduced && sig !== aceSig;
+    aceSig = sig;
+    aceG.classList.toggle('fade', fade);
+    aceTipG.classList.toggle('fade', fade);
+    const rTok = tokPx / 2 + 3;
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (len < rTok * 2 + 4) return null;
+    const cls = `ace-line${ace.combo ? ' combo' : ''}`;
+    if (ace.curve) {
+      const s = curvePoint(a, b, Math.min(0.3, rTok / len));
+      const e = curvePoint(a, b, Math.max(0.7, 1 - (rTok + 3) / len));
+      const cp = curveCtrl(a, b);
+      const d = `M${round1(s[0])},${round1(s[1])} Q${round1(cp[0])},${round1(cp[1])} ${round1(e[0])},${round1(e[1])}`;
+      aceG.append(svgEl('path', { d, class: 'ace-halo' }), svgEl('path', { d, class: cls }));
+    } else {
+      const u = [(b[0] - a[0]) / len, (b[1] - a[1]) / len];
+      const common = {
+        x1: round1(a[0] + u[0] * rTok), y1: round1(a[1] + u[1] * rTok),
+        x2: round1(b[0] - u[0] * (rTok + 3)), y2: round1(b[1] - u[1] * (rTok + 3)),
+      };
+      aceG.append(svgEl('line', { ...common, class: 'ace-halo' }), svgEl('line', { ...common, class: cls }));
+    }
+    // 출발점 고리: 점선 층은 토큰 아래라, 공 가진 선수 옆에 붙은 마커 토큰이 첫 구간을 가리면 점선이 그 선수에게서 나가는 것처럼 보인다
+    // → 공 가진 선수 둘레에 금색 점선 고리를 위 층에 그려 "여기서 나간다"를 표시
+    aceTipG.append(svgEl('circle', { cx: round1(a[0]), cy: round1(a[1]), r: round1(rTok + 2), class: `ace-origin${ace.combo ? ' combo' : ''}` }));
+    // 배지: 글자 12px 굵게, 좌우 여백 7, 높이 18
+    const hh = 18;
+    const at = (t) => (ace.curve ? curvePoint(a, b, t) : lerp2(a, b, t));
+    const tangent = (t) => {
+      const d = sub2(at(Math.min(1, t + 0.05)), at(Math.max(0, t - 0.05)));
+      const l = Math.hypot(d[0], d[1]) || 1;
+      return [d[0] / l, d[1] / l];
+    };
+    const obstacles = [...Lay.tokens.map(tokenRect), ...tagBoxes, ballRect(Lay), ...aceDots(ace).map((d) => ({ ...d, w: 0.3 }))];
+    /** 배지 글 text 의 자리: ① 점선 옆 (5px 띄움) ② 외치는 선수 너머 · 옆 (배지 = 그 선수의 필살기) ③ 한 칸 더 바깥 ④ 점선 위 */
+    const spotFor = (text) => {
+      const w = textWidth(text, 12) + 14;
+      const halfAlong = (v) => (Math.abs(v[0]) * w + Math.abs(v[1]) * hh) / 2; // 배지 박스의 v 방향 반폭
+      const cands = [];
+      const beside = (gap) => {
+        for (const t of [0.5, 0.4, 0.6, 0.3, 0.7, 0.2, 0.8]) {
+          const p = at(t);
+          const tg = tangent(t);
+          const n = [-tg[1], tg[0]];
+          const off = halfAlong(n) + gap;
+          for (const s of [-1, 1]) cands.push([p[0] + n[0] * off * s, p[1] + n[1] * off * s]);
+        }
+      };
+      beside(5);
+      const u1 = tangent(1);
+      const n1 = [-u1[1], u1[0]];
+      const ahead = rTok + 4 + halfAlong(u1);
+      cands.push([b[0] + u1[0] * ahead, b[1] + u1[1] * ahead]);
+      const across = rTok + 8 + halfAlong(n1);
+      for (const s of [-1, 1]) cands.push([b[0] + n1[0] * across * s, b[1] + n1[1] * across * s]);
+      beside(5 + hh + 4);
+      for (const t of [0.5, 0.4, 0.6]) cands.push(at(t));
+      const spots = cands.map(([x0, y0]) => {
+        const x = clamp(x0, w / 2 + 2, W - w / 2 - 2);
+        const y = clamp(y0, hh / 2 + 2, H - hh / 2 - 2);
+        return { x, y, box: { l: x - w / 2, r: x + w / 2, t: y - hh / 2, b: y + hh / 2 } };
+      });
+      const pick = pickSpot(spots, obstacles) || spots[0];
+      return { ...pick, w, text, score: spotScore(pick.box, obstacles) };
+    };
+    // 긴 글("★ 연결하면 메테오 슛")이 토큰 · 이름표를 가리지 않고 놓일 자리가 없으면 짧은 글("★ 메테오 슛")이 더 나은지 본다
+    let pick = spotFor(ace.text);
+    if (pick.score > 40 && ace.short) {
+      const alt = spotFor(ace.short);
+      if (alt.score < pick.score - 40) pick = alt;
+    }
+    const g = svgEl('g', { class: `ace-badge${ace.combo ? ' combo' : ''}`, transform: `translate(${round1(pick.x)},${round1(pick.y)})` });
+    g.append(
+      svgEl('rect', { x: round1(-pick.w / 2), y: -hh / 2, width: round1(pick.w), height: hh, rx: 9, ry: 9 }),
+      Object.assign(svgEl('text', { x: 0, y: 4.5, 'text-anchor': 'middle' }), { textContent: pick.text }));
+    aceTipG.append(g);
+    return { ...pick.box, w: 1.5, role: 'ace' };
+  }
+  /** 비트 연출이 시작되면 외침을 걷는다 (점선 · 배지 · "줘!" 말풍선) — 재배치 때 다음 결정의 외침을 다시 그린다 */
+  function clearAce() {
+    aceG.replaceChildren();
+    aceTipG.replaceChildren();
+    aceSig = null;
+    curAce = null;
+    field.classList.remove('ace-off');
+    tagBoxes = tagBoxes.filter((b) => b.role !== 'ace'); // 걷은 배지 자리는 연계 문구 · 결과 한 줄이 피하지 않는다
+    for (const el of tokLayer.querySelectorAll('.tok.calling')) {
+      el.classList.remove('calling', 'has-bubble');
+      if (el._bubble) { el._bubble.textContent = ''; el._bubble.title = ''; }
+    }
+  }
+  /** 미리보기 화살표가 외치는 선수에게 가면 외침 점선 · 배지를 숨긴다 (같은 길이 두 번 그려지지 않게) */
+  function setAceOff(receiverId) {
+    field.classList.toggle('ace-off', !!(curAce && receiverId != null && String(receiverId) === String(curAce.call.playerId)));
   }
 
   /* ------------------------------------------------------------------ */
@@ -862,7 +1064,7 @@ export function renderMatch(root, ctx) {
     // replaceChildren 은 null 을 "null" 글자로 넣는다 → 빈 항목은 빼고 넘긴다
     info.replaceChildren(...[
       h('span', { class: 'expect', title: ei.title || ei.text }, badge, h('span', { class: 'ico' }, ei.ico), h('span', { class: 'ellipsis' }, ei.text)),
-      ei.mine ? h('span', { class: 'mine ellipsis', title: ei.mineTitle || ei.mine }, ei.mine) : null,
+      ei.mine ? h('span', { class: ['mine', 'ellipsis', ei.ace ? 'ace' : ''], title: ei.mineTitle || ei.mine }, ei.mine) : null,
     ].filter(Boolean));
   }
 
@@ -1298,7 +1500,7 @@ export function renderMatch(root, ctx) {
     arrowFor = null;
     arrowG.replaceChildren();
     tipG.replaceChildren();
-    field.classList.remove('previewing', 'previewing-def');
+    field.classList.remove('previewing', 'previewing-def', 'ace-off');
   }
 
   function drawArrow(action, out, role, view) {
@@ -1312,6 +1514,7 @@ export function renderMatch(root, ctx) {
     const rTok = tokPx / 2 + 3;
     const zoneName = (z) => ZONES[(z ?? 0) - 1]?.name ?? '';
     field.classList.add('previewing');
+    setAceOff(null); // 받는 선수에게 가는 미리보기만 아래에서 다시 숨긴다
 
     if (role === 'attack') {
       let to = null;
@@ -1323,6 +1526,7 @@ export function renderMatch(root, ctx) {
         // 받는 선수(고른 선수 또는 기본값)까지: 패스 = 점선, 크로스 = 포물선. 이름은 토큰 라벨에 있으므로 도착 구역만
         const rid = recvInfo(view, action)?.id ?? Lay.receiverId;
         const R = tokOf(Lay, rid, atk);
+        setAceOff(R ? rid : null); // 외치는 선수에게 가는 미리보기면 외침 점선은 숨긴다
         if (R) {
           const t2 = toPx(R.x, R.y);
           const curve = action === 'cross';
@@ -1370,6 +1574,7 @@ export function renderMatch(root, ctx) {
     // 받는 선수까지의 길을 막는 수비: 인터셉트 = 패스·크로스 길목, 버티기 = 크로스(공중볼)가 떨어지는 곳에서 몸싸움 (2026-09-29 짝)
     const toRecv = action === 'intercept' || (action === 'hold' && ea === 'cross');
     const R = toRecv ? tokOf(Lay, recvId, atk) : null;
+    setAceOff(R ? R.id : null); // 외치는 선수에게 가는 길을 막는 미리보기면 외침 점선은 숨긴다
     const curve = !!R && ea === 'cross'; // 상대가 크로스를 올릴 것 같으면 길 = 포물선
     let pathTo;
     let endGap = 0;
@@ -1393,7 +1598,7 @@ export function renderMatch(root, ctx) {
     // ✕ 자리의 장애물: 토큰 + 보이는 이름표 (접히는 우리 수비수 이름표 제외 — 버티기 ✕ 가 받는 선수 이름표를 덮지 않게)
     const others = [
       ...(Lay.tokens || []).filter((t) => !(t.side === atk && t.id === Lay.carrierId)).map(tokenRect),
-      ...tagBoxes.filter((b) => b.role !== 'defender'),
+      ...tagBoxes.filter((b) => b.role !== 'defender' && !(b.role === 'ace' && field.classList.contains('ace-off'))),
     ];
     const cutCands = [];
     for (const lat of [0, 0.8, -0.8]) {
@@ -1418,7 +1623,9 @@ export function renderMatch(root, ctx) {
       return { l, r: l + w, t: c.y - 12, b: c.y + 3 };
     };
     // 수비 미리보기 동안 접힌 수비수 이름표(.previewing-def)는 보이지 않으니 피하지 않는다 → ✕ 옆 빈자리를 쓴다
-    const tags = field.classList.contains('previewing-def') ? tagBoxes.filter((b) => b.role !== 'defender') : tagBoxes;
+    // 숨긴 외침 배지(.ace-off — 같은 받는 선수의 미리보기)도 피하지 않는다
+    const aceOff = field.classList.contains('ace-off');
+    const tags = tagBoxes.filter((b) => !(b.role === 'defender' && field.classList.contains('previewing-def')) && !(b.role === 'ace' && aceOff));
     const obstacles = [...(curL?.tokens || []).map(tokenRect), ...tags, ...extra];
     const pick = pickSpot(cands.map((c) => ({ ...c, box: boxOf(c) })), obstacles) || { ...cands[0] };
     const el = svgEl('text', { x: round1(pick.x), y: round1(pick.y), class: cls, 'text-anchor': pick.anchor });
@@ -1542,6 +1749,7 @@ export function renderMatch(root, ctx) {
   function animateBeat(fresh, prevL, nextL, nextView, prevView, chosen = null) {
     setBusy(true);
     hideArrow();
+    clearAce(); // 공이 움직이면 외침(점선 · "줘!")은 걷는다 — 재배치 때 다음 결정의 외침
     clearPops(); // 이전 비트의 결과 한 줄은 새 비트가 시작되면 걷는다 (필드·로그와 어긋나지 않게)
     lockButtons(chosen);
     const k = fx();
@@ -1549,13 +1757,22 @@ export function renderMatch(root, ctx) {
     const mainIdx = fresh.findIndex((e) => e && ACTION_BEATS.has(e.type));
     const main = mainIdx >= 0 ? fresh[mainIdx] : null;
     const beats = fresh.filter((e) => e && BEATS.has(e.type));
-    const pre = main ? cutSeq(fresh.slice(0, mainIdx)) : [];
-    const post = cutSeq(main ? fresh.slice(mainIdx + 1) : fresh);
+    // 경기의 첫 필살기만 긴 연출 (이번 비트 전에 컷인 이벤트가 없었는가)
+    const evs = Array.isArray(store.match?.events) ? store.match.events : [];
+    const priorCut = evs.slice(0, Math.max(0, evs.length - fresh.length)).some((e) => e && e.type === 'cutin');
+    // 차지 때 색을 남길 듀얼 상대: 판정 비트 앞 컷인 = 이번 듀얼(main), 뒤 컷인 = 다음 듀얼(AI 가 먼저 커밋 — nextView)
+    const preDuel = main ? { atk: main.side, carrierId: main.playerId, defenderId: main.defenderId } : null;
+    const postDuel = nextView && nextView.phase === 'decision'
+      ? { atk: nextView.attackingSide, carrierId: nextView.carrier?.id, defenderId: nextView.defender?.id } : null;
+    const pre = main ? cutSeq(fresh.slice(0, mainIdx), { first: !priorCut, duel: preDuel }) : [];
+    const post = cutSeq(main ? fresh.slice(mainIdx + 1) : fresh, { first: !priorCut && !pre.some((c) => c.kind === 'cut'), duel: postDuel });
     let t = playCuts(pre, 0, k);
     if (main) {
       later(() => actionPhase(main, prevL, prevView), t);
       t += T.act * k;
       if (main.type === 'turnover' || main.type === 'save' || (main.type === 'penalty' && !main.success)) t += T.hold * k;
+      // 필살 슛이 막히면: GK 역방향 컷인 "기적의 세이브!" (다이브 뒤, 재배치 전)
+      if (ultShotSaved(main)) t = playCuts([{ kind: 'gksave', ev: main, dur: T.gkSave }], t, k);
       if (main.type === 'goal') {
         later(() => goalFlash(main, nextView), t);
         t += T.goal * k;
@@ -1572,20 +1789,38 @@ export function renderMatch(root, ctx) {
     later(() => finishBeat(), t);
   }
 
-  /** 컷인 카드 목록: cutin → 카드 1장, combo → 두 선수 카드 + 합체기 이름 (앞에 온 받은 선수의 cutin 은 대신한다) */
-  function cutSeq(evs) {
+  /**
+   * 필살기 연출 카드 목록 (2026-09-29 3단): cutin → [차지, 컷인], combo → [차지, 두 선수 컷인, 합체기 이름] (앞에 온 받은 선수의
+   * 차지 · cutin 을 대신한다). ctx.first = 이 경기의 첫 필살기(긴 연출: 차지 0.4 + 컷인 1.0), 이후는 차지 0.3 + 컷인 0.9 (합체기 컷인은 그대로).
+   * ctx.duel = { atk, carrierId, defenderId } — 차지 때 색을 남길 듀얼 상대 (공격 쪽 사용자 ↔ 수비수, 수비 쪽(필살 세이브) ↔ 공 가진 선수)
+   */
+  function cutSeq(evs, ctx = {}) {
     const out = [];
+    let first = !!ctx.first;
+    const duel = ctx.duel || null;
+    const chargeFor = (side, pid, isFirst) => {
+      const foeSide = side === 'home' ? 'away' : 'home';
+      const foe = duel ? (side === duel.atk ? duel.defenderId : duel.carrierId) : null;
+      return { kind: 'charge', user: `${side}:${pid}`, foe: foe ? `${foeSide}:${foe}` : null, dur: isFirst ? T.charge : T.chargeShort };
+    };
     for (const e of evs) {
       if (!e) continue;
-      if (e.type === 'cutin') out.push({ kind: 'cut', ev: e, dur: T.cutin });
-      else if (e.type === 'combo') {
+      if (e.type === 'cutin') {
+        out.push(chargeFor(e.side === 'away' ? 'away' : 'home', e.playerId, first), { kind: 'cut', ev: e, dur: first ? T.cutin : T.cutinShort });
+        first = false;
+      } else if (e.type === 'combo') {
         const [sa, sb] = Array.isArray(e.skillIds) ? e.skillIds : [];
         const [pa, pb] = Array.isArray(e.playerIds) ? e.playerIds : [];
+        const side = e.side === 'away' ? 'away' : 'home';
         const i = out.findIndex((c) => c.kind === 'cut' && c.ev.skillId === sb && c.ev.playerId === pb);
         const recvCut = i >= 0 ? out.splice(i, 1)[0].ev : null;
+        const j = i > 0 && out[i - 1].kind === 'charge' ? i - 1 : -1;
+        const charge = j >= 0 ? out.splice(j, 1)[0] : chargeFor(side, pb, first);
+        first = false;
         out.push(
-          { kind: 'cut', ev: { side: e.side, playerId: pa, skillId: sa }, dur: T.comboCut, part: 1 },
-          { kind: 'cut', ev: { side: e.side, playerId: pb, skillId: sb, ultimateType: recvCut?.ultimateType }, dur: T.comboCut, part: 2 },
+          charge,
+          { kind: 'cut', ev: { side, playerId: pa, skillId: sa }, dur: T.comboCut, part: 1 },
+          { kind: 'cut', ev: { side, playerId: pb, skillId: sb, ultimateType: recvCut?.ultimateType }, dur: T.comboCut, part: 2 },
           { kind: 'name', ev: e, dur: T.comboName });
       }
     }
@@ -1595,12 +1830,39 @@ export function renderMatch(root, ctx) {
     if (!cards.length) return t0;
     let t = t0;
     for (const c of cards) {
-      const dur = Math.max(250, c.dur * k);
-      later(() => showCut(c, dur), t);
+      if (c.kind === 'charge') {
+        const dur = Math.max(CUT_MIN.charge, c.dur * k);
+        later(() => showCharge(c, dur), t);
+        t += dur;
+        continue;
+      }
+      const dur = Math.max(CUT_MIN.card, c.dur * k);
+      later(() => { endCharge(); showCut(c, dur); }, t);
       t += dur;
     }
-    later(() => hideCut(), t);
+    later(() => { endCharge(); hideCut(); }, t);
     return t;
+  }
+  /** ① 차지: 잔디 흑백(.m-field.charging), 필살기 사용자 빛남(.charge-user), 듀얼 상대는 색 그대로(.charge-foe) */
+  function showCharge(c, dur) {
+    endCharge();
+    field.style.setProperty('--t-charge', `${Math.round(dur)}ms`);
+    field.classList.add('charging');
+    tokEls.get(c.user)?.classList.add('charge-user');
+    if (c.foe) tokEls.get(c.foe)?.classList.add('charge-foe');
+  }
+  function endCharge() {
+    field.classList.remove('charging');
+    for (const el of tokLayer.querySelectorAll('.charge-user, .charge-foe')) el.classList.remove('charge-user', 'charge-foe');
+  }
+  /**
+   * 판정 비트가 필살 슛을 GK 가 막은 것인가 (박스 연결 실패는 아님). GK 세이브(이벤트 "save", ④)만 — ③ 파이널 서드의 필살 슛은
+   * DF 와 판정해 막히면 "turnover"(DF 블록)라 ③ 역방향 컷인이 없다 (GDD 9.17-5, 16-29: DF 블록판은 사용자 결정 대기)
+   */
+  function ultShotSaved(ev) {
+    if (!ev || ev.type !== 'save' || ev.boxLink || ev.action !== 'shoot' || !ev.ultimate) return false;
+    const sk = Array.isArray(data.skills) ? data.skills.find((s) => s.id === ev.ultimate) : null;
+    return !sk || sk.ultimate?.type === 'shot';
   }
   function showCut(c, dur) {
     const el = cutCard(c);
@@ -1609,11 +1871,24 @@ export function renderMatch(root, ctx) {
     cutLayer.classList.add('show');
   }
   function hideCut() {
+    endCharge();
     cutLayer.classList.remove('show');
     cutLayer.replaceChildren();
   }
   function cutCard(c) {
     const ev = c.ev || {};
+    if (c.kind === 'gksave') {
+      // ③ GK 역방향 컷인: 막은 GK 쪽에서 들어온다 (필살 슛 컷인과 반대 방향 · 반대 기울기), 차가운 색
+      const defSide = ev.side === 'away' ? 'home' : 'away';
+      const g = playerSnap(defSide, ev.defenderId) || {};
+      const usDef = defSide === humanOf(curView);
+      return h('div', { class: ['cut', 'cut-save', `side-${defSide}`] },
+        h('div', { class: 'cut-band' },
+          h('span', { class: 'cut-face', style: { background: g.portraitColor || '#4b5563' } }, initialOf(g.name)),
+          h('div', { class: 'cut-txt' },
+            h('small', {}, `${usDef ? '' : '상대 '}${g.name ?? 'GK'} · 필살 슛 봉쇄`),
+            h('b', {}, '기적의 세이브!'))));
+    }
     const side = ev.side === 'away' ? 'away' : 'home';
     const us = side === humanOf(curView);
     if (c.kind === 'name') {

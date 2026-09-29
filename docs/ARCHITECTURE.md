@@ -1446,3 +1446,90 @@ counter: { dribble, pass, cross, shoot }   // = COUNTER (§15.1)
 6. **시나리오 부족**: 박스 합체기 · 상대 연결 · 연결 실패 · 크로스 수비 장면은 `tools/scenarios.mjs` 에 없다 (scratchpad `myscen.mjs` 에 임시판).
 7. **라인업**: 편성은 "고른 것 없이 슬롯 탭 = 선수 목록 모달", 미팅은 "슬롯 탭 = 그 선수 고르기" — ui.smoke 의 기존 단언 때문. 통일하려면 그 테스트를 바꾼다. 캐릭터가 8명을 넘으면 선수 풀 줄이 가로 스크롤되고, 터치에서는 카드 사이 틈에서만 밀린다(카드 위는 드래그).
 8. 커밋에 함께 넣을 새 파일: `js/ui/lineup.js`, `test/lineup.test.mjs` (`npm test` 가 lineup 을 요구한다).
+
+---
+
+## 16. v0.4.3 — 에이스의 외침 (표시 전용) · 필살기 3단 연출 (GDD v0.5 0.1 #62 · §9.17-5·6)
+
+> 사용자 결정 (2026-09-29): "에이스의 외침은 넣어보자". 받으면 필살기가 준비되는 · 합체기가 되는 받는 선수가 "줘!"를 외치고, 공 가진 선수 → 그 선수 금색 점선 + 배지. **표시 전용** — 판정 · 자동 선택(A안 · boxLinkEval) · AI · 난수 소비는 그대로. 같은 날 필살기 연출을 3단(차지 → 컷인 → GK 가 막으면 역방향 컷인)으로 (아트 전 틀).
+> `MATCH_VERSION` 3 그대로 (상태 모양 변경 없음). config 키 추가 없음 — `match.ultimate.aceCallGauge` 는 **읽기만**(없으면 `gaugeMax − onReceive`, 그래서 onReceive 를 바꾸면 문턱도 따라간다). 문턱을 따로 올리려면(GDD 16-29 ③) `data/config.json` 의 `match.ultimate` 에 `"aceCallGauge": 80` 처럼 키를 넣는다. 커밋 전(로컬 작업 트리).
+
+### 16.1 엔진 — `aceCallFor(state, data)` (match.js export) · `view.aceCall`
+
+```text
+대상: state.phase "decision" · duel 있음 · 끝나지 않음. side = attackingSide (양 팀 공격 모두), carrier = ball.carrierId
+fx = 이번 듀얼 공격 효과 (fxOf) — 라인 브레이커 등으로 도착이 바뀌면 그 기준
+액션: attackOptionsFor(...) 의 pass · cross 중 켜진 것 (④ 면 박스 연결 — boxLinkUsed 면 없음)
+필살 패스: fx.ult 가 pass 면 그 skillId(AI 가 먼저 커밋 — 게이지 0), 아니면 carrier 의 pass 필살기
+  passReady(액션) = 커밋했거나 ultimateUsable(carrier, "attack", 액션).ok
+후보 p (planFor(...).candidates, players 순서) — 받는 선수 필살기 u 가 받은 뒤 쓸 수 있을 때만:
+  ultTypeUsableAt(u.type, plan.arrival) && !(plan.box && u.type === "pass")   // 박스 연결로 받으면 연결을 이미 써서 필살 패스 불가
+  reason "combo" : passReady && comboName(data, 필살 패스 id, u.id) (combos.json — 목록에 없는 조합은 합체기 외침이 아님)
+  reason "gauge" : gauge(p) ≥ aceCallGauge (config.match.ultimate.aceCallGauge ?? gaugeMax − onReceive = 65)
+예상 공격 = 커밋한 선택(committedAction || action, receiverId) — AI 는 먼저 커밋, 없으면 ai.decideAttack (사람 측 자동과 같은 함수, 순수)
+커밋한 공격(상대 AI — 사람이 고르기 전에 이미 커밋)이면 후보를 (커밋한 액션, 커밋한 받는 선수) 하나로 좁힌다
+  → 그 선수가 조건에 맞으면 외침, 드리블 · 슛 커밋 / 다른 선수에게 보냄 / 커밋한 AI 가 간파 중(판정 때 액션을 바꿀 수 있음)이면 null (상대 외침 = 실제로 공이 갈 곳, expected 늘 true). UI: 공 가진 선수 둘레에 금색 점선 고리(.ace-origin, 위 층) — 마커 토큰이 점선 첫 구간을 가려도 출발점이 보이게
+  사람 측은 결정 전이라 커밋이 없다 → 아래 우선순위 그대로
+하나 고르기 (비트당 한 명): [combo 0 / gauge 1] → [그 액션의 기본 받는 선수 0 / 아님 1] → players 순서
+  기본 받는 선수 = defaultFromPlan(combo 는 필살 패스를 쓴다고 본 fx — 합체기 가치, gauge 는 fx 그대로)
+actions = 그 선수에게 같은 이유로 닿는 액션 (["pass"] · ["cross"] · ["pass", "cross"], 커밋한 측은 커밋한 액션 하나)
+expected = 예상 공격이 그 선수에게 가는가 (액션 ∈ actions && receiverId = 그 선수)
+```
+
+```js
+view.aceCall = null | {
+  side, playerId, name,
+  reason: "gauge" | "combo",
+  actions: ["pass"] | ["cross"] | ["pass", "cross"],
+  arrival: 1..3, boxLink: boolean,             // 받는 도착 단계, ④ 박스 연결인가
+  ultimateSkillId, ultimateName, ultimateType, // 받는 선수의 필살기 ("sk_meteor_shot", "메테오 슛", "shot")
+  comboName: string | null, passSkillId: string | null,   // 합체기면 이름 · carrier 의 필살 패스
+  gauge: number | null, threshold: number,     // 받는 선수 지금 게이지 · 문턱
+  expected: boolean, expectedAction: "pass" | "cross" | null,
+}
+```
+- 결정적, 상태 · 난수 불변(뷰 규약 §12.1 그대로). 상대 선택을 보지 않는다 — expected 와 커밋 좁히기는 **공격 팀 자기** 선택(상대 공격이면 이미 공개된 `expected.attack` · 인터셉트 미리보기와 같은 정보라 새로 드러나는 것이 없다).
+- 커밋 좁히기 이유 (리뷰 2026-09-29): 처음에는 상대도 우선순위로 골라, 상대 FW · MF 에 필살기를 넣은 친선 200판에서 상대 외침 445개 중 183개(41%)가 AI 가 커밋한 받는 선수가 아니었다(110개는 드리블 · 슛 커밋). 금색 점선이 인터셉트 화살표(실제 받는 선수)와 다른 선수를 가리켜 수비 선택을 잘못 이끌 수 있었다.
+- 확인: 같은 시드 → 같은 경기 (scratchpad `baseline.mjs` — simulateAuto · 매 스텝 양쪽 getMatchView 후 step, 친선 · 목표 경기 20판 + 런 1개 JSON 해시 전/후 동일; 리뷰 수정 뒤 `review_det.mjs` — HEAD 1dd0d8c 엔진과 192경기 · 런 3개 JSON 동일), 시뮬 300런 출력 동일.
+
+### 16.2 화면 — 외침 (screens/match.js · css/match.css)
+
+- `aceInfo(view, Lay)`: 외치는 토큰 R · 공 가진 토큰 C (공격 팀 = aceCall.side 일 때만). 점선 모양 = expectedAction(있으면) → pass 가 있으면 직선, cross 로만 닿으면 포물선(`curveCtrl` — 크로스 미리보기와 같은 곡선). 글: combo = `💥 {comboName} 가능`, gauge = `★ 연결하면 {ultimateName}`.
+- **말풍선** "줘!" (`ACE_BUBBLE`): 기존 토큰 말풍선(`.tok-bubble`)을 외치는 토큰에 — `.tok.calling`(금색, 살짝 뜀). `placeTags(Lay, named, bubbles[], lanes)` 가 말풍선 여러 개를 받는다(상대 예상 행동 → 외침 순서). 외치는 선수는 이름표도(자동 진행 중 예상 받는 선수가 아니어도). 말풍선 자리 고르기가 토큰 오른쪽 위 **연계 특성 아이콘**(tokenRect 밖)도 피한다(무게 0.6 — 모든 말풍선 공통).
+- **점선** (`.g-ace`, 아래 SVG 층 — 미리보기 화살표 `.g-arrow` 아래, `hideArrow` 가 지우지 않음): 금색 둥근 점(`stroke-dasharray .1 8`) + 어두운 테두리 점, 합체기는 분홍(`.ace-line.combo` · `.ace-badge.combo` — 그룹에는 클래스 없음). 양 끝은 토큰 반지름만큼 비운다. 이름표 · 말풍선 자리 고르기의 장애물(점 박스, 무게 0.5).
+- **배지** (`.g-ace-tip`, 위 SVG 층): 둥근 사각 + 글 12px. 후보 순서 = ① 점선 위 0.5 · 0.4 · 0.6 · 0.3 · 0.7 · 0.2 · 0.8 지점의 양옆(점선에서 5px) ② 외치는 선수 너머(점선 방향) · 그 선수 위아래 ③ ①을 한 칸(배지 높이 + 4) 더 바깥 ④ 점선 위. 토큰 · 이름표 · 말풍선 · 공 · 점선 점(0.3)을 가리지 않는 첫 자리, 없으면 가장 덜 가리는 자리(`pickSpot`). 그래도 겹치면(점수 > 40) 짧은 글 `★ {ultimateName}` / `💥 {comboName}` 이 40 이상 나으면 그것 (짧은 점선이 붐비는 빌드업 등). 놓인 배지 박스(`role: 'ace'`)를 `tagBoxes` 에 넣어 결과 한 줄 · 연계 문구 · 미리보기 글자가 피한다(`clearAce` 가 뺀다).
+- **숨김**: 같은 받는 선수에게 가는 미리보기(공격 패스 · 크로스 화살표, 수비 인터셉트 · 크로스 버티기 길)가 떠 있는 동안 `.m-field.ace-off` (점선 · 배지 display none, 미리보기 글자는 숨긴 배지를 피하지 않음). `hideArrow` 가 해제. 상대 외침은 늘 AI 가 커밋한 받는 선수라(§16.1) 우리 인터셉트 미리보기 길 = 외치는 선수 → 인터셉트를 누르는 동안은 늘 숨김.
+- **차지 중**: `.m-field.charging .pitch-svg` 흑백(grayscale 1 · brightness .55 — 흑백 토큰과 같게). 막(`.charge-veil`)과 선 SVG 가 같은 z(1)라 선이 막 위에 그려지고, 배지 SVG(`.top`, z 7)는 토큰 위라서 이것이 없으면 판정 비트 뒤 AI 필살기 차지(재배치 뒤 — 다음 결정의 외침이 이미 그려짐) 동안 금색 점선 · 배지가 필드에서 가장 밝았다(보스 경기 GK 볼카르 불꽃 장벽 ↔ 우리 그룸바 외침).
+- **나타남 · 걷힘**: `applyLayout` 이 매번 다시 그린다. 모양 서명(선수 · 글 · 양 끝 좌표)이 바뀌었고 애니메이션이면 `.fade` — 재배치(`--t-move`)가 끝난 뒤 0.3초 페이드 인(연출 중 토큰이 달려가는 동안 선이 먼저 서지 않게). 같으면 그대로. `animateBeat` 시작 = `clearAce()` (점선 · 배지 · "줘!" 걷음) → `movePhase` 재배치 때 다음 결정의 외침.
+- **정보 줄**: 자동 진행(`ui.auto` · 결정 대기 아님)이고 우리 공격 · `aceCall.side` = 우리 · `expected` 면 오른쪽 "우리: …" 자리에 `자동: {name}에게 연결 예정` (`.mine.ace` 금색, title 에 이유). 그 밖에는 아무것도 더하지 않는다.
+- 접근성: 외치는 토큰 aria-label 에 `· "줘!" {이유}`, 말풍선 title = 이유 ("그룸바: 받으면 필살기 [메테오 슛] 준비 — 게이지 100 (패스)").
+
+### 16.3 화면 — 필살기 3단 연출
+
+| 단계 | 1x 길이 | 내용 |
+|---|---|---|
+| ① 차지 | 0.4초 (이후 0.3) | `.m-field.charging`: 잔디 전체 막(`.charge-veil` — 규칙 영역보다 넓게, backdrop 흑백) + 나머지 토큰 · 선 · 배지 SVG 흑백, 사용자 `.charge-user`(빛나며 커짐 · 게이지 링 퍼짐, `--t-charge`), 듀얼 상대 `.charge-foe`(색 그대로). HUD 는 그대로 |
+| ② 컷인 | 1.0초 (이후 0.9) | 기존 컷인 카드 (`T.cutin` 1500 → 1000). 합체기는 차지 뒤 두 컷인 `T.comboCut` 1000 × 2 + 이름 `T.comboName` 1100 그대로 |
+| ③ GK 역방향 컷인 | 0.8초 | 판정 비트가 필살 슛(`ev.ultimate` 의 스킬이 shot)을 GK 가 막은 `save`(박스 연결 실패 제외)면, 액션(다이브) + hold 뒤 · 재배치 전에 `.cut.cut-save` — GK 팀 쪽에서 들어오고(필살 슛 컷인의 반대 방향), 반대 기울기 · 차가운 색, "기적의 세이브!". **GK 만** (`ultShotSaved`): ③ 파이널 서드(line 2)의 필살 슛은 DF 와 판정해 막히면 `turnover`(DF 블록)라 없음 — 자동 친선 300판 막힌 필살 슛 61 중 50(82%). DF 블록판은 GDD 16-30 결정 대기 |
+
+- "첫 필살기" = 이번 비트 전 `store.match.events` 에 `cutin` 이 없음 (저장 · 이어하기에도 같은 판정). 같은 비트에서 두 번째 컷인(판정 뒤 AI 가 먼저 커밋한 필살기)은 짧게.
+- 차지의 듀얼 상대: 판정 비트 앞 컷인 = 이번 듀얼(`main.playerId` ↔ `main.defenderId`), 뒤 컷인 = 다음 듀얼(`nextView.carrier` ↔ `nextView.defender`). 사용자가 수비(필살 세이브)면 상대 = 공 가진 선수.
+- `cutSeq(evs, { first, duel })` → 카드 `{ kind: 'charge' | 'cut' | 'name' | 'gksave', dur }`, `playCuts` 가 차지는 `showCharge`, 나머지는 `endCharge` + `showCut`. 바닥 길이 `CUT_MIN` = 차지 60 · 카드 200ms (배속 반영 뒤) — 4x 에서도 걸리지 않아 비율이 그대로다(차지 100/75, 컷인 250/225, GK 세이브 200; 처음 구현의 100 · 250 바닥은 4x 에서 첫 필살기와 이후를 같게 만들었다). 전부 `1/speed` 비례, ⏭(`skip` → `hideCut` → `endCharge`) 이면 생략. `prefers-reduced-motion` 이면 차지 · 외침 애니메이션 없이 정지 모양.
+
+### 16.4 테스트 (npm test 139 — rng 8, run 25, match 24, v05 37, layout 20, orient 5, stage 6, lineup 9, outgame 3, ui.smoke 2)
+
+- **test/v05** (+2): 외침 규칙 — 문턱(64 없음 / 65 있음, 이미 가득도, `aceCallGauge` 40, onReceive 50 → 기본 문턱 50), 받은 뒤 못 쓰는 필살기 제외(도착 ① 필살 슛 · 박스 연결로 받는 필살 패스), 합체기 > 게이지(필살 패스가 준비 안 되면 게이지 외침), 비트당 한 명 = 기본 받는 선수 · 동률 players 순서, ④ 박스 연결(컷백 + 센터링), 크로스로만 닿는 MF, 상대 공격(AI 가 FW1 에게 패스 커밋 → 외침 · expected true · 보는 쪽과 무관 / 드리블 커밋 → null / FW2 에게 패스 커밋 → FW1 외침 없음, 같은 배치의 우리 공격은 결정 전이라 우선순위대로 FW1 · expected false), 없음(보유자 없음 · 끝 · resolved), `aceCallFor` = `view.aceCall`. 표시 전용 — 상대 3팀 × 시드 3: 매 스텝 양쪽 뷰가 상태를 바꾸지 않고, 뷰를 만들며 진행한 경기 = `simulateAuto` 경기(JSON 동일), 외침 선수 ∈ 그 액션의 후보, 상대 외침 = 커밋한 받는 선수.
+- **test/ui.smoke**: 시나리오 20(말풍선 한 명 · 이름표 · 점선 · 배지 글, 외치는 선수를 골라 패스 미리보기 → `ace-off`, 드리블 미리보기는 그대로, 결정 → 연출 중 외침 걷힘 · 결정 `{ action, receiverId }` 그대로), 21(상대 받는 선수 "줘!" = 커밋한 받는 선수 · 상대 carrier 예상 행동 말풍선 그대로 · 인터셉트 미리보기 중 숨김 → 떼면 다시 · 자동 문구 없음), 12 자동(합체기 배지 "💥 바람의 유성 가능" · 정보 줄 "자동: 그룸바에게 연결 예정") / 수동(문구 없음, 외침은 보임), 22(필살 슛이 막히는 주사위를 넣고 → 차지 사용자 = carrier · 상대 = GK → 컷인 → "기적의 세이브!" → 닫힘).
+
+### 16.5 도구
+
+- **tools/scenarios.mjs**: `20_ace_call`(우리 ② 결정 — 실루엔 → 그룸바 "★ 연결하면 메테오 슛", 게이지 100), `21_ace_call_opponent`(상대 FW 에 업화의 일격을 `adjustSetup` 으로 주입 — 친선 상대에는 필살기가 없다. 우리 수비 결정 중 상대 AI 가 패스를 커밋한 로벨 "줘!"), `22_ult_charge_mid`(메테오 슛 토글 + 슛 클릭 150ms 뒤 = 차지 중간, 경기의 첫 필살기 · ④). `13_combo_cutin` 캡처 2400 → 2800ms (차지 0.3초가 앞에 붙어 이름 카드 2.3~3.4초). → 경기 01~22.
+
+### 16.6 남은 문제
+
+1. **외침 빈도**: 기본 편성 자동 60판에서 우리 공격 결정의 20.5%(212/1034) — 그룸바 111 · 실루엔 101. 실루엔(필살 패스)은 게이지가 찬 채로 받지 못하고 외침을 반복한다 (③ 크로스 후보 · ① 패스 후보). 좁히는 안: 필살 슛만 · "이번 패스로 차는 경우만" · 문턱 상향 (GDD 16-29).
+2. 합체기 외침은 `combos.json` 조합만 — 엔진은 목록에 없는 조합도 "합체기"로 쓰지만(`comboName` 없으면 "합체기"), 외침은 게이지 규칙으로만 뜬다.
+3. ~~외침은 상대가 필살 슛을 이미 커밋했어도 뜬다~~ → 리뷰 수정: 커밋한 측은 커밋한 받는 선수만 외친다 (§16.1). 드리블 · 슛을 커밋하면 상대 외침 없음.
+4. 차지 막(`backdrop-filter`)은 Chrome 기준. 지원하지 않는 브라우저에서는 어두운 막만(토큰 · 선 흑백은 그대로).
+5. ③ 역방향 컷인은 GK 세이브만 — 파이널 서드의 DF 블록(막힌 필살 슛의 82%)에는 없다. DF 블록판("철벽 블록!" 등)은 사용자 결정 (GDD 16-30).
+6. 결정성 테스트(`test/v05` 표시 전용)는 같은 엔진끼리 비교라 "뷰에 부작용 없음"만 보장한다. HEAD 대비 같은 결과는 scratchpad 스크립트로 확인했다 — 규칙 변경이 잦은 동안은 고정 골든 값을 두지 않는다(밸런스 작업 뒤 필요하면 추가).

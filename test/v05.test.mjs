@@ -1707,3 +1707,179 @@ test("자동 경기의 박스 연결: 양 팀 발생 · 포제션당 1회 · 센
   }
   assert.ok(seen.home > 0 && seen.away > 0 && seen.cross > 0 && seen.ok > 0 && seen.fail > 0, JSON.stringify(seen));
 });
+
+/* ------------------------------------------------------------------ */
+/* 에이스의 외침 (2026-09-29, 표시 전용 — view.aceCall)                    */
+/* ------------------------------------------------------------------ */
+
+test("에이스의 외침: 받으면 필살기 준비(게이지 ≥ gaugeMax − onReceive · aceCallGauge) · 합체기 우선 · 비트당 한 명(기본 받는 선수) · 박스 연결 · 크로스만 · 상대 · 없으면 null", () => {
+  const U = M.ultimate;
+  const thr = U.gaugeMax - U.onReceive;
+  const pick = (c) => (c ? {
+    side: c.side, playerId: c.playerId, reason: c.reason, actions: c.actions, arrival: c.arrival, boxLink: c.boxLink,
+    ultimateSkillId: c.ultimateSkillId, comboName: c.comboName, threshold: c.threshold,
+  } : null);
+  // 1) 게이지 문턱: MF1 이 ① 에서 패스 → 도착 ② FW 후보. FW1 메테오 슛 게이지 thr − 1 이면 없음, thr 이면 외침
+  const gauge = (g, d = data) => {
+    const s = mk({ FW1: { skillIds: ["sk_meteor_shot"] } });
+    s.home.live.h_FW1.gauge = g;
+    place(s, { line: 1, carrier: "h_MF1" });
+    return match.getMatchView(s, d).aceCall;
+  };
+  assert.equal(thr, 65, "기본 문턱 = gaugeMax − onReceive (받으면 가득)");
+  assert.equal(gauge(thr - 1), null, "게이지가 모자라면 외침 없음");
+  const c1 = gauge(thr);
+  assert.deepEqual(pick(c1), {
+    side: "home", playerId: "h_FW1", reason: "gauge", actions: ["pass"], arrival: 2, boxLink: false,
+    ultimateSkillId: "sk_meteor_shot", comboName: null, threshold: thr,
+  });
+  assert.deepEqual({ n: c1.name, u: c1.ultimateName, t: c1.ultimateType, g: c1.gauge }, { n: "hFW1", u: "메테오 슛", t: "shot", g: thr });
+  assert.ok(gauge(U.gaugeMax), "이미 준비된 선수도 외친다");
+  // 문턱 설정: config.match.ultimate.aceCallGauge, 없으면 gaugeMax − onReceive 를 따라간다
+  const dG = clone(data);
+  dG.config.match.ultimate = { ...U, aceCallGauge: 40 };
+  assert.equal(gauge(40, dG)?.threshold, 40, "aceCallGauge 40");
+  assert.equal(gauge(39, dG), null);
+  const dR = clone(data);
+  dR.config.match.ultimate = { ...U, onReceive: 50 };
+  assert.equal(gauge(U.gaugeMax - 50, dR)?.threshold, U.gaugeMax - 50, "onReceive 를 바꾸면 기본 문턱도");
+  // 받은 뒤 쓸 수 있는 필살기만: ① 에서 받는 MF(도착 ①)의 필살 슛은 아직 못 쓴다, 필살 패스는 쓸 수 있다
+  const early = (sid) => {
+    const s = mk({ MF2: { skillIds: [sid] } });
+    s.home.live.h_MF2.gauge = U.gaugeMax;
+    place(s, { line: 0, carrier: "h_DF1" });
+    return match.getMatchView(s, data).aceCall;
+  };
+  assert.equal(early("sk_meteor_shot"), null, "도착 ① 에서 필살 슛은 쓸 수 없다");
+  assert.deepEqual(pick(early("sk_wind_thread")), {
+    side: "home", playerId: "h_MF2", reason: "gauge", actions: ["pass"], arrival: 1, boxLink: false,
+    ultimateSkillId: "sk_wind_thread", comboName: null, threshold: thr,
+  });
+  // 2) 합체기 > 게이지: carrier 바람의 실 준비 → FW1 메테오(게이지 30, 합체기 바람의 유성) vs FW2 업화의 일격(게이지 가득)
+  const combo = (mfGauge) => {
+    const s = mk({ MF1: { skillIds: ["sk_wind_thread"] }, FW1: { skillIds: ["sk_meteor_shot"] }, FW2: { skillIds: ["sk_boss_strike"], stats: { shoot: 700 } } });
+    s.home.live.h_MF1.gauge = mfGauge;
+    s.home.live.h_FW1.gauge = U.gaugeStart;
+    s.home.live.h_FW2.gauge = U.gaugeMax;
+    place(s, { line: 1, carrier: "h_MF1" });
+    return s;
+  };
+  const cs = combo(U.gaugeMax);
+  const cc = match.getMatchView(cs, data).aceCall;
+  assert.deepEqual(pick(cc), {
+    side: "home", playerId: "h_FW1", reason: "combo", actions: ["pass"], arrival: 2, boxLink: false,
+    ultimateSkillId: "sk_meteor_shot", comboName: "바람의 유성", threshold: thr,
+  });
+  assert.equal(cc.passSkillId, "sk_wind_thread");
+  assert.equal(pick(match.getMatchView(combo(U.gaugeMax - 1), data).aceCall).playerId, "h_FW2", "필살 패스가 준비 안 되면 게이지 외침");
+  // expected = 공격 팀의 자동 결정(ai.decideAttack)이 외치는 선수에게 가는가
+  const dd = ai.decideAttack(cs, data, "home");
+  assert.equal(cc.expected, cc.actions.includes(dd.action) && dd.receiverId === cc.playerId);
+  assert.equal(cc.expectedAction, cc.expected ? dd.action : null);
+  // 3) 비트당 한 명: 둘 다 게이지 가득이면 그 액션의 기본 받는 선수 (도착 ③ 성향값 1위가 높은 FW2 — 드리블), 같으면 players 순서
+  const two = mk({ FW1: { skillIds: ["sk_meteor_shot"] }, FW2: { skillIds: ["sk_meteor_shot"], stats: { dribble: 650 } } });
+  two.home.live.h_FW1.gauge = U.gaugeMax;
+  two.home.live.h_FW2.gauge = U.gaugeMax;
+  place(two, { line: 1, carrier: "h_MF1" });
+  const tv = match.getMatchView(two, data);
+  assert.equal(tv.receivers.pass.defaultId, "h_FW2");
+  assert.equal(tv.aceCall.playerId, "h_FW2", "기본 받는 선수가 외친다");
+  const tie = mk({ FW1: { skillIds: ["sk_meteor_shot"] }, FW2: { skillIds: ["sk_meteor_shot"] } });
+  tie.home.live.h_FW1.gauge = U.gaugeMax;
+  tie.home.live.h_FW2.gauge = U.gaugeMax;
+  place(tie, { line: 1, carrier: "h_MF1" });
+  assert.equal(match.getMatchView(tie, data).aceCall.playerId, "h_FW1", "동률 = players 순서 (기본값과 같음)");
+  // 4) ④ 박스 연결 후보: 크로서 FW1 → MF1(슈팅 · 피지컬 최고 MF — 컷백 · 센터링 둘 다 후보) 메테오 게이지 thr
+  const box = (sid, ball = {}) => {
+    const s = mk({ FW1: { trait: "crosser" }, MF1: { skillIds: [sid], stats: { shoot: 500, physical: 500 } } });
+    s.home.live.h_MF1.gauge = thr;
+    place(s, { line: 3, carrier: "h_FW1", ball });
+    return match.getMatchView(s, data).aceCall;
+  };
+  assert.deepEqual(pick(box("sk_meteor_shot")), {
+    side: "home", playerId: "h_MF1", reason: "gauge", actions: ["pass", "cross"], arrival: 3, boxLink: true,
+    ultimateSkillId: "sk_meteor_shot", comboName: null, threshold: thr,
+  });
+  assert.equal(box("sk_wind_thread"), null, "박스 연결로 받으면 필살 패스는 못 쓴다 (연결은 포제션당 1회)");
+  assert.equal(box("sk_meteor_shot", { boxLinkUsed: true }), null, "연결을 이미 했으면 받을 길이 없다");
+  // 5) 크로스로만 닿는 선수: ③ 크로서 FW1 — 패스 후보 = FW2(도착 ④), 크로스 후보 = FW2 + 피지컬 최고 MF1
+  const cr = mk({ FW1: { trait: "crosser" }, MF1: { skillIds: ["sk_meteor_shot"], stats: { physical: 600 } } });
+  cr.home.live.h_MF1.gauge = thr;
+  place(cr, { line: 2, carrier: "h_FW1" });
+  assert.deepEqual(pick(match.getMatchView(cr, data).aceCall), {
+    side: "home", playerId: "h_MF1", reason: "gauge", actions: ["cross"], arrival: 3, boxLink: false,
+    ultimateSkillId: "sk_meteor_shot", comboName: null, threshold: thr,
+  });
+  // 6) 상대 공격: 상대 받는 선수의 외침도 사람(home) 뷰에 (수비하며 공이 갈 곳이 보인다). 상대 AI 는 사람보다 먼저 커밋하므로
+  //    커밋한 액션 · 받는 선수가 조건에 맞을 때만 외친다 (expected 늘 true) — 드리블 · 다른 선수에게 보내면 null
+  const opp = (aOver) => {
+    const s = mk({}, { FW1: { skillIds: ["sk_boss_strike"] }, ...aOver });
+    s.away.live.a_FW1.gauge = U.gaugeMax;
+    return place(s, { atk: "away", line: 1, carrier: "a_MF1" });
+  };
+  const op = opp({ MF1: { stats: { pass: 700 } } });
+  assert.deepEqual({ a: op.duel.awayChoice.action, r: op.duel.awayChoice.receiverId }, { a: "pass", r: "a_FW1" }, "상대 AI 가 FW1 에게 패스를 커밋");
+  const oc = match.getMatchView(op, data).aceCall;
+  assert.deepEqual({ s: oc.side, p: oc.playerId, r: oc.reason, u: oc.ultimateName, a: oc.actions, e: oc.expected, ea: oc.expectedAction },
+    { s: "away", p: "a_FW1", r: "gauge", u: "업화의 일격", a: ["pass"], e: true, ea: "pass" });
+  assert.deepEqual(match.getMatchView(op, data, "away").aceCall, oc, "보는 쪽과 무관");
+  const opDr = opp({});
+  assert.equal(opDr.duel.awayChoice.action, "dribble");
+  assert.equal(match.getMatchView(opDr, data).aceCall, null, "상대가 드리블을 커밋하면 외침 없음");
+  const opFw2 = opp({ MF1: { stats: { pass: 700 } }, FW2: { stats: { dribble: 650 } } });
+  assert.deepEqual({ a: opFw2.duel.awayChoice.action, r: opFw2.duel.awayChoice.receiverId }, { a: "pass", r: "a_FW2" });
+  assert.equal(match.getMatchView(opFw2, data).aceCall, null, "상대가 다른 선수(FW2)에게 보내면 FW1 은 외치지 않는다");
+  // 같은 배치의 우리 공격(아직 결정 전): 우선순위대로 FW1 이 외치고, 자동은 FW2 로 가므로 expected = false
+  const us = mk({ MF1: { stats: { pass: 700 } }, FW1: { skillIds: ["sk_meteor_shot"] }, FW2: { stats: { dribble: 650 } } });
+  us.home.live.h_FW1.gauge = U.gaugeMax;
+  place(us, { line: 1, carrier: "h_MF1" });
+  const uc = match.getMatchView(us, data).aceCall;
+  assert.deepEqual({ p: uc.playerId, e: uc.expected, ea: uc.expectedAction }, { p: "h_FW1", e: false, ea: null }, "사람 측은 결정 전이라 우선순위 그대로");
+  assert.equal(ai.decideAttack(us, data, "home").receiverId, "h_FW2");
+  // 7) 없으면 null: 필살기 보유자 없음 · 결정 대기가 아님 · 경기 끝
+  const none = mk();
+  place(none, { line: 1, carrier: "h_MF1" });
+  assert.equal(match.getMatchView(none, data).aceCall, null);
+  assert.equal(match.aceCallFor(none, data), null);
+  const fin = clone(cs);
+  fin.finished = true;
+  assert.equal(match.aceCallFor(fin, data), null);
+  const res = clone(cs);
+  res.phase = "resolved";
+  assert.equal(match.aceCallFor(res, data), null);
+  assert.deepEqual(match.aceCallFor(cs, data), cc, "view.aceCall = aceCallFor");
+});
+
+test("에이스의 외침은 표시 전용: 뷰는 상태·난수를 바꾸지 않고, 매 스텝 뷰를 만들어도 자동 경기 결과가 같다 (결정성)", () => {
+  const home = run.buildTeamSnapshot(run.createRun({ data, seed: "ace" }), data);
+  let calls = 0;
+  for (const o of data.opponents.slice(0, 3)) {
+    const away = run.buildOpponentSnapshot(o, data);
+    for (let seed = 1; seed <= 3; seed++) {
+      const mk2 = () => match.createMatch({ data, seed, home, away, possessions: 8, kind: "goal" });
+      const plain = match.simulateAuto(mk2(), data);
+      const viewed = mk2();
+      let guard = 0;
+      while (!viewed.finished && guard++ < 5000) {
+        const before = JSON.stringify(viewed);
+        const v = match.getMatchView(viewed, data, "home");
+        match.getMatchView(viewed, data, "away");
+        assert.equal(JSON.stringify(viewed), before, "뷰는 상태를 바꾸지 않는다");
+        if (v.aceCall) {
+          calls++;
+          assert.ok(["gauge", "combo"].includes(v.aceCall.reason));
+          assert.equal(v.aceCall.side, v.attackingSide);
+          const cand = new Set(v.aceCall.actions.flatMap((a) => v.receivers[a]?.candidates || []));
+          assert.ok(cand.has(v.aceCall.playerId), "외치는 선수 = 그 액션의 받는 선수 후보");
+          if (v.aceCall.side === "away") {
+            const ch = viewed.duel.awayChoice;
+            assert.ok(v.aceCall.expected && ch.receiverId === v.aceCall.playerId, "먼저 커밋한 상대의 외침 = 실제로 보낼 선수");
+          }
+        }
+        match.step(viewed, data, null);
+      }
+      assert.equal(JSON.stringify(viewed), JSON.stringify(plain), `seed ${seed} vs ${o.id}: 결과 같음`);
+    }
+  }
+  assert.ok(calls > 0, "자동 경기에서 외침이 나온다");
+});
