@@ -23,7 +23,7 @@
 
 | 경로 | 담당 | 내용 |
 |---|---|---|
-| `index.html`, `css/style.css`, `js/ui/**` | UI | 화면 전부 |
+| `index.html`, `css/base.css` · `css/outgame.css` · `css/match.css` (v0.3.2 — `css/style.css` 를 나눔, §14.2), `js/ui/**` | UI | 화면 전부 (고정 스테이지 1280×720 가로, §14) |
 | `js/engine/rng.js`, `js/engine/run.js`, `js/engine/training.js`, `js/engine/rating.js`, `js/engine/effects.js`, `data/config.json`, `data/routes.json` | 엔진(육성) | 런 상태 머신, 훈련, 이벤트 효과 적용, 평가 |
 | `js/engine/match.js`, `js/engine/ai.js`, `js/engine/skills.js` | 엔진(경기) | 경기 시뮬, 전술 AI, 스킬 효과 |
 | `data/characters.json`, `data/supports.json`, `data/events.json`, `data/skills.json`, `data/relics.json`, `data/opponents.json` | 데이터 | 콘텐츠 |
@@ -595,10 +595,10 @@ export function decideDefense(state, data, side)  // → { action, skillId|null 
 
 ## 8. UI 요구사항 (index.html / css / js/ui)
 
-- **세로 고정 레이아웃**: `.app` 컨테이너 최대 폭 420px, 중앙 정렬, 데스크톱에서는 폰 프레임처럼 보이게. 모바일에서는 전폭. 시스템 폰트. 아트 없음: 색 원(portraitColor) + 이름 첫 글자.
-- **화면**: `start`(새 런 / 이어하기 / 등록 팀 목록 / seed 입력) → `setup`(포메이션, 슬롯 탭 → 캐릭터 목록에 그 슬롯 적성 표시, GK A/B 제한 경고, 서포트 6장 선택, 전술 3항목, 공명 표시, "기본 편성으로 시작" 버튼) → `training`(§7.2 GDD 목업: 상단 바, 체력 스트립, 5칸 리스트, 행동 바) → `event` 모달 → `match` → `relic` 모달 → `route` → `result`(평가, 선수별 스탯, "팀 등록", "다시 하기", seed 표시).
-- **훈련 칸 행**: 칸 이름, 선수 아이콘들(체력 낮으면 어둡게, 부상자 표시 없음), 서포트 아이콘(★ 우정 가능, 💡 힌트 가능), 총 상승치, 최대 실패율, 추천 표시. 탭 → 하단 시트에 선수별 상세 + [훈련하기]. 호출권 버튼(선수 선택 → 칸 선택).
-- **경기 화면** (v0.2부터 §12 가 기준, 아래는 v0.1 기록): 세로 필드(상대 GK/DF/MF/FW 위, 우리 FW/MF/DF/GK 아래), 공 소유자·듀얼 상대 강조, 스코어·포제션, 텐션 바 2개, 의도 표시(아이콘+텍스트), 액션 버튼 3개(비활성 처리), 스킬 버튼, 로그(최근 6개). **자동 토글**(기본 ON, 배속 1x/2x/4x), **개입 버튼**(자동 중 누르면 다음 결정에서 멈춤). 자동 진행은 `setInterval`로 `step()`; 결정 필요 & 수동이면 대기. 컷인 이벤트는 1초 배너.
+- ~~**세로 고정 레이아웃**: `.app` 컨테이너 최대 폭 420px, 중앙 정렬, 데스크톱에서는 폰 프레임처럼 보이게. 모바일에서는 전폭.~~ → **가로 고정 스테이지** (v0.3.2, §14.1): 모든 화면을 논리 1280×720 판에 그리고 창에 맞춰 한 배율로 확대·축소. 세로 화면 없음. 시스템 폰트. 아트 없음: 색 원(portraitColor) + 이름 첫 글자.
+- **화면**: `start`(새 런 / 이어하기 / 등록 팀 목록 / seed 입력) → `setup`(포메이션, 슬롯 탭 → 캐릭터 목록에 그 슬롯 적성 표시, GK A/B 제한 경고, 서포트 6장 선택, 전술 3항목, 공명 표시, "기본 편성으로 시작" 버튼) → `training`(v0.1: GDD 목업 상단 바, 체력 스트립, 5칸 리스트, 행동 바 — v0.3.2 가로 배치는 §14.4) → `event` 모달 → `match` → `relic` 모달 → `route` → `result`(평가, 선수별 스탯, "팀 등록", "다시 하기", seed 표시).
+- **훈련 칸** (v0.1 은 행, v0.3.2 는 세로 카드 5열 — §14.4): 칸 이름, 선수 아이콘들(체력 낮으면 어둡게, 부상자 표시 없음), 서포트 아이콘(★ 우정 가능, 💡 힌트 가능), 총 상승치, 최대 실패율, 추천 표시. 탭 → 하단 시트에 선수별 상세 + [훈련하기]. 호출권 버튼(선수 선택 → 칸 선택).
+- **경기 화면** (v0.2부터 §12, v0.3.2부터 §14.3 이 기준, 아래는 v0.1 기록): 세로 필드(상대 GK/DF/MF/FW 위, 우리 FW/MF/DF/GK 아래), 공 소유자·듀얼 상대 강조, 스코어·포제션, 텐션 바 2개, 의도 표시(아이콘+텍스트), 액션 버튼 3개(비활성 처리), 스킬 버튼, 로그(최근 6개). **자동 토글**(기본 ON, 배속 1x/2x/4x), **개입 버튼**(자동 중 누르면 다음 결정에서 멈춤). 자동 진행은 `setInterval`로 `step()`; 결정 필요 & 수동이면 대기. 컷인 이벤트는 1초 배너.
 - **저장**: 매 엔진 호출 후 `localStorage["soccer.run"] = JSON.stringify(state)`; `localStorage["soccer.match"]`도 별도. 등록 팀은 `localStorage["soccer.teams"]` 배열. 모든 localStorage 접근은 try/catch.
 - **UI는 엔진을 계약대로만 호출**하고 상태를 직접 계산하지 않는다(표시용 정렬·포맷만).
 - `js/ui/app.js`가 진입점. 화면별 파일 분리(`js/ui/screens/*.js`) 권장. 전역 상태는 `js/ui/store.js` 하나.
@@ -608,7 +608,7 @@ export function decideDefense(state, data, side)  // → { action, skillId|null 
 
 ## 9. 테스트 & 시뮬 (test/, tools/)
 
-- 실행: `npm test` = `node --test test/rng.test.mjs test/run.test.mjs test/match.test.mjs test/ui.smoke.test.mjs` (디렉터리/glob 인자는 Node 버전마다 달라 파일을 명시). 공용 로더·자동 진행 드라이버는 `test/helpers.mjs`.
+- 실행: `npm test` = `node --test test/rng.test.mjs test/run.test.mjs test/match.test.mjs test/ui.smoke.test.mjs` (디렉터리/glob 인자는 Node 버전마다 달라 파일을 명시). 지금 목록은 `package.json` — §14.5. 공용 로더·자동 진행 드라이버는 `test/helpers.mjs`.
 - `test/rng.test.mjs`: 같은 seed 동일 시퀀스, getState/fromState 복원.
 - `test/run.test.mjs`: 기본 편성으로 createRun → 24턴을 항상 `train` (추천 칸) + 자동 경기로 완주. phase 전이 검증, 스탯 ≤ cap, 체력 0~100, JSON roundtrip 후 동일 진행(결정성), 모든 이벤트 효과 타입이 throw 없이 적용(전 이벤트 강제 실행), 모든 스킬 id 참조 유효, 유물/루트 modifier가 실제 수치에 반영.
 - `test/match.test.mjs`: 결정성(같은 seed 2회 = 같은 결과), 포제션 수 준수, 승부차기 종료, 1-FW 포메이션에서 pass 규칙, 모든 active effect 발동 경로 1회 이상, 체력 0 이하 없음, NaN 없음.
@@ -714,6 +714,8 @@ export function decideDefense(state, data, side)  // → { action, skillId|null 
 
 ### 12.2 레이아웃 (js/ui/layout.js — 신규, 순수 함수, DOM 금지, Node 에서 테스트)
 
+> 아래 좌표는 **필드 좌표**다 (x = 폭 방향, y = 길이 방향, y 0 = home 골). 문구의 "세로·가로·아래·위"는 당시 세로 화면 기준. v0.3.2 부터 화면은 가로 전용이고 픽셀 변환은 `fieldToScreen(x, y, W, H, 'land')` 하나 — home 골 왼쪽, 필드 x 0 = 위 (§14.3). computeLayout 규칙·좌표는 그대로다.
+
 ```js
 export const ZONES = [ { id: 1, from: 0, to: 16, name: "우리 박스" }, { id: 2, from: 16, to: 40, name: "우리 진영" },
                        { id: 3, from: 40, to: 60, name: "중원" }, { id: 4, from: 60, to: 84, name: "상대 진영" }, { id: 5, from: 84, to: 100, name: "상대 박스" } ];
@@ -761,6 +763,8 @@ export function computeLayout(view, opts = {})
 
 ### 12.3 UI (js/ui/screens/match.js 재작성 + css/style.css 경기 부분)
 
+> v0.3.2 에서 화면 배치는 가로 HUD 로 대체됐다 (§14.3, `css/style.css` → `css/match.css`). 아래 중 390×844 · 세로 필드 · 필드 왼쪽 트랙 · 로그 4줄 · 필드 위 배너 줄은 옛 세로 화면 기록이다. 비트 연출·토큰·위기 표시·미리보기·자동/개입 규칙은 그대로 유지한다.
+
 - **한 화면**: 390×844 에서 결정 대기 상태로 페이지 세로 스크롤이 생기지 않는다 (로그는 내부 스크롤 가능, 최근 4줄). 필드는 화면 세로의 55~60%.
 - **필드**: 세로 5구역 밴드(구역 이름 작게), 하프라인, 양 골문·박스. 토큰은 절대 좌표 `transform: translate(...)` + `transition` (재배치 애니메이션). 공은 별도 요소.
 - **토큰**: 지름 ≈ 필드 폭 7.5%. home = 원형 + 파랑 링(#4da3ff), away = 둥근 사각 + 빨강 링(#ff5d5d) (색 + 모양 이중 구분). 안쪽 portraitColor + 이름 첫 글자. 아래 체력 바(≤20% 빨강). 이름 라벨은 carrier / defender / receiver 만. broken = opacity 0.45. 유스 = 작은 "유". 탭 → 미니 카드(이름·포지션·스타일·원소·스탯 5·체력·스킬).
@@ -785,7 +789,7 @@ export function computeLayout(view, opts = {})
   - 승부차기 레이아웃.
 - (수정 라운드) `test/layout.test.mjs` 추가: 경기 종료 모습(합성 3종 + 실제 300경기), 패스 후보 = 도착 구역(양 팀·extraLine), resolvePreview, 자동 진행 중 그린 패스 후보 = 실제 수신자(라인 브레이커 편성), UI 실제 범위(aspect 0.74~1.3 · tokenSize 0.0866~0.09, 합성·실제·승부차기) 겹침 없음·규칙 위치. `test/match.test.mjs`: 스킬 변형 미리보기 = 실제(1-3-2 울릭 DF1 + 소매치기). `test/ui.smoke.test.mjs`: 연출 중 배속 클릭 시 스코어·로그 그대로, 자동 OFF → 개입 해제, 종료 모습의 carrier.
 - `test/match.test.mjs` 추가: zoneOf 표, 많은 seed 에서 **패스 성공 시 실제 수신자 = 직전 view.receiverPreview**, **판정 후 공 구역 = 직전 view.outcomes[선택 액션].success/fail.zone** (사람 측 결정을 넣어 진행; 스킬 미사용), 이벤트 seq 단조 증가·zone 필드 존재, getMatchView 가 상태를 바꾸지 않음(JSON 동일).
-- `tools/shot.mjs` (신규): puppeteer-core(devDependency, 설치됨) + 로컬 Chrome(`C:/Program Files/Google/Chrome/Application/chrome.exe`) 또는 Edge, `CHROME_PATH` 로 덮어쓰기; 없으면 안내 후 exit 0. 내장 정적 서버로 앱을 띄우고, Node 에서 엔진으로 만든 run/match 상태를 localStorage(`soccer.run`, `soccer.match`)에 주입한 뒤 시작 화면의 "이어하기" 버튼으로 진입 (app.js `continueRun` 은 run.phase === "match" 이고 match.seed === run.pendingMatch.seed 일 때 저장된 경기를 복원한다 → 주입 시 pendingMatch.seed 를 맞출 것). 시나리오별 PNG (390×844, deviceScaleFactor 2): 우리 빌드업 / 우리 파이널 서드 수동 결정(자동 끄고 미리보기 + 액션 버튼 hover 화살표) / **상대 ④ 슈팅(회귀)** / 상대 ③ 위험 / 승부차기 / 패스 비트 연출 중간 프레임 / 데스크톱 1280×900. 각 시나리오의 페이지 scrollHeight 와 콘솔 에러를 출력. 사용: `node tools/shot.mjs <outDir>`. (도구 스크립트는 반드시 프로젝트 안에 둬야 puppeteer-core 가 resolve 된다.)
+- `tools/shot.mjs` (신규): puppeteer-core(devDependency, 설치됨) + 로컬 Chrome(`C:/Program Files/Google/Chrome/Application/chrome.exe`) 또는 Edge, `CHROME_PATH` 로 덮어쓰기; 없으면 안내 후 exit 0. 내장 정적 서버로 앱을 띄우고, Node 에서 엔진으로 만든 run/match 상태를 localStorage(`soccer.run`, `soccer.match`)에 주입한 뒤 시작 화면의 "이어하기" 버튼으로 진입 (app.js `continueRun` 은 run.phase === "match" 이고 match.seed === run.pendingMatch.seed 일 때 저장된 경기를 복원한다 → 주입 시 pendingMatch.seed 를 맞출 것). 시나리오별 PNG (390×844, deviceScaleFactor 2 — v0.3.2 부터 기본 1280×720 DPR 1, §14.6): 우리 빌드업 / 우리 파이널 서드 수동 결정(자동 끄고 미리보기 + 액션 버튼 hover 화살표) / **상대 ④ 슈팅(회귀)** / 상대 ③ 위험 / 승부차기 / 패스 비트 연출 중간 프레임 / 데스크톱 1280×900. 각 시나리오의 페이지 scrollHeight 와 콘솔 에러를 출력. 사용: `node tools/shot.mjs <outDir>`. (도구 스크립트는 반드시 프로젝트 안에 둬야 puppeteer-core 가 resolve 된다.)
 
 ---
 
@@ -938,13 +942,13 @@ state.version, events type: "combo" 추가, "block" → "hold"
 
 GDD 9.6·9.7·9.16·9.17 대로:
 - 상대 듀얼 선수 머리 위 예상 행동 아이콘, 정보 줄에 근거("드리블형 — 드리블 600 > 패스 400")와 우리 선수 예상 행동. opponentReading 이면 "상대가 우리 수를 읽는 중".
-- 공격 버튼 2×2(켜진 것만), 수비 3열. 버튼: 제목 "드리블 41%", 성공·실패 한 줄씩(짧은 형식), recommended 에 "추천" 표시.
+- 공격 버튼 2×2(켜진 것만), 수비 3열 (v0.3.2: 아래 가운데 카드 한 줄 — §14.3). 버튼: 제목 "드리블 41%", 성공·실패 한 줄씩(짧은 형식), recommended 에 "추천" 표시.
 - 받는 선수: 패스·크로스 버튼 제목에 "→ 그룸바▾", 필드의 후보 토큰(전원 도착 구역에 그림)을 탭하면 변경, 길게 누르기 = 미니 카드. 결정 시 `{ action, receiverId }`.
 - 필살 게이지 링(토큰 둘레), 준비되면 빛남. 스킬 줄에 필살기 버튼(합체기면 합체기 이름). 결정 시 `ultimate: true`. 전체 화면 컷인 1.5초(배속 비례), 합체기 2연속 + 이름.
 - 간파 버튼(스킬 또는 사용권, 비용 표시, 비활성 사유).
 - 크로스 포물선, 헤더 연출, 연계 문구("킬패스!", "원터치!", "헤더!", "침투!"), 태클 실패 누운 모습.
 - 편성 화면: 캐릭터 카드에 연계 특성, 전술 수비 성향에 "버티기 선호", "의도 따라가기" 제거. 훈련 화면 다음 경기 정보에 styleHint.
-- 390×844 결정 대기(공격 4버튼 + 받는 선수 + 필살기·간파) 스크롤 없음. 결정 중 로그 3줄.
+- 390×844 결정 대기(공격 4버튼 + 받는 선수 + 필살기·간파) 스크롤 없음. 결정 중 로그 3줄. (v0.3.2: 세로 화면 폐지 — 1280×720 가로 HUD, 로그는 서랍, §14.3)
 - 저장된 경기 version < 3 이면 새로 만든다.
 
 ### 13.7 테스트 · 도구 · 밸런스
@@ -984,7 +988,7 @@ GDD 9.6·9.7·9.16·9.17 대로:
 - 옛 저장 런 이행: `intentReveal` modifier → 같은 양·기간의 `gaanpaTicket` (감독의 수첩 유물이면 `gaanpaCostHalf 1` 추가), 전술 readIntent → balanced. 상태를 바꾸는 run 함수는 모두 `migrateRun` 을 먼저 부른다. RUN_VERSION 은 1 유지(모양 불변, 내용으로 이행).
 - effects.js 는 알 수 없는·삭제된 modifier 키를 throw 한다 (전에는 조용히 통과).
 
-**화면 (screens/match.js · layout.js · setup.js · training.js)**
+**화면 (screens/match.js · layout.js · setup.js · training.js)** — 배치 수치(필드 높이, 360~390px 폭, 로그 줄 수, 칩 자리)는 v0.3.2 가로 HUD 로 대체 (§14.3). 나머지 동작은 유지.
 - 남은 수비 문구는 필드 왼쪽 아래 칩("남은 수비: MF2·DF2·GK"). 정보 줄은 예상 행동 근거(GDD 9.6)에 쓴다.
 - "추천"·"짝" 칩은 버튼 제목 밖(공격 = 성공 줄 오른쪽, 수비 = 아래 줄) — 제목에 두면 360~390px 에서 받는 선수 이름이 잘렸다. 스킬·필살기·받는 선수를 토글하면 "추천"은 화면에 보이는 % 최고로 옮긴다.
 - **근사 % (≈)**: 엔진 view 에 스킬 + 필살기 동시 토글, 또는 토글 + 기본이 아닌 받는 선수 조합의 미리보기가 없어 가장 가까운 엔진 값에 ≈ 를 붙인다(규칙 재계산 없음). 정확히 하려면 엔진에 `outcomesByReceiverBySkill` 류가 필요하다.
@@ -1083,22 +1087,169 @@ GDD 9.6·9.7·9.16·9.17 대로:
 - `node tools/shot.mjs`: 16/16 시나리오 390×844 스크롤 없음·잘린 스킬 0·콘솔 에러 0 (360 폭 04·11·12·16 도 스크롤·잘림 0, 320 폭에서는 16 의 이름 3개가 말줄임).
 - 브라우저 확인(puppeteer 390×844): 라인 브레이커 + 울릭 탭 → 버튼 "울릭 원터치 · 상대 박스 진입", 미리보기 "→ 상대 박스", 판정 line 3 원터치. 개입 패스 뒤 자동 ON → 타린의 자동 패스가 끊긴 턴오버 궤적이 그룸바(이벤트 receiverId) 쪽 33px. 연계 문구 6건 토큰 얼굴·이름표 겹침 0 (전: 6건 모두 오르반 얼굴·이름표·말풍선을 가림). 편성 서포트 카드 390·360: 단어 중간 줄바꿈 0, 가로 넘침 없음.
 
-### 13.9 가로 경기 화면 (테스트)
+### 13.9 가로 경기 화면 (테스트, v0.3.1) — **폐기: §14 로 대체**
 
-> 1인 테스트용(데스크톱 브라우저 기준). **경기 화면만** 가로로 그리고, 아웃게임(시작·편성·훈련·루트·이벤트·유물·결과)은 420px 세로 프레임 그대로다. 규칙·배치 계산(js/engine, layout.js `computeLayout`)과 data 는 바꾸지 않았다. 세로 화면은 컨트롤 줄의 전환 버튼 말고는 이전과 같다.
+> v0.3.1 은 **경기 화면만** 가로로 시험했다 (아웃게임은 420px 세로 프레임, 세로 경기 화면과 공존). 2026-09-29 사용자 결정으로 인게임·아웃게임 모두 가로 전용이 되어(GDD v0.5 0.1 #50~52) 이 절의 방향 전환 구조는 **코드에서 삭제**했다. 옛 본문은 git 기록(커밋 4a282be)에 있다.
 
-- **방향 고르기** (`store.js resolveOrient()` → `{ orient: 'land' | 'port', source }`): 이번 세션 토글(`matchUi.orient`) > URL `?orient=land|port`(landscape·portrait 도 받는다) > 저장값 `localStorage['soccer.orient']`(JSON 이 아닌 글자 `land`/`port`, 읽기·쓰기 try/catch) > 기본 규칙(창이 가로 화면을 담고(`landFits`: 폭 ≥ 900 · 높이 ≥ 500 — `LAND_MIN`) 폭 > 높이면 가로, 아니면 세로 → 가로로 든 폰 932×430 · 915×412 · 844×390 은 세로). 토글은 저장도 한다. 토글을 URL 보다 앞에 둔 것은 `?orient=` 로 연 화면에서도 버튼이 먹게 하려는 것. **토글·저장값의 `land` 는 `landFits` 일 때만** — 아니면 세로(좁은 창에서 가로로 바꾸면 오른쪽 패널 404px 때문에 필드 칸이 0 이 되고 "⇄ 세로" 가 화면 밖으로 나가, 저장된 채 빠져나올 수 없었다). URL 은 도구·확인용 강제라 창 크기와 무관하게 따른다. 창 모양이 바뀌면(resize) 다시 고른다: 기본 규칙이면 방향이 따라가고, 저장값 `land` 도 창이 좁아지면 세로 → 다시 넓어지면 가로. test/orient.test.mjs 가 우선순위·문턱을 확인한다.
-- **픽셀 변환** (layout.js 순수 함수, test/layout.test.mjs): `fieldToScreen(x, y, W, H, orient)` → `[sx, sy]`, `screenToField(sx, sy, W, H, orient)` → `{ x, y }`. W·H = 필드 요소의 픽셀 크기.
-  - 세로(`port`, 기본): `sx = x/100·W`, `sy = (100 − y)/100·H` — 이전 match.js PX/PY 와 같은 값.
-  - 가로(`land`): 세로 그림을 **시계 방향 90° 돌린 것**(거울상 아님) — `sx = y/100·W`, `sy = x/100·H`. home 골 왼쪽 · away 골 오른쪽, home 은 오른쪽으로 공격, 세로 화면의 왼쪽(x 0)이 가로 화면의 위.
-  - match.js 는 화면 좌표를 전부 `toPx(x, y)` / `fromPx(sx, sy)`(크로스가 끊긴 지점) / `dirPx(fx, fy)`(필드 방향 → 화면 방향)로 만든다: 토큰·공·이름표·말풍선·받는 선수 강조·궤적·크로스 곡선·미리보기 화살표와 글자·연계 문구·결과 한 줄·골 연출·승부차기.
-- **computeLayout 옵션**: aspect = 필드 폭/길이 = 세로 W/H, 가로 H/W. tokenSize = (토큰 px + 4) / 필드 폭 px(가로는 H). 토큰 지름: 세로 W × 7.5%(20~34px, 그대로), 가로 H × 7%(22~48px — 1280×720 → 40px, 1920×1080 → 48px). layout.test 가 가로 범위(aspect 0.57~0.72, tokenSize 0.04~0.087)에서도 겹침 없음·규칙 위치 불변식을 확인한다.
-- **가로에서 달라지는 것**: 구역 = 세로 줄(left/width, 경계 세로 점선), 하프라인 세로, 박스·골문·스폿은 양 끝(`.top` = away = 오른쪽, `.bottom` = home = 왼쪽), 공격 진행 트랙 = 필드 위 가로 줄(칸 left/width — home Z2→Z5 왼쪽→오른쪽, away Z4→Z1 오른쪽→왼쪽). 공 = 공 가진 선수의 공격 방향 앞 + 아래 대각선(세로의 "앞 오른쪽"을 돌린 것). 크로스 곡선은 필드 폭 축(화면 y) 가운데에서 먼 쪽으로 휜다. 뚫린 선수 표시 ◀(home)·▶(away) = 자기 골 쪽. 이름표 자리 선호 = 아래 → 위(좌우로 비낄 때와 옆 자리는 듀얼 상대 반대편부터 — 공격 팀은 자기 골 쪽, 수비 팀은 공격 방향 쪽). 가로에서는 옆 패스·크로스가 화면 위아래로 가므로, 결정 대기 중에는 공 가진 선수 → 받는 선수(패스·크로스, 크로스는 포물선) 길을 6px 점 박스(무게 0.5)로 이름표·말풍선의 장애물에 넣는다(`previewLanes` — 받는 선수 이름표가 화살표 끝을, 공 가진 선수 이름표가 시작을 덮지 않게; 드리블·슛 길은 대체로 좌우라 넣지 않는다). 미리보기 글자(도착 구역 · ✕ 옆 차단 액션)는 선 방향의 수직 양쪽이 먼저(`normalTips` — 도착 구역은 위쪽부터, ✕ 옆은 세로의 "오른쪽 먼저"를 돌린 아래쪽부터; 크로스 곡선 가운데의 접선 = 시작→끝 방향), 그다음 예전 후보(위 → 아래 → 앞 → 뒤 / 오른쪽 → 왼쪽 → 위 → 아래). 이 후보들은 화살표 선의 점도 피한다. 그래도 다 막히면 패스·크로스 길의 0.7 · 0.3 지점 수직 양쪽(맨 뒤 후보라 앞 자리가 비면 결과는 그대로). ✕ 옆 글자는 수비 미리보기 동안 접힌(`.previewing-def`) 수비수 이름표 자리를 장애물로 치지 않는다 — 빈 ✕ 아래를 두고 레인 위 화살촉을 덮지 않게(세로는 그대로). 결과 한 줄의 좌우 선호는 화면 기준(공이 화면 왼쪽 절반이면 오른쪽부터 — 세로에서는 전과 같은 식).
-- **프레임**: 가로면 `#app.match-land`(renderMatch 가 켜고, app.js `render()` 가 매번 먼저 지운다 → 다른 화면은 420px 프레임). 폭 = min(100vw − 32px, (100dvh − 32px) × 1.9). 고정 상한(min(1440px, …)) 대신 높이에 묶었다: 1440 이면 1920×1080 에서 필드 비율 상한(1.75) 때문에 필드 아래 약 250px 가 비었다. ×1.9 면 1920×1080 필드 1428×951, 1280×720 은 1248 폭 그대로, 초광폭 창에서도 필드가 못 쓰는 폭은 늘지 않는다. 높이 `--land-h` = min(`--screen-h`, max(440px, 필드 칸 폭 ÷ 1.4 + 92px)) — 필드 칸 폭 = 프레임 폭 − 38px(테두리·여백·간격) − 패널, 92px = 위아래 여백 + 배너 줄 48 + 간격 + 트랙. 창이 필드 폭에 비해 높으면(16:10 · 4:3 · 1280×1024) 필드 아래가 비지 않게 프레임을 필드 높이에 맞춰 줄이고 창 세로 가운데에 둔다(margin-top; 로그가 짧아진다). 1024×768 → 992×487(필드 548×390), 1280×720·900·1024 → 1248×670(필드 804×573), 1920×1080 → 화면 높이 그대로. 440px = 오른쪽 패널 고정 부분 약 290px + 로그 7줄.
-- **배치** (`.match-screen.land` 아래 CSS 만): grid 2단. 위 줄 = 상황 배너(필드 위, 36px) · 스코어 헤더(패널 위). 왼쪽 = 트랙(16px) + 필드 — 필드 길이:폭 1.4~1.75(프레임이 440px 바닥에 걸려 필드 칸이 남는 창 — 가로가 되는 창 중 폭 900~959, ?orient=land 로 강제한 더 작은 창 — 만 1.25 까지 내려 남는 높이를 채운다: 900×500 필드 아래 빈칸 43 → 6px, 960 이상은 그대로), 영역이 더 넓으면 폭을 줄여 가운데, 더 높으면 높이를 줄여 위에 붙인다(컨테이너 단위 cqw/cqh; JS 는 결과 크기만 잰다 — 프레임 높이가 위 `--land-h` 라 보통은 남는 높이가 없다). 오른쪽 패널(폭 clamp(404px, 30vw, 420px)) = 정보 줄 · 액션 버튼(107px) · 스킬 줄 · 컨트롤 · 로그(남은 높이, 내부 스크롤). 컷인·골 연출은 화면 전체, 모달·토스트는 창 기준 그대로.
-- **전환 버튼**: 컨트롤 줄 맨 끝 `.orient-btn` — 가로 "⇄ 세로", 세로 "⇄"(아이콘만 24px). **세로 화면에서는 창이 가로를 담을 수 있을 때(`landFits`)만** 둔다 → 폰(390·360 폭)의 컨트롤 줄은 이전과 같다(버튼이 없으면 null 이 아니라 아무것도 넣지 않는다). 창 크기가 문턱을 넘나들면 resize 에서 컨트롤 줄만 다시 그린다. 전환 대기 중(active)은 글자도 강조색. title · aria-label "세로 화면으로" / "가로 화면으로". 누르면 `matchUi.orient` + 저장 → app `render()` 로 경기 화면을 다시 그린다: renderMatch 가 store.match 에서 복원, GEN 으로 이전 화면의 타이머 무효화, 자동·배속·개입·스킬/필살기 토글·받는 선수 선택 유지, **경기 상태는 그대로**(step 을 부르지 않는다). 비트 연출 중이면 버튼을 강조해 두고 비트가 끝날 때(finishBeat) 또는 스킵 뒤에 전환한다(스킵이 엔진 오류로 실패해도 전환해 대기 상태로 남지 않는다). 결과 모달이 떠 있었으면 새 화면이 다시 연다.
-- **도구**: `node tools/shot.mjs <outDir> --land` → URL `orient=land`, 뷰포트 기본 1280×720 DPR 1 데스크톱(터치 없음; `--width/--height/--dpr` 가 이긴다). `--land` 가 없으면 `orient=port` 를 붙여 07(1280×900) 까지 세로 — 이전 캡처와 비교할 수 있다. URL 은 `auto=0` 과 함께 URLSearchParams 로 만든다.
-- **테스트**: layout +2(변환: 세로 = 이전 식·가로 끝점·회전·왕복, 가로 비율 범위 불변식). ui.smoke: jsdom 창(1024×768)은 기본 규칙상 가로라 세로 검사 앞에 저장값 `port` 를 넣고, 끝에 가로 블록 — `.match-screen.land` · `#app.match-land`, home GK 가 away GK 왼쪽, 필드 y → 화면 x · 필드 x → 화면 y 순서, 공은 공격 방향(오른쪽) 앞, 구역 세로 줄, 크로스 포물선 화살표, 받는 선수 탭, ⇄ = 다시 그리기(경기 상태 JSON 불변 · 받는 선수 선택 유지 · 저장), 연출 중 ⇄ 는 비트 뒤 전환, 다른 화면으로 가면 넓은 프레임 해제, 좁은 창(390×844)은 저장값 land 여도 세로 · ⇄ 없음 · 컨트롤 줄에 빈 글자 없음 → 창이 넓어지면(resize) 가로. orient.test(3): normOrient 별칭, landFits/autoOrient 문턱(가로 폰 932×430 · 915×412 → 세로), resolveOrient 우선순위와 창 크기 조건(URL 은 강제).
-- **검증 (구현 시점)**: `npm test` 101 전부 통과. `shot.mjs --land` 16/16 1280×720 페이지 스크롤·가로 넘침·잘린 스킬·콘솔 에러 0 (02·08 은 1920×1080, 02·11·16 은 1366×768, 05·14 는 1440×900 도 0). 세로 16/16 스크롤·에러 0, 이전 빌드 캡처와 픽셀 비교 = 컨트롤 줄 오른쪽(개입·⏭·⇄)만 다름(연출 중간 프레임 06·13·14·15 의 필드 차이는 같은 빌드끼리도 나는 타이밍 차이). 실제 Chrome: 기본 규칙 1280×720 가로 → 820×900 로 줄이면 세로 → 1366×768 가로, 저장값이 있으면 창이 바뀌어도 그대로, 연출 중 ⇄ → 비트 뒤 전환, 연출 중 ⇄ + ⏭ → 새 화면 + 결과 모달, 콘솔 에러 0.
-- **검증 (리뷰 수정 뒤)**: `npm test` 104 전부 통과. `shot.mjs --land` 16/16 · 세로 16/16 페이지 스크롤·콘솔 에러 0. 세로 390×844 는 이전 빌드 캡처와 픽셀까지 같다(연출 중간 06·13·14·15 는 같은 빌드끼리도 나는 타이밍 차이, 07 은 1280 폭이라 ⇄ 가 있다). 실제 Chrome: 390×844 저장값 land → 세로 · ⇄ 없음, 932×430 → 세로, 1280×720 에서 ⇄ 로 가로 저장 → 800×900 로 줄이면 세로 · ⇄ 없음 → 1100×900 가로, 1024×768 · 1280×1024 필드 아래 빈 줄 0.
-- **남은 것**: 아웃게임 가로 배치 없음. 가로 폰(높이 < 500)과 폭 900 미만 창은 토글·저장값과 무관하게 세로이고(URL `?orient=land` 로만 강제), 압축 배치는 하지 않았다. 이름표·말풍선·결과 글자 크기는 세로와 같다(10~12px) — 1920×1080 에서는 필드에 비해 작다.
+- **삭제한 것**: 세로 경기 화면 전부(세로 토큰 크기·세로 이름표/미리보기/트랙 분기), 방향 고르기(`resolveOrient` 우선순위 = 토글 > `?orient` > 저장값 `soccer.orient` > 창 크기 `landFits` 폭 ≥ 900 · 높이 ≥ 500), store 의 `KEYS.orient · matchUi.orient · normOrient · loadOrient · saveOrient · landFits · autoOrient · LAND_MIN`, 컨트롤 줄 ⇄ 버튼(`.orient-btn`)과 전환 대기, 방향 전환용 resize 처리, 넓은 프레임 `#app.match-land`(폭 min(100vw − 32px, (100dvh − 32px) × 1.9), `--land-h`), `.match-screen.land` 2단 grid(오른쪽 패널 404px · 로그 패널), `shot.mjs --land`(이제 받기만 하고 무시).
+- **남긴 것**: `layout.js fieldToScreen / screenToField` (순수 함수, 테스트 있음 — `'port'` 분기와 기본값 `'port'` 도 그대로. match.js 는 항상 `'land'` 로 부른다). 가로에서만 의미가 있는 배치 규칙(이름표·말풍선·미리보기 글자 자리, 크로스 곡선 방향, 뚫린 선수 표시)은 §14.3 으로 옮겼다.
+- **"남은 것"(당시) 처리**: 아웃게임 가로 배치 → §14.4. 가로 폰·폭 900 미만 창의 세로 강제 → 없음(모든 창이 같은 무대를 배율만 바꿔 쓴다). 1920×1080 에서 글자가 작던 문제 → 무대째 1.5배.
+
+---
+
+## 14. v0.3.2 — 가로 확정: 고정 스테이지 · 경기 HUD · 아웃게임 가로 (GDD v0.5 0.1 #50~52)
+
+> 사용자 결정 (2026-09-29): **인게임·아웃게임 모두 가로**. 최종 타깃은 유니티 가로 모바일 게임이고, 이 웹 프로토타입은 데스크톱 브라우저 테스트용이다. 경기 화면은 사용자 목업(필드가 화면 전체, HUD 는 가장자리)을 따른다 — GDD 9.16.
+> **규칙·데이터 변경 없음**: `js/engine/*`, `data/*`, `layout.js computeLayout` 은 그대로. 바뀐 것은 화면(`index.html`, `css/`, `js/ui/`)과 도구·테스트뿐이다. 이 절이 v0.3.2 화면의 기준이고, §8·§12.3·§13.6·§13.9 의 배치 문구와 충돌하면 이 절이 우선한다.
+
+### 14.0 이번 라운드 소유권
+
+| 담당 | 파일 |
+|---|---|
+| 스테이지(기반) | index.html, css/base.css(신규), js/ui/stage.js(신규), js/ui/app.js(부트), js/ui/store.js(`landOnly`), tools/shot.mjs · scenarios.mjs(og_* 시나리오), test/stage.test.mjs(신규), README.md. `css/style.css` 삭제 |
+| 경기 HUD | js/ui/screens/match.js, css/match.css(신규), js/ui/store.js(방향 API 삭제), test/orient.test.mjs(재작성), test/ui.smoke.test.mjs(경기 부분), test/layout.test.mjs |
+| 아웃게임 | js/ui/screens/start·setup·training·event·relic·route·result.js, css/outgame.css(신규), js/ui/dom.js(`panel` 추가), js/ui/labels.js(아이콘 추가), test/outgame.test.mjs(신규) |
+
+### 14.1 고정 스테이지 (js/ui/stage.js · css/base.css · index.html)
+
+- **논리 해상도** `STAGE_W × STAGE_H = 1280 × 720` (16:9). `base.css` 의 `--stage-w / --stage-h` 와 같아야 한다 (test/stage).
+- `fitStage(winW, winH)` (순수 함수) → `{ scale, x, y, width, height, portrait }`: `scale = min(winW / 1280, winH / 720)`, x·y = 가운데에 둔 왼쪽 위(창 px, 가장자리 번짐을 막으려고 정수로 내림), `portrait = winW < winH`. 크기를 모르면(0·NaN·음수 — 레이아웃 없는 환경) 1배·왼쪽 위. `toStage(clientX, clientY, fit)` = 창 좌표 → 무대 논리 좌표 (역변환).
+- `mountStage()`: `app.js boot()` 맨 처음(데이터 로딩 전 — 로딩 화면부터 무대 안). 붙일 때·`resize`·`orientationchange` 마다 `<html>` 에 `--stage-scale / --stage-x / --stage-y` 와 클래스 `stage-portrait` 를 갱신. `#stage` 가 없으면 null.
+- `.stage`: `position: fixed`, 1280×720, `transform: translate(x, y) scale(s)`, 원점 왼쪽 위, `overflow: hidden`. 남는 곳 = body 배경 `--letterbox` (레터박스). `html, body { overflow: hidden }` → **페이지 스크롤 없음**, 스크롤은 지정한 안쪽 목록만.
+- **오버레이도 무대 안**: index.html 에서 `#app`, `#modal-root`, `#banner-root`, `#toast-root` 가 모두 `#stage` 안이다 → 모달·시트·토스트·배너·컷인이 무대와 함께 확대·축소된다. dom.js 는 바꿀 필요가 없었다. 오버레이는 `position: absolute`(무대 기준).
+- **세로 창 안내**: `html.stage-portrait` 면 `.rotate-hint` "↻ 화면을 가로로 돌려 주세요" 가 위쪽 레터박스 가운데에 뜬다. 클릭을 막지 않고, 무대는 그대로 쓸 수 있다 (세로 화면 배치는 없다).
+- 부트: 방향 스위치는 없다 (옛 `store.landOnly` · `resolveOrient` 는 §14.9 에서 삭제). `window.__soccer.stage` = 현재 fit (도구·디버깅용). 기존 훅(`store, run, match, render, actions`)은 그대로.
+- 화면 종류 표시: `app.js render()` 가 `#stage[data-mode]` 를 `"match"`(경기 화면) / `"og"`(그 밖)로 둔다 → 경기 화면에서는 토스트가 오른쪽 위 좁은 칸 (§14.3 표).
+- **규칙 (다음 작업자 필독)**
+  - 무대 안에서 `vw / vh / dvh` 와 창 크기 media query 금지 — 실제 창 기준이라 배율과 어긋난다. 논리 px 나 % 로. (test/orient · test/outgame 이 CSS 를 검사한다)
+  - 무대 안의 `position: fixed` 는 무대(transform 조상) 기준이다.
+  - `clientWidth / clientHeight` 등 레이아웃 값은 논리 px, `getBoundingClientRect` 와 포인터 `clientX / clientY` 는 화면 px(배율 후) → 섞어 쓰지 말고 `toStage()` 로 바꾼다.
+- 유니티 대응: 기준 해상도 1280×720 + Canvas Scaler(Scale With Screen Size) 와 같은 방식 (GDD 13.1). 16:9 가 아닌 기기의 남는 폭은 GDD 16-23 결정 대기.
+
+### 14.2 CSS 파일 (`css/style.css` → 3개, 불러오는 순서 base → outgame → match)
+
+| 파일 | 담당 | 내용 |
+|---|---|---|
+| `css/base.css` | 공용 | 디자인 토큰(`--letterbox`, `--stage-w/h` 포함) · 리셋 · 글자 도우미 · `.stage / .app / .rotate-hint / .loading` · `.screen`(넘치면 안쪽 스크롤) · 카드 · `.row / .col / .grow / .grid-*` · 버튼(`.btn-lg` 추가) · `.select / .input` · `.field`(라벨 + 입력 — 옛 초록 상자 규칙은 삭제) · avatar · grade(`.grade.xs` 추가) · badge · apt · rarity · `.bar` · `.list` · `.kv` · `.overlay / .modal`(기본 400px, `.modal-md` 480 · `.modal-lg` 880 · `.modal-xl` 1120) · `.sheet`(`.sheet-wide` 860) · toast · `.cutin` · `.error-panel` |
+| `css/outgame.css` | 아웃게임 | 공통 `.screen.og`(무대 전체, 페이지 스크롤 없음) · `.og-head` · `.og-panel`(+ `dom.panel()`) · `.og-scroll`(안쪽 스크롤) · 시작 · 편성 · 훈련(상단 바 · 훈련 칸 · 선수 패널 · 행동 바 · 시트/모달) · 이벤트 · 유물 · 루트 · 결과. `.og` 가 없는 화면(오류 패널 등)은 가운데 760px 열 |
+| `css/match.css` | 경기 | `:root { --home, --away, --ult }` · `.match-screen` 전부(잔디 · 규칙 영역 · 토큰 · 공 · 화살표 · HUD · 로그 서랍 · 컷인) · 미니 카드 · `.bar.ult` · `.avatar.ring-*` · reduced-motion · 경기 결과 모달(`.score-big`, `.result-verdict`, `.stats-table`) |
+
+- 삭제: `vw / vh / dvh` 단위 전부, 폰 프레임(`min-width: 480px`), `.app.match-land`, `.match-screen.land · .orient-btn · .pitch-row · --screen-h`, 세로 경기 화면 규칙, 창 폭 media query(`max-width: 360px / 380px`).
+- `--home / --away / --ult` 는 match.css 에 있다 — 아웃게임에서 쓰려면 base.css 로 옮긴다.
+- 분리 검증: 같은 페이지에서 옛 style.css ↔ 새 3파일을 바꿔 끼워 캡처 → 정적 장면 픽셀 차이 0 (1280×720 · 390×844). base.css 를 아웃게임 개편 뒤 것으로 바꿔도 경기 화면 01·02·05·09·11·16 차이 0.
+
+### 14.3 경기 화면 HUD (js/ui/screens/match.js · css/match.css) — 가로 전용
+
+**방향 코드 삭제** — 세로 경기 화면이 없다. 화면 좌표는 전부 `toPx / fromPx / dirPx` → `fieldToScreen(x, y, W, H, 'land')`: home 골 왼쪽, away 골 오른쪽, home 은 오른쪽으로 공격, 필드 x 0 = 위 (세로 그림을 시계 방향 90° 돌린 것, 거울상 아님). `?orient=…` 와 옛 저장값 `soccer.orient` 는 무시한다.
+
+**골격** (GDD 9.16 목업): `.match-screen` = 무대 전체. `.pitch`(잔디) = 무대 − 여백. HUD 는 전부 절대 위치로 잔디 위에 겹친다. **규칙 영역 `.m-field`** (구역·선·박스·골문·토큰·공·화살표 — 화면 위치 = 규칙 위치의 기준 사각형)는 위 HUD(헤더 + 트랙) 아래 · 아래 HUD(정보 줄 + 카드 줄) 위로 줄여, HUD 가 토큰·이름표·말풍선·미리보기를 가리지 않는다. CSS 변수(논리 px): `--pad 6 · --fx 12 · --ft 78 · --fb 102 · --mh-w 440 · --dock-w 842 · --side-w 196`.
+
+| 요소 | 클래스 | 자리 (무대 px, 1280×720) |
+|---|---|---|
+| 잔디 | `.pitch` | inset 6 → 1268×708, 둥근 모서리. 줄무늬는 장식 |
+| 규칙 영역 | `.m-field` | x 18~1262, y 84~612 = **1244×528**. 토큰 `TOKEN` = 규칙 영역 높이 × 8.3% (30~48px) → **44px** |
+| 상황 배너 | `.m-banner` + `.m-banner-txt` | 전폭 띠 y 12~50. 글자는 헤더 왼쪽 칸(`right: 50% + 헤더 폭/2 + 10px`), 레벨 색(danger·crisis·chance·shotChance)은 띠 전체. 오른쪽 칸은 장식 |
+| 스코어 헤더 | `.mh` | 가운데 440폭, y 4~59, 띠 위. 팀 이름 · 스코어 · 텐션 바 2개 · 아랫줄(경기 종류 · 포제션 · 공격 팀) |
+| 공격 진행 트랙 | `.m-track` | y 63~80, 규칙 영역과 같은 좌우 끝, 칸 = 구역 폭 (home ①~④ = Z2→Z5 왼→오, away ①~④ = Z4→Z1 오→왼) |
+| 아래 가운데 | `.m-dock` = `.m-info`(22px) + `.action-grid`(한 줄, 70px) | 842폭, bottom 10. 카드 최대 240px. 클래스 `action-grid k-atk\|k-def\|k-wide n-N [auto] [deciding]` |
+| 컨트롤 | `.m-ctl` > `.match-controls` + `.m-remain` | 왼쪽 아래 196폭. 1줄 [자동][개입], 2줄 [배속][⏭][로그], 아래 남은 수비 칩 |
+| 스킬 | `.skill-row` | 오른쪽 아래 196폭 × 높이 최대 96 (y 614~710 — 규칙 영역 아래 띠 안). 3개까지 세로(28px), 4개 이상 2열(`.many`: 칸 30px × 3줄 = 96, 이름 두 줄까지 · 일반 액티브 ⚡ 숨기고 ✦ 비용은 작게 표시 · 필살기 꼬리표만 숨김), 7개 이상(`.over`) 묶음 안 스크롤 |
+| 로그 서랍 | `.m-logbox` | 규칙 영역 위 y 90~604, 폭 400. **공 · 공격 방향의 반대쪽 절반** (`placeLogBox`: 공 필드 y + 공격 방향 15 ≥ 50 이면 `.side-l` = 왼쪽 x 24~424, 아니면 오른쪽 x 856~1256). 기본 닫힘, 안쪽 스크롤, 긴 줄 줄바꿈, ✕ |
+| 토스트 | `#toast-root` (base.css) | `#stage[data-mode="match"]` 이면 오른쪽 위 x 880~1256, y 12~ (배너 띠의 빈 오른쪽 칸 — 스코어 헤더 x 420~860 밖), 글 두 줄까지, 한 번에 2개 |
+| 컷인 | `.m-cutin` | 무대 전체 |
+
+**바뀐 동작** (엔진 계약·결정 객체는 그대로 — `{ action, receiverId? }`, `ultimate: true`, `{ skillId }`, `{ gaanpa }`)
+- 배너: 따로 있던 줄 → 헤더 뒤 전폭 띠.
+- 정보 줄(상대 예상 행동·근거 + 오른쪽 "우리: …"): 카드 줄 바로 위 반투명 띠.
+- 로그: 늘 보이던 패널 → [로그] 버튼으로 여는 서랍. 열림 상태 `matchUi.logOpen`(store 에 선언) — 한 경기 안에서는 경기 화면을 다시 그려도 유지, 새 경기(`resetMatchUi` · 새 경기 생성)는 닫힌 채 시작, 새로고침하면 닫힘. 연출 중에도 여닫을 수 있다. 자리는 레이아웃마다(`applyLayout` → `placeLogBox`) 공 반대쪽으로 옮긴다 → 열어 둔 채 결정 차례가 와도 공 가진 선수 · 수비수 · 받는 선수 후보 · 화살표를 가리거나 후보 탭을 막지 않는다.
+- 배속: 버튼 하나가 1x → 2x → 4x → 1x 로 돈다.
+- 개입: 자동 OFF 이거나 경기가 끝났으면 `.off` (자리만 두고 숨김).
+- 남은 수비 칩: 필드 구석 → 컨트롤 묶음 아래.
+- 스킬: 오른쪽 아래 묶음. 클래스 `.skill-row` 는 유지(시나리오 셀렉터 호환). 엔진에 선수당 액티브 상한이 없어 개수와 무관하게 상자(96px) 안에 머문다 (위 표).
+- 결정 카드: 2×2 / 3열 → 한 줄 (공격 켜진 것만 최대 4, 수비 3, 상태 안내는 넓은 카드 1장 `k-wide`). 카드 = 제목 + 기대 %, 성공·실패 짧은 문구, 약점 또는 판정 스탯, "추천"·"짝" 칩. 자동 진행 중에는 우리 선수의 성향값 카드.
+- 결과 한 줄(pill): 토큰·공에 더해 이름표·말풍선도 피한다 (예상 행동 말풍선을 덮지 않게).
+- 글자 크기 상수 `FONT`(이름표 12 · 말풍선 12 · 미리보기 12.5 · 결과 13 · 연계 16) = CSS 와 같게 (자리 고르기의 글자 폭 추정).
+- 창 크기가 바뀌어도(연출 중 포함) 경기 화면을 다시 그리지 않는다 — 무대 배율만 바뀌고 규칙 영역은 논리 px 로 같다.
+
+**가로 배치 규칙** (§13.9 에서 옮김, 유지)
+- 구역 = 세로 띠(왼쪽 Z1 우리 박스 → 오른쪽 Z5 상대 박스, 경계 점선), 하프라인 세로, 박스·골문·페널티 스폿은 양 끝(`.bottom` = home = 왼쪽, `.top` = away = 오른쪽).
+- `computeLayout(view, { aspect: H / W, tokenSize: (tok + 4) / H })` — H = 규칙 영역 높이(필드 폭), W = 길이. 무대 기준 0.424 / 0.091. test/layout 이 이 값과 옛 가로 범위(aspect 0.40~0.8)에서 겹침 없음·규칙 위치 불변식을 확인한다.
+- 공 = 공 가진 선수의 공격 방향 앞 + 아래 대각선. 크로스 곡선은 필드 폭 축 가운데에서 먼 쪽으로 휜다. 뚫린 선수 추격 표시 ◀(home)·▶(away) = 자기 골 쪽.
+- 이름표 자리 선호 = 아래 → 위 (가운데 → 듀얼 상대 반대편으로 비낌 → 반대쪽), 그다음 옆(듀얼 상대 반대편부터). 결정 대기 중에는 공 가진 선수 → 받는 선수(패스·크로스) 길을 6px 점 박스로 장애물에 넣는다(`previewLanes`). 미리보기 글자는 선 방향의 수직 양쪽이 먼저(`normalTips`). 결과 한 줄의 좌우 선호는 화면 기준.
+
+### 14.4 아웃게임 (js/ui/screens/*.js · css/outgame.css)
+
+공통: 한 화면 = 무대 전체(`.screen.og`), 페이지 스크롤 없음. 길어질 수 있는 목록만 안쪽 스크롤(`.og-scroll`). 패널은 `dom.panel(title, { right, cls, bodyCls, scroll }, ...children)` (dom.js 에 추가, 기존 export 는 그대로). labels.js 추가: `STAT_ICONS`, `ROUTE_ICONS`, `ROUTE_ICON_FALLBACK`. 게임 규칙·수치는 바꾸지 않았다 (표시만).
+
+| 화면 | 배치 |
+|---|---|
+| 시작 `start` | 왼쪽 = 타이틀(잔디 배경) + 세 단계(편성 → 육성 24턴 → 경계전 3회, 숫자는 config). 오른쪽 = 메뉴 패널(새 런 / 이어하기 / 저장 삭제) + 등록 팀 목록(안쪽 스크롤) |
+| 편성 `setup` | 왼쪽 = 가로 미니 필드(home 골 왼쪽 — 경기 화면과 같은 방향). 슬롯 카드 7장을 포지션대로 GK 왼쪽 → FW 오른쪽, 같은 라인은 위아래로 고르게. 포메이션 선택은 패널 머리, 원소 공명·경고·빈 슬롯은 필드 아래. 오른쪽 = 서포트 카드 8장(2×4 — 데이터가 늘면 이 목록만 안쪽 스크롤, 전술·시작 패널은 늘 보임) · 전술 3항목 · seed · [기본 편성으로 시작] [런 시작]. 캐릭터 고르기 = 넓은 모달 2열 |
+| 훈련 `training` | 상단 바: 시즌(x/3)·턴 + 턴 점(끝 ⚔) / 다음 상대 카드("N턴 후 경계전" · 마지막 턴 "이번 턴 뒤 경계전" · 행동 뒤 이벤트 "곧 경계전" · 이번 시즌 경계전을 치른 뒤(유물 모달 배경) "경계전 종료", 스타일 힌트·포제션·간파 사용권) / 상태 칩 4개(컨디션·팀워크·SP·호출권) + seed. 가운데: 훈련 칸 **5열 세로 카드** — 선수 두 줄(상승 합계 · 스탯별 상승 · 실패 %), 서포트 한 줄씩(★ 우정 · 💡 힌트 · 유대), 아래 스탯별 합계 · 상승 막대(가장 좋은 칸 기준) · 합계 · 실패 최대. 오른쪽 패널: 7명(체력 막대 · 5스탯 등급 · 부상) + 서포트 유대(80 문턱 표시). 아래 행동 바: [기록](유물·보정·로그 모달) · 휴식 · 외출 · 미팅 · 친선전 · 호출권 N |
+| 훈련 팝업 | 상세 = 넓은 하단 시트(`.sheet-wide`, 선수 2열). 전술 미팅 = 3열 모달(전술 / 포메이션·포지션 / 스킬 상점 — 상점만 안쪽 스크롤). 호출권 = 선수 3열 → 칸 버튼 5개 한 줄 |
+| 이벤트 `event` | 넓은 모달: 위 = 제목 · 등장 인물, 왼쪽 = 이야기, 오른쪽 = 선택지(효과 미리보기) 세로로. 배경은 훈련 화면 |
+| 유물 `relic` | 모달, 후보 카드 한 줄로 나란히(카드 최대 270px, 가운데) |
+| 루트 `route` | 위 = 시즌 진행 길(지난 결과 · 이번 시즌 강조 · 다음 시즌 점선), 아래 = 갈림길 선 → 루트 카드 3장 한 줄 |
+| 결과 `result` | 왼쪽 = 등급 · 점수 구성(2열, 한 줄 = 관련 항목 한 쌍: 평균 스탯 / 습득 스킬 수 · 스킬 점수 / 팀워크 · 팀워크 점수 / 경계전 패배 · 패배 상한, 세로 선으로 나눔 — `result.js BD_ROWS`) · 경기 기록 · seed, 오른쪽 = 선수마다 한 줄(5스탯 격자, 시작 → 끝), 아래 = 버튼 한 줄 |
+
+- 스모크 테스트·시나리오가 찾는 셀렉터는 유지: `.hero, .slot-cards, .slot-card, .slot-row, .recommended, #modal-root .sheet, .choice-btn, .relic-card, .route-card, .result-hero, .topbar, .next-match`, 버튼 문구 "닫기", "훈련하기", "미팅$", "^구매$".
+
+### 14.5 테스트 (npm test 115 — rng 8, run 25, match 24, v05 24, layout 18, orient 5, stage 6, outgame 3, ui.smoke 2)
+
+- `npm test` = `node --test test/rng test/run test/match test/v05 test/layout test/orient test/stage test/outgame test/ui.smoke` (각 `.test.mjs`, package.json).
+- `test/stage.test.mjs` (6): fitStage 여러 창 크기(한 배율 · 가운데 · 레터박스), 잘못된 입력(0·NaN·음수) → 1배, toStage 역변환, base.css `--stage-w/h` = stage.js, `tools/shot.mjs --only`(정확히 같은 이름이면 그것만, 아니면 접두어), 가로 전용(store 에 `resolveOrient`·`landOnly` 없음, app.js 가 경기 화면이면 `data-mode="match"`, base.css 에 `env(safe-area-*)` 없음, 토스트 2개까지, 경기 화면 토스트는 스코어 헤더 오른쪽 · 배너 띠 안).
+- `test/orient.test.mjs` (5): match.js 에 방향 분기·store 방향 API import 없음, match.css 에 세로 규칙·⇄·창 크기 media query·vw/vh 없음, store.js 방향 API(`resolveOrient` 포함)·`landOnly` 없음 + `fieldToScreen` 기본값 = 가로 + `matchUi.logOpen` 선언 · `resetMatchUi` 가 닫음, 가로 좌표(home 골 왼쪽 · 필드 x 0 = 위 · 구역 왼쪽부터 Z1 → Z5), **HUD 배치 계약**(규칙 영역 = 위 HUD 아래 · 아래 HUD 위, 왼쪽·오른쪽 묶음과 가운데 카드 줄이 겹치지 않음, 배너 글자는 헤더 앞에서 끝남, 스킬 묶음 상자 위 끝 ≥ 규칙 영역 아래 끝 · 2열 3줄 ≤ 상자 · 7개 이상 `.over` 스크롤, 로그 서랍 `.side-l` 자리 · 폭 ≤ 규칙 영역 1/3).
+- `test/outgame.test.mjs` (3): base.css·outgame.css 에 vw/vh/dvh·창 크기 media query 없음 · 옛 420px 열 규칙 없음, 편성 미니 필드 자리(모든 포메이션에서 GK < DF < MF < FW 왼→오, 같은 라인 위아래 균등·가운데), jsdom 걷기(시작 → 편성(3-1-2 변경·캐릭터 고르기) → 훈련(상단 바 · 칸 5 · 선수/서포트 줄 · 7명 패널 · 행동 6 · 상세 시트 · 기록 · 휴식 확인 · 미팅 select 5+1+7 · 호출권 두 단계) → og_event·og_relic·og_route·og_result 상태 주입: 전부 `#stage` 안, 오류 토스트·window 오류·console.error 0).
+- `test/ui.smoke.test.mjs`: 부트가 무대를 세움 · `#stage[data-mode]` og → match → og, 루트가 무대 안, 1600×1000 배율 변수, 저장값·`?orient=port` 여도 가로, ⇄ 없음, 미니 카드가 무대 안, 세로 창 안내, resize(연출 중 포함)에 경기 화면을 다시 그리지 않음, HUD 영역이 있고 `.m-field` 밖, 컨트롤 5개, 로그 서랍 여닫기(연출 중 · 다시 그린 뒤 유지 · 경기가 끝나면 닫힘) · 자리(03 공이 우리 박스 → 오른쪽, 08 우리 공격 ③ → 왼쪽), 경기 종료 뒤 개입 숨김(자동 ON 이어도), 배속 4x→1x→2x→4x, 결정 객체 불변(`{action:"cross", receiverId}` · `ultimate: true`), 03 회귀(상대 ④ 슈팅)를 가로 기준으로, 17 스킬 7개 = `.many.over` · 라인 브레이커 ✦ 비용 / 16 스킬 4개 = `.many` 만.
+- `test/layout.test.mjs`: 가로 범위에 무대 규칙 영역 비율(0.424 / 0.091) 추가, `fieldToScreen / screenToField` 기본값 = 가로 (18 테스트).
+
+### 14.6 도구 (tools/shot.mjs · tools/scenarios.mjs)
+
+- 기본 뷰포트 **1280×720, DPR 1**, 데스크톱(터치 없음) = 무대 1배. `--width / --height / --dpr` 로 다른 창(1920×1080 = 1.5배, 1600×900, 1024×576 = 0.8배, 세로 900×1200 = 0.703배 + 안내)을 확인한다. `--land` 는 받기만 하고 무시, URL 에 `orient` 를 붙이지 않는다. `07_desktop` 은 1280×900 고정(위아래 레터박스).
+- 캡처 = 뷰포트만 (페이지는 스크롤하지 않는다). 출력: 시나리오마다 파일 · 무대 배율과 위치 · 페이지/안쪽 스크롤 · 상태 확인 · pageerror/console.error, 요약 표에 "배율" 열.
+- 잘린 스킬 이름 검사: 말줄임(글자 Range 폭 > 요소 폭) + 2열의 두 줄 제한 넘침(`-webkit-line-clamp` 요소의 scrollHeight > clientHeight).
+- 시나리오: 경기 `01_…`~`17_…` (형식 그대로 — `17_skill_row_many` = 실루엔에 액티브 6개를 더해 스킬 7개: 2열 · 묶음 안 스크롤 · 라인 브레이커 이름과 ✦ 비용) + **아웃게임 `og_*` 10개** — `og_start`(저장 런 없음 · 등록 팀 2), `og_setup`(새 런 시작 클릭), `og_training`(시즌 1 턴 1), `og_training_mid`(시즌 2 턴 7: SP 50 · 상점 8 · 우정 ★ · 힌트 💡 · 체력 70~100), `og_train_sheet`(추천 칸 클릭 → 상세 시트), `og_meeting`(전술 미팅 · SP 200 주입 · 첫 스킬 [구매]), `og_event`(서포트 이벤트 "바람의 스텝" 선택지 2), `og_relic`, `og_route`(시즌 1 종료), `og_result`. 기본 런 seed 1. `--only a,b` = 이름이 정확히 같은 시나리오가 있으면 그것만(`og_training` → `og_training_mid` 는 빼고), 없으면 접두어(`og` = 아웃게임 전부, `02` = `02_…`), `--list`.
+- 아웃게임 시나리오 형식: `{ name: "og_…", title, outgame: true, build(data, { runSeed }) → { runState | null, teams?, summary }, steps: [{ click: css } | { text: regex } | { wait }], ready: css, expect: { screen, phase?, modal? }, viewport? }`. `walkRun(data, { runSeed, require, prefer })` = 기본 진행(이벤트 0번 · 추천 훈련 · 자동 경기)으로 걸어가 조건에 맞는 첫 상태. steps 는 배율이 적용된 좌표에 실제 마우스 클릭 → 클릭 정확도도 확인한다.
+
+### 14.7 검증 (구현 시점)
+
+- `npm test` 114 전부 통과 (fix1 뒤 115 — §14.9).
+- `shot.mjs` 26 시나리오(경기 16 + 아웃게임 10) 1280×720: 페이지 스크롤 없음 · 상태 확인 OK · 콘솔 에러 0. 경기 16/16 안쪽 스크롤·잘린 스킬 이름 0. 아웃게임은 전술 미팅 스킬 목록만 안쪽 스크롤(+228px). 1920×1080(경기 02·08·11·13, 아웃게임 10개) 배율 1.5 동일. 1024×576(배율 0.8) 읽힘 — 가장 작은 글자 화면에서 약 9px. 900×1200 세로 창: 레터박스 + 안내, 실제 클릭 정상.
+- HUD 조사(임시 스크립트 hud_probe): 우리 결정 상태 150개(런 2 · 상대 7팀 · seed 3) × (그대로 + 카드마다 hover) — 토큰·이름표·말풍선·화살표가 HUD 와 겹침 0, 규칙 영역 밖 0, 잘린 글자 0, 페이지 오류 0.
+- 실제 Chrome: 로그 서랍 · 미니 카드 · 자동 ON 개입 대기 · 결과 모달 · 골 연출 · 결과 한 줄, 1600×900 에서 받는 선수 탭 → 크로스 카드 = `{"action":"cross","receiverId":"p4"}`. 창 크기를 바꾸는 동안 배율·안내 갱신, 배율 0.70 에서도 클릭 위치 정확, 휠로 편성 목록 스크롤. 아웃게임 모달(캐릭터 고르기 · 호출권 두 단계 · 기록 · 휴식 확인 · 미팅)과 경계 상태(부상 선수 · 선수 2명 + 서포트 6장 칸 · 저장 런 있는 시작 화면 · 시즌 2 끝 루트 · 선수 없는 칸 상세) 잘림·오류 0.
+
+### 14.8 남은 문제
+
+1. ~~호환 코드 `store.resolveOrient()` · `store.landOnly`~~ → §14.9 에서 삭제.
+2. `layout.js fieldToScreen / screenToField` 는 `'port'` 분기를 가진 채 남았다(순수 함수 + 테스트, 명시할 때만). 기본값은 §14.9 에서 `'land'` 로 바꿨다.
+3. **필드 비율**: 규칙 영역 1244×528 ≈ 2.36:1 — 사용자 목업(약 1.4:1)보다 길다. 16:9 에서 위·아래 HUD 띠를 빼고 남는 모양 (GDD 16-24).
+4. 배너 띠 오른쪽 절반은 장식(글자는 왼쪽 칸만).
+5. 로그 서랍은 공 반대쪽 절반을 가린다(사용자가 열 때만, §14.9). 열림 상태는 새로고침에 저장하지 않는다. 공이 가운데를 넘나들면 서랍이 좌우로 옮겨 간다(비트마다 한 번까지).
+6. 이름표가 이웃 토큰의 작은 연계 특성 아이콘 위에 올 수 있다(예: 시나리오 01 카손 ↔ 돌바르) — 이번 개편 전부터 있던 자리 고르기 동작.
+7. 아웃게임: 평범한 턴에는 훈련 칸 가운데가 비어 칸 아이콘 워터마크로 채웠다(다음 단계 = 선수 줄 키우기). [기록] 로그는 엔진이 보관하는 20줄(예전 화면은 마지막 8줄). 보정 배지는 여전히 키 그대로(`shootPower +5%`) — labels.js 에 한국어 이름이 필요. `view.recommendedAction === "rest"` 는 예전처럼 표시하지 않는다(새 동작이라 넣지 않음).
+8. **폰 크기**: 데스크톱 기준이라 1280×720 무대의 글자 11~12px · 컨트롤 32px 가 6인치급 폰 가로에서 약 1mm · 3mm (계산값). 유니티 이식 전에 최소 글자·터치 크기를 정한다 (GDD 15 · 16-24).
+9. 커밋에 함께 넣을 새 파일: `css/base.css, css/outgame.css, css/match.css, js/ui/stage.js, test/stage.test.mjs, test/outgame.test.mjs` (+ `git rm css/style.css` — 작업 트리에서만 지워져 있다). `npm test` 가 stage·outgame 을 요구한다. `art/style_test/` 는 그림체 시험 결과(9.4 MB — Pages 는 저장소 루트 전체를 올리므로 `git add -A` 로 섞지 말 것, 커밋 여부는 사용자 결정).
+10. 이어하기(새로고침)로 경기를 되살리면 자동은 ON · 배속 1x 로 돌아온다(`matchUi.auto/speed` 는 저장하지 않는다 — 이번 개편 전부터 같은 동작).
+11. 아웃게임 토스트는 위 가운데(한 번에 2개)라 3.5초 동안 그 아래 내용(다음 상대 카드 · 미팅 모달 제목 · 결과 화면 첫 줄)을 가릴 수 있다. 클릭은 막지 않는다.
+
+### 14.9 검수 뒤 수정 (v0.3.2 fix1)
+
+규칙·데이터 변경 없음 (`js/engine/*`, `data/*` 그대로). 화면 · 도구 · 테스트 · 문서만.
+
+| 문제 | 고친 것 | 파일 |
+|---|---|---|
+| 스킬 7개 이상이면 2열 묶음이 96px 상자를 넘어 필드(상대 박스 구석)를 덮음 (엔진에 선수당 액티브 상한 없음) | 2열 칸 30px × 3줄 = 상자 96px, 7개 이상 `.over` = 묶음 안 스크롤. 스크롤이 없어진 경우 `many/over` 클래스도 지운다 | match.js `drawSkills`, match.css |
+| 2열에서 "라인 브레이커" 가 "라인 브레…" 로 잘리고 일반 액티브의 ✦ 비용이 숨음 (터치는 title 을 못 봄) | 2열에서 이름 두 줄까지(낱말 단위) · ⚡ 숨김 · ✦ 비용 작게 표시. 도구의 잘림 검사에 두 줄 넘침 추가, 시나리오 17 | match.js · match.css · shot.mjs · scenarios.mjs |
+| 로그 서랍이 늘 오른쪽 → 우리 공격 결정 때 공 가진 선수 · 받는 선수 후보 · 크로스 화살표를 가리고 후보 탭을 가로막음, 한 번 열면 다음 경기까지 열림 | 공 · 공격 방향의 반대쪽 절반에 연다(`placeLogBox`, `.side-l`), 폭 420 → 400. `matchUi.logOpen` 을 store 에 선언하고 `resetMatchUi` · 새 경기 생성이 닫는다. 실측(1280×720): 08 · 11 · 03 · 01 에서 carrier · defender · receiver 토큰이 서랍 아래 0, `elementFromPoint` = 토큰 | match.js, match.css, store.js |
+| 로그 줄이 한 줄 말줄임 | 서랍 안 줄바꿈(`white-space: normal`, 낱말 단위) | match.css |
+| 경기 시작 토스트(친선전 · 경계전 전야 결과)가 스코어 헤더와 필드 윗부분을 3.5초 가림 (최대 4개 쌓임) | 경기 화면이면 `#stage[data-mode="match"]` → 토스트를 오른쪽 위 x 880~1256 (배너 띠의 빈 칸)으로, 두 줄까지. 모든 화면에서 한 번에 2개만 보인다 | app.js `setStageMode`, base.css, match.css |
+| 경기가 끝나도 자동 ON 이면 개입 버튼이 보임 | 종료면 `.off` | match.js `drawControls` |
+| 결과 화면 점수 구성이 엔진 키 순서로 2열에 섞임 | 관련 항목끼리 한 줄(`BD_ROWS`), 오른쪽 칸 세로 선. 쓰지 않게 된 `dom.keyValue` · `frag` 삭제 | result.js, outgame.css, dom.js |
+| 유물 선택 배경의 다음 상대 카드 "0턴 후 경계전" | "경계전 종료"(이번 시즌 경계전 기록이 있으면) · "이번 턴 뒤 경계전" · "곧 경계전"(이벤트) | training.js |
+| 편성 서포트 목록이 데이터로 늘면 전술 패널 아래로 넘치고 [런 시작]이 밀림 | 서포트 패널만 `grow-panel` + 안쪽 스크롤, 전술 · 시작 패널은 `flex: none`, 오른쪽 열 간격 12 → 10 | setup.js, outgame.css |
+| 시작 화면 [새 런 시작] 부제가 "24턴 · 3회" 고정 | config(`seasons × turnsPerSeason`)와 편성 슬롯 수로 | start.js |
+| 호환 코드 `resolveOrient` · `landOnly`, `fieldToScreen` 기본값 `'port'` | 삭제 · 기본값 `'land'` | store.js, app.js, layout.js, test/stage · orient · layout · ui.smoke |
+| 무대 안의 `env(safe-area-inset-*)`(창 px 가 배율과 곱해짐), 안 쓰는 `.screen-title` · `.card.selectable` · `.bar.thick` · `dom.section` | 삭제 | base.css, dom.js |
+| `--only og_training` 이 `og_training_mid` 도 잡음 | 정확히 같은 이름이 있으면 그것만 (`selectScenarios` export, 테스트) | shot.mjs |
+
+- 확인: `npm test` 115 통과. `shot.mjs` 27 시나리오 1280×720 페이지 스크롤 0 · 상태 OK · 콘솔 에러 0 · 잘린 스킬 0 (안쪽 스크롤 = 17 스킬 묶음 +33 · 미팅 상점 +228), 1920×1080 (02 · 08 · 11 · og_training · og_setup) 동일. 바뀌지 않은 장면(경기 01~05 · 08~12, 아웃게임 start · training · training_mid · train_sheet · meeting · event · route)은 이전 캡처와 픽셀 차이 0.

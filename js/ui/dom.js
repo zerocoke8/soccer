@@ -27,12 +27,6 @@ export function append(el, children) {
   }
 }
 
-export function frag(...children) {
-  const f = document.createDocumentFragment();
-  append(f, children);
-  return f;
-}
-
 export function initialOf(name) {
   const s = String(name ?? '').trim();
   return s ? Array.from(s)[0] : '?';
@@ -88,6 +82,9 @@ export function fmtDate(iso) {
 }
 
 // ---- 오버레이 (모달 / 하단 시트) ----
+// 루트(#modal-root · #toast-root · #banner-root)는 index.html 의 고정 스테이지(#stage) 안에 있다 → 모달·토스트·컷인은 스테이지를 덮고 함께 커진다 (base.css).
+// 크기: 기본 .modal = 400px (경기 결과 · 미니 카드). 아웃게임 가로 모달은 className 으로 'modal-md'(480) · 'modal-lg'(880) · 'modal-xl'(1120),
+// 넓은 하단 시트는 kind: 'sheet' + className 'sheet-wide'(860) — base.css.
 function overlayRoot() { return document.getElementById('modal-root'); }
 
 export function openModal(content, { kind = 'modal', closable = true, onClose, className = '' } = {}) {
@@ -115,6 +112,7 @@ export function closeOverlays() {
 }
 
 // ---- 토스트 ----
+// 루트에는 4개까지 두고, 화면에는 최근 2개만 보인다 (base.css). 경기 화면은 오른쪽 위 좁은 칸 (match.css)
 export function toast(message, kind = 'error', ms = 4000) {
   const root = document.getElementById('toast-root');
   if (!root) return;
@@ -135,12 +133,17 @@ export function banner(text, ms = 1000) {
 }
 
 // ---- 공용 UI 조각 ----
-export function section(title, ...children) {
-  return h('section', { class: 'card' }, title ? h('h3', { class: 'card-title' }, title) : null, ...children);
-}
-
-export function keyValue(pairs) {
-  return h('dl', { class: 'kv' }, pairs.map(([k, v]) => frag(h('dt', {}, k), h('dd', {}, v))));
+// 가로 아웃게임 패널 (outgame.css .og-panel): 제목 줄(제목 + 오른쪽 부가 요소) + 내용.
+// opts: { right, cls, bodyCls, scroll } — scroll 이면 내용 칸만 안쪽 스크롤 (.og-scroll)
+export function panel(title, opts, ...children) {
+  const { right = null, cls = '', bodyCls = '', scroll = false } = opts || {};
+  const head = title || right
+    ? h('div', { class: 'og-panel-head' },
+      title ? h('h3', { class: 'og-panel-title' }, title) : h('span'),
+      right)
+    : null;
+  return h('section', { class: ['og-panel', cls] }, head,
+    h('div', { class: ['og-panel-body', scroll ? 'og-scroll' : '', bodyCls] }, ...children));
 }
 
 export function bar(ratio, className = '') {

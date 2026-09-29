@@ -1,0 +1,404 @@
+/* css/outgame.css — 아웃게임 화면 (가로 스테이지 1280×720): 공통 패널 · 시작 · 편성 · 훈련(상단 바 · 훈련 칸 · 선수 패널 · 행동 바 · 시트/모달) · 이벤트 · 유물 · 루트 · 런 결과
+   한 화면 = 스테이지 전체, 페이지 스크롤 없음. 길어질 수 있는 목록만 안쪽 스크롤(.og-scroll). 크기는 논리 px (vw/vh · 창 크기 media query 금지 — base.css .stage). */
+
+/* ---- 아웃게임 공통 ---- */
+/* .og 가 없는 화면(오류 패널 · 배경 대체 등)은 가운데 열로 */
+.app > .screen:not(.match-screen):not(.og) {
+  flex: 1 1 auto; width: 100%; max-width: 760px; margin: 0 auto; min-height: 0; overflow-y: auto;
+  background: var(--frame); border-inline: 1px solid var(--border);
+}
+.screen.og {
+  flex: 1 1 auto; min-height: 0; overflow: hidden;
+  padding: 14px 16px; gap: 12px;
+  background: radial-gradient(900px 360px at 50% -120px, rgba(74, 163, 255, .07), transparent 70%), var(--frame);
+}
+.og-head { display: flex; align-items: center; gap: 12px; min-height: 40px; flex: none; }
+.og-head h2 { font-size: 22px; }
+.og-panel {
+  display: flex; flex-direction: column; gap: 10px; min-width: 0; min-height: 0;
+  padding: 12px 14px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+}
+.og-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex: none; min-height: 22px; }
+.og-panel-title { font-size: 13px; font-weight: 700; color: var(--muted); letter-spacing: .02em; }
+.og-panel-body { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.grow-panel { flex: 1 1 auto; }
+.grow-panel > .og-panel-body { flex: 1 1 auto; }
+.og-scroll { overflow-y: auto; min-height: 0; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--panel-3) transparent; }
+.og-scroll::-webkit-scrollbar { width: 8px; }
+.og-scroll::-webkit-scrollbar-thumb { background: var(--panel-3); border-radius: 4px; }
+.modal-foot { padding-top: 2px; }
+.modal-foot .btn { min-width: 120px; }
+
+/* ================================================================== */
+/* 시작 화면: 왼쪽 타이틀(필드 선 배경) | 오른쪽 메뉴 · 등록 팀           */
+/* ================================================================== */
+.start-screen { display: grid; grid-template-columns: minmax(0, 1fr) 440px; gap: 16px; padding: 16px; }
+.hero {
+  position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center;
+  border-radius: 18px; border: 1px solid #2c5a47;
+  background:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, .025) 0 80px, transparent 80px 160px),
+    radial-gradient(ellipse at 50% 45%, #1a4534, #102a20 75%);
+}
+.hero-pitch { position: absolute; inset: 22px; pointer-events: none; border: 2px solid rgba(255, 255, 255, .09); border-radius: 6px; }
+.hero-pitch i { position: absolute; display: block; border: 2px solid rgba(255, 255, 255, .09); }
+.hero-pitch .hp-half { left: 50%; top: -2px; bottom: -2px; width: 0; border-width: 0 0 0 2px; }
+.hero-pitch .hp-circle { left: 50%; top: 50%; width: 170px; height: 170px; border-radius: 50%; transform: translate(-50%, -50%); }
+.hero-pitch .hp-box { top: 27%; height: 46%; width: 13%; }
+.hero-pitch .hp-box.l { left: -2px; border-left: none; }
+.hero-pitch .hp-box.r { right: -2px; border-right: none; }
+.hero-body { position: relative; display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; padding: 24px; }
+.hero .logo { font-size: 76px; line-height: 1; filter: drop-shadow(0 6px 14px rgba(0, 0, 0, .5)); }
+.hero h1 { font-size: 50px; letter-spacing: -.01em; text-shadow: 0 3px 12px rgba(0, 0, 0, .55); }
+.hero-sub { font-size: 16px; color: #bfe3d2; }
+.hero-flow { display: flex; gap: 26px; margin: 22px 0 0; padding: 0; list-style: none; }
+.hero-flow li {
+  position: relative; display: flex; flex-direction: column; gap: 2px; min-width: 150px; padding: 10px 16px;
+  background: rgba(11, 14, 20, .6); border: 1px solid rgba(255, 255, 255, .12); border-radius: 12px;
+}
+.hero-flow li b { font-size: 16px; }
+.hero-flow li span { font-size: 12px; color: var(--muted); }
+.hero-flow li + li::before { content: "→"; position: absolute; left: -20px; top: 50%; transform: translateY(-50%); color: rgba(255, 255, 255, .45); font-weight: 700; }
+.start-side { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+.start-menu .btn-lg { min-height: 68px; font-size: 18px; }
+.start-menu .btn-lg .btn-sub { font-size: 12px; }
+.start-menu .btn-sm { align-self: flex-end; justify-content: center; }
+.start-teams .list { gap: 6px; }
+.team-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: var(--panel-2); border-radius: var(--radius-sm); }
+
+/* ================================================================== */
+/* 편성: 왼쪽 가로 미니 필드(우리 골 왼쪽) | 오른쪽 서포트 · 전술 · 시작   */
+/* ================================================================== */
+.setup-screen { display: flex; flex-direction: column; }
+.setup-main { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 500px; gap: 12px; }
+.setup-pitch > .og-panel-body { flex: 1 1 auto; }
+.formation-sel .select { width: 290px; min-height: 34px; padding: 5px 10px; }
+.mini-pitch {
+  position: relative; flex: 1 1 auto; min-height: 0; border-radius: 12px; border: 1px solid #2c5a47;
+  background:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, .022) 0 9.09%, transparent 9.09% 18.18%),
+    #123024;
+}
+.mp-lines { position: absolute; inset: 0; pointer-events: none; }
+.mp-lines i { position: absolute; display: block; border: 1px solid rgba(255, 255, 255, .11); }
+.mp-half { left: 50%; top: 0; bottom: 0; width: 0; border-width: 0 0 0 1px !important; }
+.mp-circle { left: 50%; top: 50%; width: 120px; height: 120px; border-radius: 50%; transform: translate(-50%, -50%); }
+.mp-box { top: 22%; height: 56%; width: 15%; }
+.mp-box.l { left: -1px; }
+.mp-box.r { right: -1px; }
+.mp-goal { top: 40%; height: 20%; width: 5px; background: rgba(255, 255, 255, .45); border: none !important; }
+.mp-goal.l { left: 0; border-radius: 0 3px 3px 0; background: var(--home, #4da3ff); }
+.mp-goal.r { right: 0; border-radius: 3px 0 0 3px; }
+.mp-label { position: absolute; bottom: 6px; font-size: 11px; font-weight: 700; color: rgba(255, 255, 255, .32); }
+.mp-label.l { left: 10px; }
+.mp-label.r { right: 10px; }
+.slot-card {
+  position: absolute; transform: translate(-50%, -50%); z-index: 1;
+  display: flex; align-items: center; gap: 8px; width: 158px; min-height: 84px; padding: 18px 8px 8px 10px;
+  background: rgba(23, 29, 40, .94); border: 1px solid var(--border); border-radius: 12px;
+  color: var(--text); cursor: pointer; text-align: left; box-shadow: 0 6px 16px rgba(0, 0, 0, .35);
+  transition: border-color .12s, transform .08s;
+}
+.slot-card:hover { border-color: var(--accent); }
+.slot-card:active { transform: translate(-50%, -50%) scale(.98); }
+.slot-card .slot-tag { position: absolute; left: 9px; top: 4px; font-size: 10.5px; line-height: 13px; font-weight: 800; color: var(--muted); letter-spacing: .03em; }
+.slot-card.pos-GK .slot-tag { color: var(--gold); }
+.slot-card.pos-DF .slot-tag { color: var(--accent-2); }
+.slot-card.pos-MF .slot-tag { color: var(--good); }
+.slot-card.pos-FW .slot-tag { color: #ff9f8a; }
+.slot-card > .apt { position: absolute; right: 7px; top: 5px; }
+.slot-card .slot-nm { font-weight: 700; font-size: 14px; }
+.slot-card .trait-tag { align-self: flex-start; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.slot-card.empty { border-style: dashed; color: var(--muted); background: rgba(23, 29, 40, .7); }
+.slot-card.empty .slot-nm { font-weight: 400; font-size: 12px; white-space: normal; }
+.resonance { display: flex; flex-direction: column; gap: 4px; flex: none; }
+.setup-side { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+.setup-side > .og-panel:not(.grow-panel) { flex: none; } /* 전술 · seed/시작은 줄어들지 않는다 — 서포트 목록(.grow-panel)만 안쪽 스크롤 */
+.setup-supports .og-scroll { padding-right: 2px; }
+.support-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.support-card {
+  display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 54px; padding: 7px 10px;
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  color: var(--text); cursor: pointer; text-align: left; width: 100%;
+}
+.support-card:hover:not(:disabled) { border-color: var(--accent); }
+.support-card.selected { border-color: var(--accent); background: rgba(74, 163, 255, .1); }
+.support-card:disabled { opacity: .4; cursor: not-allowed; }
+.support-card .sp-name { min-width: 0; font-size: 14px; line-height: 1.25; word-break: keep-all; overflow-wrap: normal; }
+.support-card .sp-sub { line-height: 1.3; word-break: keep-all; overflow-wrap: normal; }
+.support-card .sp-sub .nw { white-space: nowrap; }
+.setup-start { gap: 10px; }
+.seed-field { flex: 1 1 auto; }
+.seed-note { flex: none; align-self: flex-end; padding-bottom: 10px; max-width: 150px; }
+.setup-start-btns { display: grid; grid-template-columns: 1fr 1.4fr; gap: 10px; }
+.setup-start-btns .btn { min-height: 48px; }
+.trait-tag { display: inline-block; padding: 0 6px; border-radius: 6px; background: rgba(74, 163, 255, .16); color: var(--accent-2); font-weight: 700; white-space: nowrap; }
+
+/* 캐릭터 · 선수 고르기 (편성 슬롯 모달 · 호출권) */
+.pick-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.pick-grid.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.char-pick {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-width: 0; min-height: 56px; padding: 8px 10px; text-align: left;
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text); cursor: pointer;
+}
+.char-pick:hover:not(:disabled) { border-color: var(--accent); }
+.char-pick:disabled { opacity: .4; cursor: not-allowed; }
+.char-pick.current { border-color: var(--good); }
+.char-pick .bar { margin-top: 3px; height: 5px; }
+
+/* ================================================================== */
+/* 훈련: 상단 바 | 훈련 칸 5열 + 행동 바 | 선수 패널                      */
+/* ================================================================== */
+.training-screen {
+  display: grid; gap: 10px 12px; padding: 12px 14px;
+  grid-template-columns: minmax(0, 1fr) 350px;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-areas: "top top" "slots roster" "acts roster";
+}
+.training-screen.og-error { display: flex; }
+
+/* ---- 상단 바 ---- */
+.topbar { grid-area: top; display: grid; grid-template-columns: 260px minmax(0, 1fr) auto; gap: 10px; align-items: stretch; }
+.tb-turn {
+  display: flex; flex-direction: column; justify-content: center; gap: 6px; padding: 7px 14px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+}
+.tb-turn .title-row { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
+.tb-turn h2 { font-size: 22px; line-height: 1.1; white-space: nowrap; }
+.tb-turn .tb-turn-n { font-size: 15px; font-weight: 400; }
+.tb-turn .tb-of { font-size: 14px; font-weight: 400; margin-left: 2px; }
+.turn-pips { display: flex; align-items: center; gap: 4px; }
+.turn-pips i { flex: 1; height: 6px; border-radius: 3px; background: var(--panel-3); }
+.turn-pips i.done { background: rgba(74, 163, 255, .5); }
+.turn-pips i.cur { background: var(--accent-2); box-shadow: 0 0 6px rgba(124, 196, 255, .7); }
+.turn-pips .pip-match { font-size: 12px; line-height: 1; color: var(--warn); margin-left: 2px; }
+.next-match { flex-direction: row; align-items: center; gap: 12px; padding: 7px 14px; border-radius: 12px; min-width: 0; }
+.next-match .vs { font-size: 24px; font-weight: 700; color: var(--warn); }
+.next-match .nm-line { font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.next-match .nm-line b { font-size: 16px; }
+.next-match .nm-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tb-status { display: flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: 5px; }
+.status-row { display: flex; gap: 6px; flex-wrap: nowrap; font-size: 13px; }
+.status-chip { display: inline-flex; align-items: center; gap: 5px; padding: 6px 10px; border-radius: 9px; background: var(--panel); border: 1px solid var(--border); white-space: nowrap; }
+.status-chip b { font-size: 15px; }
+.cond-dots { display: inline-flex; gap: 2px; }
+.cond-dots i { width: 9px; height: 9px; border-radius: 50%; background: var(--panel-3); display: inline-block; }
+.cond-dots i.on { background: var(--good); }
+.tb-seed { padding-right: 4px; }
+
+/* ---- 훈련 칸: 세로 카드 5열 ---- */
+.slot-rows { grid-area: slots; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; min-height: 0; }
+.slot-row {
+  position: relative; display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; overflow: hidden;
+  padding: 12px 11px 11px; border-radius: 14px; border: 1px solid var(--border);
+  background: linear-gradient(180deg, var(--panel-2), var(--panel) 38%);
+  color: var(--text); text-align: left; cursor: pointer; font-size: 13px;
+  transition: border-color .12s, transform .08s, box-shadow .12s;
+}
+.slot-row:hover:not(:disabled) { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.slot-row:active:not(:disabled) { transform: translateY(1px); }
+.slot-row:disabled { cursor: default; }
+.slot-row.recommended {
+  border-color: var(--gold);
+  background: linear-gradient(180deg, rgba(255, 209, 102, .16), rgba(255, 209, 102, .03) 45%, var(--panel));
+  box-shadow: 0 0 0 1px rgba(255, 209, 102, .5) inset, 0 0 18px rgba(255, 209, 102, .12);
+}
+.slot-row.empty { background: var(--panel); }
+.slot-row.empty .slot-head, .slot-row.empty .slot-players { opacity: .6; }
+.slot-head { display: flex; align-items: center; gap: 6px; }
+.slot-ico { font-size: 20px; line-height: 1; }
+.slot-name { font-weight: 800; font-size: 17px; }
+.slot-count { margin-left: auto; }
+.slot-badges { display: flex; flex-wrap: wrap; gap: 4px; min-height: 19px; }
+.slot-players { display: flex; flex-direction: column; gap: 4px; flex: none; min-height: 0; }
+.slot-none { padding: 4px 2px; }
+.sl-pl {
+  display: grid; grid-template-columns: 22px minmax(0, 1fr); column-gap: 6px; row-gap: 1px; align-items: center;
+  min-width: 0; padding: 4px 6px 4px 4px; border-radius: 8px; background: rgba(255, 255, 255, .05);
+}
+.sl-pl > .avatar { grid-row: 1 / span 2; }
+.sl-l1, .sl-l2 { display: flex; align-items: baseline; gap: 5px; min-width: 0; }
+.sl-l2 { font-size: 11px; color: var(--muted); justify-content: space-between; }
+.sl-nm { min-width: 0; font-size: 13px; }
+.sl-slot { font-size: 10px; font-weight: 700; color: var(--muted); }
+.sl-fail { flex: none; font-size: 10.5px; font-weight: 700; }
+.sl-gain { margin-left: auto; font-weight: 800; color: var(--good); font-variant-numeric: tabular-nums; }
+.slot-supports { display: flex; flex-direction: column; gap: 4px; flex: none; }
+.slot-supports:not(:empty) { padding-top: 8px; border-top: 1px dashed var(--border); }
+.sl-sp { display: flex; align-items: center; gap: 7px; min-width: 0; font-size: 12px; color: var(--muted); padding: 1px 2px; }
+.sl-sp.friend { color: var(--gold); }
+.sl-spn { flex: 1 1 auto; min-width: 0; }
+.sl-bond { font-size: 11px; font-variant-numeric: tabular-nums; }
+.sp-icon { position: relative; display: inline-flex; flex: none; }
+.sp-icon .mark { position: absolute; bottom: -4px; right: -5px; font-size: 10px; line-height: 1; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .8)); }
+.sp-icon .mark.hint { left: -5px; right: auto; }
+/* 빈 아래쪽에 칸 아이콘 워터마크 (data-ico) */
+.slot-row::after {
+  content: attr(data-ico); position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%); z-index: 0;
+  font-size: 96px; line-height: 1; opacity: .06; filter: grayscale(1); pointer-events: none;
+}
+.slot-row.recommended::after { opacity: .1; filter: grayscale(.3); }
+.slot-row > * { position: relative; z-index: 1; }
+.slot-gauge .bar { height: 5px; }
+.slot-gauge .bar.gold > i { background: var(--gold); }
+.slot-row.dense .slot-supports { flex-direction: row; flex-wrap: wrap; gap: 6px 9px; }
+.slot-row.dense .sl-spn, .slot-row.dense .sl-bond { display: none; }
+.slot-foot { display: flex; flex-direction: column; gap: 4px; margin-top: auto; padding-top: 8px; border-top: 1px solid var(--border); }
+.slot-sums { display: flex; flex-wrap: wrap; gap: 0 8px; font-size: 12px; color: var(--muted); }
+.slot-meta { display: flex; flex-direction: column; gap: 1px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.slot-meta > span { display: flex; justify-content: space-between; align-items: baseline; gap: 4px; }
+.slot-meta b { color: var(--text); font-size: 15px; font-variant-numeric: tabular-nums; }
+.slot-meta .warn b { color: var(--warn); }
+.slot-meta .bad b { color: var(--bad); }
+
+/* ---- 행동 바 ---- */
+.actionbar { grid-area: acts; display: grid; grid-template-columns: 1.25fr repeat(5, minmax(0, 1fr)); gap: 8px; }
+.actionbar .btn { min-height: 56px; padding: 6px 10px; font-size: 15px; font-weight: 600; gap: 8px; background: var(--panel); }
+.actionbar .btn:hover:not(:disabled) { background: var(--panel-2); border-color: var(--accent); }
+.actionbar .btn .ico { font-size: 20px; line-height: 1; }
+.actionbar .extras-btn { justify-content: flex-start; text-align: left; background: transparent; }
+.actionbar .extras-btn .col { gap: 0; line-height: 1.25; }
+
+/* ---- 선수 패널 ---- */
+.roster { grid-area: roster; gap: 8px; }
+.ro-list { display: flex; flex-direction: column; gap: 5px; }
+.ro-row {
+  display: grid; grid-template-columns: 22px minmax(0, 1fr) 100px; column-gap: 8px; row-gap: 3px; align-items: center;
+  padding: 5px 9px; border-radius: 10px; background: var(--panel-2);
+}
+.ro-row > .avatar { grid-row: 1; }
+.ro-row.injured { box-shadow: inset 3px 0 0 var(--bad); }
+.ro-name { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 14px; }
+.ro-slot { font-size: 11px; font-weight: 700; color: var(--muted); }
+.ro-stam { display: flex; align-items: center; gap: 6px; }
+.ro-stam .bar { flex: 1; height: 6px; }
+.ro-stam b { min-width: 24px; font-size: 12.5px; text-align: right; font-variant-numeric: tabular-nums; }
+.ro-stats { grid-column: 1 / -1; display: flex; justify-content: space-between; gap: 4px; font-size: 11.5px; } /* 칸 폭 = 내용 폭: 1000 (4자리)도 겹치지 않게 */
+.ro-st { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ro-st .ro-k { font-weight: 700; }
+.ro-st.main { color: var(--text); }
+.ro-st.main .ro-v { font-weight: 800; }
+.bond-head { margin-top: 2px; }
+.bond-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 12px; }
+.bond-row { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; grid-template-rows: auto auto; column-gap: 6px; row-gap: 2px; align-items: center; font-size: 12px; }
+.bond-row > .avatar { grid-row: 1 / span 2; grid-column: 1; }
+.bond-nm { grid-row: 1; grid-column: 2; min-width: 0; }
+.bond-n { grid-row: 1; grid-column: 3; font-size: 12px; font-variant-numeric: tabular-nums; }
+.bond-row.max .bond-n { color: var(--good); }
+.bond-bar { grid-row: 2; grid-column: 2 / 4; position: relative; }
+.bond-bar .bar { height: 4px; }
+.bond-th { position: absolute; top: -2px; bottom: -2px; width: 2px; margin-left: -1px; background: var(--gold); opacity: .7; border-radius: 1px; }
+
+/* ---- 훈련 상세 시트 · 호출권 · 기록 (가로 모달) ---- */
+.train-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.sheet-foot { display: flex; align-items: flex-end; gap: 16px; }
+.train-go { min-width: 240px; }
+.summon-slots { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.summon-slots .btn { min-height: 88px; font-size: 15px; }
+.summon-slots .btn .ico { font-size: 26px; }
+.extras-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 18px; }
+.extras-col { gap: 8px; min-height: 0; }
+.extras-col .list { max-height: 260px; }
+.log-list { display: flex; flex-direction: column; gap: 4px; max-height: 470px; font-size: 12.5px; }
+.log-list li { padding: 5px 9px; background: var(--panel-2); border-radius: 7px; color: var(--muted); }
+
+/* ---- 전술 미팅 (3열) ---- */
+.meeting-cols { display: grid; grid-template-columns: 250px 330px minmax(0, 1fr); gap: 18px; min-height: 0; }
+.meeting-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; }
+.meeting-col .divider { margin: 2px 0; }
+.pos-assign { gap: 6px; }
+.pos-assign .slot-tag { min-width: 36px; font-weight: 700; }
+.pos-assign .select { min-height: 34px; padding: 4px 8px; font-size: 13px; }
+.shop-list { max-height: 500px; padding-right: 2px; }
+.shop-list .list-item { gap: 6px; }
+.shop-list .list-item.chosen { box-shadow: 0 0 0 1px var(--accent) inset; }
+
+/* ================================================================== */
+/* 이벤트 · 유물 (모달)                                                  */
+/* ================================================================== */
+.ev-head h2 { font-size: 22px; }
+.ev-body { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 22px; align-items: start; }
+.ev-story { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.ev-cast { gap: 16px; }
+.ev-who { display: flex; align-items: center; gap: 10px; }
+.event-text { white-space: pre-line; font-size: 16px; line-height: 1.75; word-break: keep-all; }
+.ev-choices { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.choice-btn { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-height: 64px; padding: 12px 16px; text-align: left; font-size: 15px; }
+.choice-btn .preview { font-size: 12.5px; color: var(--muted); font-weight: 400; word-break: keep-all; }
+.btn-primary.choice-btn .preview { color: #0b2a4a; }
+.relic-row { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 270px); justify-content: center; gap: 12px; } /* 후보가 1~2개여도 카드 폭 유지 */
+.relic-card { display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; text-align: left; align-items: flex-start; justify-content: flex-start; min-height: 72px; }
+.relic-row .relic-card { min-height: 150px; }
+.relic-card .name { font-weight: 700; font-size: 16px; }
+.relic-card .desc { font-size: 13px; color: var(--muted); line-height: 1.5; word-break: keep-all; }
+.relic-card .pick { margin-top: auto; color: var(--accent-2); font-weight: 700; }
+.relic-card.rar-SSR { border-color: rgba(255, 209, 102, .55); }
+.relic-card.rar-SR { border-color: rgba(179, 136, 255, .5); }
+.relic-card:hover:not(:disabled) { border-color: var(--accent); }
+
+/* ================================================================== */
+/* 루트: 시즌 진행 길 | 루트 카드 한 줄                                   */
+/* ================================================================== */
+.route-screen { display: flex; flex-direction: column; }
+.season-path { flex: none; }
+.sp-track { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 12px; }
+.sp-node { position: relative; display: flex; flex-direction: column; align-items: center; gap: 5px; text-align: center; min-width: 0; }
+.sp-node:not(:first-child)::before { content: ""; position: absolute; top: 15px; right: 50%; width: calc(100% + 12px); height: 2px; background: var(--border); }
+.sp-node.past:not(:first-child)::before, .sp-node.now:not(:first-child)::before { background: rgba(74, 163, 255, .55); }
+.sp-node.next::before { background: repeating-linear-gradient(90deg, var(--warn) 0 6px, transparent 6px 11px) !important; }
+.sp-dot {
+  position: relative; z-index: 1; display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; border-radius: 50%; font-size: 14px; font-weight: 800;
+  background: var(--panel-3); border: 2px solid var(--border); color: var(--muted);
+}
+.sp-node.past .sp-dot { background: rgba(74, 163, 255, .25); border-color: rgba(74, 163, 255, .6); color: var(--accent-2); }
+.sp-node.now .sp-dot { background: var(--accent); border-color: var(--accent-2); color: #041224; box-shadow: 0 0 12px rgba(74, 163, 255, .6); }
+.sp-node.next .sp-dot { border-color: var(--warn); color: var(--warn); border-style: dashed; }
+.sp-label { display: flex; align-items: center; gap: 6px; font-size: 15px; }
+.sp-game { gap: 6px; max-width: 100%; }
+/* 갈림길: 패널 제목 아래 가운데에서 세 카드로 갈라지는 선 (.route-fork) → 카드 */
+.route-pick > .og-panel-body { flex: 1 1 auto; justify-content: center; gap: 0; }
+.route-fork { position: relative; height: 34px; flex: none; }
+.route-fork::before { content: ""; position: absolute; left: 50%; top: 0; height: 17px; width: 2px; margin-left: -1px; background: rgba(74, 163, 255, .55); }
+.route-fork::after { content: ""; position: absolute; left: calc(100% / 6); right: calc(100% / 6); top: 17px; height: 17px; border: 2px solid rgba(74, 163, 255, .55); border-bottom: none; border-radius: 10px 10px 0 0; }
+.route-fork i { position: absolute; left: 50%; top: 17px; bottom: 0; width: 2px; margin-left: -1px; background: rgba(74, 163, 255, .55); }
+.route-row { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 16px; flex: none; }
+.route-card {
+  min-height: 330px; padding: 28px 24px 20px; gap: 12px; align-items: center; text-align: center;
+  border-radius: var(--radius); background: linear-gradient(180deg, var(--panel-3), var(--panel-2) 55%);
+}
+.route-card:hover:not(:disabled) { background: var(--panel-3); border-color: var(--accent); }
+.route-card .route-ico { font-size: 64px; line-height: 1; filter: drop-shadow(0 4px 10px rgba(0, 0, 0, .45)); }
+.route-card > .row { flex-direction: column; justify-content: center; gap: 6px; }
+.route-card .name { font-size: 22px; }
+.route-card .desc { font-size: 15px; line-height: 1.65; max-width: 320px; word-break: keep-all; }
+.route-card .pick { font-size: 13.5px; }
+
+/* ================================================================== */
+/* 런 결과: 왼쪽 요약 | 오른쪽 선수 성장 표 | 아래 버튼 줄                 */
+/* ================================================================== */
+.result-screen { display: flex; flex-direction: column; }
+.result-main { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 400px minmax(0, 1fr); gap: 12px; }
+.result-left { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+.result-hero-panel { flex: none; }
+.result-hero { display: flex; align-items: center; gap: 18px; }
+.result-hero .col { gap: 6px; align-items: flex-start; }
+.result-score { font-size: 17px; }
+.result-score b { font-size: 30px; font-variant-numeric: tabular-nums; }
+/* 점수 구성 2열: 한 줄 = 관련 항목 한 쌍 (result.js BD_ROWS), 오른쪽 칸은 세로 선으로 나눈다 */
+.res-breakdown .bd-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 0; font-size: 13.5px; }
+.bd-cell { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; padding-right: 16px; }
+.bd-cell:nth-child(2n) { padding: 0 0 0 16px; border-left: 1px solid var(--border); }
+.bd-cell dd { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.res-record .list-item { padding: 6px 10px; }
+.res-players .og-panel-body { gap: 6px; }
+.player-result { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 12px; align-items: center; padding: 7px 10px; background: var(--panel-2); border-radius: var(--radius-sm); }
+.pr-who { min-width: 0; }
+.player-result .stat-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; font-size: 11.5px; text-align: center; }
+.player-result .stat-grid .cell { display: flex; flex-direction: column; gap: 1px; padding: 3px 2px; background: var(--panel); border-radius: 6px; }
+.player-result .stat-grid .cell b { font-size: 13px; }
+.player-result .delta { color: var(--good); }
+.result-left .seed-box { margin-top: auto; }
+.seed-box { display: flex; align-items: center; gap: 8px; flex: none; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--panel); border: 1px solid var(--border); padding: 6px 10px; border-radius: var(--radius-sm); }
+.result-actions { display: flex; align-items: center; gap: 10px; flex: none; }
+.result-actions .btn { min-height: 52px; min-width: 150px; }

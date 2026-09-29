@@ -1,4 +1,5 @@
-// js/ui/app.js — 진입점. 데이터 로드 → 화면 라우팅(render) → 엔진 호출 래퍼/저장
+// js/ui/app.js — 진입점. 고정 스테이지(1280×720) → 데이터 로드 → 화면 라우팅(render) → 엔진 호출 래퍼/저장
+import { mountStage } from './stage.js';
 import { store, saveRun, loadRun, saveMatch, loadMatch, clearRunSaves, addTeam, resetMatchUi } from './store.js';
 import { h, toast, closeOverlays } from './dom.js';
 import { renderStart } from './screens/start.js';
@@ -215,6 +216,12 @@ function renderBackdrop(root, ctx) {
   }
 }
 
+/** 스테이지 화면 종류 표시 (#stage[data-mode]): 'match' = 경기 화면 → 토스트를 오른쪽 위 좁은 칸으로 (css/match.css), 그 밖 = 'og' */
+function setStageMode(mode) {
+  const el = document.getElementById('stage');
+  if (el) el.dataset.mode = mode;
+}
+
 // ---- 라우팅 ----
 export function render() {
   if (store.matchUi.timer) { clearInterval(store.matchUi.timer); store.matchUi.timer = null; }
@@ -222,8 +229,7 @@ export function render() {
   const root = document.getElementById('app');
   if (!root) return;
   root.replaceChildren();
-  // 가로 경기 화면의 넓은 프레임(§13.9)은 renderMatch 가 다시 켠다 — 다른 화면은 420px 세로 프레임
-  root.classList.remove('match-land');
+  setStageMode('og');
   const ctx = makeCtx();
   try {
     if (store.screen === 'setup') { renderSetup(root, ctx); return; }
@@ -233,7 +239,7 @@ export function render() {
     switch (phase) {
       case 'turn': renderTraining(root, ctx); break;
       case 'event': renderBackdrop(root, ctx); renderEventModal(ctx); break;
-      case 'match': renderMatch(root, ctx); break;
+      case 'match': setStageMode('match'); renderMatch(root, ctx); break;
       case 'relic': renderBackdrop(root, ctx); renderRelicModal(ctx); break;
       case 'route': renderRoute(root, ctx); break;
       case 'finished': renderResult(root, ctx); break;
@@ -243,13 +249,16 @@ export function render() {
   } catch (e) {
     console.error(e);
     toast(errMsg(e), 'error');
-    root.classList.remove('match-land'); // 경기 화면이 도중에 실패해도 오류 패널은 세로 프레임에
     root.replaceChildren(errorPanel(e));
   }
 }
 
 // ---- 부트 ----
+let stage = null; // mountStage() 결과 (index.html 에 #stage 가 없으면 null)
+
 async function boot() {
+  // 고정 스테이지: 데이터를 기다리기 전에 창에 맞춘다 (로딩 화면부터 스테이지 안). 화면은 인게임·아웃게임 모두 가로 전용
+  stage = mountStage();
   const root = document.getElementById('app');
   window.addEventListener('error', (ev) => toast(`오류: ${errMsg(ev.error || ev.message)}`, 'error'));
   window.addEventListener('unhandledrejection', (ev) => toast(`오류: ${errMsg(ev.reason)}`, 'error'));
@@ -274,7 +283,7 @@ async function boot() {
   }
 
   // 디버깅 편의
-  window.__soccer = { store, get run() { return run; }, get match() { return match; }, render, actions };
+  window.__soccer = { store, get run() { return run; }, get match() { return match; }, get stage() { return stage?.fit ?? null; }, render, actions };
 
   render();
 }

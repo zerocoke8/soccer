@@ -1,28 +1,44 @@
 // js/ui/screens/start.js — 시작 화면: 새 런 / 이어하기 / 등록 팀 목록
-import { h, gradeBadge, fmtDate, section } from '../dom.js';
+// 가로 스테이지(1280×720): 왼쪽 = 타이틀(필드 선 배경), 오른쪽 = 메뉴 패널 + 등록 팀 패널(목록만 안쪽 스크롤)
+import { h, gradeBadge, fmtDate, panel } from '../dom.js';
 import { loadRun, loadTeams } from '../store.js';
 
 export function renderStart(root, ctx) {
   const { actions } = ctx;
   const saved = loadRun();
   const teams = loadTeams();
+  const cfg = ctx.data?.config || {};
+  const seasons = Number(cfg.seasons) || 3;
+  const tps = Number(cfg.turnsPerSeason) || 8;
+  const supportCount = Array.isArray(cfg.defaultSupports) && cfg.defaultSupports.length ? cfg.defaultSupports.length : 6;
+  const squadSize = Object.keys(cfg.defaultSquad?.slots || {}).length || 7; // 포메이션 슬롯 수 (GK 1 + 필드 6)
+  const flowText = `편성 → ${seasons * tps}턴 육성 → 경계전 ${seasons}회`;
 
+  // ---- 타이틀 (왼쪽): 런 흐름 3단계는 config 값으로 ----
   const hero = h('div', { class: 'hero' },
-    h('div', { class: 'logo' }, '⚽'),
-    h('h1', {}, '경계전 클럽'),
-    h('p', { class: 'muted small' }, '로그라이크 육성 축구 · 웹 프로토타입'),
+    h('div', { class: 'hero-pitch', 'aria-hidden': 'true' },
+      h('i', { class: 'hp-half' }), h('i', { class: 'hp-circle' }), h('i', { class: 'hp-box l' }), h('i', { class: 'hp-box r' })),
+    h('div', { class: 'hero-body' },
+      h('div', { class: 'logo' }, '⚽'),
+      h('h1', {}, '경계전 클럽'),
+      h('p', { class: 'hero-sub' }, '로그라이크 육성 축구 · 웹 프로토타입'),
+      h('ol', { class: 'hero-flow' },
+        h('li', {}, h('b', {}, '편성'), h('span', {}, `선수 ${squadSize}명 · 서포트 ${supportCount}장`)),
+        h('li', {}, h('b', {}, `육성 ${seasons * tps}턴`), h('span', {}, `시즌 ${seasons} × ${tps}턴`)),
+        h('li', {}, h('b', {}, `경계전 ${seasons}회`), h('span', {}, '시즌 마지막 턴')))),
   );
 
   const savedInfo = saved && saved.phase
     ? `시즌 ${saved.season ?? '?'} · ${saved.turn ?? '?'}턴 · ${phaseLabel(saved.phase)} · seed ${saved.seed ?? ''}`
     : null;
 
-  const buttons = h('div', { class: 'btn-list' },
-    h('button', { class: 'btn btn-primary btn-block btn-col', onclick: () => actions.newRun() },
+  // ---- 메뉴 (오른쪽 위) ----
+  const buttons = h('div', { class: 'btn-list start-menu' },
+    h('button', { class: 'btn btn-primary btn-block btn-col btn-lg', onclick: () => actions.newRun() },
       h('span', {}, '새 런 시작'),
-      h('span', { class: 'btn-sub' }, '편성 → 24턴 육성 → 경계전 3회')),
+      h('span', { class: 'btn-sub' }, flowText)),
     savedInfo
-      ? h('button', { class: 'btn btn-block btn-col', onclick: () => actions.continueRun() },
+      ? h('button', { class: 'btn btn-block btn-col btn-lg', onclick: () => actions.continueRun() },
         h('span', {}, '이어하기'),
         h('span', { class: 'btn-sub' }, savedInfo))
       : null,
@@ -33,7 +49,8 @@ export function renderStart(root, ctx) {
       : null,
   );
 
-  const teamList = section(`등록 팀 (${teams.length})`,
+  // ---- 등록 팀 (오른쪽 아래, 목록만 스크롤) ----
+  const teamList = panel(`등록 팀 (${teams.length})`, { cls: 'start-teams grow-panel', scroll: true },
     teams.length === 0
       ? h('p', { class: 'muted small' }, '아직 등록한 팀이 없습니다. 런을 완주하고 결과 화면에서 [팀 등록]을 누르세요.')
       : h('ul', { class: 'list' }, teams.slice(0, 20).map((t) =>
@@ -47,8 +64,13 @@ export function renderStart(root, ctx) {
         ))),
   );
 
-  root.append(h('div', { class: 'screen' }, hero, buttons, teamList,
-    h('p', { class: 'muted tiny center' }, '저장은 이 브라우저의 localStorage에만 남습니다.')));
+  root.append(h('div', { class: 'screen og start-screen' },
+    hero,
+    h('div', { class: 'start-side' },
+      panel('메뉴', {}, buttons),
+      teamList,
+      h('p', { class: 'muted tiny center' }, '저장은 이 브라우저의 localStorage에만 남습니다.')),
+  ));
 }
 
 function phaseLabel(phase) {

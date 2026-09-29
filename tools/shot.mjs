@@ -1,18 +1,19 @@
 #!/usr/bin/env node
-// tools/shot.mjs — 경기 화면 스크린샷 도구 (ARCHITECTURE §12.4). npm test 에는 넣지 않는다.
+// tools/shot.mjs — 화면 스크린샷 도구 (경기 01_… · 아웃게임 og_… — ARCHITECTURE §12.4). npm test 에는 넣지 않는다.
 //
-//   node tools/shot.mjs <outDir> [--only 03,05_penalties] [--width 390 --height 844] [--dpr 2] [--land]
+//   node tools/shot.mjs <outDir> [--only 03,og] [--width 1280 --height 720] [--dpr 1]
 //                       [--run-seed 1] [--settle 600] [--no-freeze] [--list]
 //
 // 1) 내장 정적 서버(node:http, 포트 0)로 프로젝트 루트를 띄운다.
 // 2) Node 에서 엔진(js/engine/run.js · match.js)으로 시나리오 상황의 run/match 상태를 찾는다 (tools/scenarios.mjs).
-// 3) puppeteer-core + 로컬 Chrome/Edge 로 페이지를 열고 localStorage('soccer.run' / 'soccer.match')에 주입 →
-//    reload → 시작 화면 "이어하기" 클릭 → 경기 화면 캡처 (fullPage, 스크롤이 생기면 이미지가 길어진다).
-// 4) 시나리오마다 파일 경로, document.scrollingElement.scrollHeight, 캡처 시점 상태 확인, pageerror/console.error 를 출력.
+// 3) puppeteer-core + 로컬 Chrome/Edge 로 페이지를 열고 localStorage('soccer.run' / 'soccer.match' / 'soccer.teams')에 주입 →
+//    reload → 경기 · 저장된 런이면 시작 화면 "이어하기" 클릭 → (아웃게임) 조작 steps → 뷰포트 캡처 (페이지는 스크롤하지 않는다).
+// 4) 시나리오마다 파일 경로, 스테이지 배율, 페이지 · 안쪽 스크롤, 캡처 시점 상태 확인, pageerror/console.error 를 출력.
 //
+// 화면은 고정 스테이지(논리 1280×720, js/ui/stage.js)라 기본 뷰포트 1280×720 DPR 1 (데스크톱, 터치 없음) = 스테이지 1배.
+// --width/--height 로 다른 창 크기(1920×1080 · 1600×900 · 1024×576 · 세로 900×1200 …)에서 배율 · 레터박스를 확인한다.
+// --land 는 예전 옵션 — 이제 항상 가로라 받기만 하고 무시한다.
 // 자동 진행 끄기(수동 시나리오): URL 에 ?auto=0 을 붙이고, UI 가 그걸 지원하지 않으면(v0.1) "자동 ON" 버튼을 눌러 끈다.
-// 화면 방향(§13.9): URL 에 항상 orient 를 붙인다. --land → orient=land + 뷰포트 기본 1280×720 DPR 1 데스크톱(터치 없음),
-// 없으면 orient=port (창 크기 기본 규칙과 무관하게 세로 — 07 데스크톱 1280×900 도 세로 그대로라 이전 캡처와 비교된다).
 // 타이머 고정(기본 ON): 페이지의 setTimeout/setInterval 중 지연 ≥ 100ms 인 것을 캡처 동안 보류한다 → 자동 진행이
 // 캡처 전에 다음 듀얼로 넘어가지 않는다. 짧은 타이머·requestAnimationFrame·CSS 트랜지션은 그대로 돈다.
 // 패스 클릭 시나리오(06)는 클릭 직전에 고정을 푼다 (비트 연출 타이머가 돌아야 하므로). --no-freeze 로 끌 수 있다.
@@ -24,6 +25,7 @@ import http from "node:http";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { ROOT, loadData, SCENARIOS, buildScenarioState, describeState } from "./scenarios.mjs";
+import { fitStage, STAGE_W, STAGE_H } from "../js/ui/stage.js";
 
 const ACTION_LABELS = { dribble: "드리블", pass: "패스", cross: "크로스", shoot: "슛", tackle: "태클", intercept: "인터셉트", hold: "버티기", block: "버티기" };
 const MIME = {
@@ -52,10 +54,10 @@ const MIME = {
 function usage() {
   return [
     "usage: node tools/shot.mjs <outDir> [options]",
-    "  --only a,b        시나리오 이름 또는 접두어 (예: 03,05_penalties)",
-    "  --width N         뷰포트 폭 (기본 390, --land 면 1280)   --height N  뷰포트 높이 (기본 844, --land 면 720)",
-    "  --dpr N           deviceScaleFactor (기본 2, --land 면 1). 데스크톱(07)은 1280×900 DPR 1 고정",
-    "  --land            가로 경기 화면 (URL orient=land, 데스크톱 뷰포트 · 터치 없음). 없으면 orient=port",
+    "  --only a,b        시나리오 이름(정확히 같으면 그것만) 또는 접두어 (예: 03,05_penalties · og = 아웃게임 전부 · og_training = 그 하나)",
+    "  --width N         뷰포트 폭 (기본 1280)   --height N  뷰포트 높이 (기본 720) — 스테이지(1280×720)가 한 배율로 맞춰진다",
+    "  --dpr N           deviceScaleFactor (기본 1). 07_desktop 은 1280×900 DPR 1 고정",
+    "  --land            (예전 옵션, 무시) 화면은 항상 가로",
     "  --run-seed S      런 seed (기본 1)",
     "  --settle MS       경기 화면 진입 후 캡처까지 대기 (기본 600)",
     "  --no-freeze       페이지 타이머 고정을 끈다",
@@ -85,20 +87,22 @@ export function parseArgs(argv) {
     else if (!out.outDir) out.outDir = a;
     else throw new Error(`인자가 너무 많습니다: ${a}`);
   }
-  // 뷰포트 기본값: 세로 = 폰 390×844 DPR 2 (터치), 가로(--land) = 데스크톱 1280×720 DPR 1. 직접 준 값이 이긴다
-  const def = out.land ? { width: 1280, height: 720, dpr: 1 } : { width: 390, height: 844, dpr: 2 };
+  // 뷰포트 기본값: 데스크톱 1280×720 DPR 1 (고정 스테이지 1배). 직접 준 값이 이긴다
+  const def = { width: STAGE_W, height: STAGE_H, dpr: 1 };
   out.width = out.width ?? def.width;
   out.height = out.height ?? def.height;
   out.dpr = out.dpr ?? def.dpr;
   return out;
 }
 
-function selectScenarios(only) {
-  if (!only || !only.length) return SCENARIOS.slice();
-  const picked = SCENARIOS.filter((s) => only.some((o) => s.name === o || s.name.startsWith(o)));
-  const unknown = only.filter((o) => !SCENARIOS.some((s) => s.name === o || s.name.startsWith(o)));
+// --only a,b: 이름이 정확히 같은 시나리오가 있으면 그것만 (og_training → og_training_mid 는 빼고), 없으면 접두어 (02 → 02_…, og → og_* 전부)
+export function selectScenarios(only, list = SCENARIOS) {
+  if (!only || !only.length) return list.slice();
+  const match = (o) => (list.some((s) => s.name === o) ? list.filter((s) => s.name === o) : list.filter((s) => s.name.startsWith(o)));
+  const unknown = only.filter((o) => !match(o).length);
   if (unknown.length) throw new Error(`알 수 없는 시나리오: ${unknown.join(", ")} (목록: --list)`);
-  return picked;
+  const names = new Set(only.flatMap((o) => match(o).map((s) => s.name)));
+  return list.filter((s) => names.has(s.name));
 }
 
 /* ------------------------------------------------------------------ */
@@ -306,7 +310,7 @@ async function newContext(browser) {
 }
 
 async function runScenario(browser, baseUrl, sc, prepared, opts) {
-  const vp = sc.viewport || { width: opts.width, height: opts.height, deviceScaleFactor: opts.dpr, isMobile: !opts.land, hasTouch: !opts.land };
+  const vp = sc.viewport || { width: opts.width, height: opts.height, deviceScaleFactor: opts.dpr, isMobile: false, hasTouch: false };
   const out = { name: sc.name, file: path.join(opts.outDir, `${sc.name}.png`), errors: [], notes: [], viewport: vp };
   const ctxB = await newContext(browser);
   const page = await ctxB.newPage();
@@ -324,80 +328,26 @@ async function runScenario(browser, baseUrl, sc, prepared, opts) {
     await page.evaluateOnNewDocument(FREEZE_SCRIPT);
     const q = new URLSearchParams();
     if (sc.auto === false) q.set("auto", "0");
-    q.set("orient", opts.land ? "land" : "port");
-    const url = `${baseUrl}/index.html?${q}`;
-    await page.goto(url, { waitUntil: "load" });
-    await page.evaluate((runJson, matchJson) => {
-      localStorage.setItem("soccer.run", runJson);
-      localStorage.setItem("soccer.match", matchJson);
-    }, JSON.stringify(prepared.runState), JSON.stringify(prepared.matchState));
+    const qs = q.toString();
+    await page.goto(`${baseUrl}/index.html${qs ? `?${qs}` : ""}`, { waitUntil: "load" });
+    const json = (v) => (v == null ? null : JSON.stringify(v));
+    await page.evaluate((runJson, matchJson, teamsJson) => {
+      const put = (k, v) => (v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v));
+      put("soccer.run", runJson);
+      put("soccer.match", matchJson);
+      put("soccer.teams", teamsJson);
+    }, json(prepared.runState), json(prepared.matchState), json(prepared.teams));
     await page.reload({ waitUntil: "load" });
 
-    await page.waitForFunction(() => [...document.querySelectorAll("button")].some((b) => /이어하기/.test(b.textContent || "")), { timeout: 15000 });
+    // 시작 화면 (데이터 로드 끝)
+    await page.waitForFunction(() => [...document.querySelectorAll("button")].some((b) => /새 런 시작|이어하기/.test(b.textContent || "")), { timeout: 15000 });
     if (opts.freeze) await page.evaluate(() => { window.__shot.frozen = true; });
-    const cont = await clickButtonByText(page, /이어하기/);
-    if (!cont) throw new Error("시작 화면에 '이어하기' 버튼이 없습니다");
 
-    try {
-      await page.waitForFunction(() => {
-        const s = window.__soccer && window.__soccer.store;
-        const inMatch = !s || (s.screen === "run" && s.run && s.run.phase === "match" && s.match);
-        return inMatch && !!document.querySelector(".match-screen, [data-screen='match'], .match");
-      }, { timeout: 8000 });
-    } catch {
-      out.notes.push("경기 화면 요소(.match-screen)를 찾지 못함 — 그대로 캡처");
-    }
-
-    if (sc.auto === false) {
-      const m = await ensureManual(page);
-      out.notes.push(`자동 끔: ${m.method}${m.ok ? "" : " (여전히 자동 ON 으로 보임)"}`);
-    }
-    await delay(opts.settle);
-
-    // 경기 화면이 제대로 복원됐는지: 주입한 경기 그대로인가
-    const restored = await readLiveMatch(page);
-    if (!restored || restored.seed !== prepared.matchState.seed) {
-      out.notes.push(`주의: 저장된 경기가 복원되지 않음 (live seed ${restored ? restored.seed : "-"} / 주입 ${prepared.matchState.seed})`);
-    }
-
-    if (sc.interact && sc.interact.type === "hover") {
-      const r = await pressAction(page, sc.interact.actions, { hold: true });
-      out.notes.push(r ? `hover+누르기: ${r}` : "hover 할 액션 버튼을 찾지 못함");
-      await delay(400);
-    } else if (sc.interact && sc.interact.type === "click") {
-      if (opts.freeze) await page.evaluate(() => { window.__shot.frozen = false; });
-      const r = await pressAction(page, [sc.interact.action], { click: true });
-      if (!r) out.notes.push(`'${sc.interact.action}' 버튼을 찾지 못함`);
-      else out.notes.push(`클릭: ${r} → ${sc.interact.waitMs ?? 250}ms 뒤 캡처`);
-      await delay(sc.interact.waitMs ?? 250);
-    } else if (sc.interact && sc.interact.type === "steps") {
-      // 여러 단계 조작 (v0.3): 스킬 줄 버튼 클릭(선택자) → 액션 hover / 액션 클릭(연출 타이머가 돌도록 고정 해제) → 대기
-      for (const st of sc.interact.steps || []) {
-        if (st.click) {
-          const r = await page.evaluate((sel) => {
-            const el = document.querySelector(sel);
-            if (!el) return null;
-            el.click();
-            return (el.textContent || "").trim().replace(/\s+/g, " ").slice(0, 40);
-          }, st.click);
-          out.notes.push(r ? `클릭 ${st.click}: [${r}]` : `'${st.click}' 을 찾지 못함`);
-        } else if (st.hover) {
-          const r = await pressAction(page, st.hover, { hold: true });
-          out.notes.push(r ? `hover+누르기: ${r}` : "hover 할 액션 버튼을 찾지 못함");
-          await delay(300);
-        } else if (st.press) {
-          if (opts.freeze) await page.evaluate(() => { window.__shot.frozen = false; });
-          const r = await pressAction(page, [st.press], { click: true });
-          out.notes.push(r ? `클릭: ${r} → ${st.waitMs ?? 250}ms 뒤 캡처` : `'${st.press}' 버튼을 찾지 못함`);
-          await delay(st.waitMs ?? 250);
-        } else if (st.wait) {
-          await delay(st.wait);
-        }
-      }
-    }
+    if (sc.outgame) await enterOutgame(page, sc, prepared, opts, out);
+    else await enterMatch(page, sc, prepared, opts, out);
 
     const metrics = await page.evaluate(() => {
-      // 페이지 스크롤 + 내부 스크롤 컨테이너(overflow auto/scroll 이고 내용이 넘치는 요소). 데스크톱 폰 프레임처럼
+      // 페이지 스크롤 + 안쪽 스크롤 컨테이너(overflow auto/scroll 이고 내용이 넘치는 요소). 스테이지(고정 크기) 안이라
       // 페이지는 안 늘어나도 안쪽이 스크롤되는 경우를 잡는다. 이름에 log 가 들어간 요소는 로그(허용)로 표시.
       const inner = [];
       for (const el of document.querySelectorAll("body *")) {
@@ -408,16 +358,25 @@ async function runScenario(browser, baseUrl, sc, prepared, opts) {
         const name = el.tagName.toLowerCase() + (el.id ? `#${el.id}` : "") + (cls ? `.${cls}` : "");
         inner.push({ name, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight, isLog: /log/i.test(name) });
       }
-      // 잘린 글자 (가독성): 스킬 줄 버튼 이름이 말줄임으로 잘렸는가 (§13.8.5 — 4개 이상이면 압축 모드)
+      // 잘린 글자 (가독성): 스킬 묶음 버튼 이름이 말줄임(가로) · 두 줄 넘침(세로, 2열 모드 line-clamp)으로 잘렸는가 (§14.3 — 4개 이상이면 2열)
       const clipped = [...document.querySelectorAll(".skill-row .sk-nm")]
         .map((el) => {
-          // 말줄임은 소수 픽셀만 넘쳐도 생긴다 → 정수 scrollWidth 대신 글자 Range 폭과 요소 폭(소수)을 비교
+          // 말줄임은 소수 픽셀만 넘쳐도 생긴다 → 정수 scrollWidth 대신 글자 Range 크기와 요소 크기(소수)를 비교
           const rg = document.createRange();
           rg.selectNodeContents(el);
-          return { el, need: rg.getBoundingClientRect().width, have: el.getBoundingClientRect().width };
+          const needW = rg.getBoundingClientRect().width;
+          const haveW = el.getBoundingClientRect().width;
+          // 두 줄 제한(-webkit-line-clamp): 넘친 줄은 scrollHeight 로 (글자 Range 높이는 폰트 여백이 섞여 쓰지 않는다)
+          const clamp = getComputedStyle(el).webkitLineClamp;
+          const overH = clamp && clamp !== "none" && el.scrollHeight > el.clientHeight + 1;
+          return { el, needW, haveW, overH, sh: el.scrollHeight, ch: el.clientHeight };
         })
-        .filter((x) => x.have > 0 && x.need > x.have + 0.5)
-        .map((x) => `${(x.el.textContent || "").trim()} ${x.need.toFixed(1)}/${x.have.toFixed(1)}`);
+        .filter((x) => x.haveW > 0 && (x.needW > x.haveW + 0.5 || x.overH))
+        .map((x) => `${(x.el.textContent || "").trim()} ${x.needW.toFixed(1)}/${x.haveW.toFixed(1)}${x.overH ? ` 높이 ${x.sh}/${x.ch}` : ""}`);
+      // 고정 스테이지: 배율 · 위치 (js/ui/stage.js), 스테이지 밖으로 넘친 가로 폭 (#app 논리 px)
+      const stageEl = document.getElementById("stage");
+      const r = stageEl ? stageEl.getBoundingClientRect() : null;
+      const app = document.getElementById("app");
       return {
         clipped,
         scrollHeight: document.scrollingElement ? document.scrollingElement.scrollHeight : document.documentElement.scrollHeight,
@@ -425,31 +384,164 @@ async function runScenario(browser, baseUrl, sc, prepared, opts) {
         innerWidth: window.innerWidth,
         scrollWidth: document.scrollingElement ? document.scrollingElement.scrollWidth : document.documentElement.scrollWidth,
         inner,
+        stage: r ? {
+          scale: Number(getComputedStyle(document.documentElement).getPropertyValue("--stage-scale")) || null,
+          x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height),
+          portraitHint: document.documentElement.classList.contains("stage-portrait"),
+          appOverflowX: app ? Math.max(0, app.scrollWidth - app.clientWidth) : 0,
+        } : null,
       };
     });
-    await page.screenshot({ path: out.file, fullPage: true });
+    await page.screenshot({ path: out.file }); // 뷰포트 그대로 (페이지는 스크롤하지 않는다)
     out.metrics = metrics;
     out.png = pngSize(out.file);
 
     // 캡처 시점 상태 확인
-    const live = await readLiveMatch(page);
-    out.liveSummary = live ? describeState(live) : null;
-    if (sc.verify) {
-      const v = sc.verify(prepared.matchState, live);
-      out.stateCheck = v === true ? "OK" : `다름: ${v}`;
-    } else if (!live) {
-      out.stateCheck = "다름: 캡처 시점 상태를 읽지 못함";
-    } else {
-      const sameEvents = (live.events || []).length === (prepared.matchState.events || []).length;
-      const req = sc.require(live, { data: opts.data });
-      out.stateCheck = sameEvents && req ? "OK" : `다름: ${sameEvents ? "" : "경기가 진행됨, "}${req ? "" : "조건 불충족, "}지금 ${out.liveSummary}`.replace(/, 지금/, " — 지금");
-    }
+    if (sc.outgame) out.stateCheck = await checkOutgame(page, sc);
+    else await checkMatch(page, sc, prepared, opts, out);
     const shotCtl = await page.evaluate(() => window.__shot ? { held: window.__shot.held, skippedTicks: window.__shot.skippedTicks } : null);
     if (opts.freeze && shotCtl && (shotCtl.held || shotCtl.skippedTicks)) out.notes.push(`고정 중 보류된 타이머 ${shotCtl.held}회 · 건너뛴 틱 ${shotCtl.skippedTicks}회`);
   } finally {
     await ctxB.close().catch(() => {});
   }
   return out;
+}
+
+/** 경기 시나리오: 이어하기 → 경기 화면 → (수동이면 자동 끄기) → 조작 */
+async function enterMatch(page, sc, prepared, opts, out) {
+  const cont = await clickButtonByText(page, /이어하기/);
+  if (!cont) throw new Error("시작 화면에 '이어하기' 버튼이 없습니다");
+
+  try {
+    await page.waitForFunction(() => {
+      const s = window.__soccer && window.__soccer.store;
+      const inMatch = !s || (s.screen === "run" && s.run && s.run.phase === "match" && s.match);
+      return inMatch && !!document.querySelector(".match-screen, [data-screen='match'], .match");
+    }, { timeout: 8000 });
+  } catch {
+    out.notes.push("경기 화면 요소(.match-screen)를 찾지 못함 — 그대로 캡처");
+  }
+
+  if (sc.auto === false) {
+    const m = await ensureManual(page);
+    out.notes.push(`자동 끔: ${m.method}${m.ok ? "" : " (여전히 자동 ON 으로 보임)"}`);
+  }
+  await delay(opts.settle);
+
+  // 경기 화면이 제대로 복원됐는지: 주입한 경기 그대로인가
+  const restored = await readLiveMatch(page);
+  if (!restored || restored.seed !== prepared.matchState.seed) {
+    out.notes.push(`주의: 저장된 경기가 복원되지 않음 (live seed ${restored ? restored.seed : "-"} / 주입 ${prepared.matchState.seed})`);
+  }
+
+  if (sc.interact && sc.interact.type === "hover") {
+    const r = await pressAction(page, sc.interact.actions, { hold: true });
+    out.notes.push(r ? `hover+누르기: ${r}` : "hover 할 액션 버튼을 찾지 못함");
+    await delay(400);
+  } else if (sc.interact && sc.interact.type === "click") {
+    if (opts.freeze) await page.evaluate(() => { window.__shot.frozen = false; });
+    const r = await pressAction(page, [sc.interact.action], { click: true });
+    if (!r) out.notes.push(`'${sc.interact.action}' 버튼을 찾지 못함`);
+    else out.notes.push(`클릭: ${r} → ${sc.interact.waitMs ?? 250}ms 뒤 캡처`);
+    await delay(sc.interact.waitMs ?? 250);
+  } else if (sc.interact && sc.interact.type === "steps") {
+    // 여러 단계 조작 (v0.3): 스킬 줄 버튼 클릭(선택자) → 액션 hover / 액션 클릭(연출 타이머가 돌도록 고정 해제) → 대기
+    for (const st of sc.interact.steps || []) {
+      if (st.click) {
+        const r = await page.evaluate((sel) => {
+          const el = document.querySelector(sel);
+          if (!el) return null;
+          el.click();
+          return (el.textContent || "").trim().replace(/\s+/g, " ").slice(0, 40);
+        }, st.click);
+        out.notes.push(r ? `클릭 ${st.click}: [${r}]` : `'${st.click}' 을 찾지 못함`);
+      } else if (st.hover) {
+        const r = await pressAction(page, st.hover, { hold: true });
+        out.notes.push(r ? `hover+누르기: ${r}` : "hover 할 액션 버튼을 찾지 못함");
+        await delay(300);
+      } else if (st.press) {
+        if (opts.freeze) await page.evaluate(() => { window.__shot.frozen = false; });
+        const r = await pressAction(page, [st.press], { click: true });
+        out.notes.push(r ? `클릭: ${r} → ${st.waitMs ?? 250}ms 뒤 캡처` : `'${st.press}' 버튼을 찾지 못함`);
+        await delay(st.waitMs ?? 250);
+      } else if (st.wait) {
+        await delay(st.wait);
+      }
+    }
+  }
+}
+
+async function checkMatch(page, sc, prepared, opts, out) {
+  const live = await readLiveMatch(page);
+  out.liveSummary = live ? describeState(live) : null;
+  if (sc.verify) {
+    const v = sc.verify(prepared.matchState, live);
+    out.stateCheck = v === true ? "OK" : `다름: ${v}`;
+  } else if (!live) {
+    out.stateCheck = "다름: 캡처 시점 상태를 읽지 못함";
+  } else {
+    const sameEvents = (live.events || []).length === (prepared.matchState.events || []).length;
+    const req = sc.require(live, { data: opts.data });
+    out.stateCheck = sameEvents && req ? "OK" : `다름: ${sameEvents ? "" : "경기가 진행됨, "}${req ? "" : "조건 불충족, "}지금 ${out.liveSummary}`.replace(/, 지금/, " — 지금");
+  }
+}
+
+/** 아웃게임 시나리오: (저장된 런이면) 이어하기 → steps (실제 마우스 클릭 — 스테이지 배율을 거친 좌표) → ready 대기 */
+async function enterOutgame(page, sc, prepared, opts, out) {
+  if (prepared.runState) {
+    const cont = await clickButtonByText(page, /이어하기/);
+    if (!cont) throw new Error("시작 화면에 '이어하기' 버튼이 없습니다");
+    await delay(150);
+  }
+  for (const st of sc.steps || []) {
+    if (st.wait) { await delay(st.wait); continue; }
+    const handle = await page.evaluateHandle((sel, textSrc) => {
+      if (sel) return document.querySelector(sel);
+      const rx = new RegExp(textSrc);
+      return [...document.querySelectorAll("button")].find((b) => rx.test((b.textContent || "").trim()) && !b.disabled) || null;
+    }, st.click || null, st.text || null);
+    const el = handle.asElement();
+    const what = st.click || `/${st.text}/`;
+    if (!el) { await handle.dispose(); out.notes.push(`'${what}' 을 찾지 못함`); continue; }
+    const box = await el.boundingBox();
+    const label = await el.evaluate((b) => (b.textContent || "").trim().replace(/\s+/g, " ").slice(0, 40));
+    await el.dispose();
+    if (!box) { out.notes.push(`'${what}' 이 보이지 않음`); continue; }
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    out.notes.push(`클릭 ${what}: [${label}]`);
+    await delay(st.waitMs ?? 200);
+  }
+  if (sc.ready) {
+    try {
+      await page.waitForSelector(sc.ready, { timeout: 5000 });
+    } catch {
+      out.notes.push(`'${sc.ready}' 이 나타나지 않음 — 그대로 캡처`);
+    }
+  }
+  await delay(opts.settle);
+}
+
+/** 아웃게임 캡처 시점 확인: store.screen · run.phase · 모달 · ready 선택자 */
+async function checkOutgame(page, sc) {
+  const live = await page.evaluate((ready) => {
+    const s = window.__soccer && window.__soccer.store;
+    const overlays = [...document.querySelectorAll("#modal-root .overlay > .modal, #modal-root .overlay > .sheet")];
+    return {
+      screen: s ? s.screen : null,
+      phase: s && s.run ? s.run.phase : null,
+      overlays: overlays.map((el) => el.className),
+      ready: ready ? !!document.querySelector(ready) : true,
+    };
+  }, sc.ready || null);
+  const exp = sc.expect || {};
+  const bad = [];
+  if (exp.screen && live.screen !== exp.screen) bad.push(`화면 ${live.screen}`);
+  if (exp.phase && live.phase !== exp.phase) bad.push(`phase ${live.phase}`);
+  if (exp.modal === false && live.overlays.length) bad.push(`모달 열림 (${live.overlays.join(" / ")})`);
+  if (exp.modal === true && !live.overlays.length) bad.push("모달 없음");
+  if (typeof exp.modal === "string" && !(await page.$(`#modal-root ${exp.modal}`))) bad.push(`모달 ${exp.modal} 없음 (${live.overlays.join(" / ") || "-"})`);
+  if (!live.ready) bad.push(`${sc.ready} 없음`);
+  return bad.length ? `다름: ${bad.join(", ")}` : "OK";
 }
 
 /** 액션 버튼에 마우스를 올리고(hover) 누르고 있거나(hold) 클릭한다. 찾은 버튼 설명을 반환. */
@@ -459,7 +551,7 @@ async function pressAction(page, actions, { hold = false, click = false } = {}) 
     const el = handle.asElement();
     if (!el) { await handle.dispose(); continue; }
     const desc = await el.evaluate((b) => `[${(b.textContent || "").trim().replace(/\s+/g, " ").slice(0, 60)}]${b.disabled ? " (disabled)" : ""}`);
-    await el.evaluate((b) => b.scrollIntoView({ block: "center", inline: "center" }));
+    await el.evaluate((b) => b.scrollIntoView({ block: "nearest", inline: "nearest" }));
     await delay(80);
     const box = await el.boundingBox();
     await el.dispose();
@@ -536,7 +628,8 @@ async function main() {
 
   const server = await startServer(ROOT);
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
-  console.log(`· 서버 ${baseUrl}  브라우저 ${browserInfo.path} (${browserInfo.source})  방향 ${args.land ? "가로(orient=land)" : "세로(orient=port)"} · 뷰포트 ${args.width}×${args.height} DPR ${args.dpr}`);
+  const fit = fitStage(args.width, args.height);
+  console.log(`· 서버 ${baseUrl}  브라우저 ${browserInfo.path} (${browserInfo.source})  뷰포트 ${args.width}×${args.height} DPR ${args.dpr} → 스테이지 ${STAGE_W}×${STAGE_H} ×${+fit.scale.toFixed(4)} @ (${fit.x}, ${fit.y})${args.land ? " (--land: 무시, 항상 가로)" : ""}`);
 
   let browser;
   const results = [];
@@ -574,6 +667,12 @@ function printScenario(sc, prep, r) {
   const vp = r.viewport;
   console.log(`  파일: ${r.file}${r.png ? ` (${r.png.w}×${r.png.h}px, 뷰포트 ${vp.width}×${vp.height} DPR ${vp.deviceScaleFactor})` : ""}`);
   const m = r.metrics;
+  if (m.stage) {
+    const st = m.stage;
+    console.log(`  스테이지 ×${st.scale != null ? +st.scale.toFixed(4) : "?"} → ${st.w}×${st.h} @ (${st.x}, ${st.y})${st.portraitHint ? " · 세로 창 안내 표시" : ""}${st.appOverflowX ? ` · 가로 넘침 +${st.appOverflowX}px (#app)` : ""}`);
+  } else {
+    console.log("  스테이지: #stage 없음");
+  }
   const scroll = m.scrollHeight > m.innerHeight + 1;
   console.log(`  scrollHeight ${m.scrollHeight} / 화면 ${m.innerHeight} → ${scroll ? `세로 스크롤 있음 (+${m.scrollHeight - m.innerHeight}px)` : "스크롤 없음"}` +
     (m.scrollWidth > m.innerWidth + 1 ? ` · 가로 넘침 scrollWidth ${m.scrollWidth}` : ""));
@@ -590,14 +689,15 @@ function printScenario(sc, prep, r) {
 function printSummary(results) {
   console.log("");
   console.log("요약");
-  const rows = [["시나리오", "PNG", "scrollHeight", "스크롤", "내부 스크롤(로그 제외)", "잘린 스킬", "상태", "에러"]];
+  const rows = [["시나리오", "PNG", "배율", "scrollHeight", "스크롤", "내부 스크롤(로그 제외)", "잘린 스킬", "상태", "에러"]];
   for (const r of results) {
-    if (r.failed) { rows.push([r.name, "실패", "-", "-", "-", "-", "-", "-"]); continue; }
+    if (r.failed) { rows.push([r.name, "실패", "-", "-", "-", "-", "-", "-", "-"]); continue; }
     const m = r.metrics;
     const inner = (m.inner || []).filter((s) => !s.isLog).sort((a, b) => (b.scrollHeight - b.clientHeight) - (a.scrollHeight - a.clientHeight));
     rows.push([
       r.name,
       r.png ? `${r.png.w}x${r.png.h}` : "-",
+      m.stage && m.stage.scale != null ? String(+m.stage.scale.toFixed(3)) : "-",
       `${m.scrollHeight}/${m.innerHeight}`,
       m.scrollHeight > m.innerHeight + 1 ? "있음" : "없음",
       inner.length ? `${inner[0].name} +${inner[0].scrollHeight - inner[0].clientHeight}${inner.length > 1 ? ` 외 ${inner.length - 1}` : ""}` : "없음",

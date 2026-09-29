@@ -2,6 +2,7 @@
 // 합성 view (4 포메이션 × 공격 팀 2 × 단계 4 × 모든 carrier/defender/receiver 조합) + 실제 엔진 경기의 매 view.
 // v0.3: 받는 선수 후보 전원(view.receivers 패스+크로스)이 receiver 역할로 도착 구역에 선다. resolvePreview 는 receivers·필살기 변형도 고른다.
 // §13.9: 픽셀 변환 fieldToScreen/screenToField (세로·가로), 가로 필드 비율 범위의 겹침·규칙 위치.
+// 경기 화면은 가로 전용 (고정 스테이지 1280×720 — 규칙 영역 1244×528, 토큰 44px): LAND_RANGE 앞 세 쌍. 세로 비율(UI_RANGE)은 computeLayout 견고성 검사로 남긴다.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -968,10 +969,11 @@ function assertRangeInvariants(view, L, aspect, tokenSize, where) {
   }
 }
 
-// UI(js/ui/screens/match.js): aspect = 필드 폭/높이 (390×844 ≈ 0.74, 360×640 ≈ 1.15, 320×568 ≈ 1.27), tokenSize = (토큰 px + 4) / 필드 폭
+// 옛 세로 화면 비율 (390×844 ≈ 0.74, 360×640 ≈ 1.15, 320×568 ≈ 1.27): 지금 UI 는 가로 전용이지만 computeLayout 은 필드 좌표(비율 무관)라 견고성 검사로 남긴다.
+// tokenSize = (토큰 px + 4) / 필드 폭
 const UI_RANGE = [[0.74, 0.0866], [0.8, 0.086], [1.0, 0.0875], [1.15, 0.0875], [1.27, 0.089], [1.3, 0.09]];
 
-test("UI 실제 범위 (aspect 0.74–1.3, tokenSize 0.085–0.09): 합성 view · 실제 경기 · 승부차기 — 겹침 없음, 규칙 위치 불변식", () => {
+test("세로 비율 범위 (aspect 0.74–1.3, tokenSize 0.085–0.09): 합성 view · 실제 경기 · 승부차기 — 겹침 없음, 규칙 위치 불변식", () => {
   for (const [aspect, tokenSize] of UI_RANGE) {
     for (const { where, view } of allSyntheticViews()) {
       if (!/^(2-3-1 vs 1-3-2|1-3-2 vs 2-3-1|3-1-2 vs 3-1-2|2-2-2 vs 2-2-2)/.test(where)) continue;
@@ -1022,10 +1024,11 @@ test("fieldToScreen / screenToField: 세로 = 기존 식, 가로 = 세로 그림
   const W = 340;
   const H = 470;
   const pts = [[0, 0], [100, 100], [50, 50], [6, 96], [94, 4], [37.3, 72.8], [12.5, 0.5]];
-  // 세로: 이전 match.js 의 PX = x/100·W, PY = (100 − y)/100·H 와 비트 단위로 같다 (기본값도 세로)
+  // 세로(명시할 때만): 이전 match.js 의 PX = x/100·W, PY = (100 − y)/100·H 와 비트 단위로 같다. 기본값은 가로 (화면은 가로 전용)
   for (const [x, y] of pts) {
     assert.deepEqual(fieldToScreen(x, y, W, H, "port"), [(x / 100) * W, ((100 - y) / 100) * H]);
-    assert.deepEqual(fieldToScreen(x, y, W, H), fieldToScreen(x, y, W, H, "port"));
+    assert.deepEqual(fieldToScreen(x, y, W, H), fieldToScreen(x, y, W, H, "land"), "기본 = 가로");
+    assert.deepEqual(screenToField(x, y, W, H), screenToField(x, y, W, H, "land"), "역변환 기본 = 가로");
   }
   // 가로 (W = 필드 요소 폭 = 골↔골 방향): home 골(y 0) → 왼쪽 끝, away 골(y 100) → 오른쪽 끝, x 0 → 위
   const LW = 840;
@@ -1049,11 +1052,13 @@ test("fieldToScreen / screenToField: 세로 = 기존 식, 가로 = 세로 그림
   }
 });
 
-// 가로 화면 실제 범위: aspect = 필드 폭/길이 = 요소 높이/폭 (1.4~1.75 → 0.571~0.714, 프레임이 440px 바닥인 폭 900~959 창은 1.25 까지 → 0.8), tokenSize = (토큰 px + 4) / 요소 높이
+// 가로 화면: aspect = 필드 폭/길이 = 규칙 영역 높이/폭, tokenSize = (토큰 px + 4) / 규칙 영역 높이.
+// 지금 UI = 고정 스테이지 규칙 영역 1244×528 · 토큰 44px → 0.4244 / 0.0909 (앞뒤로 0.40/0.095 · 0.45/0.088 여유).
+// 나머지는 옛 가로 화면(필드 칸 1.4~1.75 → 0.571~0.8) 비율 — computeLayout 견고성 검사로 남긴다
 // (1280×720 ≈ 0.714/0.077, 1366×768 ≈ 0.70/0.075, 1920×1080 ≈ 0.667/0.055, 3440×1440 ≈ 0.59/0.04, 낮고 넓은 창 0.571/0.084, 작은 창 1000×700 ≈ 0.714/0.086, 900×500 ≈ 0.8/0.082)
-const LAND_RANGE = [[0.571, 0.084], [0.59, 0.04], [0.62, 0.08], [0.667, 0.055], [0.7, 0.075], [0.714, 0.077], [0.714, 0.086], [0.75, 0.08], [0.8, 0.083]];
+const LAND_RANGE = [[0.4, 0.095], [0.4244, 0.0909], [0.45, 0.088], [0.571, 0.084], [0.59, 0.04], [0.62, 0.08], [0.667, 0.055], [0.7, 0.075], [0.714, 0.077], [0.714, 0.086], [0.75, 0.08], [0.8, 0.083]];
 
-test("가로 화면 범위 (aspect 0.57–0.8, tokenSize 0.04–0.087): 합성 view · 실제 경기 · 승부차기 — 겹침 없음, 규칙 위치 불변식", () => {
+test("가로 화면 범위 (aspect 0.40–0.8, tokenSize 0.04–0.095 — 스테이지 규칙 영역 0.424/0.091 포함): 합성 view · 실제 경기 · 승부차기 — 겹침 없음, 규칙 위치 불변식", () => {
   for (const [aspect, tokenSize] of LAND_RANGE) {
     for (const { where, view } of allSyntheticViews()) {
       if (!/^(2-3-1 vs 1-3-2|1-3-2 vs 2-3-1|3-1-2 vs 3-1-2|2-2-2 vs 2-2-2)/.test(where)) continue;

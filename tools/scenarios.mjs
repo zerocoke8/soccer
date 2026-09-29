@@ -1,12 +1,16 @@
 // tools/scenarios.mjs — tools/shot.mjs 가 쓰는 Node 측 상태 준비 (ARCHITECTURE §12.4)
-// 엔진(js/engine/run.js · match.js)만으로 원하는 경기 상황을 찾아 run/match 상태 JSON 을 만든다.
-// UI 코드에 의존하지 않는다 → v0.1 / v0.2 UI 어느 쪽에서도 같은 상태를 주입할 수 있다.
+// 엔진(js/engine/run.js · match.js)만으로 원하는 경기 상황 · 런 단계를 찾아 run/match 상태 JSON 을 만든다.
+// UI 코드에 의존하지 않는다 → UI 가 바뀌어도 같은 상태를 주입할 수 있다.
 //
 //   const data = loadData();
 //   const found = buildScenarioState(data, SCENARIOS[0], { runSeed: 1 });
-//   // found = { runState, matchState, seed, steps, preferred, summary }
+//   // found = { runState, matchState, teams, seed, steps, preferred, summary }
 //
-// 시나리오 = { name, title, matchKind, auto, viewport?, speed?, adjustSetup?(setup, data), require(s, ctx), prefer?(s, ctx), interact?, verify? }
+// 시나리오 추가: 아래 SCENARIOS 배열에 객체 하나. name 이 파일 이름(<name>.png)이자 --only 접두어.
+//   경기 시나리오 (01_… ~): 이 머리말의 형식. 아웃게임 시나리오 (og_…): 파일 아래 "아웃게임 시나리오" 머리말 참고.
+//
+// 경기 시나리오 = { name, title, matchKind, auto, viewport?, speed?, adjustSetup?(setup, data), require(s, ctx), prefer?(s, ctx), interact?, verify? }
+//   viewport: 기본(1280×720 DPR 1 — 고정 스테이지 1배)이 아닌 창 크기로 찍을 때 { width, height, deviceScaleFactor, isMobile, hasTouch }
 //   adjustSetup: 경기 스냅샷을 만들기 전에 고친다 (예: 상대에게 간파 사용권) — 복제본에 적용, 결정적
 //   require : 반드시 만족해야 하는 조건 (캡처 시점 상태 확인에도 쓴다)
 //   prefer  : 가능하면 만족시킬 조건 (없으면 require 만 만족하는 첫 상태로 대체)
@@ -123,6 +127,10 @@ export function findMatchState(data, runState, scenario, { maxSeeds = 400, maxSt
  * (app.js continueRun 은 match.seed === run.pendingMatch.seed 일 때만 저장된 경기를 복원).
  */
 export function buildScenarioState(data, scenario, { runSeed = 1, maxSeeds, maxSteps } = {}) {
+  if (scenario.outgame) {
+    const b = scenario.build(data, { runSeed });
+    return { seed: runSeed, steps: b.steps ?? 0, preferred: b.preferred !== false, matchState: null, teams: b.teams ?? null, runState: b.runState ?? null, summary: b.summary };
+  }
   const runState = prepareRun(data, { runSeed, kind: scenario.matchKind || "friendly" });
   const found = findMatchState(data, runState, scenario, { maxSeeds, maxSteps });
   if (!found) throw new Error(`[${scenario.name}] 조건을 만족하는 경기 상태를 찾지 못했습니다`);
@@ -243,7 +251,7 @@ export const SCENARIOS = [
   },
   {
     name: "07_desktop",
-    title: "데스크톱 1280×900 (03 과 같은 상태)",
+    title: "창 1280×900 — 스테이지 위아래 레터박스 (03 과 같은 상태)",
     ...AWAY_SHOT,
     viewport: { width: 1280, height: 900, deviceScaleFactor: 1, isMobile: false, hasTouch: false },
   },
@@ -343,7 +351,7 @@ export const SCENARIOS = [
   },
   {
     name: "16_skill_row_4",
-    title: "스킬 줄 4개 (필살기 + 간파 + 액티브 2) — 실루엔에 스루 패스·폭발 드리블·꿰뚫어보기, 이름이 잘리지 않아야 함 (390×844)",
+    title: "스킬 줄 4개 (필살기 + 간파 + 액티브 2) — 실루엔에 스루 패스·폭발 드리블·꿰뚫어보기, 이름이 잘리지 않아야 함",
     matchKind: "friendly",
     auto: false,
     adjustSetup: (setup) => {
@@ -357,6 +365,25 @@ export const SCENARIOS = [
       return !!ultOption(v) && v.gaanpa?.usable === true && (v.skills || []).filter((x) => x.enabled).length >= 3;
     },
   },
+  {
+    name: "17_skill_row_many",
+    title: "스킬 묶음 7개 (필살기 + 간파 + 액티브 5, 라인 브레이커 포함) — 2열 · 상자 안 스크롤: 필드를 덮지 않고, 이름(두 줄까지) · ✦ 비용이 잘리지 않아야 함",
+    matchKind: "friendly",
+    auto: false,
+    adjustSetup: (setup) => {
+      const p = setup.home.players.find((x) => (x.skillIds || []).includes("sk_wind_thread"));
+      if (p) {
+        p.skillIds = [...new Set([...(p.skillIds || []),
+          "sk_line_breaker", "sk_through_pass", "sk_burst_dribble", "sk_see_through", "sk_power_shot", "sk_rally_cry"])];
+      }
+    },
+    require: (s, { data }) => isDuel(s) && s.attackingSide === "home" && s.ball.lineIndex <= 2 && needs(s, "attack") &&
+      (carrierOf(s)?.skillIds || []).includes("sk_line_breaker") && (viewOf(s, data).skills || []).length >= 6,
+    prefer: (s, { data }) => {
+      const v = viewOf(s, data);
+      return !!ultOption(v) && v.gaanpa?.usable === true;
+    },
+  },
 ];
 
 /** 사람 측 결정의 필살기(세이브형 제외) */
@@ -368,3 +395,214 @@ function comboOption(view) {
   const u = ultOption(view);
   return u && u.comboName ? u : null;
 }
+
+/* ------------------------------------------------------------------ */
+/* 아웃게임 시나리오 (og_*)                                                */
+/* ------------------------------------------------------------------ */
+// 아웃게임 시나리오 = { name: "og_…", title, outgame: true, build(data, { runSeed }), steps?, ready, expect, viewport? }
+//   build(data, { runSeed }) → { runState | null, teams?, summary, steps?, preferred? }
+//     runState: 주입할 런 (soccer.run). null = 저장된 런 없음 → 시작 화면. teams = 등록 팀 목록 (soccer.teams)
+//   진입: runState 가 있으면 시작 화면 "이어하기" 클릭 → steps 순서대로 → ready 선택자가 보일 때까지 기다린 뒤 캡처
+//   steps: [{ click: "css 선택자" } | { text: "버튼 글자 정규식" } | { wait: ms }]
+//   expect: 캡처 시점 확인 { screen: "start"|"setup"|"run", phase?: run phase, modal?: true | false | "css" (#modal-root 안) }
+//   런 상태는 walkRun(기본 정책으로 런을 걷다가 조건을 만족하는 첫 결정 시점)으로 찾는다 → 같은 runSeed 면 같은 상태.
+
+function defaultRun(data, runSeed) {
+  const cfg = data.config;
+  return run.createRun({
+    data,
+    seed: runSeed,
+    squad: cfg.defaultSquad && cfg.defaultSquad.slots,
+    formation: cfg.defaultSquad && cfg.defaultSquad.formation,
+    supportIds: cfg.defaultSupports,
+    tactics: cfg.defaultTactics,
+  });
+}
+
+/** 기본 정책 한 단계: 이벤트 0번 · 훈련 추천 칸(휴식 추천이면 휴식) · 경기 자동 · 유물 첫째 · 루트 첫째 */
+function policyStep(state, data, phase) {
+  if (phase === "event") return run.resolveEvent(state, data, 0);
+  if (phase === "turn") {
+    const tv = run.getTurnView(state, data);
+    return tv.recommendedAction === "rest"
+      ? run.applyAction(state, data, { type: "rest" })
+      : run.applyAction(state, data, { type: "train", slot: tv.recommendedSlot });
+  }
+  if (phase === "match") {
+    const setup = run.getMatchSetup(state, data);
+    const ms = createFromSetup(data, setup, setup.seed);
+    match.simulateAuto(ms, data);
+    return run.finishMatch(state, data, match.getResult(ms));
+  }
+  if (phase === "relic") return run.chooseRelic(state, data, (state.pendingRelicChoices && state.pendingRelicChoices[0]) ?? null);
+  if (phase === "route") return run.chooseRoute(state, data, state.pendingRoutes[0]);
+  throw new Error(`알 수 없는 phase: ${phase}`);
+}
+
+/**
+ * 기본 편성 런을 기본 정책으로 걷다가 require(+prefer)를 만족하는 첫 결정 시점의 복제본을 돌려준다 (결정적).
+ * @param {{ runSeed?, require: (state, ctx) => boolean, prefer?: (state, ctx) => boolean, maxSteps? }} opts  ctx = { phase, data }
+ * @returns {{ state, steps, preferred } | null}
+ */
+export function walkRun(data, { runSeed = 1, require, prefer, maxSteps = 800 } = {}) {
+  const state = defaultRun(data, runSeed);
+  let fallback = null;
+  for (let steps = 0; steps <= maxSteps; steps++) {
+    const phase = run.getPhase(state);
+    const ctx = { phase, data };
+    if (require(state, ctx)) {
+      if (!prefer || prefer(state, ctx)) return { state: clone(state), steps, preferred: true };
+      if (!fallback) fallback = { state: clone(state), steps, preferred: false };
+    }
+    if (phase === "finished") break;
+    policyStep(state, data, phase);
+  }
+  return fallback;
+}
+
+/** 런 상태 한 줄 요약 (shot.mjs 출력용) */
+export function describeRun(state, data) {
+  if (!state) return "저장된 런 없음";
+  const phase = run.getPhase(state);
+  let extra = "";
+  if (phase === "turn") {
+    const tv = run.getTurnView(state, data);
+    const stam = (tv.players || []).map((p) => Number(p.stamina) || 0);
+    const fr = (tv.slots || []).flatMap((sl) => (sl.supports || []).filter((x) => x.friendship)).length;
+    extra = ` · SP ${tv.skillPoints} · 상점 ${(tv.shop || []).length} · 체력 ${Math.min(...stam)}~${Math.max(...stam)} · 우정 ${fr} · 호출권 ${tv.summonTickets}`;
+  } else if (phase === "event") {
+    const ev = run.getEventView(state, data);
+    extra = ` · "${ev.title}" 선택지 ${ev.choices.length}${ev.support ? ` · 서포트 ${ev.support.name}` : ""}${ev.player ? ` · 선수 ${ev.player.name}` : ""}`;
+  } else if (phase === "relic") {
+    extra = ` · 유물 후보 ${(state.pendingRelicChoices || []).length}`;
+  } else if (phase === "route") {
+    extra = ` · 루트 후보 ${(state.pendingRoutes || []).length}`;
+  }
+  return `${phase} · 시즌 ${state.season} ${state.turn}턴 (turnIndex ${state.turnIndex})${extra} · 패배 ${state.record?.losses ?? 0} · seed ${state.seed}`;
+}
+
+function walkOrThrow(name, data, opts) {
+  const found = walkRun(data, opts);
+  if (!found) throw new Error(`[${name}] 조건을 만족하는 런 상태를 찾지 못했습니다`);
+  return { runState: found.state, steps: found.steps, preferred: found.preferred, summary: describeRun(found.state, data) };
+}
+
+/** 완주한 런 → 등록 팀 (app.js registerTeam 과 같은 모양, 등록 시각은 고정) */
+function registeredTeam(data, runSeed, registeredAt) {
+  const found = walkRun(data, { runSeed, require: (s, { phase }) => phase === "finished" });
+  if (!found) throw new Error(`런 ${runSeed} 이 끝나지 않습니다`);
+  const { rating, registeredTeam: team } = run.finalizeRun(found.state, data);
+  return { ...team, grade: rating.cappedGrade ?? rating.grade ?? "-", score: rating.score ?? null, registeredAt };
+}
+
+/** 시즌 2 후반 훈련 턴: SP · 스킬 상점 · 우정 훈련 · 체력 차이가 보이는 상태 (og_training_mid · 시트 · 미팅) */
+const MID_TURN = {
+  require: (s, { phase }) => phase === "turn" && s.turnIndex >= 9,
+  prefer: (s, { data }) => {
+    const tv = run.getTurnView(s, data);
+    const stam = tv.players.map((p) => Number(p.stamina) || 0);
+    const fr = tv.slots.some((sl) => (sl.supports || []).some((x) => x.friendship));
+    return tv.skillPoints > 0 && (tv.shop || []).length >= 3 && Math.max(...stam) - Math.min(...stam) >= 30 && fr;
+  },
+};
+
+export const OUTGAME_SCENARIOS = [
+  {
+    name: "og_start",
+    title: "시작 화면 — 저장된 런 없음, 등록 팀 2개",
+    outgame: true,
+    build: (data, { runSeed }) => {
+      const teams = [
+        registeredTeam(data, `${runSeed}-b`, "2026-09-28T10:00:00.000Z"),
+        registeredTeam(data, runSeed, "2026-09-27T10:00:00.000Z"),
+      ];
+      return { runState: null, teams, summary: `저장된 런 없음 · 등록 팀 ${teams.map((t) => `${t.grade}(${t.seed})`).join(", ")}` };
+    },
+    ready: ".hero",
+    expect: { screen: "start", modal: false },
+  },
+  {
+    name: "og_setup",
+    title: "편성 화면 — 새 런 시작 (기본 편성 · 서포트 6장)",
+    outgame: true,
+    build: () => ({ runState: null, summary: "저장된 런 없음 → [새 런 시작]" }),
+    steps: [{ text: "새 런 시작" }],
+    ready: ".slot-cards",
+    expect: { screen: "setup", modal: false },
+  },
+  {
+    name: "og_training",
+    title: "첫 훈련 턴 — 이벤트 모달 없음 (시작 이벤트가 있으면 0번으로 처리)",
+    outgame: true,
+    build: (data, { runSeed }) => walkOrThrow("og_training", data, { runSeed, require: (s, { phase }) => phase === "turn" }),
+    ready: ".slot-row",
+    expect: { screen: "run", phase: "turn", modal: false },
+  },
+  {
+    name: "og_training_mid",
+    title: "시즌 2 후반 훈련 턴 — SP · 스킬 상점 · 우정 훈련(★) · 힌트(💡) · 체력 차이",
+    outgame: true,
+    build: (data, { runSeed }) => walkOrThrow("og_training_mid", data, { runSeed, ...MID_TURN }),
+    ready: ".slot-row",
+    expect: { screen: "run", phase: "turn", modal: false },
+  },
+  {
+    name: "og_train_sheet",
+    title: "훈련 상세 하단 시트 — og_training_mid 에서 추천 칸 탭",
+    outgame: true,
+    build: (data, { runSeed }) => walkOrThrow("og_train_sheet", data, { runSeed, ...MID_TURN }),
+    steps: [{ click: ".slot-row.recommended" }],
+    ready: "#modal-root .sheet",
+    expect: { screen: "run", phase: "turn", modal: ".sheet" },
+  },
+  {
+    name: "og_meeting",
+    title: "전술 미팅 모달 — 전술 · 포메이션 · 스킬 상점, 첫 스킬 [구매] 선택 (og_training_mid + SP 200 주입)",
+    outgame: true,
+    build: (data, { runSeed }) => {
+      const b = walkOrThrow("og_meeting", data, { runSeed, ...MID_TURN });
+      b.runState.skillPoints = 200; // 상점 스킬을 살 수 있게 (구매 · 배울 선수 선택 모양)
+      return { ...b, summary: `${describeRun(b.runState, data)} (SP 200 주입)` };
+    },
+    steps: [{ text: "미팅$" }, { text: "^구매$" }],
+    ready: "#modal-root .modal select",
+    expect: { screen: "run", phase: "turn", modal: ".modal" },
+  },
+  {
+    name: "og_event",
+    title: "이벤트 모달 — 서포트 이벤트, 선택지 2개 (배경 = 훈련 화면)",
+    outgame: true,
+    build: (data, { runSeed }) => walkOrThrow("og_event", data, {
+      runSeed,
+      require: (s, { phase }) => phase === "event",
+      prefer: (s, { data: d }) => { const ev = run.getEventView(s, d); return !!ev.support && ev.choices.length >= 2; },
+    }),
+    ready: "#modal-root .choice-btn",
+    expect: { screen: "run", phase: "event", modal: ".modal" },
+  },
+  {
+    name: "og_relic",
+    title: "유물 선택 모달 (배경 = 훈련 화면)",
+    outgame: true,
+    build: (data, { runSeed }) => walkOrThrow("og_relic", data, { runSeed, require: (s, { phase }) => phase === "relic" }),
+    ready: "#modal-root .relic-card",
+    expect: { screen: "run", phase: "relic", modal: ".modal" },
+  },
+  {
+    name: "og_route",
+    title: "시즌 종료 — 이번 시즌 경계전 결과 · 다음 시즌 루트 선택",
+    outgame: true,
+    build: (data, { runSeed }) => walkOrThrow("og_route", data, { runSeed, require: (s, { phase }) => phase === "route" }),
+    ready: ".route-card",
+    expect: { screen: "run", phase: "route", modal: false },
+  },
+  {
+    name: "og_result",
+    title: "런 결과 화면 — 완주한 런의 최종 평가 · 선수 · seed",
+    outgame: true,
+    build: (data, { runSeed }) => walkOrThrow("og_result", data, { runSeed, require: (s, { phase }) => phase === "finished" }),
+    ready: ".result-hero",
+    expect: { screen: "run", phase: "finished", modal: false },
+  },
+];
+SCENARIOS.push(...OUTGAME_SCENARIOS);

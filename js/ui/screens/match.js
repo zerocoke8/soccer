@@ -9,23 +9,26 @@
 // v0.3 (ARCHITECTURE §13.6 · GDD v0.5 §9.6·9.7·9.16·9.17): 듀얼 개편 화면.
 //  - 예상 행동(A안): 상대 듀얼 선수 머리 위 아이콘, 정보 줄에 근거("상대 X: 드리블형 — 드리블 600 > 패스 400")와 우리 선수 예상 행동.
 //    상대가 간파를 쓴 듀얼(view.opponentReading)이면 "상대가 우리 수를 읽는 중".
-//  - 결정 버튼: 공격은 켜진 액션만 2×2, 수비는 3열. 제목 "드리블 41%" + 성공/실패 한 줄씩(엔진 Outcome.short) + "추천".
+//  - 결정 카드 (아래 가운데 한 줄): 공격은 켜진 액션만 (최대 4), 수비는 3. 제목 "드리블 41%" + 성공/실패 한 줄씩(엔진 Outcome.short) + "추천".
 //  - 받는 선수: 후보 전원이 도착 구역에 선다(layout.js). 결정 중 후보 토큰 탭 = 선택, 길게 누르기 = 미니 카드. 결정 { action, receiverId }.
-//  - 필살기: 토큰 게이지 링(준비되면 빛남), 스킬 줄 필살기 버튼(합체기면 합체기 이름) 토글 → 결정 { …, ultimate: true }.
+//  - 필살기: 토큰 게이지 링(준비되면 빛남), 스킬 묶음(.skill-row) 필살기 버튼(합체기면 합체기 이름) 토글 → 결정 { …, ultimate: true }.
 //    cutin/combo 이벤트 = 전체 화면 컷인 1.5초(배속 비례, 스킵 시 생략), 합체기는 두 컷인 + 이름.
 //  - 간파 버튼(스킬 또는 사용권, 비용·사유) = 즉시 사용({ gaanpa }, 결정 대기 유지). 일반 액티브는 토글 후 액션과 함께.
 //  - 연출: 크로스 포물선, 헤더, 연계 문구(킬패스!·원터치!·헤더!·침투!), 태클 실패 누운 모습, 필살기 공.
 //  기대 %·결과·후보·게이지는 전부 엔진 getMatchView 값이다. 이 파일은 규칙을 다시 계산하지 않는다.
 //
-// 가로 화면 (테스트 — ARCHITECTURE §13.9): 방향 'land' | 'port' (store.resolveOrient: 토글 > ?orient > 저장값 > 창 크기).
-//  - 필드 좌표(layout.js)는 그대로, 픽셀 변환만 90° 돌린다 (layout.js fieldToScreen / screenToField — home 골 왼쪽, away 골 오른쪽).
-//    화면에 그리는 좌표는 전부 toPx(x, y) 를 거친다. 방향에 따라 달라지는 것: 구역 띠·트랙 칸(세로 줄 ↔ 가로 칸), 공 위치(공격 방향 앞),
-//    크로스 곡선이 휘는 축, 이름표·미리보기 글자 자리 선호, 토큰 크기(필드 높이 기준).
-//  - 가로면 #app 에 match-land (넓은 프레임), 화면은 grid 2단 (왼쪽 필드 · 오른쪽 조작 패널). CSS 는 .match-screen.land 아래에만.
-//  - 전환(컨트롤 줄 ⇄ 버튼 · 기본 규칙이면 창 크기 변화) = app render() 로 경기 화면을 다시 그린다 (store.match 에서 복원, 경기 상태 불변).
-//    비트 연출 중이면 비트가 끝날 때(finishBeat · 스킵) 전환한다.
+// 가로 전용 (고정 스테이지 1280×720 — js/ui/stage.js, css/match.css). 세로 경기 화면·방향 전환은 없다 (?orient · 저장값은 무시).
+//  - 필드 좌표(layout.js)는 그대로, 픽셀 변환만 가로 (layout.js fieldToScreen 'land' — home 골 왼쪽, away 골 오른쪽, 필드 x 0 = 위).
+//    화면에 그리는 좌표는 전부 toPx(x, y) 를 거친다.
+//  - 화면 = 잔디(.pitch)가 스테이지 전체, HUD 는 그 위에 겹친다 (사용자 목업):
+//      위 가운데 = 스코어 헤더(.mh), 그 뒤 전폭 띠 = 상황 배너(.m-banner — 글자는 헤더 왼쪽 빈 곳), 헤더 아래 = 공격 진행 트랙(.m-track, 칸 = 구역 폭)
+//      아래 가운데 = 정보 줄(.m-info, 상대 예상 행동 근거) + 결정 카드 한 줄(.action-grid)
+//      왼쪽 아래 = 컨트롤 묶음(.match-controls: 자동 · 개입 · 배속 · ⏭ · 로그) + 남은 수비 칩, 오른쪽 아래 = 스킬 묶음(.skill-row)
+//      로그(.m-logbox) = 로그 버튼으로 여는 반투명 서랍 (기본 닫힘, 안쪽 스크롤, 공 · 공격 방향의 반대쪽 절반 — placeLogBox)
+//  - 규칙 영역(.m-field: 구역·선·박스·골문·토큰·공·화살표)은 위 HUD(헤더+트랙)와 아래 HUD(카드 줄) 사이로 줄인다 → HUD 가 토큰·이름표·말풍선·
+//    미리보기를 가리지 않는다. 구역·선과 토큰이 같은 사각형을 쓴다 (화면 위치 = 규칙 위치). 크기는 논리 px 로 잰다 (스테이지 배율과 무관).
 import { h, avatar, openModal, closeOverlays, bar, statBadge, toast } from '../dom.js';
-import { saveMatch, resolveOrient, saveOrient, landFits } from '../store.js';
+import { saveMatch } from '../store.js';
 import { computeLayout, resolvePreview, withJosa, ZONES, fieldToScreen, screenToField } from '../layout.js';
 import * as L from '../labels.js';
 
@@ -38,8 +41,11 @@ const T = {
   cutin: 1500, comboCut: 1000, comboName: 1100,
   start: 700, idle: 300, longPress: 450,
 };
-// 토큰 지름 = 필드 폭 × 7.5% (§12.3), 20~34px. 가로 화면(§13.9): 필드 폭 = 요소 높이 × 7%, 22~48px (1280×720 ≈ 40px, 1920×1080 = 48px)
-const TOKEN = { port: { ratio: 0.075, min: 20, max: 34 }, land: { ratio: 0.07, min: 22, max: 48 } };
+// 토큰 지름 = 필드 폭(골과 나란한 쪽 = 규칙 영역 높이) × 8.3%, 30~48px. 스테이지 1280×720: 규칙 영역 1244×528 → 44px
+const TOKEN = { ratio: 0.083, min: 30, max: 48 };
+// 글자 크기 (px) — CSS 와 같게 (자리 고르기의 글자 폭 추정 textWidth 에 쓴다): 이름표 · 말풍선 · 미리보기 글자 · 결과 한 줄 · 연계 문구
+const FONT = { label: 12, bubble: 12, tip: 12.5, pop: 13, link: 16 };
+const SPEEDS = [1, 2, 4];
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const STEP_MARKS = ['①', '②', '③', '④'];
 const RECV_ACTIONS = ['pass', 'cross'];
@@ -78,31 +84,32 @@ export function renderMatch(root, ctx) {
     ui.receiverPick = {};
     ui.pickKey = null;
     ui.resultShown = false;
+    ui.logOpen = false;
   }
   ui.busy = false;
 
   const gen = ++GEN;
-  // 화면 방향 (§13.9). 가로면 앱 프레임을 넓힌다 — app.js render() 가 다른 화면을 그릴 때 지운다
-  const orient = resolveOrient().orient;
-  const LAND = orient === 'land';
-  root.classList.toggle('match-land', LAND);
+  // 로그 서랍 열림 (matchUi.logOpen): 한 경기 안에서는 경기 화면을 다시 그려도 유지, 새 경기(위 · store.resetMatchUi)는 닫힌 채 시작
+  if (typeof ui.logOpen !== 'boolean') ui.logOpen = false;
 
   /* ------------------------------------------------------------------ */
   /* DOM 골격 (한 번 만들고 부분 갱신)                                        */
   /* ------------------------------------------------------------------ */
-  const screen = h('div', { class: ['screen', 'match-screen', LAND ? 'land' : ''], dataset: { screen: 'match', orient } });
+  const screen = h('div', { class: ['screen', 'match-screen'], dataset: { screen: 'match' } });
   const hud = h('div', { class: 'mh' });
-  const bannerEl = h('div', { class: 'm-banner', role: 'status', 'aria-live': 'polite' });
+  // 상황 배너: 전폭 띠(헤더 뒤), 글자는 헤더 왼쪽의 보이는 칸에
+  const bannerTxt = h('span', { class: 'm-banner-txt' });
+  const bannerEl = h('div', { class: 'm-banner', role: 'status', 'aria-live': 'polite' }, bannerTxt);
   const trackCells = STEP_MARKS.map((mk, i) => h('span', { class: 'trk', dataset: { step: String(i) }, title: `${mk} ${L.ATTACK_STEP_LABELS[i]}` }, mk));
   const track = h('div', { class: 'm-track', role: 'img' }, trackCells);
   const zoneEls = new Map();
+  // 구역 = 세로 줄 (home 골 왼쪽). 박스·골문·스폿: .top = away 골(오른쪽), .bottom = home 골(왼쪽)
   const bg = h('div', { class: 'pitch-bg' },
     ZONES.map((z) => {
       const el = h('div', {
         class: ['zone', `z${z.id}`],
         dataset: { zone: String(z.id) },
-        // 세로: 가로 띠 (home 골 아래) · 가로: 세로 줄 (home 골 왼쪽)
-        style: LAND ? { left: `${z.from}%`, width: `${z.to - z.from}%` } : { top: `${100 - z.to}%`, height: `${z.to - z.from}%` },
+        style: { left: `${z.from}%`, width: `${z.to - z.from}%` },
       }, h('span', { class: 'zone-name' }, z.name), h('span', { class: 'zone-hl' }));
       zoneEls.set(z.id, el);
       return el;
@@ -123,32 +130,41 @@ export function renderMatch(root, ctx) {
   const ballEl = h('div', { class: 'm-ball', 'aria-hidden': 'true' }, h('span', {}, '⚽'));
   const popLayer = h('div', { class: 'pop-layer', 'aria-hidden': 'true' });
   const goalFx = h('div', { class: 'goal-fx', 'aria-hidden': 'true' });
-  const remainEl = h('div', { class: 'm-remain' });
-  const pitch = h('div', { class: 'pitch' }, bg, remainEl, tokLayer, ballEl, svg, svgTop, popLayer, goalFx);
-  const pitchRow = h('div', { class: 'pitch-row' }, track, pitch);
+  // 규칙 영역: 좌표의 기준 사각형 (구역·선·토큰·공·화살표·결과 한 줄). 잔디(.pitch)는 스테이지 전체, 규칙 영역은 위·아래 HUD 사이
+  const field = h('div', { class: 'm-field' }, bg, tokLayer, ballEl, svg, svgTop, popLayer, goalFx);
+  const grass = h('div', { class: 'pitch' }, field);
+  // 아래 가운데: 정보 줄(상대 예상 행동 근거) + 결정 카드 한 줄
   const info = h('div', { class: 'm-info' });
   const actGrid = h('div', { class: 'action-grid' });
-  const skillRow = h('div', { class: 'skill-row' });
+  const dock = h('div', { class: 'm-dock' }, info, actGrid);
+  // 왼쪽 아래: 컨트롤 묶음 + 남은 수비 칩 · 오른쪽 아래: 스킬 묶음
   const controls = h('div', { class: 'match-controls' });
+  const remainEl = h('div', { class: 'm-remain' });
+  const ctlBox = h('div', { class: 'm-ctl' }, controls, remainEl);
+  const skillRow = h('div', { class: 'skill-row' });
+  // 로그 서랍 (로그 버튼으로 연다, 안쪽 스크롤)
   const log = h('div', { class: 'match-log', role: 'log', 'aria-label': '경기 로그' });
+  const logBox = h('div', { class: 'm-logbox', id: 'm-logbox' },
+    h('div', { class: 'm-logbox-head' },
+      h('b', {}, '경기 로그'),
+      h('button', { class: 'btn m-logbox-close', type: 'button', title: '로그 닫기', 'aria-label': '로그 닫기', onclick: () => setLogOpen(false) }, '✕')),
+    log);
   const cutLayer = h('div', { class: 'm-cutin', 'aria-live': 'polite' });
-  screen.append(hud, bannerEl, pitchRow, info, actGrid, skillRow, controls, log, cutLayer);
+  screen.append(grass, bannerEl, hud, track, dock, ctlBox, skillRow, logBox, cutLayer);
   root.append(screen);
 
   /* ------------------------------------------------------------------ */
   /* 상태                                                                 */
   /* ------------------------------------------------------------------ */
-  let W = LAND ? 840 : 340; // 필드 요소 픽셀 크기 (레이아웃이 없는 jsdom 은 이 기본값)
-  let H = LAND ? 560 : 470;
-  let tokPx = 26;
-  let orientPending = false; // 연출 중 누른 방향 전환 → 비트가 끝나면 (finishBeat · skip)
+  let W = 1244; // 규칙 영역 픽셀 크기 (논리 px — 레이아웃이 없는 jsdom 은 스테이지 기준 기본값)
+  let H = 528;
+  let tokPx = 44;
   let curL = null;      // 지금 화면에 그려진 레이아웃
   let curView = null;   // curL 을 만든 view
   let busy = false;     // 비트 연출 중
   let bannerKey = null;
   let arrowFor = null;
   let finishing = false;
-  let resizePending = false; // 연출 중 resize → 비트가 끝나면 다시 잰다
   let ballAnim = null;       // 크로스 포물선 (Web Animations)
   let lastDecision = null;   // 사람이 보낸 마지막 결정 (실패한 패스의 받는 선수 연출용)
   let cardModal = null;
@@ -238,27 +254,23 @@ export function renderMatch(root, ctx) {
   /* ------------------------------------------------------------------ */
   /* 좌표                                                                 */
   /* ------------------------------------------------------------------ */
+  /** 규칙 영역 크기 (논리 px: 스테이지 transform 전 값이라 창 배율과 무관 — 경기 중에는 바뀌지 않는다) */
   function measure() {
-    const w = pitch.clientWidth;
-    const hh = pitch.clientHeight;
+    const w = field.clientWidth;
+    const hh = field.clientHeight;
     if (w > 40 && hh > 40) { W = w; H = hh; } // jsdom 등 레이아웃이 없으면 기본값
-    const tk = TOKEN[orient];
-    tokPx = Math.round(Math.min(tk.max, Math.max(tk.min, fieldWidthPx() * tk.ratio)));
-    pitch.style.setProperty('--tok', `${tokPx}px`);
+    tokPx = Math.round(Math.min(TOKEN.max, Math.max(TOKEN.min, H * TOKEN.ratio)));
+    field.style.setProperty('--tok', `${tokPx}px`);
     svg.setAttribute('viewBox', `0 0 ${round1(W)} ${round1(H)}`);
     svgTop.setAttribute('viewBox', `0 0 ${round1(W)} ${round1(H)}`);
   }
-  /** 필드 폭(골과 나란한 방향) 픽셀: 세로 = 요소 폭, 가로 = 요소 높이 */
-  const fieldWidthPx = () => (LAND ? H : W);
   function layoutFor(view) {
     if (!view) return null;
     measure();
-    // 겹침 방지 간격 = 토큰 지름 + 팀 링(2px×2) → 링끼리도 닿지 않게. aspect = 필드 폭/길이 (가로 화면 = H/W)
-    const fw = fieldWidthPx();
-    const aspect = LAND ? H / W : W / H;
-    return safe(() => computeLayout(shownView(view), { aspect, tokenSize: (tokPx + 4) / fw })) || null;
+    // 겹침 방지 간격 = 토큰 지름 + 팀 링(2px×2) → 링끼리도 닿지 않게. 필드 폭(골과 나란한 쪽) = 요소 높이 H, 길이(골↔골) = 폭 W → aspect = H/W
+    return safe(() => computeLayout(shownView(view), { aspect: H / W, tokenSize: (tokPx + 4) / H })) || null;
   }
-  /** 지금 view 로 다시 배치 (스킬 토글 · 받는 선수 선택 · 자동/개입 전환 · resize). 보던 미리보기 화살표도 새 좌표로 */
+  /** 지금 view 로 다시 배치 (스킬 토글 · 받는 선수 선택 · 자동/개입 전환). 보던 미리보기 화살표도 새 좌표로 */
   function relayout({ anim = !reduced } = {}) {
     if (!curView) return;
     const Lay = layoutFor(curView);
@@ -268,12 +280,12 @@ export function renderMatch(root, ctx) {
     hideArrow();
     if (keep) showArrow(keep);
   }
-  /** 필드 좌표(%) → 필드 요소 안 픽셀 [sx, sy]. 세로: home 골 아래, 가로: home 골 왼쪽 (layout.js fieldToScreen) */
-  const toPx = (x, y) => fieldToScreen(x, y, W, H, orient);
+  /** 필드 좌표(%) → 규칙 영역 안 픽셀 [sx, sy]: home 골 왼쪽, away 골 오른쪽, 필드 x 0 = 위 (layout.js fieldToScreen 'land') */
+  const toPx = (x, y) => fieldToScreen(x, y, W, H, 'land');
   /** 픽셀 → 필드 좌표 { x, y } */
-  const fromPx = (sx, sy) => screenToField(sx, sy, W, H, orient);
+  const fromPx = (sx, sy) => screenToField(sx, sy, W, H, 'land');
   /** 필드 방향(단위 벡터 성분 fx: x 증가, fy: y 증가 = away 골 쪽)의 화면 방향 [dx, dy] */
-  const dirPx = (fx, fy) => (LAND ? [fy, fx] : [fx, -fy]);
+  const dirPx = (fx, fy) => [fy, fx];
   const tokOf = (Lay, id, side) => (Lay && id != null ? Lay.tokens.find((t) => t.id === id && (!side || t.side === side)) : null) || null;
 
   /* ------------------------------------------------------------------ */
@@ -348,7 +360,7 @@ export function renderMatch(root, ctx) {
   }
   function ballRect(Lay) {
     const [bx, by] = ballPx(Lay.ball.x, Lay.ball.y, Lay.mode === 'play' && Lay.carrierId ? Lay.attackingSide : null);
-    return { l: bx - 7, r: bx + 7, t: by - 8, b: by + 8, w: 1.5 };
+    return { l: bx - 8, r: bx + 8, t: by - 10, b: by + 10, w: 1.5 }; // css .m-ball > span
   }
   function spotScore(box, obstacles) {
     let s = 0;
@@ -369,45 +381,35 @@ export function renderMatch(root, ctx) {
   }
 
   /**
-   * 이름 라벨 후보 (선호 순): 듀얼 상대(와 패스 길) 반대편 = 공격 방향 기준 바깥쪽 → 좌우로 비낀 자리 → 반대편 → 옆.
-   * 가로 화면: 공격이 좌우라 위·아래는 듀얼 상대와 겹치지 않는다 → 아래 → 위, 비낄 때·옆 자리는 듀얼 상대 반대편부터
-   * (공격 팀 = 자기 골 쪽, 수비 팀 = 공격 방향 쪽 — 둘 다 상대에게서 멀어지는 쪽)
+   * 이름 라벨 후보 (선호 순): 공격이 좌우라 위·아래는 듀얼 상대와 겹치지 않는다 → 아래 → 위 (가운데 → 듀얼 상대 반대편으로 비낌 → 반대쪽),
+   * 그다음 옆 (듀얼 상대 반대편부터). 듀얼 상대 반대편 = 공격 팀은 자기 골 쪽, 수비 팀은 공격 방향 쪽 (둘 다 상대에게서 멀어지는 쪽).
+   * 박스 크기는 CSS .tok-name 과 같게 (글자 FONT.label, 줄 높이 16, 좌우 여백 5)
    */
   function labelCands(t, Lay, text) {
-    const home = Lay.attackingSide === 'home';
-    let vs;
-    let hzs = ['c', 'l', 'r'];
-    let sideFirst = 'side';
-    if (LAND) {
-      const ahead = home ? 'r' : 'l'; // 공격 방향 (화면)
-      const awayFromDuel = t.side === Lay.attackingSide ? (ahead === 'r' ? 'l' : 'r') : ahead;
-      vs = ['down', 'up'];
-      hzs = ['c', awayFromDuel, awayFromDuel === 'l' ? 'r' : 'l'];
-      sideFirst = awayFromDuel === 'l' ? 'side-l' : 'side';
-    } else {
-      const pref = t.role === 'carrier' ? (home ? 'down' : 'up') : home ? 'up' : 'down';
-      vs = [pref, pref === 'up' ? 'down' : 'up'];
-    }
+    const ahead = Lay.attackingSide === 'home' ? 'r' : 'l'; // 공격 방향 (화면)
+    const awayFromDuel = t.side === Lay.attackingSide ? (ahead === 'r' ? 'l' : 'r') : ahead;
+    const vs = ['down', 'up'];
+    const hzs = ['c', awayFromDuel, awayFromDuel === 'l' ? 'r' : 'l'];
     const [cx, cy] = toPx(t.x, t.y);
     const r = tokPx / 2;
-    const w = textWidth(text, 10) + 8;
-    const vBox = (v) => (v === 'up' ? { t: cy - r - 17, b: cy - r - 3 } : { t: cy + r + 7, b: cy + r + 21 });
+    const w = textWidth(text, FONT.label) + 10;
+    const vBox = (v) => (v === 'up' ? { t: cy - r - 19, b: cy - r - 3 } : { t: cy + r + 7, b: cy + r + 23 });
     const hBox = (hz) => (hz === 'c' ? { l: cx - w / 2, r: cx + w / 2 } : hz === 'l' ? { l: cx - w + 4, r: cx + 4 } : { l: cx - 4, r: cx - 4 + w });
     const out = [];
     for (const v of vs) for (const hz of hzs) out.push({ v, hz, box: { ...vBox(v), ...hBox(hz) } });
-    const sideR = { v: 'side', hz: 'c', box: { l: cx + r + 5, r: cx + r + 5 + w, t: cy - 7, b: cy + 7 } };
-    const sideL = { v: 'side-l', hz: 'c', box: { l: cx - r - 5 - w, r: cx - r - 5, t: cy - 7, b: cy + 7 } };
-    out.push(...(sideFirst === 'side-l' ? [sideL, sideR] : [sideR, sideL]));
+    const sideR = { v: 'side', hz: 'c', box: { l: cx + r + 5, r: cx + r + 5 + w, t: cy - 8, b: cy + 8 } };
+    const sideL = { v: 'side-l', hz: 'c', box: { l: cx - r - 5 - w, r: cx - r - 5, t: cy - 8, b: cy + 8 } };
+    out.push(...(awayFromDuel === 'l' ? [sideL, sideR] : [sideR, sideL]));
     return out;
   }
-  /** 예상 행동 말풍선 후보: 토큰 위 오른쪽(기본) → 위 왼쪽 → 옆 오른쪽 → 옆 왼쪽 → 아래 오른쪽 → 아래 왼쪽 */
+  /** 예상 행동 말풍선 후보: 토큰 위 오른쪽(기본) → 위 왼쪽 → 옆 오른쪽 → 옆 왼쪽 → 아래 오른쪽 → 아래 왼쪽 (CSS .tok-bubble: 줄 높이 18) */
   function bubbleCands(t, text) {
     const [cx, cy] = toPx(t.x, t.y);
     const r = tokPx / 2;
-    const bw = textWidth(text, 11) + 12;
-    const up = { t: cy - r - 19, b: cy - r - 3 };
-    const mid = { t: cy - 8, b: cy + 8 };
-    const dn = { t: cy + r + 8, b: cy + r + 24 };
+    const bw = textWidth(text, FONT.bubble) + 14;
+    const up = { t: cy - r - 21, b: cy - r - 3 };
+    const mid = { t: cy - 9, b: cy + 9 };
+    const dn = { t: cy + r + 8, b: cy + r + 26 };
     return [
       { cls: '', box: { l: cx + 5, r: cx + 5 + bw, ...up } },
       { cls: 'bub-l', box: { l: cx - 5 - bw, r: cx - 5, ...up } },
@@ -452,12 +454,12 @@ export function renderMatch(root, ctx) {
   }
 
   /**
-   * 가로 화면 (§13.9): 결정 대기 중 패스·크로스(·인터셉트) 미리보기 화살표가 지나갈 길(공 가진 선수 → 받는 선수)을 6px 점 박스로.
-   * 가로에서는 옆 패스·크로스가 화면 위아래로 가서 이름표(아래 → 위)가 화살표 끝·시작을 덮기 쉽다 → placeTags 가 이 점들도 피한다.
-   * 드리블·슛 길은 넣지 않는다: 가로에서는 대체로 좌우라 위·아래 이름표와 부딪히지 않고, 듀얼 상대 바로 위를 지나 자리만 막는다
+   * 결정 대기 중 패스·크로스(·인터셉트) 미리보기 화살표가 지나갈 길(공 가진 선수 → 받는 선수)을 6px 점 박스로.
+   * 옆 패스·크로스는 화면 위아래로 가서 이름표(아래 → 위)가 화살표 끝·시작을 덮기 쉽다 → placeTags 가 이 점들도 피한다.
+   * 드리블·슛 길은 넣지 않는다: 대체로 좌우라 위·아래 이름표와 부딪히지 않고, 듀얼 상대 바로 위를 지나 자리만 막는다
    */
   function previewLanes(Lay, view) {
-    if (!LAND || !Lay || Lay.mode !== 'play' || !canDecideNow(view)) return [];
+    if (!Lay || Lay.mode !== 'play' || !canDecideNow(view)) return [];
     const atk = Lay.attackingSide;
     const C = tokOf(Lay, Lay.carrierId, atk);
     if (!C) return [];
@@ -473,7 +475,7 @@ export function renderMatch(root, ctx) {
     }
     return out;
   }
-  /** 선(a → b 픽셀, curve 면 크로스 포물선)을 따라 6px 점 박스 — 글자 자리 고르기의 장애물 (가로 화면). 무게 0.5: 선보다 토큰을 덜 가리는 게 먼저 */
+  /** 선(a → b 픽셀, curve 면 크로스 포물선)을 따라 6px 점 박스 — 글자 자리 고르기의 장애물. 무게 0.5: 선보다 토큰을 덜 가리는 게 먼저 */
   function lineDots(a, b, curve = false) {
     const out = [];
     const n = Math.max(2, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 6));
@@ -537,7 +539,7 @@ export function renderMatch(root, ctx) {
     if (!Lay) return;
     curL = Lay;
     curView = view;
-    if (!anim) pitch.classList.add('no-anim');
+    if (!anim) screen.classList.add('no-anim'); // 토큰 · 공 · 트랙 칸 트랜지션 없이
     const seen = new Set();
     const ei = expectInfo(view);
     const oppKey = oppDuelKey(view);
@@ -584,15 +586,28 @@ export function renderMatch(root, ctx) {
     placeBall(Lay);
     updateZones(Lay);
     updateTrack(Lay);
-    // 남은 수비 칩: "남은 수비: MF 2 + DF 2 + GK" → "남은 수비: MF2·DF2·GK" (필드 모서리에 짧게, 전체 문구는 title)
+    placeLogBox(Lay);
+    // 남은 수비 칩 (왼쪽 아래 컨트롤 묶음): "남은 수비: MF 2 + DF 2 + GK" → "남은 수비: MF2·DF2·GK" (짧게, 전체 문구는 title)
     const rem = Lay.remainingText || '';
     remainEl.textContent = rem.replace(/([A-Z]{2}) (\d+)/g, '$1$2').replace(/ \+ /g, '·');
     remainEl.title = rem;
     remainEl.classList.toggle('hidden', !rem);
     if (!anim) {
-      void pitch.offsetWidth; // 트랜지션 없이 즉시 반영
-      pitch.classList.remove('no-anim');
+      void screen.offsetWidth; // 트랜지션 없이 즉시 반영
+      screen.classList.remove('no-anim');
     }
+  }
+
+  /**
+   * 로그 서랍 자리 = 공 · 공격 방향의 반대쪽 절반 (기본 오른쪽, .side-l = 왼쪽 — css/match.css). 필드 y 0 = home 골(왼쪽) … 100 = away 골(오른쪽).
+   * 플레이 중에는 공격 방향으로 15 앞을 본다 (받는 선수 후보 · 미리보기 화살표는 공 앞) → home 공격이 중원에 오면 서랍은 왼쪽,
+   * 상대 공격이 중원에 오면 오른쪽. 열어 둔 채 결정 차례가 와도 공 가진 선수 · 수비수 · 후보 토큰을 가리거나 탭을 막지 않는다.
+   */
+  function placeLogBox(Lay) {
+    const by = Number(Lay?.ball?.y);
+    if (!Number.isFinite(by)) return;
+    const lead = Lay.mode === 'play' ? (Lay.attackingSide === 'away' ? -15 : 15) : 0;
+    logBox.classList.toggle('side-l', by + lead >= 50);
   }
 
   /** 공: play 모드에서 공 가진 선수가 있으면 발 앞(공격 방향)으로 살짝 — 얼굴을 가리지 않게. 승부차기·골문 안은 그대로 */
@@ -606,7 +621,7 @@ export function renderMatch(root, ctx) {
     let dx = 0;
     let dy = 0;
     if (frontOf) {
-      // 공격 방향(필드 y) 앞 + 필드 x 쪽으로 비낀 대각선: 세로 = 앞 오른쪽, 가로 = 앞 아래 (세로 그림을 돌린 것)
+      // 공격 방향(필드 y) 앞 + 필드 x 쪽으로 비낀 대각선 = 화면에서 앞 아래
       const k = tokPx * 0.42;
       const fwd = dirPx(0, frontOf === 'home' ? 1 : -1);
       const side = dirPx(1, 0);
@@ -633,25 +648,20 @@ export function renderMatch(root, ctx) {
         if (lbl) lbl.textContent = hl.label || '';
       }
     }
-    pitch.dataset.zone = String(Lay.zone);
+    field.dataset.zone = String(Lay.zone);
   }
 
   /**
-   * 공격 진행 트랙: 단계 i 칸을 그 단계의 구역 높이에 맞춰 세운다 (home: Z2→Z5 위로, away: Z4→Z1 아래로).
-   * 가로 화면은 필드 위 가로 줄 — 구역 폭에 맞춰 (home: 왼쪽 → 오른쪽, away: 오른쪽 → 왼쪽)
+   * 공격 진행 트랙: 헤더 아래 가로 줄, 단계 i 칸을 그 단계의 구역 폭에 맞춘다 (home: Z2→Z5 왼쪽 → 오른쪽, away: Z4→Z1 오른쪽 → 왼쪽).
+   * 트랙의 좌우 끝 = 규칙 영역의 좌우 끝 (css .m-track) 이라 % 가 구역과 같다
    */
   function updateTrack(Lay) {
     const tr = Lay.track || { side: 'home', step: 0, dir: 'up' };
     trackCells.forEach((cell, i) => {
       const zone = tr.side === 'away' ? 4 - i : i + 2;
       const z = ZONES[zone - 1];
-      if (LAND) {
-        cell.style.left = `calc(${z.from}% + 2px)`;
-        cell.style.width = `calc(${z.to - z.from}% - 4px)`;
-      } else {
-        cell.style.top = `${100 - z.to}%`;
-        cell.style.height = `${z.to - z.from}%`;
-      }
+      cell.style.left = `calc(${z.from}% + 2px)`;
+      cell.style.width = `calc(${z.to - z.from}% - 4px)`;
       const on = Lay.mode === 'penalties' ? i === tr.step : i <= tr.step; // 승부차기: ④ 만
       cell.className = ['trk', tr.side, on ? 'on' : '', i === tr.step ? 'cur' : ''].filter(Boolean).join(' ');
     });
@@ -670,7 +680,7 @@ export function renderMatch(root, ctx) {
     bannerKey = key;
     const lv = Lay.highlight?.level;
     bannerEl.className = ['m-banner', lv ? `lv-${lv}` : '', `side-${Lay.attackingSide}`].filter(Boolean).join(' ');
-    bannerEl.textContent = text;
+    bannerTxt.textContent = text;
     bannerEl.title = text;
     void bannerEl.offsetWidth;
     bannerEl.classList.add('fresh');
@@ -743,7 +753,7 @@ export function renderMatch(root, ctx) {
   }
 
   /* ------------------------------------------------------------------ */
-  /* 패널 (스코어 · 정보 · 액션 · 스킬 · 컨트롤 · 로그)                          */
+  /* HUD (스코어 · 정보 줄 · 결정 카드 · 스킬 묶음 · 컨트롤 묶음 · 로그 서랍)       */
   /* ------------------------------------------------------------------ */
   function drawPanels(view) {
     const finished = isFinished();
@@ -845,18 +855,21 @@ export function renderMatch(root, ctx) {
     return { out, pct, approx, ri, ultOk, nonDefault, label: shown?.label ?? null, hint: shown?.hint ?? null };
   }
 
+  /**
+   * 결정 카드 한 줄 (아래 가운데): 공격 = 켜진 액션만 (최대 4 — 드리블 · 패스 · 크로스 · 중거리 슛), 수비 = 3 (태클 · 인터셉트 · 버티기),
+   * 결정 차례가 아니면 우리 당사자의 성향값 카드 (자동 선택 표시), 고를 것이 없으면 넓은 상태 카드 1장.
+   * 클래스: action-grid k-atk|k-def|k-wide n-<장 수> [auto] [deciding]
+   */
   function drawActions(view, canDecide, finished) {
     const penMode = curL?.mode === 'penalties';
-    actGrid.classList.toggle('deciding', canDecide);
-    const setGrid = (cols, n) => {
-      const rows = Math.max(1, Math.ceil(n / cols));
-      actGrid.className = ['action-grid', `cols-${cols}`, `rows-${rows}`, canDecide ? 'deciding' : ''].filter(Boolean).join(' ');
+    const setRow = (kind, n, auto = false) => {
+      actGrid.className = ['action-grid', `k-${kind}`, `n-${n}`, auto ? 'auto' : '', canDecide ? 'deciding' : ''].filter(Boolean).join(' ');
     };
     if (finished || penMode || !view || view.phase !== 'decision') {
       // 고를 액션이 없는 구간: 한 칸짜리 상태 표시
       const pen = view?.penalties;
-      setGrid(1, 1);
-      actGrid.replaceChildren(h('button', { class: 'btn act-btn act-wide', type: 'button', disabled: true },
+      setRow('wide', 1);
+      actGrid.replaceChildren(h('button', { class: 'btn act-btn', type: 'button', disabled: true },
         h('span', { class: 'act-title' }, h('span', { class: 'act-nm' }, finished ? '🏁 경기 종료' : penMode ? '🥅 승부차기 — 자동 진행' : `⏳ ${view?.lineLabel ?? '진행 중'}`)),
         h('span', { class: 'btn-sub' }, finished
           ? '결과를 확인하세요'
@@ -865,10 +878,10 @@ export function renderMatch(root, ctx) {
     }
     const human = humanOf(view);
     const role = view.attackingSide === human ? 'attack' : 'defense';
-    if (!canDecide) { drawAutoActions(view, role, setGrid); return; }
+    if (!canDecide) { drawAutoActions(view, role, setRow); return; }
 
     const acts = (Array.isArray(view.actions) ? view.actions : []).filter((a) => a.enabled !== false);
-    if (!acts.length) { drawAutoActions(view, role, setGrid); return; }
+    if (!acts.length) { drawAutoActions(view, role, setRow); return; }
     const infos = acts.map((a) => ({ a, i: actionInfo(view, a) }));
     // 추천: 엔진 recommended (기본 조건). 스킬·필살기·받는 선수를 바꿨으면 지금 보이는 기대 % 최고
     const toggled = !!(ui.selectedSkillId || ui.ultimate || infos.some((x) => x.i.nonDefault));
@@ -879,17 +892,12 @@ export function renderMatch(root, ctx) {
       for (const { a, i } of infos) if (i.ultOk && i.pct != null && i.pct > best) { best = i.pct; recAction = a.action; }
     }
     const pairWith = role === 'defense' && !view.opponentReading ? L.COUNTER[view.expected?.attack?.action] ?? null : null;
-    if (role === 'attack') {
-      setGrid(acts.length === 1 ? 1 : 2, acts.length);
-    } else {
-      setGrid(Math.min(3, acts.length), acts.length);
-    }
-    const wideLast = role === 'attack' && acts.length === 3;
-    actGrid.replaceChildren(...infos.map(({ a, i }, idx) =>
-      actionButton(view, a, i, { role, rec: a.action === recAction, pair: pairWith === a.action, wide: wideLast && idx === 2 })));
+    setRow(role === 'attack' ? 'atk' : 'def', acts.length);
+    actGrid.replaceChildren(...infos.map(({ a, i }) =>
+      actionButton(view, a, i, { role, rec: a.action === recAction, pair: pairWith === a.action })));
   }
 
-  function actionButton(view, a, info, { role, rec, pair, wide }) {
+  function actionButton(view, a, info, { role, rec, pair }) {
     const enabled = info.ultOk;
     const label = info.label ?? a.label ?? L.ACTION_LABELS[a.action] ?? a.action;
     const human = humanOf(view);
@@ -918,7 +926,8 @@ export function renderMatch(root, ctx) {
       pair ? h('span', { class: 'chip chip-pair' }, '짝') : null,
       rec && enabled ? h('span', { class: 'chip chip-rec' }, '추천') : null,
     ].filter(Boolean);
-    // 공격: 추천 칩은 성공 줄 오른쪽 (제목 폭은 받는 선수 이름에 쓴다). 수비(3열): 짝·추천 칩 + 판정 스탯을 아래 줄에
+    // 공격: 추천 칩은 성공 줄 오른쪽 (제목 폭은 받는 선수 이름에 쓴다), 성공·실패는 짧은 문구 한 줄씩 (긴 문구는 title) + 약점 힌트 한 줄.
+    // 수비: 짝·추천 칩 + 판정 스탯을 아래 줄에
     const lines = role === 'attack'
       ? [
         h('span', { class: ['act-out', 'ok', out?.success?.goal ? 'goal' : ''] },
@@ -933,7 +942,7 @@ export function renderMatch(root, ctx) {
         h('span', { class: 'act-foot' }, ...chips, formula ? h('span', { class: 'act-formula' }, formula) : null),
       ];
     return h('button', {
-      class: ['btn', 'act-btn', enabled ? 'decide' : 'dim', rec && enabled ? 'rec' : '', wide ? 'span-2' : '', info.ultOk && ui.ultimate && ultOption(view) ? 'ult-on' : ''],
+      class: ['btn', 'act-btn', enabled ? 'decide' : 'dim', rec && enabled ? 'rec' : '', info.ultOk && ui.ultimate && ultOption(view) ? 'ult-on' : ''],
       type: 'button',
       disabled: !enabled,
       dataset: { action: a.action, receiver: ri?.id ?? '' },
@@ -959,13 +968,14 @@ export function renderMatch(root, ctx) {
   }
 
   /** 결정 차례가 아닐 때(자동 진행·연출 중): 우리 당사자의 성향값과 자동 선택 (GDD v0.5 §9.9 — 자동은 1위 액션) */
-  function drawAutoActions(view, role, setGrid) {
+  function drawAutoActions(view, role, setRow) {
     const ex = view.expected?.[role] || null;
     const box = Number(view.lineIndex) >= 3;
     if (!ex || (role === 'defense' && box)) {
+      // GK 듀얼(세이브 자동) 등: 넓은 상태 카드 1장
       const gk = role === 'defense' ? nameOf(view, humanOf(view), ex?.playerId ?? view.defender?.id) : '';
-      setGrid(1, 1);
-      actGrid.replaceChildren(h('button', { class: 'btn act-btn act-wide', type: 'button', disabled: true },
+      setRow('wide', 1);
+      actGrid.replaceChildren(h('button', { class: 'btn act-btn', type: 'button', disabled: true },
         h('span', { class: 'act-title' }, h('span', { class: 'act-nm' }, role === 'defense' && box ? `🧤 ${gk ? `${gk} ` : ''}세이브 — 자동` : `⏳ ${view.lineLabel ?? ''}`)),
         h('span', { class: 'btn-sub' }, role === 'defense' && box ? 'GK 듀얼은 세이브 자동 (필살 세이브도 조건이 맞으면 자동)' : '')));
       return;
@@ -974,15 +984,12 @@ export function renderMatch(root, ctx) {
       .filter(([k, v]) => Number(v) > 0 || k === ex.action)
       .sort((x, y) => ACTION_ORDER.indexOf(x[0]) - ACTION_ORDER.indexOf(y[0]));
     const hints = new Map((view.actions || []).map((a) => [a.action, a]));
-    const n = Math.max(1, entries.length);
-    if (role === 'attack') setGrid(n === 1 ? 1 : 2, n);
-    else setGrid(Math.min(3, n), n);
-    const wideLast = role === 'attack' && n === 3;
-    actGrid.replaceChildren(...entries.map(([k, v], idx) => {
+    setRow(role === 'attack' ? 'atk' : 'def', Math.max(1, entries.length), true);
+    actGrid.replaceChildren(...entries.map(([k, v]) => {
       const auto = k === ex.action;
       const a = hints.get(k);
       return h('button', {
-        class: ['btn', 'act-btn', 'auto-view', auto ? 'auto-pick' : '', wideLast && idx === 2 ? 'span-2' : ''],
+        class: ['btn', 'act-btn', 'auto-view', auto ? 'auto-pick' : ''],
         type: 'button',
         disabled: true,
         dataset: { action: k },
@@ -992,7 +999,7 @@ export function renderMatch(root, ctx) {
         h('span', { class: 'act-nm' }, h('span', { class: 'act-ico' }, L.ACTION_ICONS[k] ?? ''), ` ${a?.label ?? L.ACTION_LABELS[k] ?? k}`),
         h('b', { class: 'act-pct muted' }, String(v))),
       h('span', { class: ['act-out', auto ? 'auto' : 'muted'] }, auto ? '자동 선택' : '성향값'),
-      a?.hint ? h('span', { class: 'act-out muted' }, stripRecvHint(a.hint)) : null);
+      a?.hint ? h('span', { class: 'act-why' }, stripRecvHint(a.hint)) : null);
     }));
   }
 
@@ -1078,16 +1085,19 @@ export function renderMatch(root, ctx) {
           drawPanels(curView);
         },
       },
-      h('span', { class: 'sk-nm ellipsis' }, `⚡ ${s.name ?? s.skillId}`),
+      h('span', { class: 'sk-nm ellipsis' }, h('span', { class: 'sk-ico', 'aria-hidden': 'true' }, '⚡ '), s.name ?? s.skillId),
       h('span', { class: 'sk-cost', 'aria-label': `텐션 ${s.cost ?? s.tension ?? 0}` }, `✦${s.cost ?? s.tension ?? 0}`)));
     }
     if (!items.length) {
+      skillRow.classList.remove('many', 'over');
       skillRow.replaceChildren(h('span', { class: 'tiny muted' },
         curL?.mode === 'penalties' ? '승부차기 중에는 스킬을 쓸 수 없음' : '쓸 수 있는 스킬·필살기 없음'));
       return;
     }
-    // 4개 이상이면 줄이 좁아 이름이 잘린다 → 압축 모드 (필살기 "필살기/합체기" 꼬리표·텐션 ✦ 숨김 — 색·아이콘·비활성으로 구분, 제목에 전부)
+    // 오른쪽 아래 묶음 (상자 96px — 필드 위로 자라지 않는다): 3개까지 한 줄에 하나씩 세로로 쌓고, 4개 이상이면 2열 압축 모드
+    // (이름 두 줄까지 · ✦ 비용은 작게 · 필살기 "필살기/합체기" 꼬리표만 숨김 — css/match.css), 7개 이상(2열 × 3줄 초과)은 상자 안 스크롤(.over)
     skillRow.classList.toggle('many', items.length >= 4);
+    skillRow.classList.toggle('over', items.length > 6);
     skillRow.replaceChildren(...items);
   }
 
@@ -1105,14 +1115,21 @@ export function renderMatch(root, ctx) {
     drawPanels(curView);
   }
 
+  /**
+   * 왼쪽 아래 컨트롤 묶음 (목업: 자동 OFF 위 · 배속 아래): [자동][개입] / [배속][⏭][로그].
+   * 배속 = 버튼 하나가 1x → 2x → 4x → 1x 로 돈다. 개입은 자동 진행 중에만 의미가 있어 자동 OFF 이거나 경기가 끝났으면 자리만 두고 숨긴다 (.off).
+   */
   function drawControls(finished, canDecide = false) {
-    const intervening = ui.auto && ui.intervene; // 개입은 자동 진행 중에만 의미가 있다
+    const intervening = ui.auto && ui.intervene && !finished;
+    const sp = SPEEDS.includes(Number(ui.speed)) ? Number(ui.speed) : 1;
+    const nextSp = SPEEDS[(SPEEDS.indexOf(sp) + 1) % SPEEDS.length];
     controls.replaceChildren(
       h('button', {
         class: ['btn', 'auto-btn', ui.auto ? 'active' : ''],
         type: 'button',
         'aria-pressed': ui.auto ? 'true' : 'false',
         disabled: finished,
+        title: ui.auto ? '자동 진행 중 — 누르면 매 결정을 직접 고른다' : '매 결정을 직접 고른다 — 누르면 자동 진행',
         onclick: () => {
           ui.auto = !ui.auto;
           ui.intervene = false; // 켜든 끄든 개입 대기는 해제 (자동 OFF 면 매 결정이 이미 수동)
@@ -1121,67 +1138,44 @@ export function renderMatch(root, ctx) {
           schedule(T.idle * fx());
         },
       }, ui.auto ? '자동 ON' : '자동 OFF'),
-      h('span', { class: 'speed', role: 'group', 'aria-label': '배속' }, [1, 2, 4].map((sp) =>
-        h('button', {
-          class: ['btn', ui.speed === sp ? 'active' : ''],
-          type: 'button',
-          'aria-pressed': ui.speed === sp ? 'true' : 'false',
-          onclick: () => { ui.speed = sp; refreshControls(); },
-        }, `${sp}x`))),
       h('button', {
-        class: ['btn', 'grow', intervening ? 'active' : ''],
+        class: ['btn', 'iv-btn', intervening ? 'active' : '', ui.auto && !finished ? '' : 'off'],
         type: 'button',
         disabled: !ui.auto || finished,
+        'aria-pressed': intervening ? 'true' : 'false',
         title: '다음 결정 차례에서 멈추고 직접 고른다',
         onclick: () => { ui.intervene = !ui.intervene; refreshControls(); schedule(T.idle * fx()); },
       }, intervening ? (canDecide ? '직접 선택 중' : '개입 대기…') : '개입'),
-      h('button', { class: 'btn', type: 'button', disabled: finished, title: '결과까지 스킵', 'aria-label': '결과까지 스킵', onclick: skip }, '⏭'),
-      ...[orientButton()].filter(Boolean)); // 좁은 세로 창이면 null (replaceChildren 은 null 을 글자로 넣는다)
+      h('button', {
+        class: ['btn', 'speed-btn', sp > 1 ? 'active' : ''],
+        type: 'button',
+        title: `배속 ${sp}x — 누르면 ${nextSp}x`,
+        'aria-label': `배속 ${sp}x, 누르면 ${nextSp}x`,
+        dataset: { speed: String(sp) },
+        onclick: () => { ui.speed = nextSp; refreshControls(); },
+      }, `${sp}x`),
+      h('button', { class: 'btn skip-btn', type: 'button', disabled: finished, title: '결과까지 스킵', 'aria-label': '결과까지 스킵', onclick: skip }, '⏭'),
+      h('button', {
+        class: ['btn', 'log-btn', ui.logOpen ? 'active' : ''],
+        type: 'button',
+        'aria-expanded': ui.logOpen ? 'true' : 'false',
+        'aria-controls': 'm-logbox',
+        title: ui.logOpen ? '경기 로그 닫기' : '경기 로그 열기',
+        onclick: () => setLogOpen(!ui.logOpen),
+      }, '로그'));
   }
 
-  /**
-   * 가로 ↔ 세로 전환 버튼 (§13.9): 누르면 저장하고 전환. 연출 중이면 비트가 끝날 때.
-   * 세로 화면에서 창이 가로 화면을 못 담으면(store.landFits — 폰 등) 버튼을 두지 않는다 (눌러도 세로 그대로라 자리만 차지)
-   */
-  function orientButton() {
-    if (!LAND && !landFits()) return null;
-    const next = LAND ? 'port' : 'land';
-    const label = next === 'land' ? '가로 화면으로' : '세로 화면으로';
-    return h('button', {
-      class: ['btn', 'orient-btn', orientPending ? 'active' : ''],
-      type: 'button',
-      title: orientPending ? `${label} — 이번 연출이 끝나면 바뀐다` : `${label} (경기 화면만)`,
-      'aria-label': label,
-      dataset: { orient: next },
-      onclick: () => {
-        if (orientPending) return;
-        ui.orient = next; // 이번 세션: URL ?orient 보다 앞선다
-        saveOrient(next);
-        requestOrientSwitch();
-      },
-    }, LAND ? '⇄ 세로' : '⇄'); // 세로 화면은 컨트롤 줄 폭이 빠듯해 아이콘만 (이름은 title · aria-label)
-  }
-  /** 방향 전환: 연출 중이면 미뤘다가 finishBeat · skip 에서, 아니면 바로 */
-  function requestOrientSwitch() {
-    if (!alive()) return;
-    if (busy) {
-      orientPending = true;
-      drawControls(isFinished(), false);
-      return;
-    }
-    applyOrientSwitch();
-  }
-  /** 경기 화면을 새 방향으로 다시 그린다 (app render → renderMatch 가 store.match 에서 복원; 자동·배속·토글·받는 선수 선택 유지) */
-  function applyOrientSwitch() {
-    orientPending = false;
-    if (!alive()) return;
-    cancelTimers();
-    if (ui.resultShown) ui.resultShown = false; // 결과 모달은 render() 가 닫는다 → 새 화면이 다시 연다
-    ctx.render();
+  /** 로그 서랍 열기/닫기 (ui.logOpen — 경기 화면을 다시 그려도 유지). 열면 맨 아래(최신)로 */
+  function setLogOpen(open) {
+    ui.logOpen = !!open;
+    logBox.classList.toggle('open', ui.logOpen);
+    logBox.setAttribute('aria-hidden', ui.logOpen ? 'false' : 'true');
+    drawControls(isFinished(), canDecideNow(curView));
+    if (ui.logOpen) log.scrollTop = log.scrollHeight;
   }
 
   function drawLog(canDecide = false) {
-    const evs = (Array.isArray(store.match?.events) ? store.match.events : []).slice(-30);
+    const evs = (Array.isArray(store.match?.events) ? store.match.events : []).slice(-60);
     log.classList.toggle('deciding', !!canDecide);
     log.replaceChildren(...(evs.length
       ? evs.map((e) => h('div', { class: ['log-line', e.side ?? '', e.success ? 'success' : '', e.type ? `ev-${e.type}` : ''], title: e.text ?? '' },
@@ -1206,7 +1200,7 @@ export function renderMatch(root, ctx) {
     arrowFor = null;
     arrowG.replaceChildren();
     tipG.replaceChildren();
-    pitch.classList.remove('previewing', 'previewing-def');
+    field.classList.remove('previewing', 'previewing-def');
   }
 
   function drawArrow(action, out, role, view) {
@@ -1219,7 +1213,7 @@ export function renderMatch(root, ctx) {
     const c = toPx(C.x, C.y);
     const rTok = tokPx / 2 + 3;
     const zoneName = (z) => ZONES[(z ?? 0) - 1]?.name ?? '';
-    pitch.classList.add('previewing');
+    field.classList.add('previewing');
 
     if (role === 'attack') {
       let to = null;
@@ -1237,7 +1231,7 @@ export function renderMatch(root, ctx) {
           else arrowLine(c, t2, { startGap: rTok, endGap: rTok, dashed: true, color: '#ffd166', marker: 'mah-gold', cls: 'ar-pass' });
           const z = zoneName(out?.success?.zone);
           const at = (k) => (action === 'cross' ? curvePoint(c, t2, k) : lerp2(c, t2, k));
-          if (z) arrowTip(at(0.5), `→ ${z}`, c, t2, LAND ? lineDots(c, t2, action === 'cross') : [], LAND ? [at(0.7), at(0.3)] : []);
+          if (z) arrowTip(at(0.5), `→ ${z}`, c, t2, lineDots(c, t2, action === 'cross'), [at(0.7), at(0.3)]);
         }
         return;
       } else if (action === 'shoot') {
@@ -1247,12 +1241,12 @@ export function renderMatch(root, ctx) {
       if (!to) return;
       const t = toPx(to.x, to.y);
       arrowLine(c, t, { startGap: rTok, endGap: 0, dashed: false, color: '#ffd166', marker: 'mah-gold', cls: `ar-${action}` });
-      if (tip) arrowTip(t, tip, c, t, LAND ? lineDots(c, t) : []);
+      if (tip) arrowTip(t, tip, c, t, lineDots(c, t));
       return;
     }
 
     // 수비: 상대 carrier 앞 차단 표시 — 막으려는 길(드리블 길 / 패스·크로스 길 / 슛 길)을 흰 점선으로, 우리 수비가 끊는 지점에 빨간 ✕
-    pitch.classList.add('previewing-def'); // 미리보기 동안 우리 수비수 이름표를 접어 ✕ 자리를 비운다
+    field.classList.add('previewing-def'); // 미리보기 동안 우리 수비수 이름표를 접어 ✕ 자리를 비운다
     const D = tokOf(Lay, Lay.defenderId, def);
     const d = D ? toPx(D.x, D.y) : null;
     const goal = toPx(Lay.goal.x, Lay.goal.y >= 50 ? 99 : 1);
@@ -1290,18 +1284,18 @@ export function renderMatch(root, ctx) {
     const cut = (pickSpot(cutCands, others) || cutCands[0]).p;
     arrowLine(c, pathTo, { startGap: rTok, endGap, dashed: true, color: '#ffffff', marker: 'mah-white', cls: 'ar-lane', opacity: 0.75 });
     crossMark(cut, tokPx * 0.4);
-    sideLabel(cut, L.ACTION_LABELS[action] ?? action, tokPx * 0.7, vv, LAND ? lineDots(c, pathTo) : []);
+    sideLabel(cut, L.ACTION_LABELS[action] ?? action, tokPx * 0.7, vv, lineDots(c, pathTo));
   }
 
-  /** 미리보기 글자 한 줄을 토큰 위 층에: 후보 자리 중 토큰이 없는 첫 자리 (없으면 가장 덜 가리는 자리). extra = 더 피할 박스 (가로: 화살표 선의 점) */
+  /** 미리보기 글자 한 줄을 토큰 위 층에: 후보 자리 중 토큰이 없는 첫 자리 (없으면 가장 덜 가리는 자리). extra = 더 피할 박스 (화살표 선의 점) */
   function tipText(cands, text, cls, extra = []) {
-    const w = textWidth(text, 11) + 4;
+    const w = textWidth(text, FONT.tip) + 4;
     const boxOf = (c) => {
       const l = c.anchor === 'start' ? c.x : c.anchor === 'end' ? c.x - w : c.x - w / 2;
-      return { l, r: l + w, t: c.y - 11, b: c.y + 3 };
+      return { l, r: l + w, t: c.y - 12, b: c.y + 3 };
     };
-    // 가로 화면: 수비 미리보기 동안 접힌 수비수 이름표(.previewing-def)는 보이지 않으니 피하지 않는다 → ✕ 옆 빈자리를 쓴다
-    const tags = LAND && pitch.classList.contains('previewing-def') ? tagBoxes.filter((b) => b.role !== 'defender') : tagBoxes;
+    // 수비 미리보기 동안 접힌 수비수 이름표(.previewing-def)는 보이지 않으니 피하지 않는다 → ✕ 옆 빈자리를 쓴다
+    const tags = field.classList.contains('previewing-def') ? tagBoxes.filter((b) => b.role !== 'defender') : tagBoxes;
     const obstacles = [...(curL?.tokens || []).map(tokenRect), ...tags, ...extra];
     const pick = pickSpot(cands.map((c) => ({ ...c, box: boxOf(c) })), obstacles) || { ...cands[0] };
     const el = svgEl('text', { x: round1(pick.x), y: round1(pick.y), class: cls, 'text-anchor': pick.anchor });
@@ -1310,27 +1304,26 @@ export function renderMatch(root, ctx) {
   }
 
   function sideLabel(p, text, off, dir, lineObs = []) {
-    // ✕ 옆 차단 액션 이름: 오른쪽 → 왼쪽 → 위 → 아래 중 토큰이 없는 쪽
-    // 가로 화면: 막는 길(dir)이 대체로 좌우라 오른쪽·왼쪽은 길 위에 놓인다 → 길의 수직 양쪽 먼저 (세로의 "오른쪽 먼저"를 돌린 아래 먼저)
+    // ✕ 옆 차단 액션 이름: 막는 길(dir)이 대체로 좌우라 오른쪽·왼쪽은 길 위에 놓인다 → 길의 수직 양쪽(아래 먼저) → 오른쪽 → 왼쪽 → 위 → 아래
     const rightFirst = p[0] < W * 0.62;
     const R = { x: p[0] + off, y: p[1] + 4, anchor: 'start' };
     const Lf = { x: p[0] - off, y: p[1] + 4, anchor: 'end' };
-    const across = LAND && dir ? normalTips(p, dir, textWidth(text, 11) + 4, off - 1, [rightFirst ? 0.01 : -0.01, p[1] < H * 0.62 ? 1 : -1]) : [];
+    const across = dir ? normalTips(p, dir, textWidth(text, FONT.tip) + 4, off - 1, [rightFirst ? 0.01 : -0.01, p[1] < H * 0.62 ? 1 : -1]) : [];
     tipText([...across, rightFirst ? R : Lf, rightFirst ? Lf : R,
       { x: p[0], y: p[1] - off - 2, anchor: 'middle' }, { x: p[0], y: p[1] + off + 12, anchor: 'middle' }], text, 'ar-tip def', lineObs);
   }
   /**
-   * 가로 화면 미리보기 글자 후보 2개: 선 방향 dir 의 수직 양쪽, 글자 박스(폭 w · 높이 14)가 선에서 gap 만큼 떨어지게.
+   * 미리보기 글자 후보 2개: 선 방향 dir 의 수직 양쪽, 글자 박스(폭 w · 높이 15)가 선에서 gap 만큼 떨어지게.
    * prefer 와 같은 쪽(내적 > 0)을 먼저. tipText 후보 형식 { x, y(기준선), anchor: 'middle' }, 필드 안으로 clamp
    */
   function normalTips(p, dir, w, gap, prefer) {
     const len = Math.hypot(dir[0], dir[1]);
     let n = len > 0.5 ? [-dir[1] / len, dir[0] / len] : [0, -1];
     if (n[0] * prefer[0] + n[1] * prefer[1] < 0) n = [-n[0], -n[1]];
-    const d = (Math.abs(n[0]) * w + Math.abs(n[1]) * 14) / 2 + gap; // 박스 중심까지: 박스의 n 방향 반폭 + 간격
+    const d = (Math.abs(n[0]) * w + Math.abs(n[1]) * 15) / 2 + gap; // 박스 중심까지: 박스의 n 방향 반폭 + 간격
     return [1, -1].map((s) => ({
       x: clamp(p[0] + n[0] * d * s, w / 2 + 2, W - w / 2 - 2),
-      y: clamp(p[1] + n[1] * d * s + 4, 12, H - 6), // 기준선 = 박스 중심 + 4 (tipText 박스: 기준선 −11 ~ +3)
+      y: clamp(p[1] + n[1] * d * s + 4.5, 13, H - 5), // 기준선 = 박스 중심 + 4.5 (tipText 박스: 기준선 −12 ~ +3)
       anchor: 'middle',
     }));
   }
@@ -1368,35 +1361,24 @@ export function renderMatch(root, ctx) {
     }
   }
   function arrowTip(p, text, from, to = p, lineObs = [], alts = []) {
-    // 화살표 끝(또는 궤적 가운데) 옆에 짧은 라벨: 진행 방향 앞 → 뒤 → 좌우 중 토큰이 없는 자리. 필드 밖으로 나가지 않게 clamp
-    // 가로 화면: 화살표 방향(from → to; 크로스 곡선 가운데의 접선도 이 방향)의 수직 양쪽 — 위쪽 먼저 → 그다음 예전 위 → 아래 → 앞 → 뒤
-    // → 그래도 다 막히면 alts(패스·크로스 길 위 다른 점)의 수직 양쪽 (뒤에 붙인 후보라 앞 자리가 비면 결과는 그대로)
+    // 화살표 끝(또는 궤적 가운데) 옆에 짧은 라벨, 필드 밖으로 나가지 않게 clamp. 후보: 화살표 방향(from → to; 크로스 곡선 가운데의 접선도
+    // 이 방향)의 수직 양쪽(위쪽 먼저) → 위 → 아래 → 앞 → 뒤 → 그래도 다 막히면 alts(패스·크로스 길 위 다른 점)의 수직 양쪽
+    // (뒤에 붙인 후보라 앞 자리가 비면 결과는 그대로)
     const side = p[0] >= from[0] ? 1 : -1;
     const x = clamp(p[0] + side * (tokPx * 0.2), 34, W - 34);
-    const cy = (dy) => clamp(p[1] + dy, 12, H - 6);
+    const cy = (dy) => clamp(p[1] + dy, 13, H - 5);
     const off = tokPx * 0.8;
     const right = { x: clamp(p[0] + off, 0, W - 40), y: cy(4), anchor: 'start' };
     const left = { x: clamp(p[0] - off, 40, W), y: cy(4), anchor: 'end' };
-    if (LAND) {
-      const w = textWidth(text, 11) + 4;
-      tipText([
-        ...normalTips(p, sub2(to, from), w, 8, [0, -1]),
-        { x, y: cy(-tokPx * 0.75), anchor: 'middle' },
-        { x, y: cy(tokPx * 0.95), anchor: 'middle' },
-        side > 0 ? right : left,
-        side > 0 ? left : right,
-        ...alts.flatMap((q) => normalTips(q, sub2(to, from), w, 8, [0, -1])),
-      ], text, 'ar-tip', lineObs);
-      return;
-    }
-    const ahead = p[1] < from[1] ? -tokPx * 0.75 : tokPx * 0.95;
-    const behind = p[1] < from[1] ? tokPx * 0.95 : -tokPx * 0.75;
+    const w = textWidth(text, FONT.tip) + 4;
     tipText([
-      { x, y: cy(ahead), anchor: 'middle' },
-      { x, y: cy(behind), anchor: 'middle' },
-      right,
-      left,
-    ], text, 'ar-tip');
+      ...normalTips(p, sub2(to, from), w, 8, [0, -1]),
+      { x, y: cy(-tokPx * 0.75), anchor: 'middle' },
+      { x, y: cy(tokPx * 0.95), anchor: 'middle' },
+      side > 0 ? right : left,
+      side > 0 ? left : right,
+      ...alts.flatMap((q) => normalTips(q, sub2(to, from), w, 8, [0, -1])),
+    ], text, 'ar-tip', lineObs);
   }
   /** 크로스 곡선의 제어점: 중점에서 진행 방향의 수직으로 길이 × 0.28, 필드 가운데(골과 나란한 축의 가운데)에서 먼 쪽 */
   function curveCtrl(a, b) {
@@ -1407,9 +1389,9 @@ export function renderMatch(root, ctx) {
     const len = Math.hypot(dx, dy) || 1;
     let nx = -dy / len;
     let ny = dx / len;
-    // 필드 폭 방향 축: 세로 화면 = 화면 x (가운데 W/2), 가로 화면 = 화면 y (가운데 H/2)
-    const out = LAND ? my + ny * 10 - H / 2 : mx + nx * 10 - W / 2;
-    const inn = LAND ? my - ny * 10 - H / 2 : mx - nx * 10 - W / 2;
+    // 필드 폭 방향 축 = 화면 y (가운데 H/2)
+    const out = my + ny * 10 - H / 2;
+    const inn = my - ny * 10 - H / 2;
     if (Math.abs(inn) > Math.abs(out)) { nx = -nx; ny = -ny; }
     const k = len * 0.28;
     return [mx + nx * k, my + ny * k];
@@ -1426,8 +1408,8 @@ export function renderMatch(root, ctx) {
   function setDurations(k) {
     const act = reduced ? 0 : Math.round(T.act * k);
     const move = reduced ? 0 : Math.round(T.move * k);
-    pitch.style.setProperty('--t-act', `${act}ms`);
-    pitch.style.setProperty('--t-move', `${move}ms`);
+    field.style.setProperty('--t-act', `${act}ms`);
+    field.style.setProperty('--t-move', `${move}ms`);
   }
 
   /**
@@ -1553,8 +1535,8 @@ export function renderMatch(root, ctx) {
 
   /** ① 액션 연출: 드리블 = carrier 와 함께, 패스 = receiver 로, 크로스 = 포물선, 슛 = 골문으로, 실패 = defender 로 (§12.3) */
   function actionPhase(ev, prevL, prevView) {
-    pitch.classList.remove('phase-move');
-    pitch.classList.add('phase-act');
+    field.classList.remove('phase-move');
+    field.classList.add('phase-act');
     const atk = ev.side === 'away' ? 'away' : 'home';
     const def = atk === 'home' ? 'away' : 'home';
     const C = tokOf(prevL, ev.playerId, atk) || tokOf(prevL, prevL.carrierId, atk) || prevL.ball;
@@ -1637,8 +1619,8 @@ export function renderMatch(root, ctx) {
     if (!at) return;
     // 문구 상자(가운데 기준): 토큰 위(이름표 위) → 오른쪽 → 왼쪽 → 아래. 필드 위쪽 끝이라 위에 못 두면 아래부터.
     // 장애물 = 토큰 전원 + 연계가 터진 자리(공 가진 선수가 옮겨 간 자리) + 이름표·말풍선 + 공 → 수비수 이름표·GK 얼굴을 덮지 않는다
-    const w = textWidth(text, 14) + 10;
-    const hh = 20;
+    const w = textWidth(text, FONT.link) + 10;
+    const hh = 22;
     const [cx, cy] = toPx(at.x, at.y);
     const r = tokPx / 2;
     const spot = (x0, y0) => {
@@ -1669,17 +1651,17 @@ export function renderMatch(root, ctx) {
     drawHud(view, isFinished());
     goalFx.textContent = us ? 'GOAL!' : '실점';
     goalFx.className = `goal-fx show ${us ? 'home' : 'away'}`;
-    pitch.classList.add(us ? 'flash-good' : 'flash-bad');
+    grass.classList.add(us ? 'flash-good' : 'flash-bad');
     later(() => {
       goalFx.className = 'goal-fx';
-      pitch.classList.remove('flash-good', 'flash-bad');
+      grass.classList.remove('flash-good', 'flash-bad');
     }, Math.max(350, (T.goal + T.move * 0.5) * fx()));
   }
 
   /** ② 재배치: computeLayout 새 좌표로 전원 이동 + 패널·배너 갱신 */
   function movePhase(nextL, view) {
-    pitch.classList.remove('phase-act');
-    pitch.classList.add('phase-move');
+    field.classList.remove('phase-act');
+    field.classList.add('phase-move');
     ballEl.classList.remove('ult');
     trailG.replaceChildren();
     applyLayout(nextL, view, { anim: !reduced });
@@ -1699,21 +1681,22 @@ export function renderMatch(root, ctx) {
     if (ev.type === 'goal') {
       side = 'c'; x = W / 2; y = H * 0.62;
     } else {
-      const w = textWidth(r.text, 12) + 20;
+      const w = textWidth(r.text, FONT.pop) + 20;
       const [ax, ay] = toPx(at.x, at.y);
-      const firstR = ax <= W / 2; // 공이 화면 왼쪽 절반이면 오른쪽부터 (세로 화면: at.x <= 50 과 같다)
+      const firstR = ax <= W / 2; // 공이 화면 왼쪽 절반이면 오른쪽부터
       const cands = [];
       for (const dy of [0, -tokPx * 1.1, tokPx * 1.1]) {
         for (const s of firstR ? ['r', 'l'] : ['l', 'r']) {
           const px = ax + (s === 'r' ? 1 : -1) * tokPx;
           const py = clamp(ay + dy, 14, H - 14);
-          cands.push({ side: s, x: px, y: py, box: { l: s === 'r' ? px : px - w, r: s === 'r' ? px + w : px, t: py - 11, b: py + 11 } });
+          cands.push({ side: s, x: px, y: py, box: { l: s === 'r' ? px : px - w, r: s === 'r' ? px + w : px, t: py - 12, b: py + 12 } });
         }
       }
       // 공 근처가 다 막혔으면 필드 가운데 줄 중 빈 띠로 (공과 가까운 띠부터)
       const bands = [0.1, 0.28, 0.5, 0.72, 0.9].map((f) => H * f).sort((a, b) => Math.abs(a - ay) - Math.abs(b - ay));
-      for (const by of bands) cands.push({ side: 'c', x: W / 2, y: by, box: { l: W / 2 - w / 2, r: W / 2 + w / 2, t: by - 11, b: by + 11 } });
-      const obstacles = (nextL?.tokens || []).map(tokenRect);
+      for (const by of bands) cands.push({ side: 'c', x: W / 2, y: by, box: { l: W / 2 - w / 2, r: W / 2 + w / 2, t: by - 12, b: by + 12 } });
+      // 장애물 = 토큰 전원 + 공 + 이름표·말풍선 (재배치 applyLayout 이 방금 고른 자리 — 결과 한 줄이 예상 행동 말풍선을 덮지 않게)
+      const obstacles = [...(nextL?.tokens || []).map(tokenRect), ...tagBoxes];
       if (nextL?.ball) obstacles.push(ballRect(nextL));
       const pick = pickSpot(cands, obstacles) || cands[0];
       ({ side, x, y } = pick);
@@ -1739,17 +1722,11 @@ export function renderMatch(root, ctx) {
   }
 
   function finishBeat() {
-    pitch.classList.remove('phase-act', 'phase-move');
+    field.classList.remove('phase-act', 'phase-move');
     hideCut();
     setBusy(false);
-    // 연출 중 누른 가로/세로 전환: 새 화면이 지금 상태(비트 뒤)에서 이어 간다
-    if (orientPending) { applyOrientSwitch(); return; }
-    // 연출 중 바뀐 것 반영: 창 크기(resize 는 연출 중 미뤘다), 자동/개입 전환(받는 선수 후보 확정 여부), 토글
-    const w = pitch.clientWidth;
-    const hh = pitch.clientHeight;
-    const resized = resizePending || (w > 40 && hh > 40 && (w !== W || hh !== H));
-    resizePending = false;
-    relayout({ anim: !resized && !reduced });
+    // 연출 중 바뀐 것 반영: 자동/개입 전환(받는 선수 후보 확정 여부), 토글
+    relayout({ anim: !reduced });
     drawPanels(curView);
     schedule(0);
   }
@@ -1934,12 +1911,10 @@ export function renderMatch(root, ctx) {
     stopBallArc();
     trailG.replaceChildren();
     popLayer.replaceChildren();
-    pitch.classList.remove('phase-act', 'phase-move');
+    field.classList.remove('phase-act', 'phase-move');
     const ms = store.match;
     const r = safe(() => match.simulateAuto(ms, data));
     saveMatch(ms);
-    // 연출 중 눌러 둔 가로/세로 전환: 새 화면이 종료 상태를 그리고 결과 모달을 연다 (스킵이 실패해도 전환은 한다 — 대기 상태로 남지 않게)
-    if (orientPending) { applyOrientSwitch(); return; }
     refresh();
     if (r !== undefined) showResult();
   }
@@ -2049,20 +2024,9 @@ export function renderMatch(root, ctx) {
   /* ------------------------------------------------------------------ */
   /* 시작                                                                 */
   /* ------------------------------------------------------------------ */
-  let fitsNow = landFits(); // 세로 화면 ⇄ 버튼 표시 여부가 바뀌었는지 (창 크기)
-  const onResize = () => {
-    if (!alive()) { window.removeEventListener('resize', onResize); return; }
-    // 방향을 따로 고르지 않았으면(기본 규칙) 창 모양이 바뀔 때 가로/세로도 따라간다. 고른 'land' 도 창이 못 담으면 세로로 (§13.9)
-    if (resolveOrient().orient !== orient) { if (!orientPending) requestOrientSwitch(); return; }
-    if (landFits() !== fitsNow) { fitsNow = !fitsNow; drawControls(isFinished(), canDecideNow(curView)); }
-    if (!curView) return;
-    // 연출 중에는 진행 중인 좌표를 건드리지 않고, 비트가 끝날 때(finishBeat) 새 크기로 다시 배치한다
-    if (busy) { resizePending = true; return; }
-    // 보던 미리보기 화살표는 새 좌표로 다시 그린다 (모바일 주소창 접힘 등으로도 resize 가 온다)
-    relayout({ anim: false });
-  };
-  try { window.addEventListener('resize', onResize); } catch (_) { /* ignore */ }
-
+  // 창 크기가 바뀌어도 다시 그리지 않는다: 스테이지 배율만 바뀌고 규칙 영역의 논리 크기(W×H)는 그대로 (js/ui/stage.js)
+  logBox.classList.toggle('open', !!ui.logOpen);
+  logBox.setAttribute('aria-hidden', ui.logOpen ? 'false' : 'true');
   setDurations(fx());
   const v0 = getView();
   const L0 = layoutFor(v0);
@@ -2103,7 +2067,7 @@ function prefersReducedMotion() {
   }
 }
 
-/** 간파 비활성 사유의 짧은 형태 (스킬 줄 버튼 안) */
+/** 간파 비활성 사유의 짧은 형태 (스킬 묶음 버튼 안) */
 function shortReason(reason) {
   const map = { '상대가 먼저 간파': '상대 선점', '박스에서는 간파 불가': '박스 불가', '텐션 부족': '텐션 부족', '결정 차례가 아님': '' };
   return map[reason] ?? '';

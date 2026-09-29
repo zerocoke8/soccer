@@ -80,18 +80,18 @@ export function zoneAtY(y) {
 }
 
 /**
- * 필드 좌표(%) → 필드 요소 안 픽셀 [sx, sy] (ARCHITECTURE §13.9). W·H = 필드 요소의 픽셀 폭·높이.
- * - orient "port"(세로, 기본): home 골 아래 · away 골 위. sx = x/100·W, sy = (100 − y)/100·H
- * - orient "land"(가로): 세로 그림을 시계 방향으로 90° 돌린 것 (거울상 아님) — home 골 왼쪽 · away 골 오른쪽,
+ * 필드 좌표(%) → 필드 요소 안 픽셀 [sx, sy] (ARCHITECTURE §14.3). W·H = 필드 요소의 픽셀 폭·높이.
+ * - orient "land"(가로, 기본 — 화면은 가로 전용): 세로 그림을 시계 방향으로 90° 돌린 것 (거울상 아님) — home 골 왼쪽 · away 골 오른쪽,
  *   세로 화면의 왼쪽(x = 0)이 가로 화면의 위. sx = y/100·W, sy = x/100·H
+ * - orient "port"(옛 세로 경기 화면, 명시할 때만): home 골 아래 · away 골 위. sx = x/100·W, sy = (100 − y)/100·H
  */
-export function fieldToScreen(x, y, W, H, orient = "port") {
+export function fieldToScreen(x, y, W, H, orient = "land") {
   if (orient === "land") return [(y / 100) * W, (x / 100) * H];
   return [(x / 100) * W, ((100 - y) / 100) * H];
 }
 
 /** fieldToScreen 의 역변환: 픽셀 [sx, sy] → 필드 좌표 { x, y } (%) */
-export function screenToField(sx, sy, W, H, orient = "port") {
+export function screenToField(sx, sy, W, H, orient = "land") {
   if (orient === "land") return { x: (sy / H) * 100, y: (sx / W) * 100 };
   return { x: (sx / W) * 100, y: 100 - (sy / H) * 100 };
 }

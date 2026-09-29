@@ -1,0 +1,498 @@
+/* css/match.css — 경기 화면 전용 (가로 전용, 고정 스테이지 1280×720): 잔디 · 규칙 영역(구역·선·토큰·공·화살표) ·
+   HUD(스코어 헤더 · 상황 배너 · 공격 진행 트랙 · 정보 줄 · 결정 카드 · 컨트롤 · 스킬 · 로그 서랍) · 컷인 · 미니 카드 · 경기 결과 모달 */
+
+:root { --home: #4da3ff; --away: #ff5d5d; --ult: #ff7ad9; }
+
+/* ---- 화면 골격 (사용자 목업: 필드가 화면 전체, HUD 는 위·아래에 겹친다) ----
+   .match-screen = 스테이지 전체. 잔디(.pitch)는 가장자리 --pad 만 남기고 꽉 채운다. HUD 는 전부 절대 위치.
+   규칙 영역(.m-field: 구역·선·박스·골문·토큰·공·화살표 — 화면 위치 = 규칙 위치의 기준 사각형)은 잔디 안에서
+   위 HUD(헤더 + 트랙) 아래, 아래 HUD(정보 줄 + 카드 줄) 위 → HUD 가 토큰·이름표·말풍선·미리보기를 가리지 않는다.
+   스테이지 1280×720: 잔디 1268×708 @ (6, 6), 규칙 영역 1244×528 @ (18, 84) — 필드 폭(위아래) 528 · 길이(좌우) 1244, 토큰 44px (screens/match.js measure).
+   변수 (논리 px): --pad 잔디 여백, --fx 규칙 영역 좌우 여백(잔디 안), --ft 위 여백(헤더 + 트랙), --fb 아래 여백(정보 줄 + 카드 줄),
+   --mh-w 스코어 헤더 폭, --dock-w 아래 가운데(정보 줄 · 카드 줄) 폭, --side-w 왼쪽·오른쪽 아래 묶음 폭 */
+.match-screen {
+  --pad: 6px; --fx: 12px; --ft: 78px; --fb: 102px;
+  --mh-w: 440px; --dock-w: 842px; --side-w: 196px;
+  position: relative; display: block; flex: none; width: 100%; height: 100%; padding: 0; gap: 0; overflow: hidden;
+  background: var(--frame);
+}
+
+/* 잔디: 스테이지 전체 (깎은 줄무늬는 장식 — 구역 경계는 규칙 영역의 점선) */
+.pitch {
+  position: absolute; inset: var(--pad); z-index: 0; border-radius: 16px; overflow: hidden;
+  user-select: none; -webkit-user-select: none; touch-action: manipulation;
+  background:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, .022) 0 62px, transparent 62px 124px),
+    radial-gradient(ellipse at 50% 48%, #1a4432 0%, #143628 55%, #0f2a20 100%);
+  box-shadow: inset 0 0 0 1px #2c5a47, inset 0 0 70px rgba(0, 0, 0, .35);
+}
+.pitch::after { content: ""; position: absolute; inset: 0; pointer-events: none; }
+.pitch.flash-good::after { animation: flash-good .7s ease-out; }
+.pitch.flash-bad::after { animation: flash-bad .7s ease-out; }
+@keyframes flash-good { 0% { box-shadow: inset 0 0 0 999px rgba(255, 209, 102, .35); } 100% { box-shadow: inset 0 0 0 999px rgba(255, 209, 102, 0); } }
+@keyframes flash-bad { 0% { box-shadow: inset 0 0 0 999px rgba(255, 72, 72, .35); } 100% { box-shadow: inset 0 0 0 999px rgba(255, 72, 72, 0); } }
+
+/* 규칙 영역: 토큰·공·화살표 좌표의 기준 (W×H = clientWidth×clientHeight, 논리 px) */
+.m-field {
+  --tok: 44px; --t-move: 400ms; --t-act: 500ms;
+  position: absolute; left: var(--fx); right: var(--fx); top: var(--ft); bottom: var(--fb);
+}
+/* 구역·선 층 = 규칙 영역과 같은 사각형 (터치라인은 바깥 그림자라 안쪽 % 좌표를 밀지 않는다) */
+.pitch-bg { position: absolute; inset: 0; pointer-events: none; box-shadow: 0 0 0 2px rgba(255, 255, 255, .3); }
+
+/* 구역 = 세로 줄 (home 골 왼쪽 — 위치·폭은 match.js 가 % 로) */
+.zone { position: absolute; top: 0; bottom: 0; transition: background .3s; }
+.zone.z1, .zone.z3, .zone.z5 { background: rgba(255, 255, 255, .025); }
+.zone + .zone { border-left: 1px dashed rgba(255, 255, 255, .09); }
+.zone-name { position: absolute; right: 7px; top: 5px; font-size: 11px; line-height: 14px; font-weight: 700; color: rgba(255, 255, 255, .3); letter-spacing: .02em; white-space: nowrap; }
+.zone.ball-zone .zone-name { color: rgba(255, 255, 255, .55); }
+.zone-hl { position: absolute; left: 8px; top: 5px; font-size: 12px; line-height: 14px; font-weight: 900; letter-spacing: .02em; white-space: nowrap; }
+.zone.hl-danger { background: rgba(255, 159, 67, .17); box-shadow: inset 0 0 0 1px rgba(255, 159, 67, .5); }
+.zone.hl-danger .zone-hl { color: #ffb45c; }
+.zone.hl-crisis { background: rgba(255, 72, 72, .2); box-shadow: inset 0 0 0 1px rgba(255, 72, 72, .6); }
+.zone.hl-crisis .zone-hl { color: #ff8a8a; }
+.zone.hl-chance { background: rgba(255, 209, 102, .12); box-shadow: inset 0 0 0 1px rgba(255, 209, 102, .45); }
+.zone.hl-chance .zone-hl { color: var(--gold); }
+.zone.hl-shotChance { background: rgba(255, 209, 102, .16); box-shadow: inset 0 0 0 1px rgba(255, 209, 102, .7); }
+.zone.hl-shotChance .zone-hl { color: var(--gold); }
+.zone.hl-crisis::before, .zone.hl-shotChance::before { content: ""; position: absolute; inset: 0; animation: blink 1s ease-in-out infinite; }
+.zone.hl-crisis::before { background: rgba(255, 72, 72, .22); }
+.zone.hl-shotChance::before { background: rgba(255, 209, 102, .16); }
+@keyframes blink { 0%, 100% { opacity: .15; } 50% { opacity: 1; } }
+
+/* 선: 하프라인 세로, 박스(= 박스 구역 폭 16%)·골문·페널티 스폿은 양 끝 (.top = away 골 = 오른쪽, .bottom = home 골 = 왼쪽) */
+.pl-half { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: rgba(255, 255, 255, .26); }
+.pl-circle { position: absolute; left: 50%; top: 50%; height: 26%; aspect-ratio: 1; transform: translate(-50%, -50%); border: 2px solid rgba(255, 255, 255, .22); border-radius: 50%; }
+.pl-box { position: absolute; top: 20%; height: 60%; width: 16%; border: 2px solid rgba(255, 255, 255, .24); }
+.pl-box.bottom { left: 0; border-left: none; }
+.pl-box.top { right: 0; border-right: none; }
+.pl-goal { position: absolute; top: 38%; height: 24%; width: 9px; border: 2px solid rgba(255, 255, 255, .85);
+  background: repeating-linear-gradient(0deg, rgba(255, 255, 255, .22) 0 1px, transparent 1px 5px); }
+.pl-goal.bottom { left: -9px; border-right: none; border-radius: 3px 0 0 3px; }
+.pl-goal.top { right: -9px; border-left: none; border-radius: 0 3px 3px 0; }
+.pl-spot { position: absolute; top: 50%; width: 5px; height: 5px; margin: -2.5px 0 0 -2.5px; border-radius: 50%; background: rgba(255, 255, 255, .45); }
+.pl-spot.bottom { left: 10%; }
+.pl-spot.top { left: 90%; }
+
+/* ---- 토큰: 0×0 앵커를 translate 로 옮기고 내용은 앵커 중심 기준으로 그린다 ----
+   이름표·말풍선 크기는 screens/match.js labelCands · bubbleCands 의 박스와 같게 (글자 12px, 줄 높이 16 · 18) */
+.tok-layer { position: absolute; inset: 0; pointer-events: none; }
+.tok {
+  position: absolute; left: 0; top: 0; width: 0; height: 0; z-index: 2; cursor: pointer; outline: none;
+  transition: transform var(--t-move) cubic-bezier(.25, .8, .3, 1), opacity .35s;
+}
+.tok > * { pointer-events: auto; }
+.tok.gone { display: none; }
+.tok-face {
+  position: absolute; left: calc(var(--tok) / -2); top: calc(var(--tok) / -2); width: var(--tok); height: var(--tok);
+  display: flex; align-items: center; justify-content: center; border-radius: 50%;
+  font-size: calc(var(--tok) * .46); font-weight: 800; color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, .7);
+  box-shadow: 0 0 0 2px var(--home), 0 2px 5px rgba(0, 0, 0, .5);
+  transition: transform .25s, box-shadow .25s;
+}
+.tok.away .tok-face { border-radius: 26%; box-shadow: 0 0 0 2px var(--away), 0 2px 5px rgba(0, 0, 0, .5); }
+.tok-bar { position: absolute; left: calc(var(--tok) * -.4); width: calc(var(--tok) * .8); top: calc(var(--tok) / 2 + 3px); height: 4px; border-radius: 2px; background: rgba(0, 0, 0, .55); overflow: hidden; }
+.tok-bar > i { display: block; height: 100%; background: var(--good); transition: width .3s; }
+.tok.low .tok-bar > i { background: var(--bad); }
+.tok-name {
+  display: none; position: absolute; left: 0; top: calc(var(--tok) / 2 + 7px); transform: translateX(-50%);
+  padding: 0 5px; border-radius: 7px; background: rgba(6, 12, 10, .78); color: #fff;
+  font-size: 12px; line-height: 16px; font-weight: 700; white-space: nowrap;
+}
+.tok.named .tok-name { display: block; }
+.tok.lbl-up .tok-name { top: auto; bottom: calc(var(--tok) / 2 + 3px); }
+.tok.lbl-side .tok-name { top: -8px; left: calc(var(--tok) / 2 + 5px); transform: none; }
+.tok.lbl-side-l .tok-name { top: -8px; left: auto; right: calc(var(--tok) / 2 + 5px); transform: none; }
+/* 라벨이 이웃 토큰·말풍선을 가리면 좌우로 비낀다 (자리 고르기는 screens/match.js placeTags) */
+.tok.lbl-sl .tok-name { transform: translateX(calc(-100% + 4px)); }
+.tok.lbl-sr .tok-name { transform: translateX(-4px); }
+.tok-yu { position: absolute; left: calc(var(--tok) * -.62); top: calc(var(--tok) * -.66); padding: 0 3px; border-radius: 4px; background: var(--warn); color: #2a1a00; font-size: 10px; font-weight: 800; line-height: 13px; }
+.tok-bubble {
+  display: none; position: absolute; left: 5px; bottom: calc(var(--tok) / 2 + 3px); padding: 0 6px; border-radius: 10px 10px 10px 2px;
+  background: #fff; color: #111; font-size: 12px; line-height: 18px; font-weight: 700; white-space: nowrap; box-shadow: 0 2px 6px rgba(0, 0, 0, .5); z-index: 1;
+}
+.tok-bubble::before { content: ""; position: absolute; left: 0; bottom: -4px; border: 4px solid transparent; border-top-color: #fff; border-left-color: #fff; border-bottom: 0; border-right-width: 5px; }
+.tok.has-bubble .tok-bubble { display: block; }
+/* 말풍선이 이웃 토큰을 가리면 반대쪽 / 옆 / 아래로 */
+.tok.bub-l .tok-bubble { left: auto; right: 5px; border-radius: 10px 10px 2px 10px; }
+.tok.bub-l .tok-bubble::before { left: auto; right: 0; border-left-color: transparent; border-right-color: #fff; border-left-width: 5px; border-right-width: 4px; }
+.tok.bub-d .tok-bubble { bottom: auto; top: calc(var(--tok) / 2 + 8px); border-radius: 2px 10px 10px 10px; }
+.tok.bub-d.bub-l .tok-bubble { border-radius: 10px 2px 10px 10px; }
+.tok.bub-d .tok-bubble::before { display: none; }
+.tok.bub-s .tok-bubble { bottom: auto; top: -9px; left: calc(var(--tok) / 2 + 4px); border-radius: 10px; }
+.tok.bub-s.bub-l .tok-bubble { left: auto; right: calc(var(--tok) / 2 + 4px); }
+.tok.bub-s .tok-bubble::before { display: none; }
+.tok.role-broken { opacity: .45; z-index: 1; }
+/* 뚫린 선수는 자기 골 쪽으로: home = 왼쪽, away = 오른쪽 */
+.tok.role-broken::after { position: absolute; left: calc(var(--tok) * .42); top: calc(var(--tok) * -.2); font-size: 10px; color: rgba(255, 255, 255, .8); pointer-events: none; }
+.tok.chase-down::after { content: "◀"; }
+.tok.chase-up::after { content: "▶"; }
+.tok.role-gk, .tok.role-receiver, .tok.role-cover { z-index: 3; }
+.tok.role-defender { z-index: 4; }
+.tok.role-carrier { z-index: 5; }
+.tok.role-carrier .tok-face { box-shadow: 0 0 0 2px var(--home), 0 0 0 4px var(--gold), 0 0 16px rgba(255, 209, 102, .8); }
+.tok.away.role-carrier .tok-face { box-shadow: 0 0 0 2px var(--away), 0 0 0 4px var(--gold), 0 0 16px rgba(255, 209, 102, .8); }
+.tok.role-defender .tok-face { box-shadow: 0 0 0 2px var(--home), 0 0 0 4px #fff, 0 0 12px rgba(255, 255, 255, .5); }
+.tok.away.role-defender .tok-face { box-shadow: 0 0 0 2px var(--away), 0 0 0 4px #fff, 0 0 12px rgba(255, 255, 255, .5); }
+.tok.role-receiver .tok-face { outline: 2px dashed var(--gold); outline-offset: 3px; }
+.tok.role-cover .tok-face { outline: 1px dashed rgba(255, 255, 255, .5); outline-offset: 2px; }
+.tok:focus-visible .tok-face { outline: 2px solid #fff; outline-offset: 3px; }
+.tok.beaten { opacity: .45; }
+/* v0.3: 필살 게이지 링 (토큰 둘레, --g = 0..1) · 준비되면 빛남 (GDD v0.5 §9.17-1) */
+.tok-ring { display: none; position: absolute; pointer-events: none; left: calc(var(--tok) / -2 - 5px); top: calc(var(--tok) / -2 - 5px);
+  width: calc(var(--tok) + 10px); height: calc(var(--tok) + 10px); border-radius: 50%;
+  background: conic-gradient(var(--ult) calc(var(--g, 0) * 360deg), rgba(255, 255, 255, .13) 0);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px)); }
+.tok > .tok-ring { pointer-events: none; }
+.tok.has-ult .tok-ring { display: block; }
+.tok.ult-ready .tok-ring { background: var(--ult); animation: ult-glow 1.1s ease-in-out infinite; }
+.tok.ult-combo .tok-ring { background: conic-gradient(var(--gold), var(--ult), var(--gold)); }
+@keyframes ult-glow { 0%, 100% { filter: drop-shadow(0 0 1px var(--ult)); opacity: .75; } 50% { filter: drop-shadow(0 0 6px var(--ult)); opacity: 1; } }
+.tok-trait { position: absolute; left: calc(var(--tok) * .3); top: calc(var(--tok) * -.72); width: 16px; height: 16px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; font-size: 10px; line-height: 1; background: rgba(8, 14, 20, .85);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .25); }
+.tok.role-broken .tok-trait, .tok.role-support .tok-trait, .tok.role-cover .tok-trait, .tok.role-gk .tok-trait { opacity: .7; }
+/* 받는 선수 후보: 결정 중 탭 = 선택 (GDD v0.5 §9.6) */
+.tok.pickable .tok-face { cursor: pointer; }
+.tok.picked .tok-face { outline: 2px solid var(--gold); outline-offset: 3px; }
+.tok.picked .tok-name { background: var(--gold); color: #2a1d00; }
+.tok.pick-flash .tok-face { animation: pick-flash .35s ease-out; }
+@keyframes pick-flash { 0% { transform: scale(1.35); } 100% { transform: none; } }
+/* 태클 실패 = 제쳐짐: 넘어져 잠깐 누운 모습, 헤더: 뛰어오름, 필살기 사용자: 빛남 */
+.tok.fallen .tok-face { transform: translateY(35%) rotate(90deg) scale(.85); opacity: .6; filter: grayscale(.4); }
+.tok.fallen::before { content: "💫"; position: absolute; left: 2px; top: calc(var(--tok) * -.2); font-size: 12px; pointer-events: none; }
+.tok.header .tok-face { transform: translateY(-45%) scale(1.25); }
+.tok.ult-act .tok-face { box-shadow: 0 0 0 2px var(--ult), 0 0 0 5px rgba(255, 122, 217, .5), 0 0 18px var(--ult); }
+.tok.reading .tok-bubble { background: #ffe0f5; color: #5a0040; }
+.tok.steal .tok-face { transform: scale(1.18); }
+.tok.dive .tok-face { transform: rotate(-32deg) scale(1.12); }
+.tok.catching .tok-face { transform: scale(1.12); }
+
+/* 공 (screens/match.js ballRect: ±8 × ±10) */
+.m-ball {
+  position: absolute; left: 0; top: 0; width: 0; height: 0; z-index: 6; pointer-events: none;
+  transition: transform var(--t-move) cubic-bezier(.3, .7, .3, 1);
+}
+.m-ball > span { position: absolute; left: -8px; top: -10px; font-size: 16px; line-height: 20px; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .9)); }
+.m-ball.ult > span { filter: drop-shadow(0 0 4px var(--ult)) drop-shadow(0 0 8px var(--gold)); }
+.m-ball.arc { transition: none !important; }
+.m-field.phase-act .tok { transition-duration: var(--t-act), .35s; }
+.m-field.phase-act .m-ball { transition-duration: var(--t-act); transition-timing-function: cubic-bezier(.45, .05, .55, .95); }
+.match-screen.no-anim .tok, .match-screen.no-anim .m-ball, .match-screen.no-anim .trk { transition: none !important; }
+
+/* 화살표 · 궤적 (SVG, 픽셀 viewBox = 규칙 영역) */
+.pitch-svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; z-index: 1; } /* 토큰 아래: 선이 얼굴을 가리지 않게 */
+.pitch-svg.top { z-index: 7; } /* 미리보기 글자는 토큰 위 (토큰이 없는 자리를 골라 놓는다) */
+.pitch-svg .ar { stroke-width: 3.5; stroke-linecap: round; fill: none; }
+.pitch-svg .ar-halo { stroke: rgba(0, 0, 0, .55); stroke-width: 7; stroke-linecap: round; fill: none; }
+.pitch-svg .ar-halo.bar { stroke-width: 9; }
+.pitch-svg .ar-block { stroke: #ff5d5d; stroke-width: 4.5; stroke-linecap: round; }
+.pitch-svg .ar-tip { font-size: 12.5px; font-weight: 800; fill: #fff; paint-order: stroke; stroke: rgba(0, 0, 0, .85); stroke-width: 3px; }
+.pitch-svg .ar-tip.def { fill: #ffb0b0; }
+.m-field.previewing-def .tok.role-defender .tok-name { visibility: hidden; }
+.pitch-svg .trail { stroke: rgba(255, 255, 255, .75); stroke-width: 2.5; stroke-dasharray: 4 5; fill: none; animation: fade-out 1.2s ease-out forwards; }
+.pitch-svg .trail.ult { stroke: var(--ult); stroke-width: 4.5; stroke-dasharray: none; filter: drop-shadow(0 0 3px var(--ult)); }
+.pitch-svg path.ar { fill: none; }
+@keyframes fade-out { from { opacity: 1; } to { opacity: 0; } }
+
+/* 결과 한 줄 · 연계 문구 · 골 연출 (규칙 영역 안에 clamp) */
+.pop-layer { position: absolute; inset: 0; pointer-events: none; z-index: 8; }
+.m-pop { position: absolute; left: 0; top: 0; width: 0; height: 0; }
+.m-pop > span {
+  position: absolute; top: 0; transform: translateY(-50%); white-space: nowrap;
+  padding: 3px 10px; border-radius: 999px; background: rgba(8, 12, 18, .9); border: 1px solid rgba(255, 255, 255, .15);
+  font-size: 13px; line-height: 16px; font-weight: 900; animation: pop-in var(--t-pop, 1.5s) ease-out forwards; /* --t-pop: 배속 반영 수명 (JS) */
+}
+.m-pop.out > span { animation: none; opacity: 0; transition: opacity .15s; } /* 다음 비트 시작 → 걷기 */
+.m-pop.r > span { left: 0; }
+.m-pop.l > span { right: 0; }
+.m-pop.c > span { left: 0; transform: translate(-50%, -50%); }
+.m-pop.good > span { color: #8ff0b8; border-color: rgba(61, 220, 132, .5); }
+.m-pop.bad > span { color: #ff9b9b; border-color: rgba(255, 92, 92, .5); }
+.m-pop.big > span { font-size: 18px; line-height: 22px; padding: 4px 14px; }
+@keyframes pop-in { 0% { opacity: 0; } 12% { opacity: 1; } 75% { opacity: 1; } 100% { opacity: 0; } }
+.m-link { position: absolute; left: 0; top: 0; width: 0; height: 0; }
+.m-link > span { position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); white-space: nowrap; font-size: 16px; font-weight: 900; font-style: italic;
+  color: var(--gold); text-shadow: 0 0 6px rgba(255, 209, 102, .7), 0 1px 0 #3a2a00, 0 0 2px #000; animation: link-in var(--t-pop, 1.2s) ease-out forwards; }
+.m-link.out > span { animation: none; opacity: 0; transition: opacity .15s; }
+@keyframes link-in { 0% { opacity: 0; transform: translate(-50%, -20%) scale(.6); } 15% { opacity: 1; transform: translate(-50%, -50%) scale(1.15); } 30% { transform: translate(-50%, -50%) scale(1); } 80% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -90%); } }
+.goal-fx { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; pointer-events: none; z-index: 9; font-size: 68px; font-weight: 900; letter-spacing: .08em; }
+.goal-fx.show { display: flex; animation: goal-in .45s cubic-bezier(.2, 1.4, .4, 1); }
+.goal-fx.home { color: var(--gold); text-shadow: 0 0 22px rgba(255, 209, 102, .8), 0 3px 0 #3a2a00; }
+.goal-fx.away { color: #ff8a8a; text-shadow: 0 0 22px rgba(255, 72, 72, .7), 0 3px 0 #3a0000; }
+@keyframes goal-in { from { transform: scale(.4); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* ---- HUD 위: 상황 배너(전폭 띠, 헤더 뒤) · 스코어 헤더(가운데) · 공격 진행 트랙(헤더 아래, 규칙 영역과 같은 좌우 끝) ---- */
+/* 상황 배너 (GDD §9.5-3): 띠는 전폭, 글자는 헤더 왼쪽의 보이는 칸 (헤더에 가리지 않게) */
+.m-banner {
+  position: absolute; z-index: 5; left: calc(var(--pad) + var(--fx)); right: calc(var(--pad) + var(--fx)); top: 12px; height: 38px;
+  border-radius: 12px; overflow: hidden; isolation: isolate;
+  background: rgba(18, 24, 34, .9); border: 1px solid var(--border); color: var(--text);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .3);
+}
+.m-banner-txt {
+  position: absolute; top: 0; bottom: 0; left: 12px; right: calc(50% + var(--mh-w) / 2 + 10px);
+  font-size: 14px; line-height: 36px; font-weight: 800; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.m-banner.side-home:not([class*="lv-"]) { border-color: rgba(77, 163, 255, .45); }
+.m-banner.side-away:not([class*="lv-"]) { border-color: rgba(255, 93, 93, .4); }
+.m-banner.lv-danger { background: rgba(62, 40, 20, .92); border-color: rgba(255, 159, 67, .75); color: #ffc27a; }
+.m-banner.lv-crisis { background: rgba(66, 22, 26, .92); border-color: var(--bad); color: #ffb0b0; }
+.m-banner.lv-chance { background: rgba(52, 44, 22, .92); border-color: rgba(255, 209, 102, .65); color: var(--gold); }
+.m-banner.lv-shotChance { background: rgba(60, 50, 20, .92); border-color: var(--gold); color: var(--gold); }
+.m-banner.lv-crisis::before, .m-banner.lv-shotChance::before { content: ""; position: absolute; inset: 0; z-index: -1; animation: blink 1s ease-in-out infinite; }
+.m-banner.lv-crisis::before { background: rgba(255, 72, 72, .22); }
+.m-banner.lv-shotChance::before { background: rgba(255, 209, 102, .16); }
+.m-banner.fresh .m-banner-txt { animation: banner-in .35s ease-out; }
+@keyframes banner-in { from { transform: translateY(-4px) scale(.98); opacity: .2; } to { transform: none; opacity: 1; } }
+
+/* 스코어 헤더 (가운데 위, 배너 띠 위에 겹친다) */
+.mh {
+  position: absolute; z-index: 6; top: 4px; left: 50%; width: var(--mh-w); transform: translateX(-50%);
+  display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 0 14px;
+  padding: 5px 14px 4px; border-radius: 14px;
+  background: rgba(15, 20, 29, .96); border: 1px solid #34405a; box-shadow: 0 6px 18px rgba(0, 0, 0, .45);
+}
+.mh-team { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.mh-team.away { align-items: flex-end; text-align: right; }
+.mh-team .nm { font-size: 14px; line-height: 18px; font-weight: 800; max-width: 100%; }
+.mh-team.home .nm::before, .mh-team.away .nm::after { content: ""; display: inline-block; width: 9px; height: 9px; margin: 0 6px 1px 0; vertical-align: middle; }
+.mh-team.home .nm::before { border-radius: 50%; background: var(--home); }
+.mh-team.away .nm::after { border-radius: 2px; background: var(--away); margin: 0 0 1px 6px; }
+.mh-ten { display: flex; align-items: center; gap: 5px; width: 100%; font-size: 10.5px; line-height: 12px; color: var(--muted); }
+.mh-ten b { color: var(--text); font-weight: 800; min-width: 18px; font-variant-numeric: tabular-nums; }
+.mh-ten .bar { flex: 1; height: 5px; }
+.mh-ten .bar.tension > i { background: var(--home); }
+.mh-ten .bar.tension.away > i { background: var(--away); }
+.mh-score { font-size: 30px; font-weight: 900; line-height: 32px; font-variant-numeric: tabular-nums; letter-spacing: .06em; }
+.mh-sub { grid-column: 1 / -1; margin-top: 1px; text-align: center; font-size: 11.5px; line-height: 14px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* 공격 진행 트랙: 헤더 아래 가로 줄, 칸 = 구역 폭 (match.js updateTrack 이 left/width %) — 좌우 끝 = 규칙 영역 */
+.m-track { position: absolute; z-index: 5; left: calc(var(--pad) + var(--fx)); right: calc(var(--pad) + var(--fx)); top: calc(var(--pad) + var(--ft) - 21px); height: 17px; }
+.m-track::before { content: ""; position: absolute; left: 0; right: 0; top: 7.5px; height: 2px; background: rgba(255, 255, 255, .08); border-radius: 1px; }
+.trk {
+  position: absolute; top: 0; bottom: 0; box-sizing: border-box;
+  display: flex; align-items: center; justify-content: center; border-radius: 6px;
+  background: rgba(8, 14, 20, .55); border: 1px solid rgba(255, 255, 255, .12);
+  font-size: 11px; line-height: 1; color: var(--muted); transition: left .3s, width .3s, background .3s;
+}
+.trk.on.home { background: rgba(77, 163, 255, .45); border-color: rgba(77, 163, 255, .75); color: #fff; }
+.trk.on.away { background: rgba(255, 93, 93, .48); border-color: rgba(255, 93, 93, .8); color: #fff; }
+.trk.cur { font-weight: 900; box-shadow: 0 0 0 1px #fff inset, 0 0 8px rgba(255, 255, 255, .35); }
+
+/* ---- HUD 아래 가운데: 정보 줄 + 결정 카드 한 줄 (규칙 영역 아래, 잔디 위에 겹친다) ---- */
+.m-dock { position: absolute; z-index: 5; left: 50%; bottom: 10px; width: var(--dock-w); transform: translateX(-50%); display: flex; flex-direction: column; gap: 4px; }
+
+/* 정보 줄: 상대 예상 행동(근거) + 우리 선수 예상 행동 (GDD v0.5 §9.6) — 카드 줄 바로 위 반투명 띠 */
+.m-info {
+  height: 22px; display: flex; align-items: center; gap: 12px; padding: 0 12px; border-radius: 11px;
+  background: rgba(8, 12, 18, .78); border: 1px solid rgba(255, 255, 255, .08); font-size: 12px; line-height: 16px;
+}
+.m-info .expect { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; }
+.m-info .expect .ico { font-size: 13px; line-height: 1; }
+.m-info .expect .badge { flex: none; padding: 0 6px; font-size: 10.5px; line-height: 15px; }
+.m-info.deciding .expect { color: var(--gold); }
+.m-info.reading .expect { color: #ff9fe0; font-weight: 700; }
+.m-info .mine { flex: 0 1 auto; max-width: 34%; white-space: nowrap; font-size: 11.5px; font-weight: 700; color: var(--muted); }
+
+/* 결정 카드 한 줄 (GDD v0.5 §9.6): 공격 = 켜진 액션만 (최대 4), 수비 = 3, 상태 = 넓은 카드 1장. 줄 높이 고정 */
+.match-screen .action-grid { display: flex; justify-content: center; gap: 6px; height: 70px; }
+.match-screen .act-btn {
+  flex: 1 1 0; min-width: 0; max-width: 240px; height: 100%; min-height: 0; padding: 4px 9px; gap: 1px; overflow: hidden;
+  flex-direction: column; align-items: stretch; justify-content: flex-start; text-align: left;
+  border-radius: 12px; background: rgba(21, 27, 38, .95); box-shadow: 0 4px 14px rgba(0, 0, 0, .35);
+}
+.match-screen .act-btn:hover:not(:disabled) { background: rgba(40, 50, 66, .97); }
+.act-btn .act-title { flex: none; display: flex; align-items: center; gap: 5px; font-size: 14px; line-height: 17px; font-weight: 800; min-width: 0; }
+.act-btn .act-nm { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 4px; white-space: nowrap; overflow: hidden; }
+.act-btn .act-ico { flex: none; font-size: 13px; }
+.act-btn .act-lbl { flex: none; }
+.act-btn .act-rcv { flex: 0 1 auto; min-width: 0; display: flex; align-items: baseline; gap: 2px; color: var(--gold); font-weight: 800; }
+.act-btn .act-arrow, .act-btn .act-more { flex: none; }
+.act-btn .act-rname { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.act-btn .act-pct { flex: none; font-size: 15px; font-weight: 900; font-variant-numeric: tabular-nums; color: #fff; }
+.act-btn .act-pct.muted { font-size: 13px; font-weight: 700; color: var(--muted); }
+.act-btn .chip { flex: none; padding: 0 6px; border-radius: 6px; font-size: 10.5px; line-height: 14px; font-weight: 800; }
+.act-btn .chip-rec { background: var(--gold); color: #2a1d00; }
+.act-btn .chip-pair { background: rgba(61, 220, 132, .22); color: var(--good); }
+.act-btn .btn-sub { font-size: 11.5px; color: var(--muted); text-align: center; line-height: 1.3; }
+.act-btn .act-out { flex: none; display: flex; align-items: center; gap: 4px; min-width: 0; font-size: 11.5px; line-height: 14px; }
+.act-btn .act-out .txt { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.act-btn .act-out .txt.long { display: none; } /* 긴 문구는 카드 title (한 줄 카드라 짧은 문구만) */
+.act-btn .act-out.ok { color: #8fe6b3; }
+.act-btn .act-out.ok.goal { color: var(--gold); font-weight: 700; }
+.act-btn .act-out.ng { color: #ffa3a3; }
+.act-btn .act-out.ng.risk { font-weight: 700; }
+.act-btn .act-out.auto { color: var(--gold); font-weight: 700; }
+.act-btn .act-out.muted { color: var(--muted); }
+.act-btn .act-hint { flex: none; margin-top: auto; font-size: 10.5px; line-height: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.act-btn .act-foot { flex: none; margin-top: auto; display: flex; align-items: center; gap: 4px; min-width: 0; }
+.act-btn .act-formula { min-width: 0; font-size: 10.5px; line-height: 14px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 자동 진행 중(성향값 카드): 판정 스탯 · 짝 배율 두 줄까지 */
+.act-btn .act-why { flex: none; margin-top: auto; font-size: 10.5px; line-height: 13px; color: var(--muted); overflow: hidden; word-break: keep-all; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.action-grid.k-wide .act-btn { max-width: 460px; justify-content: center; align-items: center; gap: 4px; }
+.action-grid.k-wide .act-title { font-size: 15px; justify-content: center; }
+.action-grid.k-wide .act-nm { flex: none; }
+.action-grid.deciding .act-btn.decide { border-color: rgba(255, 209, 102, .55); box-shadow: 0 0 0 1px rgba(255, 209, 102, .18) inset, 0 4px 14px rgba(0, 0, 0, .35); }
+.action-grid.deciding .act-btn.decide.rec { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold) inset, 0 0 12px rgba(255, 209, 102, .3); }
+.action-grid.deciding .act-btn.decide.ult-on { border-color: var(--ult); box-shadow: 0 0 0 1px var(--ult) inset, 0 0 14px rgba(255, 122, 217, .4); }
+.act-btn.dim { opacity: .4; }
+.act-btn.chosen:disabled { opacity: 1; border-color: #fff; box-shadow: 0 0 0 1px #fff inset; }
+.act-btn.auto-view:disabled { opacity: .7; }
+.act-btn.auto-view.auto-pick:disabled { opacity: .92; border-color: rgba(255, 209, 102, .5); }
+
+/* ---- HUD 왼쪽 아래: 컨트롤 묶음 [자동][개입] / [배속][⏭][로그] + 남은 수비 칩 ---- */
+.m-ctl { position: absolute; z-index: 5; left: calc(var(--pad) + 8px); bottom: 10px; width: var(--side-w); display: flex; flex-direction: column; align-items: flex-start; gap: 5px; }
+.match-controls { width: 100%; display: grid; grid-template-columns: 86px minmax(0, 1fr) minmax(0, 1fr); grid-auto-rows: 32px; gap: 5px; }
+.match-controls .btn {
+  min-height: 0; min-width: 0; padding: 2px 6px; font-size: 13px; font-weight: 700; white-space: nowrap; border-radius: 9px;
+  background: rgba(21, 27, 38, .94); box-shadow: 0 3px 10px rgba(0, 0, 0, .3);
+}
+.match-controls .btn.active { background: rgba(30, 58, 92, .95); }
+.match-controls .auto-btn { grid-column: 1; grid-row: 1; }
+.match-controls .iv-btn { grid-column: 2 / 4; grid-row: 1; }
+.match-controls .iv-btn.off { visibility: hidden; } /* 자동 OFF: 개입은 의미가 없다 (자리만 둔다) */
+.match-controls .speed-btn { grid-column: 1; grid-row: 2; font-variant-numeric: tabular-nums; }
+.match-controls .skip-btn { grid-column: 2; grid-row: 2; }
+.match-controls .log-btn { grid-column: 3; grid-row: 2; }
+/* 남은 수비 (GDD §9.5-4) */
+.m-remain { max-width: 100%; padding: 1px 8px; border-radius: 8px; background: rgba(6, 12, 10, .75); color: rgba(255, 255, 255, .82);
+  font-size: 11px; line-height: 17px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---- HUD 오른쪽 아래: 스킬 묶음 (필살기·합체기 + 게이지 · 간파 + 사용권 · 일반 액티브) ----
+   상자 = 폭 --side-w × 높이 최대 96px (규칙 영역 아래 띠 안). 3개까지 세로로 한 줄씩(28px), 4개 이상 2열(.many: 칸 30px × 3줄 = 96px,
+   이름은 두 줄까지 · 텐션 ✦ 비용은 작게 남긴다), 7개 이상(.over)은 상자 안에서 스크롤 → 묶음이 필드 위로 자라지 않는다 */
+.match-screen .skill-row {
+  position: absolute; z-index: 5; right: calc(var(--pad) + 8px); bottom: 10px; width: var(--side-w); max-height: 96px;
+  display: flex; flex-direction: column; justify-content: flex-end; align-items: stretch; gap: 4px;
+}
+.match-screen .skill-row.many { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: 30px; gap: 3px 4px; align-content: end; }
+.match-screen .skill-row.over {
+  align-content: start; overflow-y: auto; overscroll-behavior: contain; padding-right: 2px;
+  scrollbar-width: thin; scrollbar-color: var(--panel-3) transparent;
+}
+.match-screen .skill-row > .tiny { align-self: flex-end; padding: 2px 8px; border-radius: 8px; background: rgba(6, 12, 10, .7); }
+.match-screen .skill-row .btn {
+  flex: none; min-height: 0; min-width: 0; height: 28px; padding: 2px 9px; font-size: 12px; gap: 6px; justify-content: space-between;
+  border-radius: 9px; background: rgba(21, 27, 38, .94); box-shadow: 0 3px 10px rgba(0, 0, 0, .3);
+}
+.match-screen .skill-row .btn > span { white-space: nowrap; }
+.match-screen .skill-row .sk-nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.skill-row .sk-cost { flex: none; font-size: 11px; color: var(--muted); white-space: nowrap; }
+.skill-row .ult-btn { border-color: rgba(255, 122, 217, .45); }
+.skill-row .ult-btn.ready:not(:disabled) { border-color: var(--ult); color: #ffd6f3; box-shadow: 0 0 8px rgba(255, 122, 217, .45); animation: ult-btn 1.2s ease-in-out infinite; }
+.skill-row .ult-btn.combo.ready:not(:disabled) { border-color: var(--gold); color: var(--gold); box-shadow: 0 0 10px rgba(255, 209, 102, .6); }
+.match-screen .skill-row .ult-btn.active { background: rgba(122, 40, 100, .95); color: #fff; animation: none; }
+.match-screen .skill-row .ult-btn.combo.active { background: rgba(110, 86, 20, .95); }
+.skill-row .ult-btn .sk-cost { color: #ffb8ea; }
+.skill-row .sk-gauge { flex: none; width: 40px; height: 6px; border-radius: 3px; background: rgba(255, 255, 255, .12); overflow: hidden; }
+.skill-row .sk-gauge > i { display: block; height: 100%; background: var(--ult); border-radius: 3px; }
+@keyframes ult-btn { 0%, 100% { box-shadow: 0 0 4px rgba(255, 122, 217, .35); } 50% { box-shadow: 0 0 12px rgba(255, 122, 217, .8); } }
+.skill-row .gaanpa-btn { border-color: rgba(179, 136, 255, .5); }
+.skill-row .gaanpa-btn:not(:disabled) { color: #dccbff; }
+.match-screen .skill-row .gaanpa-btn.active { background: rgba(70, 50, 110, .95); color: #fff; opacity: 1; }
+/* 2열: 칸 폭 ≈ 96px → 이름은 두 줄까지 (낱말 단위, "라인 / 브레이커"), 일반 액티브의 ✦ 비용 · 간파 비용은 작게 오른쪽에 남긴다.
+   숨기는 것: 일반 액티브의 ⚡(✦ 비용 꼬리표로 구분) · 필살기의 "필살기/합체기" 꼬리표 (준비되면 테두리 빛남 · 색으로 구분, 제목(title)에 전부) */
+.match-screen .skill-row.many .btn { height: 30px; padding: 1px 5px 1px 6px; gap: 3px; font-size: 11px; }
+.match-screen .skill-row.many .sk-nm {
+  flex: 1 1 auto; white-space: normal; text-align: left; line-height: 13px; word-break: keep-all; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+.match-screen .skill-row.many .sk-cost { font-size: 10px; }
+.match-screen .skill-row.many .ult-btn .sk-cost, .match-screen .skill-row.many .sk-ico { display: none; }
+.match-screen .skill-row.many .sk-gauge { width: 16px; }
+
+/* ---- 로그 서랍: 로그 버튼으로 연다 (기본 닫힘), 규칙 영역 위에 반투명으로 겹친다, 안쪽 스크롤 ----
+   공·공격 방향의 반대쪽 절반에 붙는다 (screens/match.js placeLogBox): 기본 오른쪽, .side-l 이면 왼쪽.
+   home 공격(오른쪽으로)에서 공이 가운데를 넘으면 왼쪽 → 공 가진 선수 · 수비수 · 받는 선수 후보 · 화살표를 가리지 않는다 */
+.m-logbox {
+  position: absolute; z-index: 20; right: calc(var(--pad) + var(--fx) + 6px); top: calc(var(--pad) + var(--ft) + 6px); bottom: calc(var(--pad) + var(--fb) + 8px); width: 400px;
+  display: none; flex-direction: column; gap: 6px; padding: 8px 8px 8px 10px; border-radius: 14px;
+  background: rgba(11, 15, 22, .9); border: 1px solid var(--border); box-shadow: var(--shadow);
+}
+.m-logbox.side-l { right: auto; left: calc(var(--pad) + var(--fx) + 6px); }
+.m-logbox.open { display: flex; animation: fade .15s ease-out; }
+.m-logbox-head { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; }
+.m-logbox-close { min-height: 0; min-width: 0; width: 28px; height: 28px; padding: 0; font-size: 13px; }
+.match-screen .match-log {
+  flex: 1 1 0; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding-right: 2px; font-size: 12px;
+}
+/* 서랍은 로그를 읽으려고 여는 것 → 긴 줄(연계 · 킬패스 · 점수)도 끝까지: 줄바꿈 */
+.match-log .log-line { flex: none; padding: 2px 7px; line-height: 16px; border-radius: 5px; background: rgba(31, 39, 53, .8); color: var(--muted); white-space: normal; word-break: keep-all; overflow-wrap: anywhere; }
+.match-log .log-line.home { border-left: 3px solid var(--home); }
+.match-log .log-line.away { border-left: 3px solid var(--away); }
+.match-log .log-line.success { color: var(--text); }
+.match-log .log-line.ev-cutin, .match-log .log-line.ev-combo { color: #ffc2ec; font-weight: 700; }
+.match-log .log-line.ev-skill { color: #c9b6ff; }
+.match-log .log-line.ev-goal { color: var(--good); font-weight: 700; }
+
+/* ---- 필살기 컷인 (GDD v0.5 §9.17-5): 스테이지 전체 1.5초 (배속 비례, --t-cut), 합체기 = 두 컷인 + 이름 ---- */
+.m-cutin { position: absolute; inset: 0; z-index: 30; display: none; align-items: center; justify-content: center; pointer-events: none; overflow: hidden; }
+.m-cutin.show { display: flex; background: rgba(4, 6, 12, .55); animation: fade .12s ease-out; }
+.cut { width: 100%; animation: cut-life var(--t-cut, 1.5s) ease-out forwards; }
+.cut-band { --ec: var(--ult); position: relative; display: flex; align-items: center; justify-content: center; gap: 18px; padding: 24px 40px; transform: skewY(-4deg);
+  background: linear-gradient(100deg, transparent 0, var(--ec) 12%, var(--ec) 88%, transparent 100%);
+  box-shadow: 0 0 40px rgba(0, 0, 0, .5); }
+.cut-band::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(255, 255, 255, .18), rgba(0, 0, 0, .28)); pointer-events: none; }
+.cut.side-away .cut-band { flex-direction: row-reverse; text-align: right; }
+.cut-face { position: relative; z-index: 1; flex: none; width: 88px; height: 88px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  font-size: 44px; font-weight: 900; color: #fff; text-shadow: 0 2px 4px rgba(0, 0, 0, .7); box-shadow: 0 0 0 3px #fff, 0 0 24px rgba(255, 255, 255, .6);
+  transform: skewY(4deg); animation: cut-face var(--t-cut, 1.5s) ease-out; }
+.cut.side-away .cut-face { border-radius: 26%; }
+.cut-txt { position: relative; z-index: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; transform: skewY(4deg); }
+.cut-txt small { font-size: 13px; font-weight: 800; color: rgba(255, 255, 255, .9); letter-spacing: .04em; text-shadow: 0 1px 2px rgba(0, 0, 0, .6); }
+.cut-txt b { font-size: 34px; line-height: 1.1; font-weight: 900; color: #fff; letter-spacing: .04em; text-shadow: 0 2px 0 rgba(0, 0, 0, .45), 0 0 16px rgba(255, 255, 255, .5); }
+.cut-sub { font-size: 13px; color: rgba(255, 255, 255, .9); font-weight: 700; }
+.cut.el-fire .cut-band { --ec: #e0482a; }
+.cut.el-water .cut-band { --ec: #2574d9; }
+.cut.el-wind .cut-band { --ec: #22a56a; }
+.cut.el-earth .cut-band { --ec: #9a6630; }
+.cut.el-lightning .cut-band { --ec: #c99a00; }
+.cut.cut-name .cut-band { --ec: var(--gold); justify-content: center; text-align: center; }
+.cut.cut-name .cut-txt { align-items: center; }
+.cut.cut-name .cut-txt b { font-size: 38px; color: #2a1d00; text-shadow: 0 1px 0 rgba(255, 255, 255, .6); }
+.cut.cut-name .cut-txt small, .cut.cut-name .cut-sub { color: #3a2a00; text-shadow: none; }
+@keyframes cut-life { 0% { opacity: 0; transform: translateX(-60px); } 12% { opacity: 1; transform: translateX(0); } 82% { opacity: 1; transform: translateX(6px); } 100% { opacity: 0; transform: translateX(40px); } }
+.cut.side-away { animation-name: cut-life-away; }
+@keyframes cut-life-away { 0% { opacity: 0; transform: translateX(60px); } 12% { opacity: 1; transform: translateX(0); } 82% { opacity: 1; transform: translateX(-6px); } 100% { opacity: 0; transform: translateX(-40px); } }
+@keyframes cut-face { 0% { transform: skewY(4deg) scale(.4); } 20% { transform: skewY(4deg) scale(1.12); } 30% { transform: skewY(4deg) scale(1); } }
+
+/* ---- 경기 화면의 토스트 (#toast-root = 스테이지 안 공용 루트, base.css): 스코어 헤더 · 필드를 가리지 않게 오른쪽 위 ----
+   배너 띠의 빈 오른쪽 칸(헤더 오른쪽 끝 x 860 ~ 띠 끝 1262)에 좁게: 한 줄 토스트 = 띠 높이 안, 글은 두 줄까지, 한 번에 2개(base.css).
+   app.js render() 가 경기 화면이면 #stage[data-mode="match"] */
+.stage[data-mode="match"] #toast-root { top: 12px; left: auto; right: 24px; transform: none; width: 376px; gap: 4px; }
+.stage[data-mode="match"] #toast-root > .toast {
+  padding: 6px 12px; font-size: 12.5px; line-height: 17px; border-radius: 10px;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.stage[data-mode="match"] #toast-root > .toast:nth-last-child(n+3) { display: none; } /* 위 display 가 base.css 의 "2개까지" 를 덮지 않게 */
+
+/* 미니 카드 (토큰 탭 · 길게 누르기) */
+.mini-card { display: flex; flex-direction: column; gap: 10px; }
+.mini-card .mc-stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; }
+.mini-card .mc-stats .cell { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 2px; border-radius: 6px; background: var(--panel-2); }
+.mini-card .row .bar { flex: 1; }
+.mini-card .mc-skill { line-height: 1.4; }
+.mini-card .mc-trait { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.bar.ult > i { background: var(--ult); }
+.avatar.ring-home { box-shadow: 0 0 0 2px var(--home); }
+.avatar.ring-away { box-shadow: 0 0 0 2px var(--away); border-radius: 26%; }
+
+/* 움직임 줄이기: 토큰·공은 순간 이동, 점멸 없음 (비트 간격은 유지) */
+@media (prefers-reduced-motion: reduce) {
+  .m-field .tok, .m-field .m-ball, .trk { transition: none !important; }
+  .zone.hl-crisis::before, .zone.hl-shotChance::before, .m-banner::before, .m-banner.fresh .m-banner-txt, .m-logbox.open,
+  .goal-fx.show, .pitch.flash-good::after, .pitch.flash-bad::after,
+  .tok.ult-ready .tok-ring, .skill-row .ult-btn.ready, .cut, .cut-face, .m-link > span { animation: none !important; }
+  .zone.hl-crisis::before, .zone.hl-shotChance::before, .m-banner.lv-crisis::before, .m-banner.lv-shotChance::before { opacity: .6; }
+}
+
+/* 결과 모달 */
+.score-big { font-size: 34px; font-weight: 900; text-align: center; font-variant-numeric: tabular-nums; }
+.result-verdict { text-align: center; font-size: 20px; font-weight: 800; }
+.stats-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.stats-table th, .stats-table td { padding: 5px 6px; text-align: center; border-bottom: 1px solid var(--border); }
+.stats-table th:first-child, .stats-table td:first-child { text-align: left; }
+.stats-table th { color: var(--muted); font-weight: 600; font-size: 12px; }

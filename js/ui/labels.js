@@ -27,6 +27,11 @@ export function positionOfSlot(slot) {
 
 export const STAT_LABELS = { shoot: '슈팅', dribble: '드리블', pass: '패스', defense: '수비', physical: '피지컬' };
 export const STAT_SHORT = { shoot: '슈', dribble: '드', pass: '패', defense: '수', physical: '피' };
+// 훈련 칸 아이콘 (아웃게임 가로 화면) — 경기 액션 아이콘(ACTION_ICONS)과 같은 모양을 쓴다
+export const STAT_ICONS = { shoot: '⚽', dribble: '🦶', pass: '➡️', defense: '🛡️', physical: '💪' };
+// 시즌 사이 루트 아이콘 (data/routes.json id). 없는 id 는 ROUTE_ICON_FALLBACK
+export const ROUTE_ICONS = { rt_camp: '🏕️', rt_expedition: '🚌', rt_hotspring: '♨️' };
+export const ROUTE_ICON_FALLBACK = '🧭';
 export const POSITION_LABELS = { GK: '골키퍼', DF: '수비', MF: '미드필더', FW: '공격' };
 export const ELEMENT_LABELS = { fire: '불', water: '물', wind: '바람', earth: '땅', lightning: '번개' };
 export const ELEMENT_ICONS = { fire: '🔥', water: '💧', wind: '🌪', earth: '⛰️', lightning: '⚡' };

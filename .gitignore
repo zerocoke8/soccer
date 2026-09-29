@@ -3,3 +3,6 @@ node_modules/
 Thumbs.db
 *.log
 .vscode/
+
+# 아트 탐색용 생성 이미지 (Pages 게시 제외 — 확정 에셋만 커밋)
+art/style_test/
