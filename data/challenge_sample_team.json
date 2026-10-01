@@ -47,7 +47,7 @@
       {
         "id": "p2",
         "charId": "ch_dwarf_wall",
-        "name": "돌바르",
+        "name": "도르비나",
         "slot": "DF1",
         "position": "DF",
         "style": "power",
@@ -73,7 +73,7 @@
       {
         "id": "p3",
         "charId": "ch_human_captain",
-        "name": "아르덴",
+        "name": "아델린",
         "slot": "DF2",
         "position": "DF",
         "style": "power",
@@ -123,7 +123,7 @@
       {
         "id": "p5",
         "charId": "ch_human_runner",
-        "name": "타린",
+        "name": "타리아",
         "slot": "MF2",
         "position": "MF",
         "style": "speed",
@@ -148,7 +148,7 @@
       {
         "id": "p6",
         "charId": "ch_wolf_winger",
-        "name": "울릭",
+        "name": "울리카",
         "slot": "FW1",
         "position": "FW",
         "style": "speed",
@@ -173,7 +173,7 @@
       {
         "id": "p7",
         "charId": "ch_giant_striker",
-        "name": "그룸바",
+        "name": "그레타",
         "slot": "FW2",
         "position": "FW",
         "style": "power",
@@ -252,13 +252,13 @@
           },
           {
             "id": "p2",
-            "name": "돌바르",
+            "name": "도르비나",
             "slot": "DF1",
             "total": 2689
           },
           {
             "id": "p3",
-            "name": "아르덴",
+            "name": "아델린",
             "slot": "DF2",
             "total": 2169
           },
@@ -270,19 +270,19 @@
           },
           {
             "id": "p5",
-            "name": "타린",
+            "name": "타리아",
             "slot": "MF2",
             "total": 2255
           },
           {
             "id": "p6",
-            "name": "울릭",
+            "name": "울리카",
             "slot": "FW1",
             "total": 2174
           },
           {
             "id": "p7",
-            "name": "그룸바",
+            "name": "그레타",
             "slot": "FW2",
             "total": 2561
           }

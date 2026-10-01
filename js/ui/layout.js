@@ -120,7 +120,7 @@ export function tokenDistance(a, b, aspect = 0.8) {
 
 /**
  * 한국어 조사: pair 는 "받침 있을 때/없을 때" 순서 — "이/가", "과/와", "을/를", "은/는".
- * 예: withJosa("카손", "이/가") → "카손이", withJosa("네리아", "과/와") → "네리아와"
+ * 예: withJosa("아델린", "이/가") → "아델린이", withJosa("네리아", "과/와") → "네리아와"
  */
 export function withJosa(word, pair) {
   const w = String(word ?? "");

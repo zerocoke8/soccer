@@ -289,7 +289,7 @@ test("휴식/외출/미팅/호출/친선전 행동", () => {
   assert.equal(state.formation, "3-1-2");
   assert.equal(state.players.find((p) => p.id === mf2.id).slot, "DF3");
   assert.equal(state.players.find((p) => p.id === mf2.id).position, "DF");
-  assert.equal(state.players.find((p) => p.id === mf2.id).aptitude, "B", "타린 DF 적성 B");
+  assert.equal(state.players.find((p) => p.id === mf2.id).aptitude, "B", "타리아 DF 적성 B");
   assert.deepEqual(state.players.map((p) => p.slot).sort(), formationSlots("3-1-2").sort());
   toTurn();
 
@@ -1038,6 +1038,15 @@ test("전술·저장 이행: readIntent → balanced, intentReveal modifier → 
   assert.equal(t2.players[1].trait, null);
   assert.equal(oldTeam.tactics.defense, "readIntent", "입력은 바꾸지 않는다");
   assert.equal(run.migrateRegisteredTeam({ tactics: {}, players: [{ charId: "ch_dwarf_wall", name: "x" }] }, d).players[0].trait, "wall");
+  // 이름 변경(2026-10-01) 전 이름으로 저장된 옛 등록본도 특성을 찾는다 (표시 이름은 그대로)
+  const renamedOld = {
+    tactics: {},
+    players: ["돌바르", "아르덴", "타린", "울릭", "그룸바"].map((name, i) => ({ id: `p${i}`, name })),
+  };
+  const t3 = run.migrateRegisteredTeam(renamedOld, d);
+  assert.deepEqual(t3.players.map((p) => p.trait), ["wall", "captain", "runner", "crosser", "targetman"], "옛 이름 → 캐릭터 특성");
+  assert.deepEqual(t3.players.map((p) => p.name), ["돌바르", "아르덴", "타린", "울릭", "그룸바"], "저장된 이름은 바꾸지 않는다");
+  assert.equal(run.migrateRegisteredTeam({ tactics: {}, players: [{ name: "constructor" }, { name: "toString" }] }, d).players.every((p) => p.trait === null), true, "프로토타입 키는 이름으로 안 잡힌다");
 });
 
 test("effects: 삭제된 modifier key(intentReveal)·알 수 없는 key 는 throw, 새 키 적용", () => {
@@ -1096,7 +1105,7 @@ test("GK 배급 전술 (2026-09-29): distribution short/long/auto — 없거나 
   // 상대 · 등록 팀
   for (const o of d.opponents) assert.equal(run.buildOpponentSnapshot(o, d).tactics.distribution, "auto", o.id);
   assert.equal(run.migrateRegisteredTeam({ tactics: { attack: "pass" }, players: [] }, d).tactics.distribution, "auto");
-  // 캐논 킥: GK 전용 학습 스킬, 주장 바르그 힌트
+  // 캐논 킥: GK 전용 학습 스킬, 주장 바르바라 힌트
   const ck = d.skills.find((x) => x.id === "sk_cannon_kick");
   assert.deepEqual({ l: ck.learnable, p: ck.positions, e: ck.active.effect, t: ck.tension }, { l: true, p: ["GK"], e: "longPassBoost", t: 25 });
   assert.ok(d.supports.find((x) => x.id === "sp_iron_captain").hintSkillIds.includes("sk_cannon_kick"));

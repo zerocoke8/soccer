@@ -13,7 +13,7 @@
   },
   {
     "id": "ch_dwarf_wall",
-    "name": "돌바르",
+    "name": "도르비나",
     "race": "dwarf", "element": "earth", "style": "power", "rarity": "SR",
     "baseStats": { "shoot": 120, "dribble": 150, "pass": 210, "defense": 390, "physical": 350 },
     "growth":    { "shoot": 0.8, "dribble": 0.85, "pass": 0.95, "defense": 1.3, "physical": 1.2 },
@@ -25,7 +25,7 @@
   },
   {
     "id": "ch_human_captain",
-    "name": "아르덴",
+    "name": "아델린",
     "race": "human", "element": "fire", "style": "power", "rarity": "R",
     "baseStats": { "shoot": 140, "dribble": 150, "pass": 200, "defense": 270, "physical": 210 },
     "growth":    { "shoot": 0.95, "dribble": 0.95, "pass": 1.05, "defense": 1.15, "physical": 1.05 },
@@ -49,7 +49,7 @@
   },
   {
     "id": "ch_human_runner",
-    "name": "타린",
+    "name": "타리아",
     "race": "human", "element": "lightning", "style": "speed", "rarity": "R",
     "baseStats": { "shoot": 150, "dribble": 220, "pass": 250, "defense": 160, "physical": 190 },
     "growth":    { "shoot": 0.95, "dribble": 1.1, "pass": 1.1, "defense": 1.0, "physical": 1.05 },
@@ -61,7 +61,7 @@
   },
   {
     "id": "ch_wolf_winger",
-    "name": "울릭",
+    "name": "울리카",
     "race": "beast", "element": "wind", "style": "speed", "rarity": "SR",
     "baseStats": { "shoot": 250, "dribble": 320, "pass": 200, "defense": 130, "physical": 240 },
     "growth":    { "shoot": 1.1, "dribble": 1.25, "pass": 0.95, "defense": 0.8, "physical": 1.05 },
@@ -73,7 +73,7 @@
   },
   {
     "id": "ch_giant_striker",
-    "name": "그룸바",
+    "name": "그레타",
     "race": "giant", "element": "fire", "style": "power", "rarity": "SSR",
     "baseStats": { "shoot": 420, "dribble": 220, "pass": 200, "defense": 250, "physical": 360 },
     "growth":    { "shoot": 1.3, "dribble": 0.85, "pass": 0.85, "defense": 1.0, "physical": 1.2 },

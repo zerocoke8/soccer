@@ -414,7 +414,7 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
     S.actions.resetToStart();
   }
 
-  // 08 크로스: 울릭(크로서) ③ — 공격 카드 4장 한 줄, 크로스 후보(FW + 피지컬 최고 MF) 전원 박스, 크로스 화살표 = 포물선
+  // 08 크로스: 울리카(크로서) ③ — 공격 카드 4장 한 줄, 크로스 후보(FW + 피지컬 최고 MF) 전원 박스, 크로스 화살표 = 포물선
   {
     const { scr: s8, view: v8 } = inject("08_cross_decision");
     const btns = [...s8.querySelectorAll("button[data-action]")].filter((b) => !b.disabled);
@@ -444,7 +444,7 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
     S.actions.resetToStart();
   }
 
-  // 09 합체기: 바람의 실을 받은 그룸바 — 스킬 줄 '바람의 유성' 토글 → 슛만 가능 → 결정 { action, ultimate: true } → 컷인 2연속 + 이름
+  // 09 합체기: 바람의 실을 받은 그레타 — 스킬 줄 '바람의 유성' 토글 → 슛만 가능 → 결정 { action, ultimate: true } → 컷인 2연속 + 이름
   {
     const { scr: s9, view: v9 } = inject("09_combo_ready");
     const ub = s9.querySelector(".skill-row .ult-btn");
@@ -511,7 +511,7 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
     S.actions.resetToStart();
   }
 
-  // 18 ④ 박스 연결 (2026-09-29): 슛 + "컷백 → ○○" + "센터링 → ○○"(크로서 울릭) 카드, % = 득점 기대 (엔진 expectedPct), 성공·실패 = 엔진 outcome,
+  // 18 ④ 박스 연결 (2026-09-29): 슛 + "컷백 → ○○" + "센터링 → ○○"(크로서 울리카) 카드, % = 득점 기대 (엔진 expectedPct), 성공·실패 = 엔진 outcome,
   // 후보는 박스 안 (탭 = 받는 선수), 미리보기 = 박스 안 연결 + GK 가 튀어나오는 길, 결정 { action, receiverId } → 박스 연결 판정
   {
     const { scr: s18, view: v18 } = inject("18_box_link_decision");
@@ -671,7 +671,7 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
     assert.doesNotMatch(s21.querySelector(".m-info .mine").textContent, /연결 예정/, "상대 외침에는 자동 문구 없음");
     S.actions.resetToStart();
 
-    // 12 (자동 진행): 합체기 외침 배지 + 정보 줄 "자동: 그룸바에게 연결 예정" (우리 자동이 그 선수에게 보낼 때만)
+    // 12 (자동 진행): 합체기 외침 배지 + 정보 줄 "자동: 그레타에게 연결 예정" (우리 자동이 그 선수에게 보낼 때만)
     const { scr: s12, view: v12 } = inject("12_ult_pass", { auto: true });
     const cc = v12.aceCall;
     assert.ok(cc && cc.reason === "combo" && cc.expected, "합체기 외침 · 자동이 그 선수에게");

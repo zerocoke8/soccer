@@ -1707,7 +1707,7 @@ function attackBonus(state, data, side, carrier, action, { midrange, header, box
     add("runner", num(tpar.receivedDribbleBonus) * k);
     links.push("runner");
   }
-  // 볼 운반: 빌드업·중원(line ≤ buildupMaxLine) 드리블. line 0 공 소유자는 규칙상 항상 DF 라 MF 보유자(미르카·키르)는 line 1 에서 받는다
+  // 볼 운반: 빌드업·중원(line ≤ buildupMaxLine) 드리블. line 0 공 소유자는 규칙상 항상 DF 라 MF 보유자(미르카·키라)는 line 1 에서 받는다
   if (action === "dribble" && num(ball.lineIndex, 0) <= num(tpar.buildupMaxLine, 1) && tpar.buildupDribbleBonus) add("carrier", num(tpar.buildupDribbleBonus) * k);
   if (action === "cross" && tpar.crossBonus) add("crosser", num(tpar.crossBonus));
   if (action === "shoot" && ball.receivedFresh && boxShoot && tpar.receivedShotBonus) add("finisher", num(tpar.receivedShotBonus) * k);

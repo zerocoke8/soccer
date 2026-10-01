@@ -263,7 +263,7 @@ export const SCENARIOS = [
   },
   {
     name: "08_cross_decision",
-    title: "울릭(크로서) ③ 크로스 가능한 결정 — 공격 2×2, 크로스 받는 선수 후보 2명 박스에 (크로스 hover = 포물선)",
+    title: "울리카(크로서) ③ 크로스 가능한 결정 — 공격 2×2, 크로스 받는 선수 후보 2명 박스에 (크로스 hover = 포물선)",
     matchKind: "friendly",
     auto: false,
     require: (s, { data }) => atk(s, "home", 2) && needs(s, "attack") && carrierOf(s)?.trait === "crosser" && !!viewOf(s, data).receivers?.cross,
@@ -272,7 +272,7 @@ export const SCENARIOS = [
   },
   {
     name: "09_combo_ready",
-    title: "합체기 준비 — 바람의 실을 받은 그룸바, 스킬 줄 '💥 바람의 유성' 토글 + 슛 hover",
+    title: "합체기 준비 — 바람의 실을 받은 그레타, 스킬 줄 '💥 바람의 유성' 토글 + 슛 hover",
     matchKind: "friendly",
     auto: false,
     require: (s, { data }) => isDuel(s) && s.attackingSide === "home" && needs(s, "attack") && !!comboOption(viewOf(s, data)),
@@ -394,7 +394,7 @@ export const SCENARIOS = [
   {
     // 2026-09-29 박스 연결: ④ 에서 슛 외에 컷백 패스(→ 원터치 슛) · 센터링(크로서만 → 헤더). 연결은 GK 와의 듀얼, 포제션당 1회
     name: "18_box_link_decision",
-    title: "④ 박스 연결 결정 — 슛 · 컷백 패스 · 센터링(크로서 울릭) 버튼, 받는 선수 후보는 박스 안 (자동 끔, 컷백 hover)",
+    title: "④ 박스 연결 결정 — 슛 · 컷백 패스 · 센터링(크로서 울리카) 버튼, 받는 선수 후보는 박스 안 (자동 끔, 컷백 hover)",
     matchKind: "friendly",
     auto: false,
     require: (s, { data }) => atk(s, "home", 3) && needs(s, "attack") && actionEnabled(s, data, "pass") && !!viewOf(s, data).receivers?.pass,
@@ -421,7 +421,7 @@ export const SCENARIOS = [
   {
     // 2026-09-29 에이스의 외침 (표시 전용): 받으면 필살기가 준비되는 받는 선수 "줘!" + 금색 점선 + 배지 "★ 연결하면 메테오 슛"
     name: "20_ace_call",
-    title: "에이스의 외침 — 우리 공격 결정, 받으면 필살 슛이 준비되는 그룸바 '줘!' · 금색 점선 · 배지 (자동 끔, hover 없음)",
+    title: "에이스의 외침 — 우리 공격 결정, 받으면 필살 슛이 준비되는 그레타 '줘!' · 금색 점선 · 배지 (자동 끔, hover 없음)",
     matchKind: "friendly",
     auto: false,
     require: (s, { data }) => isDuel(s) && s.attackingSide === "home" && needs(s, "attack") && viewOf(s, data).aceCall?.side === "home",
@@ -452,7 +452,7 @@ export const SCENARIOS = [
   {
     // 필살기 3단 연출 ① 차지: 필드 흑백, 사용자(필살 슛) 빛남 · 듀얼 상대만 색 — 슛 클릭 150ms 뒤 (경기의 첫 필살기면 차지 0.4초)
     name: "22_ult_charge_mid",
-    title: "필살기 차지 중간 프레임 — 메테오 슛 토글 + 슛 클릭 150ms 뒤 (1x): 필드 흑백 · 그룸바 빛남 · 상대 GK/수비만 색",
+    title: "필살기 차지 중간 프레임 — 메테오 슛 토글 + 슛 클릭 150ms 뒤 (1x): 필드 흑백 · 그레타 빛남 · 상대 GK/수비만 색",
     matchKind: "friendly",
     auto: false,
     require: (s, { data }) => isDuel(s) && s.attackingSide === "home" && needs(s, "attack") && (() => {
@@ -712,7 +712,7 @@ export const OUTGAME_SCENARIOS = [
     expect: { screen: "setup", modal: false },
   },
   {
-    // 라인업 보드 (js/ui/lineup.js): 벤치 미르카(GK - · DF - · MF A · FW B)를 끌어 MF2(타린) 위에 — 누른 채 캡처
+    // 라인업 보드 (js/ui/lineup.js): 벤치 미르카(GK - · DF - · MF A · FW B)를 끌어 MF2(타리아) 위에 — 누른 채 캡처
     name: "og_setup_drag",
     title: "편성 드래그 중 — 벤치 미르카를 MF2 위로: GK·DF 빨강(적성 없음) · MF·FW 초록(적성 표시), 고스트",
     outgame: true,
@@ -722,9 +722,9 @@ export const OUTGAME_SCENARIOS = [
     expect: { screen: "setup", modal: false },
   },
   {
-    // 놓기 확인 (--width/--height 를 바꿔 배율이 달라도 같은 자리에 놓이는지): 미르카 → MF2, 타린은 벤치로
+    // 놓기 확인 (--width/--height 를 바꿔 배율이 달라도 같은 자리에 놓이는지): 미르카 → MF2, 타리아는 벤치로
     name: "og_setup_drop",
-    title: "편성 드래그 놓기 — 미르카를 MF2 에 놓음 → 타린 벤치 (ready = MF2 에 미르카)",
+    title: "편성 드래그 놓기 — 미르카를 MF2 에 놓음 → 타리아 벤치 (ready = MF2 에 미르카)",
     outgame: true,
     build: () => ({ runState: null, summary: "저장된 런 없음 → [새 런 시작] → 미르카 → MF2 놓기" }),
     steps: [{ text: "새 런 시작" }, { drag: { from: '.lu-card[data-pid="ch_cat_trickster"]', to: '.lu-slot[data-slot="MF2"]', release: true } }],
@@ -780,9 +780,9 @@ export const OUTGAME_SCENARIOS = [
     expect: { screen: "run", phase: "turn", modal: ".modal" },
   },
   {
-    // 미팅 라인업 보드: DF1 돌바르(GK B · DF A · MF C · FW -)를 끌어 FW1 위에 — FW 빨강(적성 없음) · GK/DF/MF 초록(맞바꾸기) · 누른 채 캡처
+    // 미팅 라인업 보드: DF1 도르비나(GK B · DF A · MF C · FW -)를 끌어 FW1 위에 — FW 빨강(적성 없음) · GK/DF/MF 초록(맞바꾸기) · 누른 채 캡처
     name: "og_meeting_drag",
-    title: "전술 미팅 드래그 중 — 돌바르(DF1)를 FW1 위로: FW 빨강 · 나머지 초록(⇄ 맞바꾸기), 고스트",
+    title: "전술 미팅 드래그 중 — 도르비나(DF1)를 FW1 위로: FW 빨강 · 나머지 초록(⇄ 맞바꾸기), 고스트",
     outgame: true,
     build: (data, { runSeed }) => walkOrThrow("og_meeting_drag", data, { runSeed, ...MID_TURN }),
     steps: [{ text: "미팅$" }, { drag: { from: '#modal-root .lu-slot[data-slot="DF1"]', to: '#modal-root .lu-slot[data-slot="FW1"]' } }],
@@ -790,9 +790,9 @@ export const OUTGAME_SCENARIOS = [
     expect: { screen: "run", phase: "turn", modal: ".modal" },
   },
   {
-    // 미팅 놓기: DF1 돌바르 → GK (네리아와 맞바꾸기: 네리아 DF C 가능) — ready = GK 에 돌바르(p2), DF1 에 네리아(p1) (기본 편성 선수 id = 슬롯 순서)
+    // 미팅 놓기: DF1 도르비나 → GK (네리아와 맞바꾸기: 네리아 DF C 가능) — ready = GK 에 도르비나(p2), DF1 에 네리아(p1) (기본 편성 선수 id = 슬롯 순서)
     name: "og_meeting_drop",
-    title: "전술 미팅 드래그 놓기 — 돌바르를 GK 에 놓음 → 네리아 DF1 (맞바꾸기)",
+    title: "전술 미팅 드래그 놓기 — 도르비나를 GK 에 놓음 → 네리아 DF1 (맞바꾸기)",
     outgame: true,
     build: (data, { runSeed }) => walkOrThrow("og_meeting_drop", data, { runSeed, ...MID_TURN }),
     steps: [{ text: "미팅$" }, { drag: { from: '#modal-root .lu-slot[data-slot="DF1"]', to: '#modal-root .lu-slot[data-slot="GK"]', release: true } }],

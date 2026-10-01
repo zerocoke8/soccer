@@ -215,7 +215,7 @@ test("1-FW 포메이션(2-3-1): line 2 에서 FW 캐리어의 패스 비활성, 
         if (ms.ball.lineIndex === 1 && carrier.position === "MF") {
           sawMfLine1Pass = true;
           assert.equal(byName.pass.enabled, true, "MF 는 FW 에게 패스 가능");
-          assert.match(byName.pass.hint, /그룸바/);
+          assert.match(byName.pass.hint, /그레타/);
         }
         if (ms.ball.lineIndex >= 3) {
           // ④: 슛 + 박스 연결(컷백 패스 — 후보 = FW + 슈팅 최고 MF, 포제션당 1회)
@@ -441,7 +441,7 @@ test("무효 입력은 throw: 비활성 액션, 텐션 부족, 미보유 스킬"
   assert.throws(() => match.step(clone(ms), data, { action: "shoot" }), /사용할 수 없는 액션/);
   assert.throws(() => match.step(clone(ms), data, { action: "tackle" }), /사용할 수 없는 액션/);
   assert.throws(() => match.step(clone(ms), data, { action: "dribble", skillId: "sk_nope" }), /sk_nope/);
-  // 울릭(line_breaker 40) 텐션 20 → 부족
+  // 울리카(line_breaker 40) 텐션 20 → 부족
   const wolf = ms.home.players.find((p) => p.skillIds.includes("sk_line_breaker"));
   const ms2 = clone(ms);
   ms2.ball.carrierId = wolf.id;
@@ -1135,15 +1135,15 @@ test("v0.2 getMatchView: 매 상태에서 상태 불변(JSON 동일, 난수 미�
   assert.equal(sawFinished, 30);
 });
 
-test("v0.2 스킬 변형 미리보기: 라인 브레이커(extraLine)·소매치기(steal)를 액션과 함께 쓰면 실제 결과 = outcomesBySkill / receiverPreviewBySkill (1-3-2, 울릭 DF1)", () => {
-  const data = DATA_KICK0; // 울릭(DF)이 킥오프 carrier 가 되도록 빌드업 킥오프
-  // 회귀: 울릭(sk_line_breaker)이 유일한 DF → line 0 carrier. 라인 브레이커 + 패스면 공은 MF 가 아니라 FW(line 2)에게 간다.
+test("v0.2 스킬 변형 미리보기: 라인 브레이커(extraLine)·소매치기(steal)를 액션과 함께 쓰면 실제 결과 = outcomesBySkill / receiverPreviewBySkill (1-3-2, 울리카 DF1)", () => {
+  const data = DATA_KICK0; // 울리카(DF)가 킥오프 carrier 가 되도록 빌드업 킥오프
+  // 회귀: 울리카(sk_line_breaker)가 유일한 DF → line 0 carrier. 라인 브레이커 + 패스면 공은 MF 가 아니라 FW(line 2)에게 간다.
   // 소매치기는 MF 전원에게 붙여 수비 성공 시 역습 시작 구역이 한 칸 깊어지는 경로를 검증한다.
   const squad = { GK: "ch_spirit_keeper", DF1: "ch_wolf_winger", MF1: "ch_elf_playmaker", MF2: "ch_human_runner", MF3: "ch_cat_trickster", FW1: "ch_giant_striker", FW2: "ch_human_captain" };
   const st = run.createRun({ data, seed: "lb", formation: "1-3-2", squad });
   const home = run.buildTeamSnapshot(st, data);
-  const ulrik = home.players.find((p) => p.slot === "DF1");
-  assert.ok(ulrik.skillIds.includes("sk_line_breaker"), "울릭 = 라인 브레이커 보유");
+  const ulrika = home.players.find((p) => p.slot === "DF1");
+  assert.ok(ulrika.skillIds.includes("sk_line_breaker"), "울리카 = 라인 브레이커 보유");
   for (const p of home.players) if (p.position === "MF" && !p.skillIds.includes("sk_pickpocket")) p.skillIds.push("sk_pickpocket");
   const seen = { lbPass: 0, lbPassOk: 0, lbDribble: 0, steal: 0, stealWon: 0 };
   for (let seed = 1; seed <= 90; seed++) {

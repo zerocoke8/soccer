@@ -466,7 +466,7 @@ test("연계 특성: 킬패스(첫 듀얼, 중거리 제외) · 피니셔 · 침
   const n1 = forced(nc, { action: "dribble" }, true).ms;
   const spent = (s) => M.staminaMax - s.home.live.h_DF1.stamina;
   assert.ok(Math.abs(spent(c1) / spent(n1) - 0.7) < 0.01, `드리블 체력 −30%: ${spent(c1) / spent(n1)}`);
-  // 빌드업·중원(line ≤ buildupMaxLine = 1)까지. line 0 공 소유자는 항상 DF 라 MF 보유자(미르카·키르)는 line 1 에서 받아 발동한다
+  // 빌드업·중원(line ≤ buildupMaxLine = 1)까지. line 0 공 소유자는 항상 DF 라 MF 보유자(미르카·키라)는 line 1 에서 받아 발동한다
   const cl1 = clone(c1);
   if (cl1.ball.lineIndex === 1) near(odds(cl1, "dribble", "hold").bonus.parts.carrier, 0.1, "볼 운반 중원(DF 가 몰고 올라감)");
   const cm = mk({ MF1: { trait: "carrier" } });

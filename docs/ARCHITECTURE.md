@@ -113,7 +113,7 @@ rng.getState()             // number
 ```jsonc
 {
   "id": "sp_coach_harr",
-  "name": "코치 하르",
+  "name": "코치 하르나",
   "type": "shoot",                 // STATS 중 하나 | "friend"
   "rarity": "SSR",
   "trainingBonus": 0.15,           // 같은 칸에서 훈련 효율 +15%  (friend 타입은 0)
@@ -660,7 +660,7 @@ export function decideDefense(state, data, side)  // → { action, skillId|null 
 ### 11.2 데이터 결정
 - `sk_tide_wall`(SR GK 고유)은 passive `save 1.15` — "SR=active" 규칙의 승인된 예외.
 - friend 카드(`sp_bard_lumi`)의 `specialtyRate` 는 무시되고 균등 배치된다.
-- 우리 팀 원소 공명: v0.1 배포 후 미르카(ch_cat_trickster)를 바람으로 바꿔, 바람 3명(실루엔·울릭·미르카) 편성 시 공명 가능. 시즌3 상대 팀은 불 4 / 물 5.
+- 우리 팀 원소 공명: v0.1 배포 후 미르카(ch_cat_trickster)를 바람으로 바꿔, 바람 3명(실루엔·울리카·미르카) 편성 시 공명 가능. 시즌3 상대 팀은 불 4 / 물 5.
 - `ev_night_training` / `ev_secret_dribble` 의 부상 확률 0.5 → 0.3 (자동 진행 기준 런당 부상 0.5~1.5 목표).
 - 상대 스탯: 초안 대비 시즌1 ×0.97, 시즌2 ×1.13, 시즌3 ×1.13 (10 단위 반올림). 자동 진행이 시즌2·3 에 컨디션 3.5~3.8·팀워크 66~94·유물 1~2개를 들고 가기 때문.
 
@@ -746,7 +746,7 @@ export function computeLayout(view, opts = {})
 //   highlight: { zone, level: "danger" | "crisis" | "chance" | "shotChance" | null, label },   // GDD §9.5 표
 //   track: { side: attackingSide, step: 0..3, dir: "up" | "down" },
 //   remainingText,                                      // view.remaining.text
-//   banner: null | string,                              // 구역이 바뀌는 비트에서 UI 가 띄울 한 줄 (예: "⚠ 슈팅 위기 — 카손이 우리 박스 진입, 네리아와 1:1")
+//   banner: null | string,                              // 구역이 바뀌는 비트에서 UI 가 띄울 한 줄 (예: "⚠ 슈팅 위기 — 카샤가 우리 박스 진입, 네리아와 1:1")
 // }
 ```
 규칙 (GDD §9.3):
@@ -793,7 +793,7 @@ export function computeLayout(view, opts = {})
   - 모든 토큰 쌍 겹침 없음 (§12.2 기준), 좌표 범위 [0, 100].
   - 실제 경기(여러 seed, step 반복)에서 매 view 마다 위 불변식 검사.
   - 승부차기 레이아웃.
-- (수정 라운드) `test/layout.test.mjs` 추가: 경기 종료 모습(합성 3종 + 실제 300경기), 패스 후보 = 도착 구역(양 팀·extraLine), resolvePreview, 자동 진행 중 그린 패스 후보 = 실제 수신자(라인 브레이커 편성), UI 실제 범위(aspect 0.74~1.3 · tokenSize 0.0866~0.09, 합성·실제·승부차기) 겹침 없음·규칙 위치. `test/match.test.mjs`: 스킬 변형 미리보기 = 실제(1-3-2 울릭 DF1 + 소매치기). `test/ui.smoke.test.mjs`: 연출 중 배속 클릭 시 스코어·로그 그대로, 자동 OFF → 개입 해제, 종료 모습의 carrier.
+- (수정 라운드) `test/layout.test.mjs` 추가: 경기 종료 모습(합성 3종 + 실제 300경기), 패스 후보 = 도착 구역(양 팀·extraLine), resolvePreview, 자동 진행 중 그린 패스 후보 = 실제 수신자(라인 브레이커 편성), UI 실제 범위(aspect 0.74~1.3 · tokenSize 0.0866~0.09, 합성·실제·승부차기) 겹침 없음·규칙 위치. `test/match.test.mjs`: 스킬 변형 미리보기 = 실제(1-3-2 울리카 DF1 + 소매치기). `test/ui.smoke.test.mjs`: 연출 중 배속 클릭 시 스코어·로그 그대로, 자동 OFF → 개입 해제, 종료 모습의 carrier.
 - `test/match.test.mjs` 추가: zoneOf 표, 많은 seed 에서 **패스 성공 시 실제 수신자 = 직전 view.receiverPreview**, **판정 후 공 구역 = 직전 view.outcomes[선택 액션].success/fail.zone** (사람 측 결정을 넣어 진행; 스킬 미사용), 이벤트 seq 단조 증가·zone 필드 존재, getMatchView 가 상태를 바꾸지 않음(JSON 동일).
 - `tools/shot.mjs` (신규): puppeteer-core(devDependency, 설치됨) + 로컬 Chrome(`C:/Program Files/Google/Chrome/Application/chrome.exe`) 또는 Edge, `CHROME_PATH` 로 덮어쓰기; 없으면 안내 후 exit 0. 내장 정적 서버로 앱을 띄우고, Node 에서 엔진으로 만든 run/match 상태를 localStorage(`soccer.run`, `soccer.match`)에 주입한 뒤 시작 화면의 "이어하기" 버튼으로 진입 (app.js `continueRun` 은 run.phase === "match" 이고 match.seed === run.pendingMatch.seed 일 때 저장된 경기를 복원한다 → 주입 시 pendingMatch.seed 를 맞출 것). 시나리오별 PNG (390×844, deviceScaleFactor 2 — v0.3.2 부터 기본 1280×720 DPR 1, §14.6): 우리 빌드업 / 우리 파이널 서드 수동 결정(자동 끄고 미리보기 + 액션 버튼 hover 화살표) / **상대 ④ 슈팅(회귀)** / 상대 ③ 위험 / 승부차기 / 패스 비트 연출 중간 프레임 / 데스크톱 1280×900. 각 시나리오의 페이지 scrollHeight 와 콘솔 에러를 출력. 사용: `node tools/shot.mjs <outDir>`. (도구 스크립트는 반드시 프로젝트 안에 둬야 puppeteer-core 가 resolve 된다.)
 
@@ -816,7 +816,7 @@ export function computeLayout(view, opts = {})
 ### 13.1 데이터
 
 **characters.json** — 각 캐릭터에 `"trait": "<traitId>"` 추가:
-실루엔 killpass, 울릭 crosser, 그룸바 targetman, 타린 runner, 미르카 carrier, 돌바르 wall, 네리아 distributor, 아르덴 captain.
+실루엔 killpass, 울리카 crosser, 그레타 targetman, 타리아 runner, 미르카 carrier, 도르비나 wall, 네리아 distributor, 아델린 captain.
 
 **traits.json** (신규, 배열) — `{ id, name, description, kind: "bonus"|"condition"|"position"|"mult"|"team", params }`:
 
@@ -850,8 +850,8 @@ export function computeLayout(view, opts = {})
 
 | id | 이름 | kind | 텐션 | positions | effect / params |
 |---|---|---|---|---|---|
-| sk_iron_tackle | 철의 태클 | active (돌바르 고유) | 30 | null | boost `{defense:1.4, noMissPenalty:true}` phase defense |
-| sk_line_breaker | 라인 브레이커 | active (울릭 고유) | 35 | null | extraLine, phase attack |
+| sk_iron_tackle | 철의 태클 | active (도르비나 고유) | 30 | null | boost `{defense:1.4, noMissPenalty:true}` phase defense |
+| sk_line_breaker | 라인 브레이커 | active (울리카 고유) | 35 | null | extraLine, phase attack |
 | sk_power_shot | 파워 슛 | active 학습 | 30 | FW | powerShot `{shoot:1.5, midrangeCoef:1.0, stamina:8}` |
 | sk_eagle_eye | 매의 눈 | active 학습 | 40 | DF,MF | readBoost `{readMult:2.0}` phase defense |
 | sk_see_through | 꿰뚫어보기 (신규) | active 학습, cost 140 | 40 | FW,MF | negateRead `{}` phase attack |
@@ -861,7 +861,7 @@ export function computeLayout(view, opts = {})
 | sk_burst_dribble | 폭발 드리블 | active 학습 | 30 | FW,MF | boost `{attack:1.5, actions:["dribble"], noStamina:true}` phase attack |
 | sk_through_pass | 스루 패스 | active 학습 | 25 | MF | negateRead `{actions:["pass","cross"], nextDuelBonus:0.25}` phase attack |
 | sk_wind_thread | 바람의 실 | unique (실루엔) | 0 | null | ultimate `{ type:"pass", attack:1.5, negateRead:true, nextDuelBonus:0.5, receiverGauge:50 }` |
-| sk_meteor_shot | 메테오 슛 | unique (그룸바) | 0 | null | ultimate `{ type:"shot", shoot:2.0, gkMult:0.7, boxShot:true, stamina:10 }` |
+| sk_meteor_shot | 메테오 슛 | unique (그레타) | 0 | null | ultimate `{ type:"shot", shoot:2.0, gkMult:0.7, boxShot:true, stamina:10 }` |
 | sk_boss_strike | 업화의 일격 (신규) | unique (상대 전용) | 0 | FW | ultimate type shot (메테오와 같은 값) |
 | sk_boss_save | 불꽃 장벽 (신규) | unique (상대 전용) | 0 | GK | ultimate `{ type:"save", saveMult:2.0 }` |
 
@@ -949,7 +949,7 @@ state.version, events type: "combo" 추가, "block" → "hold"
 GDD 9.6·9.7·9.16·9.17 대로:
 - 상대 듀얼 선수 머리 위 예상 행동 아이콘, 정보 줄에 근거("드리블형 — 드리블 600 > 패스 400")와 우리 선수 예상 행동. opponentReading 이면 "상대가 우리 수를 읽는 중".
 - 공격 버튼 2×2(켜진 것만), 수비 3열 (v0.3.2: 아래 가운데 카드 한 줄 — §14.3). 버튼: 제목 "드리블 41%", 성공·실패 한 줄씩(짧은 형식), recommended 에 "추천" 표시.
-- 받는 선수: 패스·크로스 버튼 제목에 "→ 그룸바▾", 필드의 후보 토큰(전원 도착 구역에 그림)을 탭하면 변경, 길게 누르기 = 미니 카드. 결정 시 `{ action, receiverId }`.
+- 받는 선수: 패스·크로스 버튼 제목에 "→ 그레타▾", 필드의 후보 토큰(전원 도착 구역에 그림)을 탭하면 변경, 길게 누르기 = 미니 카드. 결정 시 `{ action, receiverId }`.
 - 필살 게이지 링(토큰 둘레), 준비되면 빛남. 스킬 줄에 필살기 버튼(합체기면 합체기 이름). 결정 시 `ultimate: true`. 전체 화면 컷인 1.5초(배속 비례), 합체기 2연속 + 이름.
 - 간파 버튼(스킬 또는 사용권, 비용 표시, 비활성 사유).
 - 크로스 포물선, 헤더 연출, 연계 문구("킬패스!", "원터치!", "헤더!", "침투!"), 태클 실패 누운 모습.
@@ -973,7 +973,7 @@ GDD 9.6·9.7·9.16·9.17 대로:
 **경기 엔진 (match.js · ai.js · skills.js)**
 - `tendencyValues(state, data, side, playerId?)` — config 가 필요해 `data` 인자 추가 (13.2-9 문구는 `(state, side, playerId)`).
 - 추가 export: `pickByTendency, autoAction, receiverPlan, defaultReceiverId, ultimateUsable, ultimateReady, aiWantsUltimate, gaanpaStatus, bestDefenseResponse, bestAttackResponse, teamworkAmp, getTrait, comboName, fxOf, gaugeOf, DEFAULT_TRAITS, DEFAULT_COMBOS, MATCH_VERSION` (ai.js `isLeverage`, skills.js `getPlayerUltimate, isGaanpaSkill, skillCost, addSkillFx, ULTIMATE_TYPES`). 삭제: `revealLevelFor, REVEAL_LEVELS`.
-- **필살 패스의 기본 받는 선수**는 받는 선수의 합체기 가치(자기 필살 효과 × comboBonus)를 판정값에 넣는다. 없으면 기본 편성에서 실루엔 → 울릭(드리블형)으로 가서 자동 경기 합체기가 0회였다. `view.receivers[a].ultimateDefaultId` 추가, 수동 `{ action: "pass", ultimate: true }` 에 receiverId 가 없으면 이 값. 필살 패스 변형은 `receiverPreviewBySkill / outcomesBySkill / receiversBySkill` 에 **필살기 skillId 키**로 들어간다.
+- **필살 패스의 기본 받는 선수**는 받는 선수의 합체기 가치(자기 필살 효과 × comboBonus)를 판정값에 넣는다. 없으면 기본 편성에서 실루엔 → 울리카(드리블형)로 가서 자동 경기 합체기가 0회였다. `view.receivers[a].ultimateDefaultId` 추가, 수동 `{ action: "pass", ultimate: true }` 에 receiverId 가 없으면 이 값. 필살 패스 변형은 `receiverPreviewBySkill / outcomesBySkill / receiversBySkill` 에 **필살기 skillId 키**로 들어간다.
 - 연계 스택 `passChainBonus × chain` 은 **슛에만** (v0.1 규칙 유지, GDD 9.10-6). 13.2-5 문구에는 액션 제한이 없다.
 - 필살 슛 `gkMult ×0.7` 은 파이널 서드 중거리(박스 슛 취급)에서 막는 DF 에도 적용. 박스 슛 취급이라 버티기 중거리 배율(×holdVsMidrange)은 붙지 않는다.
 - 필살기를 쓴 선수는 그 듀얼에서 게이지를 얻지 않는다(0 유지). 필살 패스 수신은 onReceive 대신 `ultimate.receiverGauge`(50). 게이지 증가는 한 번씩 상한으로 자른다(승 → 골 순서).
@@ -987,8 +987,8 @@ GDD 9.6·9.7·9.16·9.17 대로:
 - 이벤트 로그의 "X의 버티기 제침" 은 "뚫었다"는 동사일 뿐이다. 제쳐짐 상태(+beatenBonus)는 태클이 졌을 때만 붙는 별도 꼬리표("— X 제쳐짐 (다음 듀얼 +25%)").
 
 **데이터 · 런 (data/*.json · run.js · effects.js)**
-- 시즌 3 보스 엠버스론: 13.1 의 필살기 2개 외에 MF 세르바 `sk_eagle_eye`, FW 코르드 `sk_see_through` (GDD 0.1 #37 "보스가 우리 수를 읽는다" — readIntent 삭제 후 읽기 수단이 없어서).
-- 상대 3명 드리블·패스 값 교환(합 불변): 아이언후프 DF2 하르둠·MF2 코르바, 썬더클로 DF2 스나르. A안에서 DF·MF 패스 스탯이 드리블을 이겨 "드리블 전술" 팀도 styleHint 가 패스 위주로 나왔기 때문.
+- 시즌 3 보스 엠버스론: 13.1 의 필살기 2개 외에 MF 세르바 `sk_eagle_eye`, FW 코르델리아 `sk_see_through` (GDD 0.1 #37 "보스가 우리 수를 읽는다" — readIntent 삭제 후 읽기 수단이 없어서).
+- 상대 3명 드리블·패스 값 교환(합 불변): 아이언후프 DF2 하르디아·MF2 코르바, 썬더클로 DF2 스나리. A안에서 DF·MF 패스 스탯이 드리블을 이겨 "드리블 전술" 팀도 styleHint 가 패스 위주로 나왔기 때문.
 - `styleHint` 는 엔진 tendency 가 아니라 스탯 비교(필드 선수 dribble×계수 vs pass×계수, 전술 선호 ×tacticBonus, 동률 드리블, 과반이 아니면 "혼합"). 경기 상태 없이 계산해야 해서.
 - 추가: `nextMatch.styleHintKey / styleCounts / gaanpaTickets`, 스냅샷 선수 `charId`, `getTurnView().players[].trait`, export `normalizeTactics, migrateRun, migrateRegisteredTeam, opponentStyleHint, DEFENSE_TACTICS, MODIFIER_KEYS, assertModifierKey`. `team.gaanpaCostHalf` 는 boolean, `modifiers.gaanpaCostHalf` 는 숫자.
 - 옛 저장 런 이행: `intentReveal` modifier → 같은 양·기간의 `gaanpaTicket` (감독의 수첩 유물이면 `gaanpaCostHalf 1` 추가), 전술 readIntent → balanced. 상태를 바꾸는 run 함수는 모두 `migrateRun` 을 먼저 부른다. RUN_VERSION 은 1 유지(모양 불변, 내용으로 이행).
@@ -1007,7 +1007,7 @@ GDD 9.6·9.7·9.16·9.17 대로:
 - 편성 화면 서포트 그리드 가로 넘침(390px 에서 429px) 수정 — 이번 라운드 전부터 있던 문제.
 
 **도구 · 테스트**
-- test/layout.test "자동 진행: 그린 패스 후보 = 실제 수신자": 픽스처를 DF1 아르덴(패스형) + `sk_line_breaker` 주입 + 텐션 60 으로 바꿈(A안에서 드리블형 DF 울릭은 패스를 안 해서 변형이 쓰이지 않았다). 숨김 상한 passes/4 → passes/3. **이 비율은 `tension.start` 에 민감**하다 — 35 이상이면 라인 브레이커가 킥오프 듀얼에 바로 발동해 0.35 로 실패.
+- test/layout.test "자동 진행: 그린 패스 후보 = 실제 수신자": 픽스처를 DF1 아델린(패스형) + `sk_line_breaker` 주입 + 텐션 60 으로 바꿈(A안에서 드리블형 DF 울리카는 패스를 안 해서 변형이 쓰이지 않았다). 숨김 상한 passes/4 → passes/3. **이 비율은 `tension.start` 에 민감**하다 — 35 이상이면 라인 브레이커가 킥오프 듀얼에 바로 발동해 0.35 로 실패.
 - tools/sim.mjs: `--manualOracle` 삭제(view.intent 사용) → tools/choice.mjs 가 대체. 경기 표를 전체 / S1~S3 목표 경기로 나눠 출력. `--oppScale` 에 `cap=`.
 - tools/choice.mjs 정책: auto / expected(AI 규칙으로 붙을 스킬·필살기·간파 토글의 기대 % 까지 보고 최고) / rec("추천"만, 스킬·필살기는 AI 규칙) / random / pair / hold / expD·expA. 변형: 필살기·액티브·둘 다 끔(`--strip both` 면 상대도).
 - tools/scenarios.mjs 시나리오 08~15, `adjustSetup` 훅, shot.mjs `steps` 상호작용.
@@ -1029,7 +1029,7 @@ GDD 9.6·9.7·9.16·9.17 대로:
 | match.ultimate.onDuelWin / onReceive / onGoal | 20 / 15 / 30 | **35 / 35 / 35** | 보유자가 경기당 4~5회 관여하는데 사용 0.4회(실루엔 35% 경기가 가득 찬 채 종료). 시작 30 + 35×2 = 100 → 첫 필살기는 관여 2번 뒤, 이후 3번마다 |
 | 상대 스탯 | §4.6 가이드 | S1 ×1.18, S2 ×1.07, S3 ×1.17 (10 단위 반올림, 스탯만) | 필살기가 강해진 만큼 시즌 승률을 목표 대역에 다시 맞춤 |
 | match.tendency.midrangeTactic (신규, 13.8.6-5) | (tacticBonus 1.15) | **3.0** | 중거리 계수 0.6 이 드리블·패스 2.2 보다 훨씬 낮아 ×1.15 로는 1위를 절대 못 뒤집었다(상대 최대 비율 0.448). 중거리 = 한 번 이기면 골, 돌파 = 두 번 → 반반 승부에서 약 3배가 같은 득점 기대 |
-| 상대 연계 특성·스탯 (13.8.6-4) | 13.1 | 피니셔 제거(무그렌·시온델·아그니르), 침투 이동(다린 → 로벨, 프레이 → 없음, + 코르바·카엘라·코르드), 파낙 슈팅 730·드리블 540·패스 610 · 루가 슈팅 710, 시온델 슈팅 780·드리블 580 → 실버리프 전원 ×1.05 | A안 자동에서 한 번도 발동하지 않던 특성을 공을 실제로 잡는 선수로 옮김. 실버리프는 중거리 팀이 되며 약해져(S2 59%) 스탯으로 되돌림 |
+| 상대 연계 특성·스탯 (13.8.6-4) | 13.1 | 피니셔 제거(무그리·시오넬라·아그니스), 침투 이동(다리아 → 로웨나, 프레야 → 없음, + 코르바·카엘라·코르델리아), 파냐 슈팅 730·드리블 540·패스 610 · 루가 슈팅 710, 시오넬라 슈팅 780·드리블 580 → 실버리프 전원 ×1.05 | A안 자동에서 한 번도 발동하지 않던 특성을 공을 실제로 잡는 선수로 옮김. 실버리프는 중거리 팀이 되며 약해져(S2 59%) 스탯으로 되돌림 |
 
 - 상대 선수당 5스탯 합 평균: S1 아이언후프 1700 · 강변 1606, S2 실버리프 2573(QA 전 2451) · 썬더클로 2329(QA 전 2316), S3 엠버스론 3399 · 프로스트베일 3199. **S3 최대 스탯 1170 > statCap 1000** (엠버스론 GK·DF, 프로스트베일 GK). 엔진은 상대 스탯을 자르지 않고 화면에 상대 스탯 바가 없어 드러나지 않는다. 1000 으로 자르면 팀 개성이 사라져 쓰지 않았다.
 - GDD v0.5 의 [가정] 수치 중 바뀐 것: 짝 ×1.5 → ×1.7, 필살 게이지 +20/+15/+30 → +35/+35/+35, 팀 텐션 시작 20 → 30 · 듀얼 승 +10 → +9, "기회 보이면 중거리" 중거리 성향 ×1.15 → ×3.0 (13.8.6-5). 규칙 문구 중 바뀐 것: 볼 운반 "빌드업 구역 드리블 +10%" → "빌드업·중원(line ≤ 1)" (13.8.6-3).
@@ -1051,13 +1051,13 @@ GDD 9.6·9.7·9.16·9.17 대로:
 4. S1·S2 상대 4팀에 일반 액티브가 없어 상대 액티브 0회/경기 (GDD 9.18 "팀당 3~4"). 1~2개씩 넣고 `--oppScale` 로 스탯을 다시 맞추면 된다.
 5. 크로서가 자동에서 크로스를 거의 안 한다 (0.17회/경기): 크로스 성향 (패스+드리블)/2 × 1.1 < 드리블. 예: 스크린샷 08 에서 자동은 드리블 25%, 크로스는 53%. 크로스 → 헤더 → 타깃맨 연계는 사실상 수동 전용.
 6. 보스 GK 필살 세이브 0.02회/경기 — GK 게이지는 세이브로만 차고 가득 찼을 때만 쓴다. GK 전용 증가량(예: 세이브 +50) 검토.
-7. "추천"(`actions[].recommended`)은 토글 없는 기대 % 라 준비된 필살기를 보지 않는다. 필살기가 준비된 그룸바가 라인 2 에서 드리블 30% 를 추천받고, 메테오 중거리는 87%. 추천만 따르면 S1 −2.4%p. 제안: 필살기가 준비되면 `ultimateOptions` 에도 추천 표시.
+7. "추천"(`actions[].recommended`)은 토글 없는 기대 % 라 준비된 필살기를 보지 않는다. 필살기가 준비된 그레타가 라인 2 에서 드리블 30% 를 추천받고, 메테오 중거리는 87%. 추천만 따르면 S1 −2.4%p. 제안: 필살기가 준비되면 `ultimateOptions` 에도 추천 표시.
 8. line 0~1 공격 expectedPct 는 돌파 확률만 본다(계약대로) → 공격만 기대 % 최고의 이득은 +1.7~2.6%p (수비만 +5~7.5). 다음 듀얼 보너스·도착 구역 가치를 넣으면 공격 쪽 결정이 살아난다.
 9. S3 목표 경기 골 4.07/경기 (전체 평균 2.64 는 목표 안).
 10. 새 파일이 아직 git 에 없다: `data/traits.json, data/combos.json, test/v05.test.mjs, tools/choice.mjs` — 커밋에 넣어야 한다 (`npm test` 가 v05 를 요구한다).
-11. **기획 확인 — 볼 운반** (13.8.6-3): "빌드업 구역(line 0)"은 규칙상 공 소유자가 항상 DF 라 미르카(MF/FW)·키르(MF)에게 발동하지 않았다. 검수 제안 1안(line ≤ 1, `buildupMaxLine`)으로 바꿨다. 다른 안: 효과를 "중원 드리블 +10%"로 한정, 또는 DF 캐릭터에 배정.
+11. **기획 확인 — 볼 운반** (13.8.6-3): "빌드업 구역(line 0)"은 규칙상 공 소유자가 항상 DF 라 미르카(MF/FW)·키라(MF)에게 발동하지 않았다. 검수 제안 1안(line ≤ 1, `buildupMaxLine`)으로 바꿨다. 다른 안: 효과를 "중원 드리블 +10%"로 한정, 또는 DF 캐릭터에 배정.
 12. **기획 확인 — 중거리 전술** (13.8.6-5): ×3.0 은 "슈팅이 드리블·패스보다 약 1.2배 이상 높은 선수만" 중거리 1위. 자동 중거리 슛 골 확률은 15~17%(우리 DF 가 버티기 ×1.5 로 막음) 라서 중거리 팀(실버리프)은 오히려 약해진다 — GDD 9.11 "중거리 팀 = 버티기의 가치" 그대로. 우리 팀이 이 전술을 고르면 목표 경기 승률은 대략 중립(±3%p). 대안: 값을 2.5 로(상대 동작 불변, 우리 슈터만 뒤집힘), 또는 전술 설명을 "필살 슛·수동에서만 의미"로.
-13. 피니셔(받은 직후 박스 슛·헤더)는 A안 자동에서 상대가 발동시킬 경로가 없다(FW 끼리 패스·크로스가 없음). GDD 9.10 대로 런치 캐릭터용으로 남기고 상대에서는 뺐다. 상대 철벽 노르윈(실버리프)은 매치업 수비수 선택이라 경기당 0.01회 — 수비할 때 자동 선택은 버티기라 테스트는 "발동 > 0 또는 버티기 선택"으로 본다.
+13. 피니셔(받은 직후 박스 슛·헤더)는 A안 자동에서 상대가 발동시킬 경로가 없다(FW 끼리 패스·크로스가 없음). GDD 9.10 대로 런치 캐릭터용으로 남기고 상대에서는 뺐다. 상대 철벽 노르웬(실버리프)은 매치업 수비수 선택이라 경기당 0.01회 — 수비할 때 자동 선택은 버티기라 테스트는 "발동 > 0 또는 버티기 선택"으로 본다.
 14. 수비 미리보기 ✕ 는 다음 구역 같은 레인에 선 선수와 겹치면 레인 옆으로 비킨다 (13.8.6-10). 수비수와 그 선수 사이 틈(약 17px)이 ✕(약 23px)보다 좁아서 레인 위에는 못 둔다.
 
 #### 13.8.6 검수 수정 (v0.3 QA — 14건, 구현이 기준)
@@ -1089,9 +1089,9 @@ GDD 9.6·9.7·9.16·9.17 대로:
 - `node tools/sim.mjs --runs 300 --seed 1`: 목표 경기 승률 **74.3 / 57.3 / 41.3%** (seed 1~4 평균 S2 약 55%), 골 2.58/경기(S3 4.15), 우리 일반 액티브 3.08/경기, 필살기 보유자당 0.98 / 0.88 / 1.23, 필살 슛 골 확률 80.4%, 상대 중거리 슛 S2 2.72/경기(골 15%), 침투 연계 1.56/경기(전 0.09).
 - `node tools/choice.mjs` (60런 × 6시드): 수동 이득 **+7.0%p** (7.8 / 5.3 / 8.1), 필살기 1회 +7.0%p, 액티브·필살기 전체 +17.3%p(13.8.5-1 그대로), 추천만 − 자동 −1.2%p.
 - 미리보기 = 실제 (실제 목표 경기 36셋업 × 시드 2, 액티브 8종 주입): 액티브 토글 8705건(함성 2588) 불일치 0, line 2 비슛 기대 % 538건 중 1%p 넘는 차이 0.
-- 상대 특성 발동 (목표 + 친선, 540경기): 피니셔 0 → 배정 없음, 침투 로벨 118 · 카엘라 133 · 코르바 191 · 코르드 191, 크로서 파낙 0 → 136, 타깃맨 루가 0 → 89, 볼 운반 키르 0 → 234.
+- 상대 특성 발동 (목표 + 친선, 540경기): 피니셔 0 → 배정 없음, 침투 로웨나 118 · 카엘라 133 · 코르바 191 · 코르델리아 191, 크로서 파냐 0 → 136, 타깃맨 루가 0 → 89, 볼 운반 키라 0 → 234.
 - `node tools/shot.mjs`: 16/16 시나리오 390×844 스크롤 없음·잘린 스킬 0·콘솔 에러 0 (360 폭 04·11·12·16 도 스크롤·잘림 0, 320 폭에서는 16 의 이름 3개가 말줄임).
-- 브라우저 확인(puppeteer 390×844): 라인 브레이커 + 울릭 탭 → 버튼 "울릭 원터치 · 상대 박스 진입", 미리보기 "→ 상대 박스", 판정 line 3 원터치. 개입 패스 뒤 자동 ON → 타린의 자동 패스가 끊긴 턴오버 궤적이 그룸바(이벤트 receiverId) 쪽 33px. 연계 문구 6건 토큰 얼굴·이름표 겹침 0 (전: 6건 모두 오르반 얼굴·이름표·말풍선을 가림). 편성 서포트 카드 390·360: 단어 중간 줄바꿈 0, 가로 넘침 없음.
+- 브라우저 확인(puppeteer 390×844): 라인 브레이커 + 울리카 탭 → 버튼 "울리카 원터치 · 상대 박스 진입", 미리보기 "→ 상대 박스", 판정 line 3 원터치. 개입 패스 뒤 자동 ON → 타리아의 자동 패스가 끊긴 턴오버 궤적이 그레타(이벤트 receiverId) 쪽 33px. 연계 문구 6건 토큰 얼굴·이름표 겹침 0 (전: 6건 모두 오르비아 얼굴·이름표·말풍선을 가림). 편성 서포트 카드 390·360: 단어 중간 줄바꿈 0, 가로 넘침 없음.
 
 ### 13.9 가로 경기 화면 (테스트, v0.3.1) — **폐기: §14 로 대체**
 
@@ -1233,7 +1233,7 @@ GDD 9.6·9.7·9.16·9.17 대로:
 3. **필드 비율**: 규칙 영역 1244×528 ≈ 2.36:1 — 사용자 목업(약 1.4:1)보다 길다. 16:9 에서 위·아래 HUD 띠를 빼고 남는 모양 (GDD 16-24).
 4. 배너 띠 오른쪽 절반은 장식(글자는 왼쪽 칸만).
 5. 로그 서랍은 공 반대쪽 절반을 가린다(사용자가 열 때만, §14.9). 열림 상태는 새로고침에 저장하지 않는다. 공이 가운데를 넘나들면 서랍이 좌우로 옮겨 간다(비트마다 한 번까지).
-6. 이름표가 이웃 토큰의 작은 연계 특성 아이콘 위에 올 수 있다(예: 시나리오 01 카손 ↔ 돌바르) — 이번 개편 전부터 있던 자리 고르기 동작.
+6. 이름표가 이웃 토큰의 작은 연계 특성 아이콘 위에 올 수 있다(예: 시나리오 01 카샤 ↔ 도르비나) — 이번 개편 전부터 있던 자리 고르기 동작.
 7. 아웃게임: 평범한 턴에는 훈련 칸 가운데가 비어 칸 아이콘 워터마크로 채웠다(다음 단계 = 선수 줄 키우기). [기록] 로그는 엔진이 보관하는 20줄(예전 화면은 마지막 8줄). 보정 배지는 여전히 키 그대로(`shootPower +5%`) — labels.js 에 한국어 이름이 필요. `view.recommendedAction === "rest"` 는 예전처럼 표시하지 않는다(새 동작이라 넣지 않음).
 8. **폰 크기**: 데스크톱 기준이라 1280×720 무대의 글자 11~12px · 컨트롤 32px 가 6인치급 폰 가로에서 약 1mm · 3mm (계산값). 유니티 이식 전에 최소 글자·터치 크기를 정한다 (GDD 15 · 16-24).
 9. 커밋에 함께 넣을 새 파일: `css/base.css, css/outgame.css, css/match.css, js/ui/stage.js, test/stage.test.mjs, test/outgame.test.mjs` (+ `git rm css/style.css` — 작업 트리에서만 지워져 있다). `npm test` 가 stage·outgame 을 요구한다. `art/style_test/` 는 그림체 시험 결과(9.4 MB — Pages 는 저장소 루트 전체를 올리므로 `git add -A` 로 섞지 말 것, 커밋 여부는 사용자 결정).
@@ -1359,7 +1359,7 @@ counter: { dribble, pass, cross, shoot }   // = COUNTER (§15.1)
 
 - labels.js: `COUNTER.cross 'intercept' → 'hold'` (유일한 기존 값 변경 — 옛 값은 "짝" 칩을 틀린 카드에 붙였다), 추가 `BOX_LINK_LABELS { pass: '컷백', cross: '센터링' }` · `BOX_LINK_ICONS { pass: '↩️', cross: '⤴️' }` · `BOX_LINK_FINISH { pass: '원터치 슛', cross: '헤더' }`.
 - 결정 카드 (line 3): "컷백 → ○○ ▾" · "센터링 → ○○ ▾" · "슛", 꺼진 것은 숨김. % = `expectedPct`, 툴팁 "% = 득점 기대 (연결 성공 × ○○ 원터치 슛/헤더 골)". 성공·실패 줄 = `outcomes`. 약점 줄 "GK와 경합 · 포제션당 1회"(엔진 힌트의 "(막히면 상대 골킥)" 은 지운다). 연결 뒤에는 슛 카드만. "추천"은 다른 줄과 같다. 필살 패스 토글 가능 — 받는 선수가 필살 슛 보유자면 카드에 합체기 이름("💥 바람의 유성", 필살기 색).
-- 정보 줄 · 말풍선: 박스 이름 — "우리: 센터링 → 그룸바", "상대 키르 컷백 → 파낙 · 컷백 1031 > 슛 600". 툴팁은 `view.boxLink` 의 슛 값 · 연결 점수로 자동 규칙 설명. 자동 진행 중 카드 = "연결 점수" + 고른 받는 선수.
+- 정보 줄 · 말풍선: 박스 이름 — "우리: 센터링 → 그레타", "상대 키라 컷백 → 파냐 · 컷백 1031 > 슛 600". 툴팁은 `view.boxLink` 의 슛 값 · 연결 점수로 자동 규칙 설명. 자동 진행 중 카드 = "연결 점수" + 고른 받는 선수.
 - 짝 칩: `view.counter`(없으면 L.COUNTER). 버티기 미리보기가 예상 크로스를 막을 때 ✕ 는 크로스 곡선의 떨어지는 자리 근처(인터셉트는 길 가운데). ✕ 가 이름표를 덮지 않게 자리 고르기.
 - layout.js: line 3 후보 = 공과 같은 박스(박스 시작 + INSET), `validArrival` 이 step 3 → arrival 3 을 허용. 공 가진 선수와 레인 차이 < `BOX_LANE.gap`(16) 이면 `BOX_LANE.shift`(16) 만큼 비켜 선다 — 다른 후보가 적은 쪽(같으면 가운데 쪽), [10, 90] 안 (`boxLaneX`). 연결 성공 직후 배너 "★ 컷백! ○○ 원터치 슛 찬스, GK와 1:1" / 상대 "⚠ 상대 컷백! ○○ 원터치 슛 위기 …".
 - 미리보기: 컷백 = 점선, 센터링 = 곡선, GK 가 나오는 흰 점선(`gkLane` — 끝점은 연결 길 위 0.55 → 0.45 → 0.65 → … 중 화살촉이 다른 토큰 위에 앉지 않는 첫 자리), 끝 글자 "→ 원터치 슛" / "→ 헤더"는 받는 선수 쪽(길의 0.8)에 — GK 화살촉 둘레는 비운다.
@@ -1387,7 +1387,7 @@ counter: { dribble, pass, cross, shoot }   // = COUNTER (§15.1)
 | `meetingSwaps(slots, assign, currentSlotOf)` | 미팅 액션 swaps = 슬롯 순서대로 `{ playerId, slot }`, 이미 그 자리인 선수 제외. 엔진 `resolveMeeting` 이 순서대로 적용하면 최종 배치 = assign |
 
 **보드** `lineupBoard({ slots, assign, aptOf, nameOf, colorOf?, slotBody, onChange(next, move), bench?, ids?, poolBody?, compact?, onSlotTap? })` → `{ pitch, pool | null, addPoolZone(el), cancel() }`. 보드는 assign 을 바꾸지 않고 `onChange` 로 새 assign 을 넘긴다(화면이 다시 그린다).
-- 드래그(포인터 이벤트 — 마우스 · 터치): 누른 뒤 DRAG_PX 를 넘으면 시작. 모든 놓을 곳(`.lu-slot`, `.lu-card`, 풀 영역)에 `drop-ok`(초록) / `drop-bad`(빨강) / `drop-origin`(지금 자리) 클래스와 `.lu-hint` 글("MF A · 타린 벤치로", "GK B ⇄ 네리아", "MF A · 교체 투입", "벤치로" / 이유). 알약 자리: 편성 슬롯 = 카드 아래 걸침, 미팅 작은 카드 = 카드 바로 아래 빈틈(스탯 줄을 가리지 않게), 풀 카드 = 둘째 줄(희귀도 · 원소) 위(적성 줄 GK/DF/MF/FW 를 가리지 않게). 고스트 `.lu-ghost`(이름 + ✔/✖ — 마우스는 포인터 밑 자리의 알약이 보이므로 기호만, 터치 · 알약 없는 풀 영역은 글까지; 마우스는 포인터 오른쪽 · 세로 가운데 · 터치는 손가락 위)는 `#stage` 안에 논리 px — 포인터 clientX/Y 는 화면 px 라 스테이지 배율로 바꾸고, 놓을 곳 찾기는 `elementFromPoint`(화면 px 그대로). 빨강에 놓으면 `lu-shake` + 토스트 "놓을 수 없음 — 미르카: GK 적성 없음", 변경 없음. 보드 밖 · 끄는 중 Esc = 취소.
+- 드래그(포인터 이벤트 — 마우스 · 터치): 누른 뒤 DRAG_PX 를 넘으면 시작. 모든 놓을 곳(`.lu-slot`, `.lu-card`, 풀 영역)에 `drop-ok`(초록) / `drop-bad`(빨강) / `drop-origin`(지금 자리) 클래스와 `.lu-hint` 글("MF A · 타리아 벤치로", "GK B ⇄ 네리아", "MF A · 교체 투입", "벤치로" / 이유). 알약 자리: 편성 슬롯 = 카드 아래 걸침, 미팅 작은 카드 = 카드 바로 아래 빈틈(스탯 줄을 가리지 않게), 풀 카드 = 둘째 줄(희귀도 · 원소) 위(적성 줄 GK/DF/MF/FW 를 가리지 않게). 고스트 `.lu-ghost`(이름 + ✔/✖ — 마우스는 포인터 밑 자리의 알약이 보이므로 기호만, 터치 · 알약 없는 풀 영역은 글까지; 마우스는 포인터 오른쪽 · 세로 가운데 · 터치는 손가락 위)는 `#stage` 안에 논리 px — 포인터 clientX/Y 는 화면 px 라 스테이지 배율로 바꾸고, 놓을 곳 찾기는 `elementFromPoint`(화면 px 그대로). 빨강에 놓으면 `lu-shake` + 토스트 "놓을 수 없음 — 미르카: GK 적성 없음", 변경 없음. 보드 밖 · 끄는 중 Esc = 취소.
 - 탭: 카드 탭 = 고르기(`lu-selected`, 같은 초록/빨강) → 자리 · 선수 · 풀 탭 = 놓기. 다시 탭 · Esc · 바깥 = 취소. 빈 슬롯을 먼저 누르면 그 자리에 올 선수가 초록/빨강. 포인터 탭은 pointerup 에서 처리하고 뒤따르는 click 은 무시(키보드 Enter/Space 는 click) — Chrome 터치 에뮬레이션에서 드래그 직후 첫 탭에 click 이 안 오던 문제 우회. 무시하는 click 은 뗀 자리 24px 안의 것만, 새 pointerdown 이 오면 그만(따라오는 click 이 안 만들어졌을 때 곧바로 누른 모달 버튼을 삼키지 않게).
 - 화면 읽기: 고른 카드 `aria-pressed="true"`, 자리마다 `aria-description` = 알약 글("놓을 수 있음: MF A · …" / "놓을 수 없음: GK 적성 없음"), 필드 안 `.lu-sr`(role=status) 에 "○○ 선택 — 놓을 자리를 고르세요 (Esc 취소)". 편성의 다시 그리기(서포트 칩 등)는 먼저 `board.cancel()`.
 - `onSlotTap`(편성만): 아무것도 고르지 않은 채 슬롯 탭 = 기존 선수 고르기 모달(초록/빨강 규칙 · 맞바꾸기 동일). 미팅은 없음 → 슬롯 탭 = 그 선수 고르기 (§15.12).
@@ -1418,8 +1418,8 @@ counter: { dribble, pass, cross, shoot }   // = COUNTER (§15.1)
 
 - **tools/shot.mjs**: 아웃게임 steps 에 `{ drag: { from: css, to: css, release?, steps?: 12, waitMs?: 150 } }` — from 가운데 누르기 → 문턱 전 4px → to 가운데로 steps 번 나눠 이동 → release 면 놓기, 아니면 **누른 채 캡처**(끄는 중 초록/빨강 · 고스트). 좌표는 puppeteer boundingBox(화면 px) 그대로라 `--width/--height` 를 바꿔도 같은 곳에 놓인다.
 - **tools/scenarios.mjs**:
-  - 경기 `18_box_link_decision`(④ 결정 — 울릭(크로서) 컷백 24% / 센터링 31% / 슛 39%, 받는 선수 후보 박스 안, 컷백 hover) · `19_box_link_beat_mid`(컷백 성공 비트 중간 프레임, 클릭 600ms 뒤) → 경기 01~19.
-  - 아웃게임 `og_setup_drag`(벤치 미르카를 MF2 위로, 누른 채) · `og_setup_drop`(놓음 → 타린 벤치, ready 로 결과 슬롯 확인) · `og_setup_reject`(미르카를 GK 에 → 거절, GK 네리아 그대로) · `og_meeting_drag`(돌바르 DF1 → FW1 위, 누른 채) · `og_meeting_drop`(돌바르 → GK, 네리아 DF1 맞바꾸기) → 아웃게임 15개.
+  - 경기 `18_box_link_decision`(④ 결정 — 울리카(크로서) 컷백 24% / 센터링 31% / 슛 39%, 받는 선수 후보 박스 안, 컷백 hover) · `19_box_link_beat_mid`(컷백 성공 비트 중간 프레임, 클릭 600ms 뒤) → 경기 01~19.
+  - 아웃게임 `og_setup_drag`(벤치 미르카를 MF2 위로, 누른 채) · `og_setup_drop`(놓음 → 타리아 벤치, ready 로 결과 슬롯 확인) · `og_setup_reject`(미르카를 GK 에 → 거절, GK 네리아 그대로) · `og_meeting_drag`(도르비나 DF1 → FW1 위, 누른 채) · `og_meeting_drop`(도르비나 → GK, 네리아 DF1 맞바꾸기) → 아웃게임 15개.
 - **tools/sim.mjs**: 경기 표에 "박스 연결/경기 컷백/센터링 우리 · 상대", "박스 연결 성공률 · 다음 슛 골%", "박스 합체기/경기".
 
 ### 15.11 검증 (구현 시점)
@@ -1445,7 +1445,7 @@ counter: { dribble, pass, cross, shoot }   // = COUNTER (§15.1)
 
 ### 15.12 남은 문제 (GDD 16-25~28)
 
-1. ~~**자동 연결 조건**이 득점 기대를 낮춘다(위). 시나리오 18: "추천" = 슛 39%, 자동 = 센터링 → 그룸바 31%.~~ → v0.4.4 기대 골 규칙 · GK ×0.6 (§17.5). 시나리오 18: 추천 = 자동 = 센터링 → 그룸바 41%.
+1. ~~**자동 연결 조건**이 득점 기대를 낮춘다(위). 시나리오 18: "추천" = 슛 39%, 자동 = 센터링 → 그레타 31%.~~ → v0.4.4 기대 골 규칙 · GK ×0.6 (§17.5). 시나리오 18: 추천 = 자동 = 센터링 → 그레타 41%.
 2. **라인 브레이커 모멘텀**: 라인 브레이커로 박스에 들어온 슛 +20%(extraLine)가 연결 뒤 받은 선수의 슛에도 이어진다 (규칙 그대로 둠 — 지울지 결정 필요).
 3. **GK 필살 세이브**는 슛인지 연결인지 모른 채 먼저 커밋되어, 연결이 오면 연결 듀얼에서 쓰인다.
 4. ~~엔진 힌트 문구~~ → 리뷰 수정: GK 배급 기준 (§15.4).
@@ -1506,10 +1506,10 @@ view.aceCall = null | {
 - **점선** (`.g-ace`, 아래 SVG 층 — 미리보기 화살표 `.g-arrow` 아래, `hideArrow` 가 지우지 않음): 금색 둥근 점(`stroke-dasharray .1 8`) + 어두운 테두리 점, 합체기는 분홍(`.ace-line.combo` · `.ace-badge.combo` — 그룹에는 클래스 없음). 양 끝은 토큰 반지름만큼 비운다. 이름표 · 말풍선 자리 고르기의 장애물(점 박스, 무게 0.5).
 - **배지** (`.g-ace-tip`, 위 SVG 층): 둥근 사각 + 글 12px. 후보 순서 = ① 점선 위 0.5 · 0.4 · 0.6 · 0.3 · 0.7 · 0.2 · 0.8 지점의 양옆(점선에서 5px) ② 외치는 선수 너머(점선 방향) · 그 선수 위아래 ③ ①을 한 칸(배지 높이 + 4) 더 바깥 ④ 점선 위. 토큰 · 이름표 · 말풍선 · 공 · 점선 점(0.3)을 가리지 않는 첫 자리, 없으면 가장 덜 가리는 자리(`pickSpot`). 그래도 겹치면(점수 > 40) 짧은 글 `★ {ultimateName}` / `💥 {comboName}` 이 40 이상 나으면 그것 (짧은 점선이 붐비는 빌드업 등). 놓인 배지 박스(`role: 'ace'`)를 `tagBoxes` 에 넣어 결과 한 줄 · 연계 문구 · 미리보기 글자가 피한다(`clearAce` 가 뺀다).
 - **숨김**: 같은 받는 선수에게 가는 미리보기(공격 패스 · 크로스 화살표, 수비 인터셉트 · 크로스 버티기 길)가 떠 있는 동안 `.m-field.ace-off` (점선 · 배지 display none, 미리보기 글자는 숨긴 배지를 피하지 않음). `hideArrow` 가 해제. 상대 외침은 늘 AI 가 커밋한 받는 선수라(§16.1) 우리 인터셉트 미리보기 길 = 외치는 선수 → 인터셉트를 누르는 동안은 늘 숨김.
-- **차지 중**: `.m-field.charging .pitch-svg` 흑백(grayscale 1 · brightness .55 — 흑백 토큰과 같게). 막(`.charge-veil`)과 선 SVG 가 같은 z(1)라 선이 막 위에 그려지고, 배지 SVG(`.top`, z 7)는 토큰 위라서 이것이 없으면 판정 비트 뒤 AI 필살기 차지(재배치 뒤 — 다음 결정의 외침이 이미 그려짐) 동안 금색 점선 · 배지가 필드에서 가장 밝았다(보스 경기 GK 볼카르 불꽃 장벽 ↔ 우리 그룸바 외침).
+- **차지 중**: `.m-field.charging .pitch-svg` 흑백(grayscale 1 · brightness .55 — 흑백 토큰과 같게). 막(`.charge-veil`)과 선 SVG 가 같은 z(1)라 선이 막 위에 그려지고, 배지 SVG(`.top`, z 7)는 토큰 위라서 이것이 없으면 판정 비트 뒤 AI 필살기 차지(재배치 뒤 — 다음 결정의 외침이 이미 그려짐) 동안 금색 점선 · 배지가 필드에서 가장 밝았다(보스 경기 GK 볼카라 불꽃 장벽 ↔ 우리 그레타 외침).
 - **나타남 · 걷힘**: `applyLayout` 이 매번 다시 그린다. 모양 서명(선수 · 글 · 양 끝 좌표)이 바뀌었고 애니메이션이면 `.fade` — 재배치(`--t-move`)가 끝난 뒤 0.3초 페이드 인(연출 중 토큰이 달려가는 동안 선이 먼저 서지 않게). 같으면 그대로. `animateBeat` 시작 = `clearAce()` (점선 · 배지 · "줘!" 걷음) → `movePhase` 재배치 때 다음 결정의 외침.
 - **정보 줄**: 자동 진행(`ui.auto` · 결정 대기 아님)이고 우리 공격 · `aceCall.side` = 우리 · `expected` 면 오른쪽 "우리: …" 자리에 `자동: {name}에게 연결 예정` (`.mine.ace` 금색, title 에 이유). 그 밖에는 아무것도 더하지 않는다.
-- 접근성: 외치는 토큰 aria-label 에 `· "줘!" {이유}`, 말풍선 title = 이유 ("그룸바: 받으면 필살기 [메테오 슛] 준비 — 게이지 100 (패스)").
+- 접근성: 외치는 토큰 aria-label 에 `· "줘!" {이유}`, 말풍선 title = 이유 ("그레타: 받으면 필살기 [메테오 슛] 준비 — 게이지 100 (패스)").
 
 ### 16.3 화면 — 필살기 3단 연출
 
@@ -1526,15 +1526,15 @@ view.aceCall = null | {
 ### 16.4 테스트 (npm test 139 — rng 8, run 25, match 24, v05 37, layout 20, orient 5, stage 6, lineup 9, outgame 3, ui.smoke 2)
 
 - **test/v05** (+2): 외침 규칙 — 문턱(64 없음 / 65 있음, 이미 가득도, `aceCallGauge` 40, onReceive 50 → 기본 문턱 50), 받은 뒤 못 쓰는 필살기 제외(도착 ① 필살 슛 · 박스 연결로 받는 필살 패스), 합체기 > 게이지(필살 패스가 준비 안 되면 게이지 외침), 비트당 한 명 = 기본 받는 선수 · 동률 players 순서, ④ 박스 연결(컷백 + 센터링), 크로스로만 닿는 MF, 상대 공격(AI 가 FW1 에게 패스 커밋 → 외침 · expected true · 보는 쪽과 무관 / 드리블 커밋 → null / FW2 에게 패스 커밋 → FW1 외침 없음, 같은 배치의 우리 공격은 결정 전이라 우선순위대로 FW1 · expected false), 없음(보유자 없음 · 끝 · resolved), `aceCallFor` = `view.aceCall`. 표시 전용 — 상대 3팀 × 시드 3: 매 스텝 양쪽 뷰가 상태를 바꾸지 않고, 뷰를 만들며 진행한 경기 = `simulateAuto` 경기(JSON 동일), 외침 선수 ∈ 그 액션의 후보, 상대 외침 = 커밋한 받는 선수.
-- **test/ui.smoke**: 시나리오 20(말풍선 한 명 · 이름표 · 점선 · 배지 글, 외치는 선수를 골라 패스 미리보기 → `ace-off`, 드리블 미리보기는 그대로, 결정 → 연출 중 외침 걷힘 · 결정 `{ action, receiverId }` 그대로), 21(상대 받는 선수 "줘!" = 커밋한 받는 선수 · 상대 carrier 예상 행동 말풍선 그대로 · 인터셉트 미리보기 중 숨김 → 떼면 다시 · 자동 문구 없음), 12 자동(합체기 배지 "💥 바람의 유성 가능" · 정보 줄 "자동: 그룸바에게 연결 예정") / 수동(문구 없음, 외침은 보임), 22(필살 슛이 막히는 주사위를 넣고 → 차지 사용자 = carrier · 상대 = GK → 컷인 → "기적의 세이브!" → 닫힘).
+- **test/ui.smoke**: 시나리오 20(말풍선 한 명 · 이름표 · 점선 · 배지 글, 외치는 선수를 골라 패스 미리보기 → `ace-off`, 드리블 미리보기는 그대로, 결정 → 연출 중 외침 걷힘 · 결정 `{ action, receiverId }` 그대로), 21(상대 받는 선수 "줘!" = 커밋한 받는 선수 · 상대 carrier 예상 행동 말풍선 그대로 · 인터셉트 미리보기 중 숨김 → 떼면 다시 · 자동 문구 없음), 12 자동(합체기 배지 "💥 바람의 유성 가능" · 정보 줄 "자동: 그레타에게 연결 예정") / 수동(문구 없음, 외침은 보임), 22(필살 슛이 막히는 주사위를 넣고 → 차지 사용자 = carrier · 상대 = GK → 컷인 → "기적의 세이브!" → 닫힘).
 
 ### 16.5 도구
 
-- **tools/scenarios.mjs**: `20_ace_call`(우리 ② 결정 — 실루엔 → 그룸바 "★ 연결하면 메테오 슛", 게이지 100), `21_ace_call_opponent`(상대 FW 에 업화의 일격을 `adjustSetup` 으로 주입 — 친선 상대에는 필살기가 없다. 우리 수비 결정 중 상대 AI 가 패스를 커밋한 로벨 "줘!"), `22_ult_charge_mid`(메테오 슛 토글 + 슛 클릭 150ms 뒤 = 차지 중간, 경기의 첫 필살기 · ④). `13_combo_cutin` 캡처 2400 → 2800ms (차지 0.3초가 앞에 붙어 이름 카드 2.3~3.4초). → 경기 01~22.
+- **tools/scenarios.mjs**: `20_ace_call`(우리 ② 결정 — 실루엔 → 그레타 "★ 연결하면 메테오 슛", 게이지 100), `21_ace_call_opponent`(상대 FW 에 업화의 일격을 `adjustSetup` 으로 주입 — 친선 상대에는 필살기가 없다. 우리 수비 결정 중 상대 AI 가 패스를 커밋한 로웨나 "줘!"), `22_ult_charge_mid`(메테오 슛 토글 + 슛 클릭 150ms 뒤 = 차지 중간, 경기의 첫 필살기 · ④). `13_combo_cutin` 캡처 2400 → 2800ms (차지 0.3초가 앞에 붙어 이름 카드 2.3~3.4초). → 경기 01~22.
 
 ### 16.6 남은 문제
 
-1. **외침 빈도**: 기본 편성 자동 60판에서 우리 공격 결정의 20.5%(212/1034) — 그룸바 111 · 실루엔 101. 실루엔(필살 패스)은 게이지가 찬 채로 받지 못하고 외침을 반복한다 (③ 크로스 후보 · ① 패스 후보). 좁히는 안: 필살 슛만 · "이번 패스로 차는 경우만" · 문턱 상향 (GDD 16-29).
+1. **외침 빈도**: 기본 편성 자동 60판에서 우리 공격 결정의 20.5%(212/1034) — 그레타 111 · 실루엔 101. 실루엔(필살 패스)은 게이지가 찬 채로 받지 못하고 외침을 반복한다 (③ 크로스 후보 · ① 패스 후보). 좁히는 안: 필살 슛만 · "이번 패스로 차는 경우만" · 문턱 상향 (GDD 16-29).
 2. 합체기 외침은 `combos.json` 조합만 — 엔진은 목록에 없는 조합도 "합체기"로 쓰지만(`comboName` 없으면 "합체기"), 외침은 게이지 규칙으로만 뜬다.
 3. ~~외침은 상대가 필살 슛을 이미 커밋했어도 뜬다~~ → 리뷰 수정: 커밋한 측은 커밋한 받는 선수만 외친다 (§16.1). 드리블 · 슛을 커밋하면 상대 외침 없음.
 4. 차지 막(`backdrop-filter`)은 Chrome 기준. 지원하지 않는 브라우저에서는 어두운 막만(토큰 · 선 흑백은 그대로).
@@ -1589,7 +1589,7 @@ p   = clamp(att / (att + def), minP, maxP)          // 짝 · 선택 · 스타�
 
 ### 17.2 캐논 킥 · 빠른 배급 (data · skills.js · ai.js)
 
-- `data/skills.json` `sk_cannon_kick` "캐논 킥": active, learnable, cost 120, tension 25, positions ["GK"], `active: { effect: "longPassBoost", params: { longPass: 1.5, nextDuelBonus: 0.1 }, phase: "distribution", ai: { useWhen: "distribution", minTension: 25 } }`. 스킬 26 → 27개(학습 16 → 17). `data/supports.json` 주장 바르그(`sp_iron_captain`) `hintSkillIds` 에 추가. 이벤트에는 넣지 않았다.
+- `data/skills.json` `sk_cannon_kick` "캐논 킥": active, learnable, cost 120, tension 25, positions ["GK"], `active: { effect: "longPassBoost", params: { longPass: 1.5, nextDuelBonus: 0.1 }, phase: "distribution", ai: { useWhen: "distribution", minTension: 25 } }`. 스킬 26 → 27개(학습 16 → 17). `data/supports.json` 주장 바르바라(`sp_iron_captain`) `hintSkillIds` 에 추가. 이벤트에는 넣지 않았다.
 - `data/traits.json` `distributor` "빠른 배급": `params { saveCounterLine: 1 }` → `{ longPassBonus: 0.25 }`, 설명 "이 골키퍼의 롱패스 배급 +25% (세이브 · 박스 연결 차단 뒤 GK 배급)".
 - skills.js: `ACTIVE_EFFECTS` += "longPassBoost", `DISTRIBUTION_EFFECTS = ["longPassBoost"]`, `isDistributionSkill(skill)`, `checkDistributionSkill(state, data, side, playerId, skill)` → `{ ok, reason }` (배급하는 GK 본인 · 보유 · 포지션 · 유스 아님 · phase "distribution" · 텐션). `checkSkillUsable` 은 배급 스킬을 듀얼에서 거절 — 사유 "GK 롱패스 배급에서만". `addSkillFx` 는 longPassMult · longPassNextBonus 를 기록(설명 문구용). 텐션 소모 · `skill` 이벤트(effect "longPassBoost") · `stats.skillsUsed` 는 match.js `resolveDistribution` 이 한다 (applyActive 는 듀얼 전용).
 - `distributionSkills(state, data, side)` (match.js export): 배급 GK 의 배급 스킬마다 `{ skill, check, cost }`.
@@ -1674,7 +1674,7 @@ auto  = link.exp > shoot.exp (+1e-12) ? { action: link, receiverId, ultimate } :
 - 필살기를 쓴 공격(`fxA.ult`)이 실패하면 판정 이벤트(save · turnover)에 `reverseCutin: { kind, side(막은 팀), playerId, position, text, skillId, ultimateType, combo }` (`REVERSE_CUTIN_TEXT` export):
   - shot 필살기 + 슛 → GK 면 `save` "기적의 세이브!", 필드 수비면 `block` "철벽 블록!"
   - pass 필살기 + 패스 · 크로스(④ 박스 연결 포함) → `passCut` "필살 패스 차단!"
-- 화면(`reverseOf` — 옛 저장 이벤트는 필살 슛 GK 세이브만 규칙으로 대신): 막는 동작(액션 + hold) 뒤 · 재배치 전 `.cut.cut-save.cut-rev.rev-<kind>` — 막은 선수 얼굴 · 막은 팀 쪽에서 들어옴, 아랫줄 "(상대) DF 돌바르 · 메테오 슛 봉쇄" / "… 차단". 색: save 얼음 · block 강철 · passCut 연보라. 길이 `T.revCut` 800 → 이후 `T.revCutShort` 700 (경기의 첫 역방향 컷인만 800 — GK 세이브도 이제 두 번째부터 700), 배속 비례, 바닥 `CUT_MIN.card` 170, ⏭ 생략.
+- 화면(`reverseOf` — 옛 저장 이벤트는 필살 슛 GK 세이브만 규칙으로 대신): 막는 동작(액션 + hold) 뒤 · 재배치 전 `.cut.cut-save.cut-rev.rev-<kind>` — 막은 선수 얼굴 · 막은 팀 쪽에서 들어옴, 아랫줄 "(상대) DF 도르비나 · 메테오 슛 봉쇄" / "… 차단". 색: save 얼음 · block 강철 · passCut 연보라. 길이 `T.revCut` 800 → 이후 `T.revCutShort` 700 (경기의 첫 역방향 컷인만 800 — GK 세이브도 이제 두 번째부터 700), 배속 비례, 바닥 `CUT_MIN.card` 170, ⏭ 생략.
 
 ### 17.9 이벤트 요약
 
@@ -1705,9 +1705,9 @@ auto  = link.exp > shoot.exp (+1e-12) ? { action: link, receiverId, ultimate } :
 - **배급 모양** (layout.js `distributionLayout`, `DISTRIBUTION = { gkFy: 9 }`): `view.phase "distribution"` 이면 공 = 배급 GK(자기 박스 안), 배급 팀 = ① 빌드업 모양 `SHAPE.atk[pos][0]`, 상대 = ① 수비 모양. 받는 선수 후보(receiver) = `options.short/long.success.starterId`(DF · MF, 제자리 — 이름표 "(짧게)" · "(길게)"), 경합 상대 MF = defender 역할로 롱패스 받는 선수와 같은 레인. zone = gkZone, `track = { side, step: 0, dir, gk: true }`(아직 ① 전 — `.m-track.pre`), `receiverId` = 자동 배급의 받는 선수, `dist = { short, long, contest }`. 배너 "🧤 ○○가 배급 — 짧게 빌드업 · 길게 중원" / "상대 GK ○○ 배급 — 롱패스면 중원 경합".
 - 배급 뒤 배너 (`playBanner`, `findPrevBeat`): 롱패스 성공 "롱패스 성공! {구역}에서 시작 — ○○", 짧은 패스 "GK 짧은 패스 — ○○가 빌드업 시작", 상대 롱패스를 끊은 역습 "세컨드볼! {구역}에서 공격 — ○○" (상대면 "⚠ …").
 - **배급 카드** (사람 차례): 두 장 — `DIST_ICONS`/`DIST_LABELS` ('➡️ 짧은 패스' · '🚀 롱패스') → 받는 선수, % , 성공 · 실패 줄(짧은 패스 "실패 없음"), 셋째 줄(짧은 패스 "항상 성공 · 체력 · 텐션 그대로", 롱패스 "경합 상대 ○○ · 빠른 배급 +25%"), 추천 = `distribution.recommended`. 스킬 묶음 = `distribution.skills`(캐논 킥) 토글 → 롱패스 카드 % = 스킬 %, 테두리 보라(`.skill-on`), 짧은 패스 카드 흐림. 결정 `{ action, skillId? }` (`data-action="short"|"long"`). 자동 진행 · 상대 배급 = 읽기 전용 카드에 고른 쪽 "자동"(`.chip-auto`), 상대 GK 말풍선 = 상대 선택, 스킬 묶음 = 안내 한 줄.
-- **정보 줄** (`distInfo`): "우리 GK 네리아 배급 — 롱패스 70% (경합: 상대 페린)" + 오른쪽 "우리: 롱패스 70%(+ 캐논 킥)", 상대면 "… · 상대 선택: …". 툴팁에 규칙 · 빠른 배급 · 전술.
+- **정보 줄** (`distInfo`): "우리 GK 네리아 배급 — 롱패스 70% (경합: 상대 페리나)" + 오른쪽 "우리: 롱패스 70%(+ 캐논 킥)", 상대면 "… · 상대 선택: …". 툴팁에 규칙 · 빠른 배급 · 전술.
 - **배급 연출**: 짧은 패스 = DF 에게 땅볼. 롱패스 = 중원 MF 에게 포물선 + 낙하 지점 경합 — 성공 우리 MF 가 잡음 · 상대 MF 뒤로("롱패스!", 캐논 킥이면 "캐논 킥!"), 실패(turnover distribution) 상대 MF 가 끊음 → 결과 "○○ 롱패스 차단! 세컨드볼 — 상대 중원 공격". 롱패스를 끊은 선수와 이어서 역습을 시작하는 선수(`pickStarter(1)`)가 다를 수 있어 재배치 때 공이 다른 MF 로 옮겨 간다(보통 턴오버와 같다).
-- **④**: 추천 = 자동 = 정보 줄 "우리: …"(시나리오 18: 센터링 → 그룸바). 정보 줄 툴팁 `boxRuleText` "④ 자동 규칙 (기대 골): … 슛 39% · 센터링 41% (연결 ○% × 헤더 ○%)", 상대 ④ 근거 "컷백 ○% > 슛 ○%"(값 = 기대 골 %, 이전 성향값), 카드 툴팁에 `autoExpectedPct` 가 다르면 "자동 기준 기대 골 ○%", 자동 진행 카드 값 = 기대 골 %. (옛 `bl.ratio` 기반 문구 삭제)
+- **④**: 추천 = 자동 = 정보 줄 "우리: …"(시나리오 18: 센터링 → 그레타). 정보 줄 툴팁 `boxRuleText` "④ 자동 규칙 (기대 골): … 슛 39% · 센터링 41% (연결 ○% × 헤더 ○%)", 상대 ④ 근거 "컷백 ○% > 슛 ○%"(값 = 기대 골 %, 이전 성향값), 카드 툴팁에 `autoExpectedPct` 가 다르면 "자동 기준 기대 골 ○%", 자동 진행 카드 값 = 기대 골 %. (옛 `bl.ratio` 기반 문구 삭제)
 - **결정타 칩** (`popChips`): 결과 한 줄 맨 앞 `.dchip.k-<kind>.side-<이긴 팀>` = `decisive.text`, 종류 `DECISIVE_KINDS` (pair = 이긴 팀 색 · link(연계 특성 · chain · oneTouch · teamwork · distributor) = 초록 · ult(ultimate · combo · saveUlt · ultShotGk) = 분홍 · edge(beaten · interceptFail · next) = 주황 · skill = 보라 · 그 밖 base = 흰색). upset 이면 금색 `.dchip-upset` "대이변!". 툴팁 "결정타: … (이긴 쪽 확률 ○%)". 결과 한 줄 수명 그대로, 4x(`.fast`)는 등장 애니메이션 없음. 로그 줄 title 에도 결정타. **끄기**: `export const SHOW_DECISIVE_CHIP = true` → false (테스트는 `matchUi.decisiveChip = false`).
 - **마지막 공격**: 보장 포제션의 첫 배너 "⏱ 추가시간 — 마지막 공격!"(상대 "⏱ 추가시간 — 상대 마지막 공격!", 금색 깜빡임 `.m-banner.lv-last`), 이후 배너 앞 "⏱ ", 점수판 `.mh.last-attack` 아랫줄 "… · ⏱ 추가시간"(상대면 "(상대)"), 로그 `.ev-lastAttack` 금색. 끝나면 결과 모달.
 - labels.js: `DIST_LABELS` · `DIST_ICONS` · `DECISIVE_KINDS` · 배급 전술(§17.3), `TRAIT_LABELS.distributor.description` 새 문구.
@@ -1784,7 +1784,7 @@ v0.4.4 리뷰(화면 · 코드 · 규칙)에서 나온 결함을 고쳤다. 판�
 **③ 배급 추천** — `view.distribution.recommended` = `ai.decideDistribution(state, data, side, { tactic: "auto" })`("상황 따라" 규칙, 자동이 쓸 캐논 킥 포함), `recommendedSkillId`. 배급 전술이 auto 면 `auto.action` 과 같다. 전술이 short/long 이면 추천(확률 기준)과 자동(전술)이 다를 수 있다 — 필드 듀얼의 추천(기대 %) ↔ 자동(성향)과 같은 관계.
 
 **④ 화면** (screens/match.js · layout.js · css)
-- 롱패스 실패 결과 한 줄: `starterId` 가 끊은 선수와 다르면 "페린 롱패스 차단! → 셀마 세컨드볼"(공이 그 선수에게 간다), 같으면 "… 세컨드볼 — 상대 중원 공격", `matchEnd` 면 "페린 롱패스 차단! — 경기 종료". 경기가 끝난 마지막 모습(`finalFrame.laneId`)에서 끊은 선수는 롱패스 받을 선수의 레인(낙하 지점)에 공을 든 채.
+- 롱패스 실패 결과 한 줄: `starterId` 가 끊은 선수와 다르면 "페리나 롱패스 차단! → 셀마 세컨드볼"(공이 그 선수에게 간다), 같으면 "… 세컨드볼 — 상대 중원 공격", `matchEnd` 면 "페리나 롱패스 차단! — 경기 종료". 경기가 끝난 마지막 모습(`finalFrame.laneId`)에서 끊은 선수는 롱패스 받을 선수의 레인(낙하 지점)에 공을 든 채.
 - 롱패스 경합 연출: 경합에 진 선수(성공 = 상대 MF, 실패 = 우리 받는 선수)의 이름표를 act 동안 숨긴다 (`.tok.tag-off .tok-name { visibility: hidden }` — 재배치 때 풀림).
 - 배급 카드 힌트: 캐논 킥을 켜면 맨 앞 "캐논 킥 첫 듀얼+10%", 그다음 "경합 ○○ · 빠른 배급 +25%" (긴 문구는 title).
 - 공격 카드: 이번 포제션 첫 듀얼 보너스(`ballState.pending.nextBonus` — 캐논 킥 · 소매치기 상한)가 있으면 약점 줄 맨 앞 "첫 듀얼 +10%" (% 에 이미 포함).
@@ -1856,7 +1856,7 @@ v0.4.4 리뷰(화면 · 코드 · 규칙)에서 나온 결함을 고쳤다. 판�
 
 모두 `possessions: 8`, `kind: "goal"`. 템플릿 평균(7명 × 5스탯): 강변 321.1 · 아이언후프 340 · 썬더클로 465.7 · 실버리프 514.6 · 프로스트베일 639.7 · 엠버스론 679.7. statTarget 은 §18.10 보정 뒤 값이다 (`_calibration` 주석에 이력).
 
-**`data/challenge_sample_team.json`**: `{ _comment, generator: { tool, seed: "challenge-sample-7", routeStart: 1, policy: "smart" }, team }`. `team` = 등록 팀 저장본과 같은 모양(`run.finalizeRun().registeredTeam` + `grade` · `score` · `registeredAt: "2026-10-01T00:00:00.000Z"`). tools/sim.mjs `simulateOne`(기본 편성 · smart 자동 정책)으로 고정 시드 런을 완주한 결과다. 다시 만들기 `node tools/challenge_sim.mjs --write-sample [--sample-seed S] [--route-start R]`. 지금 값: 2-2-2 · B · 533.7 · 전력 475 · 팀워크 97 · 유물 바위 각반 · 짝짝이 축구화. 선수는 GK 네리아(수비 1000) · DF 돌바르(968, 철의 태클 · 매의 눈) · DF 아르덴(795) · MF 실루엔(패스 651, 바람의 실) · MF 타린(568) · FW 울릭(슛 600) · FW 그룸바(674, 메테오 슛).
+**`data/challenge_sample_team.json`**: `{ _comment, generator: { tool, seed: "challenge-sample-7", routeStart: 1, policy: "smart" }, team }`. `team` = 등록 팀 저장본과 같은 모양(`run.finalizeRun().registeredTeam` + `grade` · `score` · `registeredAt: "2026-10-01T00:00:00.000Z"`). tools/sim.mjs `simulateOne`(기본 편성 · smart 자동 정책)으로 고정 시드 런을 완주한 결과다. 다시 만들기 `node tools/challenge_sim.mjs --write-sample [--sample-seed S] [--route-start R]`. 지금 값: 2-2-2 · B · 533.7 · 전력 475 · 팀워크 97 · 유물 바위 각반 · 짝짝이 축구화. 선수는 GK 네리아(수비 1000) · DF 도르비나(968, 철의 태클 · 매의 눈) · DF 아델린(795) · MF 실루엔(패스 651, 바람의 실) · MF 타리아(568) · FW 울리카(슛 600) · FW 그레타(674, 메테오 슛).
 
 ### 18.2 js/engine/challenge.js — API (순수)
 
@@ -1934,11 +1934,11 @@ STAGE_STATES   = ["locked", "open", "cleared"]
 4. **aceShot**: 팀에 슛 필살기가 없을 때만, 필살기가 없는 FW 중 shoot 최고(동률 슬롯 순서). **gkSave**: 팀에 세이브 필살기가 없고 GK 에게 필살기가 없을 때 GK. **gkDistribution**: GK 에게 배급 스킬이 없으면 GK.
 5. **간파 사용권** = `tier.gaanpaTickets` → 스냅샷 `modifiers.gaanpaTicket` · `gaanpaTickets`.
 
-단계별 추가 (현재 데이터): 3 파낙 파워 슛 · 파르그 바위 방벽 / 4 시온델 파워 슛 · 노르윈 바위 방벽 / 5 헤일 · 글라시아 + 세렌 스루 패스 / 6 엠버스론(파워 슛 · 바위 방벽 · 매의 눈 보유) 세르바 스루 패스 · 코르드 폭발 드리블 · 브란트 소매치기 / 7 · 8 액티브 3 + FW 업화의 일격(파낙 · 시온델) / 9 + 헤일 업화의 일격 · GK 니벨 불꽃 장벽 / 10 스루 패스 · 폭발 드리블 · 소매치기 · 마그로스 함성 + GK 볼카르 캐논 킥 (필살 슛 · 필살 세이브는 보스 고유라 추가 없음).
+단계별 추가 (현재 데이터): 3 파냐 파워 슛 · 파르가 바위 방벽 / 4 시오넬라 파워 슛 · 노르웬 바위 방벽 / 5 헤일리 · 글라시아 + 세렌 스루 패스 / 6 엠버스론(파워 슛 · 바위 방벽 · 매의 눈 보유) 세르바 스루 패스 · 코르델리아 폭발 드리블 · 브란디 소매치기 / 7 · 8 액티브 3 + FW 업화의 일격(파냐 · 시오넬라) / 9 + 헤일리 업화의 일격 · GK 니벨라 불꽃 장벽 / 10 스루 패스 · 폭발 드리블 · 소매치기 · 마그다 함성 + GK 볼카라 캐논 킥 (필살 슛 · 필살 세이브는 보스 고유라 추가 없음).
 
 ### 18.4 우리 팀 스냅샷 (`buildChallengeTeamSnapshot`)
 
-- `run.migrateRegisteredTeam` → 선수 정리: 스탯 정수화, position = 슬롯, **없는 스킬 id · 특성 id 는 버린다**(옛 저장본 방어 — 실패하지 않음), 특성이 없으면 migrate 가 캐릭터 데이터로 채운다. 슬롯 · 선수 수 · id 가 포메이션과 안 맞으면 throw(→ 목록에서 빠짐).
+- `run.migrateRegisteredTeam` → 선수 정리: 스탯 정수화, position = 슬롯, **없는 스킬 id · 특성 id 는 버린다**(옛 저장본 방어 — 실패하지 않음), 특성이 없으면 migrate 가 캐릭터 데이터로 채운다(charId, 없으면 이름 — 2026-10-01 이름 변경 전 옛 이름 5개도 `LEGACY_CHAR_NAMES` 로 받는다. 저장된 표시 이름은 바꾸지 않음). 슬롯 · 선수 수 · id 가 포메이션과 안 맞으면 throw(→ 목록에서 빠짐).
 - `side "home"`, 이름 = 팀 이름(없으면 "우리 클럽"), 전술 = `normalizeTactics(team.tactics)`, 팀워크 = 저장값.
 - 컨디션 = `config.condition.matchMult[condition.start (+ 목표 경기면 유물 goalMatchCondition)]` — 낡은 주장 완장 +1단계.
 - `modifiers` = **등록 팀 `relics` 에서 다시 계산** (run.js `SNAPSHOT_MODIFIER_KEYS` 와 같은 키 — 예: 감독의 수첩 → gaanpaTicket 1). 런 중 이벤트 · 루트 modifier 는 등록 팀에 저장되지 않아 빠진다.
@@ -2070,3 +2070,14 @@ node tools/challenge_sim.mjs --write-sample [--sample-seed challenge-sample-7] [
 8. 등록 팀 이름이 대부분 "우리 클럽"이라 목록에서 등급 · 점수 · 날짜로만 구별된다. 시작 화면 "등록 팀 N" 숫자는 고장 난 저장본까지 센다(도전 목록은 뺀다).
 9. `:has()` 없는 브라우저에서는 경기 화면 토스트가 몇 초 동안 [나가기] [포기]를 가릴 수 있다.
 10. 경기 밸런스를 일괄 조정하면(GDD 16-25) 단계 승률도 움직인다 — 그 뒤 `challenge_sim.mjs` 로 statTarget 을 다시 맞춘다.
+
+## 19. 이름 변경 — 전원 여성 · 여성형 이름 (2026-10-01, GDD v0.5 0.1 #71 · 이름 변경 표)
+
+규칙 · 수치 · 난수 · id 는 그대로. 화면에 보이는 이름과 그 이름이 들어간 문구만 바꿨다 (`tools/sim.mjs --runs 40 --seed 3` 출력이 바꾸기 전과 같다).
+
+- **데이터**: `characters.json` 선수 5명, `supports.json` 카드 이름 6장(`sp_mountain_monk` 은 칭호도 "수도사 한" → "수행자 한나", 소개 "수도사" → "수행자"), `opponents.json` 상대 선수 32명(이름 칸 정렬 빈칸만 함께 맞춤), `events.json` `ev_sp_harr_60` 제목 "하르나의 눈", `challenge_sample_team.json` 선수 이름(팀 · 스냅샷 둘 다). 옛 → 새 전체 표는 GDD 0.1.
+- **id 불변**: `ch_*` · `sp_*`(예: `sp_coach_harr`) · `sk_*` · `ev_*` · `op_*`. 테스트의 로마자 지역 변수만 새 이름으로 (`ID.dorbina` · `taria` · `ulrika` · `greta` · `adeline`, `TARIA`, `kasha`).
+- **조사**: 문서 · 테스트 · 도구 문구의 이름 + 조사를 새 이름 받침에 맞춤 (예: "타린이" → "타리아가", "울릭(크로서)이" → "울리카(크로서)가", "마르텐과" → "마르타와"). 런타임에 이름을 넣는 문구는 이미 `withJosa`(layout.js)라 코드 변경 없음.
+- **합성 테스트 이름** (`test/layout.test.mjs` `NAMES.away`, 데이터에 없는 이름): 카손 → 카샤, 브란 → 브란디, 케일 → 케일라. `withJosa` 받침 있는 경우 검사는 "카손이" 대신 `withJosa("아델린", "이/가") → "아델린이"`.
+- **저장본**: 런(`createRun` 이 `ch.name` 복사) · 등록 팀 · 진행 중인 경기 저장본은 만들 때의 이름을 그대로 가진다 — 이미 브라우저에 저장된 것은 옛 이름으로 보인다. 옮기지 않는다(새 런부터 새 이름). 서포트 카드 이름은 화면에서 데이터로 다시 읽어 새 이름.
+- **남은 것**: 이벤트 문구의 `{player}가` · `{player}를` 처럼 치환자 뒤 조사는 고정이다(`substitute`, run.js). 새 이름 중 받침이 있는 선수는 아델린 · 실루엔뿐이라(서포트 카드는 이제 전원 받침 없음) 이 둘이 이벤트 대상이면 "아델린가"처럼 나온다 — 바꾸기 전부터 있던 문제(옛 이름은 선수 4명 · 서포트 3장이 해당).

@@ -204,8 +204,8 @@ test("jsdom: 아웃게임 화면 전부 스테이지 안에 그려지고 주요 
   assert.equal(cards.length, 7, "3-1-2: 슬롯 7개");
   assert.deepEqual($$(".slot-card.pos-DF").map((c) => Math.round(parseFloat(c.style.top))), [15, 50, 85], "3-1-2: DF 3명 세로 배치 (벌림)");
   assert.equal(new Set($$(".slot-card.pos-DF").map(xOf)).size, 1, "3-1-2: DF 같은 줄");
-  // 포메이션을 바꾸면 없어진 슬롯(MF2)의 타린(DF B)이 새 DF3 로 (lineup.js reseat)
-  assert.equal(S.store.setup.squad.DF3, "ch_human_runner", "3-1-2: MF2 타린 → DF3");
+  // 포메이션을 바꾸면 없어진 슬롯(MF2)의 타리아(DF B)가 새 DF3 로 (lineup.js reseat)
+  assert.equal(S.store.setup.squad.DF3, "ch_human_runner", "3-1-2: MF2 타리아 → DF3");
   // 슬롯 탭 → 캐릭터 고르기 (넓은 모달, 2열 — 드래그 대신 쓰는 탭 경로). 보드와 같은 규칙: 설 수 없으면 비활성 · 빨강
   $(".slot-card.pos-MF").click();
   inStage("#modal-root .modal.modal-lg .pick-grid", "캐릭터 고르기");
@@ -216,7 +216,7 @@ test("jsdom: 아웃게임 화면 전부 스테이지 안에 그려지고 주요 
   fsel.value = "2-2-2";
   fsel.dispatchEvent(new window.Event("change", { bubbles: true }));
   await until(() => $$(".slot-card.pos-DF").length === 2);
-  assert.deepEqual(S.store.setup.squad, data.config.defaultSquad.slots, "2-2-2 로 돌아오면 기본 편성 그대로 (DF3 타린 → MF2)");
+  assert.deepEqual(S.store.setup.squad, data.config.defaultSquad.slots, "2-2-2 로 돌아오면 기본 편성 그대로 (DF3 타리아 → MF2)");
 
   // ---- 드래그 (포인터 이벤트 흉내). jsdom 은 레이아웃이 없어 elementFromPoint 를 "포인터 밑 요소"로 고정한다 ----
   const PE = window.PointerEvent || window.MouseEvent;
@@ -237,7 +237,7 @@ test("jsdom: 아웃게임 화면 전부 스테이지 안에 그려지고 주요 
   const slotEl = (sl) => $(`.lu-slot[data-slot="${sl}"]`);
   const cardEl = (id) => $(`.lu-card[data-pid="${id}"]`);
   const MIRKA = "ch_cat_trickster";
-  const TARIN = "ch_human_runner";
+  const TARIA = "ch_human_runner";
   // 벤치 미르카(GK - · DF - · MF A · FW B)를 MF2 위로 (놓지 않음): GK·DF 빨강, MF·FW 초록 + 적성 안내, 고스트
   await drag(cardEl(MIRKA), slotEl("MF2"), { release: false });
   assert.ok(inStage(".lu-ghost", "드래그 고스트").textContent.includes("미르카"), "드래그: 고스트 = 미르카");
@@ -245,25 +245,25 @@ test("jsdom: 아웃게임 화면 전부 스테이지 안에 그려지고 주요 
   for (const sl of ["GK", "DF1", "DF2"]) assert.ok(slotEl(sl).classList.contains("drop-bad"), `드래그: ${sl} 빨강`);
   for (const sl of ["MF1", "MF2", "FW1", "FW2"]) assert.ok(slotEl(sl).classList.contains("drop-ok"), `드래그: ${sl} 초록`);
   assert.equal(slotEl("GK").querySelector(".lu-hint").textContent, "GK 적성 없음", "드래그: 빨강 이유");
-  assert.equal(slotEl("MF2").querySelector(".lu-hint").textContent, "MF A · 타린 벤치로", "드래그: 초록 = 적성 + 밀려나는 선수");
-  assert.equal(slotEl("FW1").querySelector(".lu-hint").textContent, "FW B · 울릭 벤치로", "드래그: 적성 글자");
+  assert.equal(slotEl("MF2").querySelector(".lu-hint").textContent, "MF A · 타리아 벤치로", "드래그: 초록 = 적성 + 밀려나는 선수");
+  assert.equal(slotEl("FW1").querySelector(".lu-hint").textContent, "FW B · 울리카 벤치로", "드래그: 적성 글자");
   assert.ok(cardEl(MIRKA).classList.contains("lu-dragging") && cardEl(MIRKA).classList.contains("drop-origin"), "드래그: 끄는 카드 = 원래 자리");
   ptr("pointerup", window, 300, 240); // MF2 에 놓기
   await wait(5);
   await until(() => S.store.setup.squad.MF2 === MIRKA);
   assert.equal($$(".lu-ghost").length, 0, "놓으면 고스트 사라짐");
-  assert.ok(slotEl("MF2").dataset.pid === MIRKA && cardEl(TARIN).classList.contains("bench"), "놓기: 미르카 MF2 · 타린 벤치");
+  assert.ok(slotEl("MF2").dataset.pid === MIRKA && cardEl(TARIA).classList.contains("bench"), "놓기: 미르카 MF2 · 타리아 벤치");
   // 빨강(GK)에 놓기 → 거절: 흔들림 + 안내 토스트, 변경 없음
   const before = JSON.stringify(S.store.setup.squad);
   await drag(slotEl("MF2"), slotEl("GK"));
   assert.equal(JSON.stringify(S.store.setup.squad), before, "빨강에 놓기: 변경 없음");
   assert.ok(slotEl("GK").classList.contains("lu-shake"), "빨강에 놓기: 흔들림");
   assert.ok($$("#toast-root .toast-info").some((e) => /놓을 수 없음.*미르카.*GK 적성 없음/.test(e.textContent)), "빨강에 놓기: 이유 토스트");
-  // 필드 선수(MF2 미르카)를 벤치 선수(타린) 카드에 = 교체 투입
-  await drag(slotEl("MF2"), cardEl(TARIN));
-  await until(() => S.store.setup.squad.MF2 === TARIN);
+  // 필드 선수(MF2 미르카)를 벤치 선수(타리아) 카드에 = 교체 투입
+  await drag(slotEl("MF2"), cardEl(TARIA));
+  await until(() => S.store.setup.squad.MF2 === TARIA);
   assert.ok(cardEl(MIRKA).classList.contains("bench"), "교체: 미르카 벤치");
-  // 슬롯 → 슬롯 = 맞바꾸기 (돌바르 DF1 → GK, 네리아 → DF1)
+  // 슬롯 → 슬롯 = 맞바꾸기 (도르비나 DF1 → GK, 네리아 → DF1)
   await drag(slotEl("DF1"), slotEl("GK"));
   await until(() => S.store.setup.squad.GK === "ch_dwarf_wall");
   assert.equal(S.store.setup.squad.DF1, "ch_spirit_keeper", "맞바꾸기: 네리아 DF1");
@@ -374,19 +374,19 @@ test("jsdom: 아웃게임 화면 전부 스테이지 안에 그려지고 주요 
   const pidAt = (sl) => mslot(sl)?.dataset.pid;
   const runSlots0 = Object.fromEntries(S.store.run.players.map((p) => [p.slot, p.id]));
   for (const [sl, pid] of Object.entries(runSlots0)) assert.equal(pidAt(sl), pid, `미팅: 보드 처음 = 런 배치 (${sl})`);
-  // 드래그: DF1(돌바르 GK B · DF A · MF C · FW -) → FW 빨강, GK 초록(⇄ 네리아)
-  const dolbar = S.store.run.players.find((p) => p.charId === "ch_dwarf_wall");
+  // 드래그: DF1(도르비나 GK B · DF A · MF C · FW -) → FW 빨강, GK 초록(⇄ 네리아)
+  const dorbina = S.store.run.players.find((p) => p.charId === "ch_dwarf_wall");
   const neria = S.store.run.players.find((p) => p.charId === "ch_spirit_keeper");
-  await drag(mslot(dolbar.slot), mslot("FW1"), { release: false });
+  await drag(mslot(dorbina.slot), mslot("FW1"), { release: false });
   assert.ok(mslot("FW1").classList.contains("drop-bad") && mslot("FW1").querySelector(".lu-hint").textContent === "FW 적성 없음", "미팅 드래그: FW 빨강");
   assert.ok(mslot("GK").classList.contains("drop-ok") && mslot("GK").querySelector(".lu-hint").textContent === `GK B ⇄ ${neria.name}`, "미팅 드래그: GK 초록 (맞바꾸기 상대)");
   ptr("pointerup", window, 300, 240); // 빨강에 놓기 → 거절
   await wait(5);
   assert.equal(pidAt("FW1"), runSlots0.FW1, "미팅: 빨강에 놓으면 변경 없음");
   assert.equal($$("#modal-root .modal").length, 1, "미팅: 보드 밖 click 을 삼켜 모달이 닫히지 않는다");
-  await drag(mslot(dolbar.slot), mslot("GK"));
-  assert.ok(pidAt("GK") === dolbar.id && pidAt(dolbar.slot) === neria.id, "미팅: 돌바르 GK ⇄ 네리아 (돌바르 원래 자리로)");
-  assert.ok(mslot("GK").textContent.includes(`원래 ${dolbar.slot}`), "미팅: 옮긴 선수에 원래 자리 표시");
+  await drag(mslot(dorbina.slot), mslot("GK"));
+  assert.ok(pidAt("GK") === dorbina.id && pidAt(dorbina.slot) === neria.id, "미팅: 도르비나 GK ⇄ 네리아 (도르비나 원래 자리로)");
+  assert.ok(mslot("GK").textContent.includes(`원래 ${dorbina.slot}`), "미팅: 옮긴 선수에 원래 자리 표시");
   // 탭 경로: 선수를 누르고 → 다른 선수를 누르면 맞바꾸기 (MF1 ⇄ MF2)
   const mf1 = pidAt("MF1");
   const mf2 = pidAt("MF2");

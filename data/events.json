@@ -543,7 +543,7 @@
     "trigger": "support",
     "supportId": "sp_coach_harr", "bondAtLeast": 60, "routeId": null, "characterId": null,
     "weight": 1, "minTurnIndex": 0, "seasons": [1, 2, 3], "once": true,
-    "title": "하르의 눈",
+    "title": "하르나의 눈",
     "text": "{support}가 {player}를 골대 앞에 세웁니다.\n\"골키퍼를 보지 마. 골키퍼가 못 보는 곳을 봐. 슛은 발이 아니라 눈으로 차는 거다.\"\n공이 구석 그물에 꽂힙니다.",
     "choices": [
       {

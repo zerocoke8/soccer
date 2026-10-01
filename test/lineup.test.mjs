@@ -13,10 +13,10 @@ import { loadData, run, clone } from "./helpers.mjs";
 const data = loadData();
 const charById = new Map(data.characters.map((c) => [c.id, c]));
 const aptOfChar = (cid, pos) => charById.get(cid)?.aptitude?.[pos] ?? "-";
-const DEFAULT = data.config.defaultSquad; // GK 네리아 · DF1 돌바르 · DF2 아르덴 · MF1 실루엔 · MF2 타린 · FW1 울릭 · FW2 그룸바 (미르카 벤치)
+const DEFAULT = data.config.defaultSquad; // GK 네리아 · DF1 도르비나 · DF2 아델린 · MF1 실루엔 · MF2 타리아 · FW1 울리카 · FW2 그레타 (미르카 벤치)
 const ID = {
-  neria: "ch_spirit_keeper", dolbar: "ch_dwarf_wall", arden: "ch_human_captain", silu: "ch_elf_playmaker",
-  tarin: "ch_human_runner", ulrik: "ch_wolf_winger", groomba: "ch_giant_striker", mirka: "ch_cat_trickster",
+  neria: "ch_spirit_keeper", dorbina: "ch_dwarf_wall", adeline: "ch_human_captain", silu: "ch_elf_playmaker",
+  taria: "ch_human_runner", ulrika: "ch_wolf_winger", greta: "ch_giant_striker", mirka: "ch_cat_trickster",
 };
 const setupModel = (assign, formation = "2-2-2") => ({ slots: slotsOf(formation), assign, aptOf: aptOfChar, bench: true });
 
@@ -79,44 +79,44 @@ test("slotSpot: lineup.js 로 옮겼고 setup.js 에서도 그대로 export", as
 
 test("resolveTarget: 놓은 곳 → 이동 (슬롯 · 필드 선수 카드 = 그 자리, 벤치 선수 카드 = 교체 투입, 풀 빈 곳 = 벤치)", () => {
   const m = setupModel({ ...DEFAULT.slots });
-  assert.deepEqual(resolveTarget(m, ID.dolbar, { slot: "GK" }), { id: ID.dolbar, to: "GK" }, "슬롯 → 슬롯");
-  assert.equal(resolveTarget(m, ID.dolbar, { slot: "DF1" }), null, "제자리");
-  assert.deepEqual(resolveTarget(m, ID.dolbar, { player: ID.neria }), { id: ID.dolbar, to: "GK" }, "필드 선수 카드 = 그 선수 자리");
+  assert.deepEqual(resolveTarget(m, ID.dorbina, { slot: "GK" }), { id: ID.dorbina, to: "GK" }, "슬롯 → 슬롯");
+  assert.equal(resolveTarget(m, ID.dorbina, { slot: "DF1" }), null, "제자리");
+  assert.deepEqual(resolveTarget(m, ID.dorbina, { player: ID.neria }), { id: ID.dorbina, to: "GK" }, "필드 선수 카드 = 그 선수 자리");
   assert.deepEqual(resolveTarget(m, ID.mirka, { slot: "MF2" }), { id: ID.mirka, to: "MF2" }, "벤치 → 슬롯");
-  assert.deepEqual(resolveTarget(m, ID.tarin, { player: ID.mirka }), { id: ID.mirka, to: "MF2" }, "필드 선수를 벤치 선수 카드에 = 벤치 선수가 내 자리로");
-  assert.deepEqual(resolveTarget(m, ID.tarin, { pool: true }), { id: ID.tarin, to: null }, "풀 빈 곳 = 벤치로");
+  assert.deepEqual(resolveTarget(m, ID.taria, { player: ID.mirka }), { id: ID.mirka, to: "MF2" }, "필드 선수를 벤치 선수 카드에 = 벤치 선수가 내 자리로");
+  assert.deepEqual(resolveTarget(m, ID.taria, { pool: true }), { id: ID.taria, to: null }, "풀 빈 곳 = 벤치로");
   assert.equal(resolveTarget(m, ID.mirka, { pool: true }), null, "벤치 선수를 풀에 = 그대로");
   assert.equal(resolveTarget(m, ID.mirka, { player: ID.mirka }), null, "자기 자신");
   const noBench = { ...m, bench: false };
-  assert.equal(resolveTarget(noBench, ID.tarin, { pool: true }), null, "벤치 없는 보드(미팅)");
+  assert.equal(resolveTarget(noBench, ID.taria, { pool: true }), null, "벤치 없는 보드(미팅)");
   // 빈 슬롯
-  const withEmpty = setupModel(applyMove(DEFAULT.slots, { id: ID.tarin, to: null }));
-  assert.equal(slotOfId(withEmpty.assign, ID.tarin), null);
+  const withEmpty = setupModel(applyMove(DEFAULT.slots, { id: ID.taria, to: null }));
+  assert.equal(slotOfId(withEmpty.assign, ID.taria), null);
   assert.deepEqual(resolveTarget(withEmpty, ID.silu, { slot: "MF2" }), { id: ID.silu, to: "MF2" }, "빈 슬롯으로 이동");
 });
 
 test("checkMove: 끈 선수 적성 + 밀려난 선수가 원래 자리에 설 수 있는지 (벤치는 늘 가능)", () => {
   const m = setupModel({ ...DEFAULT.slots });
-  // 돌바르(DF1: GK B) → GK, 네리아(GK A · DF C) → DF1: 둘 다 가능
-  let c = checkMove(m, { id: ID.dolbar, to: "GK" });
+  // 도르비나(DF1: GK B) → GK, 네리아(GK A · DF C) → DF1: 둘 다 가능
+  let c = checkMove(m, { id: ID.dorbina, to: "GK" });
   assert.equal(c.ok, true);
   assert.equal(c.apt, "B");
   assert.equal(c.occupant, ID.neria);
   assert.equal(c.occPos, "DF");
   assert.equal(c.occApt, "C");
-  // 아르덴(GK -) → GK: 끈 선수가 못 선다
-  c = checkMove(m, { id: ID.arden, to: "GK" });
+  // 아델린(GK -) → GK: 끈 선수가 못 선다
+  c = checkMove(m, { id: ID.adeline, to: "GK" });
   assert.equal(c.ok, false);
   assert.equal(c.reason, "적성 없음");
-  // 네리아(DF C) → DF2: 네리아는 되지만 아르덴(GK -)이 GK 로 못 간다
+  // 네리아(DF C) → DF2: 네리아는 되지만 아델린(GK -)이 GK 로 못 간다
   c = checkMove(m, { id: ID.neria, to: "DF2" });
   assert.equal(c.ok, false);
   assert.equal(c.reason, null);
-  assert.equal(c.occupant, ID.arden);
+  assert.equal(c.occupant, ID.adeline);
   assert.equal(c.occReason, "적성 없음");
-  // 네리아 → DF1: 돌바르(GK B)는 GK 로 갈 수 있다
+  // 네리아 → DF1: 도르비나(GK B)는 GK 로 갈 수 있다
   assert.equal(checkMove(m, { id: ID.neria, to: "DF1" }).ok, true);
-  // 벤치 미르카(MF A · DF - · GK -): MF2 투입 가능(타린은 벤치로), DF · GK 불가
+  // 벤치 미르카(MF A · DF - · GK -): MF2 투입 가능(타리아는 벤치로), DF · GK 불가
   assert.equal(checkMove(m, { id: ID.mirka, to: "MF2" }).ok, true);
   assert.equal(checkMove(m, { id: ID.mirka, to: "DF1" }).ok, false);
   assert.equal(checkMove(m, { id: ID.mirka, to: "GK" }).reason, "적성 없음");
@@ -136,15 +136,15 @@ test("checkMove: 끈 선수 적성 + 밀려난 선수가 원래 자리에 설 �
 test("applyMove: 맞바꾸기 · 빈 슬롯 이동 · 벤치 투입(있던 선수 벤치로) · 벤치로, 원본 불변", () => {
   const base = { ...DEFAULT.slots };
   const frozen = JSON.stringify(base);
-  let a = applyMove(base, { id: ID.dolbar, to: "GK" });
-  assert.equal(a.GK, ID.dolbar);
+  let a = applyMove(base, { id: ID.dorbina, to: "GK" });
+  assert.equal(a.GK, ID.dorbina);
   assert.equal(a.DF1, ID.neria);
   assert.equal(JSON.stringify(base), frozen, "원본 그대로");
   a = applyMove(base, { id: ID.mirka, to: "MF2" });
   assert.equal(a.MF2, ID.mirka);
-  assert.equal(slotOfId(a, ID.tarin), null, "타린 벤치로");
+  assert.equal(slotOfId(a, ID.taria), null, "타리아 벤치로");
   assert.equal(Object.keys(a).length, 7);
-  a = applyMove(base, { id: ID.tarin, to: null });
+  a = applyMove(base, { id: ID.taria, to: null });
   assert.equal(a.MF2, undefined);
   assert.equal(Object.keys(a).length, 6);
   a = applyMove(a, { id: ID.silu, to: "MF2" });
@@ -189,17 +189,17 @@ test("무작위 드래그 1500번: 가능(초록)한 이동만 적용하면 편�
 });
 
 test("reseat: 포메이션이 바뀌면 남는 슬롯 그대로, 없어진 슬롯 선수는 설 수 있는 빈 슬롯으로 (적성 좋은 순)", () => {
-  // 2-2-2 → 3-1-2: MF2 타린(DF B) → DF3
+  // 2-2-2 → 3-1-2: MF2 타리아(DF B) → DF3
   let a = reseat({ ...DEFAULT.slots }, slotsOf("3-1-2"), aptOfChar);
-  assert.equal(a.DF3, ID.tarin);
+  assert.equal(a.DF3, ID.taria);
   assert.equal(a.MF1, ID.silu);
   assert.deepEqual(lineupIssues({ slots: slotsOf("3-1-2"), assign: a, aptOf: aptOfChar }), []);
-  // 2-2-2 → 2-3-1: FW2 그룸바(MF C) → MF3
+  // 2-2-2 → 2-3-1: FW2 그레타(MF C) → MF3
   a = reseat({ ...DEFAULT.slots }, slotsOf("2-3-1"), aptOfChar);
-  assert.equal(a.MF3, ID.groomba);
-  assert.equal(a.FW1, ID.ulrik);
+  assert.equal(a.MF3, ID.greta);
+  assert.equal(a.FW1, ID.ulrika);
   // 설 수 있는 자리가 없으면 편성은 벤치로, 미팅(fillAll)은 그래도 앉히고 lineupIssues 로 드러낸다
-  const mirkaAt = { ...DEFAULT.slots, MF2: ID.mirka }; // 미르카 MF2 (타린 벤치)
+  const mirkaAt = { ...DEFAULT.slots, MF2: ID.mirka }; // 미르카 MF2 (타리아 벤치)
   a = reseat(mirkaAt, slotsOf("3-1-2"), aptOfChar); // MF2 없어짐 → DF3 (미르카 DF -)
   assert.equal(a.DF3, undefined, "편성: 미르카는 벤치, DF3 빈 슬롯");
   assert.equal(slotOfId(a, ID.mirka), null);
@@ -209,8 +209,8 @@ test("reseat: 포메이션이 바뀌면 남는 슬롯 그대로, 없어진 슬�
   // extraIds: assign 에 없던 선수도 채운다 (미팅 — 모든 선수가 자리를 가져야 한다)
   const partial = { ...DEFAULT.slots };
   delete partial.FW2;
-  a = reseat(partial, slotsOf("2-2-2"), aptOfChar, { fillAll: true, extraIds: [ID.groomba] });
-  assert.equal(a.FW2, ID.groomba);
+  a = reseat(partial, slotsOf("2-2-2"), aptOfChar, { fillAll: true, extraIds: [ID.greta] });
+  assert.equal(a.FW2, ID.greta);
 });
 
 test("meetingSwaps: 엔진 resolveMeeting 이 순서대로 적용하면 최종 배치 = 보드 배치 (포메이션 4개 × 무작위 배치)", () => {
@@ -259,15 +259,15 @@ test("meetingSwaps + run.applyAction(meeting): 보드에서 맞바꾼 두 선수
   const aptOf = (pid, pos) => aptOfChar(state.players.find((p) => p.id === pid).charId, pos);
   let assign = Object.fromEntries(state.players.map((p) => [p.slot, p.id]));
   const model = { slots, assign, aptOf, bench: false };
-  const dolbar = state.players.find((p) => p.charId === ID.dolbar).id;
-  const move = resolveTarget(model, dolbar, { slot: "GK" });
+  const dorbina = state.players.find((p) => p.charId === ID.dorbina).id;
+  const move = resolveTarget(model, dorbina, { slot: "GK" });
   assert.equal(checkMove(model, move).ok, true);
   assign = applyMove(assign, move);
   const turn = state.turnIndex;
   const currentSlotOf = (pid) => state.players.find((p) => p.id === pid).slot;
   run.applyAction(state, data, { type: "meeting", tactics: { ...state.tactics }, swaps: meetingSwaps(slots, assign, currentSlotOf) });
   const bySlot = Object.fromEntries(state.players.map((p) => [p.slot, p.charId]));
-  assert.equal(bySlot.GK, ID.dolbar);
+  assert.equal(bySlot.GK, ID.dorbina);
   assert.equal(bySlot.DF1, ID.neria);
   assert.ok(state.turnIndex > turn || run.getPhase(state) !== "turn", "미팅은 턴을 소모한다");
 });

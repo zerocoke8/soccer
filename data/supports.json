@@ -1,7 +1,7 @@
 [
   {
     "id": "sp_coach_harr",
-    "name": "코치 하르",
+    "name": "코치 하르나",
     "type": "shoot",
     "rarity": "SSR",
     "trainingBonus": 0.15,
@@ -33,7 +33,7 @@
   },
   {
     "id": "sp_elder_sage",
-    "name": "현자 오르멘",
+    "name": "현자 오르넬라",
     "type": "pass",
     "rarity": "SSR",
     "trainingBonus": 0.15,
@@ -49,7 +49,7 @@
   },
   {
     "id": "sp_iron_captain",
-    "name": "주장 바르그",
+    "name": "주장 바르바라",
     "type": "defense",
     "rarity": "SR",
     "trainingBonus": 0.10,
@@ -65,7 +65,7 @@
   },
   {
     "id": "sp_mountain_monk",
-    "name": "수도사 한",
+    "name": "수행자 한나",
     "type": "physical",
     "rarity": "R",
     "trainingBonus": 0.05,
@@ -77,7 +77,7 @@
     "failRateReduction": 0.05,
     "eventIds": ["ev_sp_mountain_monk_60"],
     "portraitColor": "#c08457",
-    "bio": "산사에서 내려온 수도사. 몸을 만들기 전에 숨부터 고르라고 한다."
+    "bio": "산사에서 내려온 수행자. 몸을 만들기 전에 숨부터 고르라고 한다."
   },
   {
     "id": "sp_bard_lumi",
@@ -97,7 +97,7 @@
   },
   {
     "id": "sp_street_striker",
-    "name": "거리의 조",
+    "name": "거리의 조이",
     "type": "shoot",
     "rarity": "R",
     "trainingBonus": 0.05,
@@ -113,7 +113,7 @@
   },
   {
     "id": "sp_river_scholar",
-    "name": "학자 이렌",
+    "name": "학자 이레네",
     "type": "pass",
     "rarity": "R",
     "trainingBonus": 0.05,

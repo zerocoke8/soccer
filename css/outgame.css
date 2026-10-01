@@ -237,9 +237,10 @@ html.lu-grabbing, html.lu-grabbing * { cursor: grabbing !important; }
 .lu-card.bench { border-style: dashed; border-color: var(--warn); }
 .lu-card.placed { background: var(--panel); }
 .lu-card .trait-tag { align-self: flex-start; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
-.lu-card-who { display: flex; align-items: center; gap: 7px; min-width: 0; padding-right: 34px; }
+/* 이름 칸: 오른쪽 위 슬롯 태그(.lu-where, 가장 넓은 FW2 ≈ 35px)를 1px 비켜 가는 만큼만 비운다 — 4글자 이름(도르비나)도 안 잘리게 */
+.lu-card-who { display: flex; align-items: center; gap: 5px; min-width: 0; padding-right: 32px; }
 .lu-card-nm { min-width: 0; font-size: 14px; }
-.lu-where { position: absolute; right: 6px; top: 6px; padding: 0 6px; border-radius: 6px; font-size: 10.5px; line-height: 17px; font-weight: 800; background: rgba(255, 179, 71, .18); color: var(--warn); }
+.lu-where { position: absolute; right: 4px; top: 6px; padding: 0 6px; border-radius: 6px; font-size: 10.5px; line-height: 17px; font-weight: 800; background: rgba(255, 179, 71, .18); color: var(--warn); }
 .lu-where.on { background: rgba(74, 163, 255, .2); color: var(--accent-2); }
 .lu-apts { display: flex; gap: 3px; }
 .lu-apt { flex: 1 1 0; display: inline-flex; align-items: center; justify-content: center; gap: 2px; min-width: 0; padding: 1px 0; border-radius: 6px; background: rgba(255, 255, 255, .04); }
@@ -300,7 +301,7 @@ html.lu-grabbing, html.lu-grabbing * { cursor: grabbing !important; }
 .slot-rows { grid-area: slots; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; min-height: 0; }
 .slot-row {
   position: relative; display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; overflow: hidden;
-  padding: 12px 11px 11px; border-radius: 14px; border: 1px solid var(--border);
+  padding: 12px 10px 11px; border-radius: 14px; border: 1px solid var(--border);
   background: linear-gradient(180deg, var(--panel-2), var(--panel) 38%);
   color: var(--text); text-align: left; cursor: pointer; font-size: 13px;
   transition: border-color .12s, transform .08s, box-shadow .12s;
@@ -322,12 +323,14 @@ html.lu-grabbing, html.lu-grabbing * { cursor: grabbing !important; }
 .slot-badges { display: flex; flex-wrap: wrap; gap: 4px; min-height: 19px; }
 .slot-players { display: flex; flex-direction: column; gap: 4px; flex: none; min-height: 0; }
 .slot-none { padding: 4px 2px; }
+/* 선수 줄: 이름 · 슬롯 · 상승 합(세 자리)이 한 줄 — 4글자 이름(도르비나)도 안 잘리게 여백 · 틈을 줄였다 */
 .sl-pl {
-  display: grid; grid-template-columns: 22px minmax(0, 1fr); column-gap: 6px; row-gap: 1px; align-items: center;
-  min-width: 0; padding: 4px 6px 4px 4px; border-radius: 8px; background: rgba(255, 255, 255, .05);
+  display: grid; grid-template-columns: 22px minmax(0, 1fr); column-gap: 5px; row-gap: 1px; align-items: center;
+  min-width: 0; padding: 4px 4px 4px 3px; border-radius: 8px; background: rgba(255, 255, 255, .05);
 }
 .sl-pl > .avatar { grid-row: 1 / span 2; }
 .sl-l1, .sl-l2 { display: flex; align-items: baseline; gap: 5px; min-width: 0; }
+.sl-l1 { gap: 4px; }
 .sl-l2 { font-size: 11px; color: var(--muted); justify-content: space-between; }
 .sl-nm { min-width: 0; font-size: 13px; }
 .sl-slot { font-size: 10px; font-weight: 700; color: var(--muted); }

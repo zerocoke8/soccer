@@ -309,8 +309,20 @@ export function migrateRun(state) {
 }
 
 /**
+ * 이름 변경(2026-10-01, GDD #71) 전 캐릭터 이름 → id. charId 없는 옛 등록본(v0.1–v0.2)은
+ * 이름으로만 캐릭터를 찾으므로, 옛 이름도 받아 특성을 잃지 않게 한다. 표시 이름은 그대로 둔다.
+ */
+const LEGACY_CHAR_NAMES = Object.freeze({
+  돌바르: "ch_dwarf_wall",
+  아르덴: "ch_human_captain",
+  타린: "ch_human_runner",
+  울릭: "ch_wolf_winger",
+  그룸바: "ch_giant_striker",
+});
+
+/**
  * 등록 팀(finalizeRun().registeredTeam, localStorage 저장본) 이행: 전술 readIntent → balanced,
- * 선수에 trait 가 없으면 캐릭터 데이터(charId, 없으면 이름)에서 채운다. 새 객체를 돌려준다.
+ * 선수에 trait 가 없으면 캐릭터 데이터(charId, 없으면 이름 — 옛 이름 포함)에서 채운다. 새 객체를 돌려준다.
  * @param {object} team
  * @param {object} [data]
  * @returns {object}
@@ -321,7 +333,10 @@ export function migrateRegisteredTeam(team, data) {
   const players = Array.isArray(team.players)
     ? team.players.map((p) => {
         if (!p || typeof p !== "object" || p.trait !== undefined) return p;
-        const ch = chars.find((c) => (p.charId && c.id === p.charId) || (!p.charId && c.name === p.name));
+        const legacyId = !p.charId && Object.prototype.hasOwnProperty.call(LEGACY_CHAR_NAMES, p.name) ? LEGACY_CHAR_NAMES[p.name] : null;
+        const ch = chars.find(
+          (c) => (p.charId && c.id === p.charId) || (!p.charId && (c.name === p.name || c.id === legacyId)),
+        );
         return { ...p, trait: (ch && ch.trait) || null };
       })
     : team.players;

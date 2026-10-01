@@ -30,8 +30,8 @@ const other = (s) => (s === "home" ? "away" : "home");
 /* ------------------------------------------------------------------ */
 
 const NAMES = {
-  home: { GK: "네리아", DF1: "돌바르", DF2: "아르덴", DF3: "타린", MF1: "실루엔", MF2: "타린", MF3: "미르카", FW1: "울릭", FW2: "그룸바" },
-  away: { GK: "마르텐", DF1: "오르반", DF2: "브란", DF3: "케일", MF1: "셀마", MF2: "다린", MF3: "페린", FW1: "카손", FW2: "로벨" },
+  home: { GK: "네리아", DF1: "도르비나", DF2: "아델린", DF3: "타리아", MF1: "실루엔", MF2: "타리아", MF3: "미르카", FW1: "울리카", FW2: "그레타" },
+  away: { GK: "마르타", DF1: "오르비아", DF2: "브란디", DF3: "케일라", MF1: "셀마", MF2: "다리아", MF3: "페리나", FW1: "카샤", FW2: "로웨나" },
 };
 
 function makeTeam(side, formation, { withPosition = true } = {}) {
@@ -421,9 +421,9 @@ test("상수: ZONES·SHAPE 계약 값, SHAPE 공 좌표가 zoneFor 구역 안", 
     assert.equal(zoneAtY(SHAPE.ball[s]), zoneFor("home", s));
     assert.equal(zoneAtY(100 - SHAPE.ball[s]), zoneFor("away", s));
   }
-  assert.equal(withJosa("카손", "이/가"), "카손이");
+  assert.equal(withJosa("아델린", "이/가"), "아델린이");
   assert.equal(withJosa("네리아", "과/와"), "네리아와");
-  assert.equal(withJosa("그룸바", "이/가"), "그룸바가");
+  assert.equal(withJosa("그레타", "이/가"), "그레타가");
   assert.equal(withJosa("실루엔", "과/와"), "실루엔과");
 });
 
@@ -455,11 +455,11 @@ test("[회귀 v0.1] 상대 ④ 슈팅: 우리 필드 6명 전원 공 뒤, 우리
         }
       }
       // v0.1 처럼 상대 FW 가 하프라인 너머(y > 50)에 그려지지 않는다
-      const kason = L.tokens.find((t) => t.id === "a_FW1");
-      assert.ok(kason.y < 16 && kason.role === "carrier", `카손 y=${kason.y}`);
+      const kasha = L.tokens.find((t) => t.id === "a_FW1");
+      assert.ok(kasha.y < 16 && kasha.role === "carrier", `카샤 y=${kasha.y}`);
       assert.equal(L.highlight.level, "crisis");
       assert.equal(L.highlight.label, "슈팅 위기");
-      assert.equal(L.banner, "⚠ 슈팅 위기 — 카손이 우리 박스 진입, 네리아와 1:1");
+      assert.equal(L.banner, "⚠ 슈팅 위기 — 카샤가 우리 박스 진입, 네리아와 1:1");
       assert.equal(L.remainingText, "남은 수비: GK");
     }
   }
@@ -486,25 +486,25 @@ test("highlight 표 (GDD §9.5) 와 track · remainingText · banner", () => {
     assert.equal(L.remainingText, c.remaining);
     assert.deepEqual(L.track, { side: c.atk, step: c.step, dir: c.atk === "home" ? "up" : "down" });
     // 배너는 선수 이름을 넣는다 (예외: GDD §9.5 예시 그대로인 "중원 돌파 — 남은 수비: …")
-    if (!(c.atk === "home" && c.step === 2)) assert.ok(L.banner.includes(c.atk === "home" ? "그룸바" : "카손"), L.banner);
+    if (!(c.atk === "home" && c.step === 2)) assert.ok(L.banner.includes(c.atk === "home" ? "그레타" : "카샤"), L.banner);
   }
   // 배너 예시 (GDD §9.5)
   const mid = computeLayout(makeView({ homeF: "2-2-2", awayF: "2-2-2", atk: "home", step: 2, carrierId: "h_FW2", defenderId: "a_DF1" }));
   assert.equal(mid.banner, "중원 돌파 — 남은 수비: DF 2 + GK");
   const shot = computeLayout(makeView({ homeF: "2-2-2", awayF: "2-2-2", atk: "home", step: 3, carrierId: "h_FW2", defenderId: "a_GK" }));
-  assert.equal(shot.banner, "★ 슈팅 찬스 — 그룸바가 상대 박스 진입, 마르텐과 1:1");
+  assert.equal(shot.banner, "★ 슈팅 찬스 — 그레타가 상대 박스 진입, 마르타와 1:1");
   // 역습 직후 (lastBeat = 이 팀의 counter)
   const counter = computeLayout(makeView({
     homeF: "2-2-2", awayF: "2-2-2", atk: "home", step: 2, carrierId: "h_FW2", defenderId: "a_DF1",
     extra: { lastBeat: { type: "counter", side: "home", playerId: "h_FW2", seq: 9 } },
   }));
-  assert.equal(counter.banner, "역습! 상대 진영에서 시작 — 그룸바");
+  assert.equal(counter.banner, "역습! 상대 진영에서 시작 — 그레타");
   // lastBeat 가 없으면 recentEvents 의 마지막 비트 이벤트로 대신
   const counterAway = computeLayout(makeView({
     homeF: "2-2-2", awayF: "2-2-2", atk: "away", step: 2, carrierId: "a_FW1", defenderId: "h_DF1",
     extra: { recentEvents: [{ type: "turnover", side: "home" }, { type: "counter", side: "away", playerId: "a_FW1" }, { type: "skill", side: "home" }] },
   }));
-  assert.equal(counterAway.banner, "⚠ 상대 역습! 우리 진영에서 시작 — 카손");
+  assert.equal(counterAway.banner, "⚠ 상대 역습! 우리 진영에서 시작 — 카샤");
   // view.remaining 이 있으면 그 문구를 쓴다
   const withRemaining = computeLayout(makeView({
     homeF: "2-2-2", awayF: "2-2-2", atk: "home", step: 1, carrierId: "h_MF1", defenderId: "a_MF1",
@@ -615,7 +615,7 @@ test("승부차기 레이아웃 (합성): 공 = 페널티 스폿, 키커 = 공 �
   const LE = computeLayout(eng);
   assertPenaltyLayout(eng, LE, "pen engine fields", { kickSide: "away", kickerId: "a_DF2" });
   assert.equal(LE.defenderId, "h_GK");
-  assert.equal(LE.banner, "서든데스 — 상대 브란 vs 네리아 (3:3)");
+  assert.equal(LE.banner, "서든데스 — 상대 브란디 vs 네리아 (3:3)");
 });
 
 /* ------------------------------------------------------------------ */
@@ -764,7 +764,7 @@ test("실제 엔진 경기: 승부차기까지 가는 경기의 매 view (미러
 test("경기 종료 모습 (합성): 턴오버·세이브 → 공을 얻은 선수가 공, 골 → 공은 골문 안 · carrier 없음", () => {
   // 마지막 비트 뒤 엔진 view: attackingSide / carrier 는 판정 전(공을 잃은 쪽) 값 그대로다
   const base = (atk, step, carrierId) => makeView({ homeF: "2-2-2", awayF: "3-1-2", atk, step, carrierId, defenderId: null, phase: "finished", extra: { finished: true } });
-  // 상대 DF 오르반이 우리 ③ 공격(Z4)에서 인터셉트 → 상대 역습 line 0 (Z4)
+  // 상대 DF 오르비아가 우리 ③ 공격(Z4)에서 인터셉트 → 상대 역습 line 0 (Z4)
   const t1 = { ...base("home", 2, "h_FW1"), lastBeat: { type: "turnover", side: "home", playerId: "h_FW1", defenderId: "a_DF1", attackingSide: "home", step: 2, zone: 4, toAttackingSide: "away", toStep: 0, toZone: 4 } };
   const L1 = computeLayout(t1);
   assertFinishedLayout(t1, L1, "turnover");
@@ -927,14 +927,14 @@ test("④ 박스 연결 후보 (컷백 · 센터링, arrival 3): 전원 박스 �
   assert.ok(minGap >= 7.5, `공 가진 선수와 후보의 가로 간격 최소 ${minGap}`);
   assert.ok(arrowMin >= 0.5, `화살표–다른 후보 최소 거리 ${arrowMin} × 지름`);
   // 같은 레인 후보 둘(2-2-2 FW2 carrier → FW1 · MF1 둘 다 레인 30): 한 명은 가장자리, 한 명은 깊은 줄 —
-  // 컷백 화살표 그룸바 → 실루엔이 울릭 위를 지나지 않는다 (visual QA 2026-09-29, 화살표 거리는 위 루프가 확인)
+  // 컷백 화살표 그레타 → 실루엔이 울리카 위를 지나지 않는다 (visual QA 2026-09-29, 화살표 거리는 위 루프가 확인)
   const v19 = boxLinkView({ homeF: "2-2-2", awayF: "2-2-2", atk: "home", carrierId: "h_FW2", withCross: false });
   const L19 = computeLayout(v19, { aspect: 0.4244, tokenSize: 0.0909 });
   const at19 = (id) => L19.tokens.find((t) => t.id === id);
   assert.deepEqual([at19("h_FW1").x, at19("h_MF1").x], [30, 30], "제 레인 그대로");
   assert.deepEqual([at19("h_FW1").y, at19("h_MF1").y].sort(), [86, BOX_LANE.deep], "한 명은 가장자리, 한 명은 깊은 줄");
   // 레인이 겹치면 비켜 선다 — 다른 후보가 없는 쪽으로: 2-2-2 FW1(레인 30) carrier → MF1(레인 30) 후보는 레인 14 (FW2 쪽이 아니라 반대쪽),
-  // FW2(레인 70)는 제 레인 → 컷백 화살표 울릭 → 그룸바가 실루엔 위를 지나지 않는다
+  // FW2(레인 70)는 제 레인 → 컷백 화살표 울리카 → 그레타가 실루엔 위를 지나지 않는다
   const v = boxLinkView({ homeF: "2-2-2", awayF: "2-2-2", atk: "home", carrierId: "h_FW1", withCross: false });
   const L = computeLayout(v, { aspect: 0.4244, tokenSize: 0.0909 });
   const at = (id) => L.tokens.find((t) => t.id === id);
@@ -970,7 +970,7 @@ test("④ 박스 연결 성공 직후 배너: 받은 선수의 원터치 슛 · 
   for (const atk of ["home", "away"]) {
     const v = boxLinkView({ homeF: "2-2-2", awayF: "2-2-2", atk, carrierId: `${atk === "home" ? "h" : "a"}_FW2` });
     const lb = (action) => ({ type: "duel", side: atk, attackingSide: atk, success: true, boxLink: true, action, via: action, playerId: `${atk === "home" ? "h" : "a"}_FW1`, receiverId: v.carrier.id, step: 3, toStep: 3 });
-    const gk = atk === "home" ? "마르텐" : "네리아";
+    const gk = atk === "home" ? "마르타" : "네리아";
     const b1 = computeLayout({ ...v, lastBeat: lb("pass") }).banner;
     const b2 = computeLayout({ ...v, lastBeat: lb("cross") }).banner;
     const nm = v.carrier.name;
@@ -1028,7 +1028,7 @@ test("resolvePreview: 토글한 스킬의 변형으로 바꾸고, 자동 진행 
       sk_line_breaker: { pass: { candidates: fws, defaultId: "h_FW1", arrival: 2, zone: 4 } },
       sk_wind_thread: { pass: { candidates: mf, defaultId: "h_MF2", arrival: 1, zone: 3 } },
     },
-    receiverPreviewBySkill: { ...v.receiverPreviewBySkill, sk_wind_thread: { id: "h_MF2", name: "타린", side: "home", step: 1, zone: 3 } },
+    receiverPreviewBySkill: { ...v.receiverPreviewBySkill, sk_wind_thread: { id: "h_MF2", name: "타리아", side: "home", step: 1, zone: 3 } },
     ultimateOptions: [{ playerId: "h_DF1", skillId: "sk_wind_thread", type: "pass", usable: true }],
   };
   const wBefore = JSON.stringify(w);
@@ -1060,8 +1060,8 @@ test("resolvePreview: 토글한 스킬의 변형으로 바꾸고, 자동 진행 
 });
 
 test("자동 진행: 화면에 그린 패스 후보 = 실제 수신자 (사람 측 AI 가 라인 브레이커·필살 패스를 쓰는 1-3-2, 6팀 × 20 seed)", () => {
-  // A안: 자동은 성향 1위 액션 → 패스형 DF(아르덴: 패스 200 > 드리블 150)에게 라인 브레이커를 쥐여 줘야 DF 의 패스에 extraLine 변형이 생긴다.
-  // (울릭 DF 는 드리블형이라 패스를 하지 않는다.) 실루엔(MF, 바람의 실)은 필살 패스 변형(합체기 기본값)을 만든다.
+  // A안: 자동은 성향 1위 액션 → 패스형 DF(아델린: 패스 200 > 드리블 150)에게 라인 브레이커를 쥐여 줘야 DF 의 패스에 extraLine 변형이 생긴다.
+  // (울리카 DF 는 드리블형이라 패스를 하지 않는다.) 실루엔(MF, 바람의 실)은 필살 패스 변형(합체기 기본값)을 만든다.
   const squad = { GK: "ch_spirit_keeper", DF1: "ch_human_captain", MF1: "ch_elf_playmaker", MF2: "ch_human_runner", MF3: "ch_cat_trickster", FW1: "ch_giant_striker", FW2: "ch_wolf_winger" };
   const home = run.buildTeamSnapshot(run.createRun({ data, seed: "lb", formation: "1-3-2", squad }), data);
   const df = home.players.find((p) => p.slot === "DF1");
