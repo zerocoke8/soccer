@@ -22,11 +22,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as run from "../js/engine/run.js";
 import * as match from "../js/engine/match.js";
+import * as challenge from "../js/engine/challenge.js";
 
-export { run, match };
+export { run, match, challenge };
 export const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const DATA_FILES = ["config", "characters", "supports", "skills", "events", "relics", "opponents", "routes"];
-const OPTIONAL_FILES = ["traits", "combos"]; // v0.3 (없으면 엔진 기본값)
+const OPTIONAL_FILES = ["traits", "combos", "challenge", "challenge_sample_team"]; // v0.3 (없으면 엔진 기본값) · 도전 모드 (og_challenge*)
 
 export function loadData(root = ROOT) {
   const data = {};
@@ -129,7 +130,10 @@ export function findMatchState(data, runState, scenario, { maxSeeds = 400, maxSt
 export function buildScenarioState(data, scenario, { runSeed = 1, maxSeeds, maxSteps } = {}) {
   if (scenario.outgame) {
     const b = scenario.build(data, { runSeed });
-    return { seed: runSeed, steps: b.steps ?? 0, preferred: b.preferred !== false, matchState: null, teams: b.teams ?? null, runState: b.runState ?? null, summary: b.summary };
+    return {
+      seed: runSeed, steps: b.steps ?? 0, preferred: b.preferred !== false, matchState: null, teams: b.teams ?? null, runState: b.runState ?? null,
+      storage: b.storage ?? null, summary: b.summary,
+    };
   }
   const runState = prepareRun(data, { runSeed, kind: scenario.matchKind || "friendly" });
   const found = findMatchState(data, runState, scenario, { maxSeeds, maxSteps });
@@ -574,8 +578,10 @@ function comboOption(view) {
 /* 아웃게임 시나리오 (og_*)                                                */
 /* ------------------------------------------------------------------ */
 // 아웃게임 시나리오 = { name: "og_…", title, outgame: true, build(data, { runSeed }), steps?, ready, expect, viewport? }
-//   build(data, { runSeed }) → { runState | null, teams?, summary, steps?, preferred? }
+//   build(data, { runSeed }) → { runState | null, teams?, storage?, summary, steps?, preferred? }
 //     runState: 주입할 런 (soccer.run). null = 저장된 런 없음 → 시작 화면. teams = 등록 팀 목록 (soccer.teams)
+//     storage: 그 밖의 localStorage { 키: 값 } (도전 모드 'soccer.challenge' 진행 · 'soccer.challengeMatch' 진행 중 경기 — 부트는 시작 화면,
+//              [도전 모드](이어하기) 를 눌러야 그 경기로 간다)
 //   진입: runState 가 있으면 시작 화면 "이어하기" 클릭 → steps 순서대로 → ready 선택자가 보일 때까지 기다린 뒤 캡처
 //   steps: [{ click: "css 선택자" } | { text: "버튼 글자 정규식" } | { wait: ms } |
 //           { drag: { from: "css", to: "css", release?: false, steps?, waitMs? } }]  — drag: 실제 마우스로 끌기 (release 가 아니면 누른 채 캡처, tools/shot.mjs dragStep)
@@ -829,5 +835,124 @@ export const OUTGAME_SCENARIOS = [
     ready: ".result-hero",
     expect: { screen: "run", phase: "finished", modal: false },
   },
+  // ---- 도전 모드 (2026-10-01, js/ui/screens/challenge.js) ----
+  {
+    name: "og_challenge",
+    title: "도전 모드 — 등록 팀 2개, 첫 팀 1~3단계 클리어 · 4단계 2패 · 5~10단계 잠김, 4단계 미리보기",
+    outgame: true,
+    build: (data, { runSeed }) => {
+      const teams = [
+        registeredTeam(data, `${runSeed}-b`, "2026-09-28T10:00:00.000Z"),
+        registeredTeam(data, runSeed, "2026-09-27T10:00:00.000Z"),
+      ];
+      const id = challenge.teamIdOf(teams[0]);
+      const plays = [[1, true, 2, 0], [2, false, 1, 2], [2, true, 3, 1], [3, true, 1, 0], [4, false, 0, 1], [4, false, 1, 2]];
+      const progress = recordPlays(challenge.emptyProgress(), id, plays);
+      return {
+        runState: null,
+        teams,
+        storage: { "soccer.challenge": progress },
+        summary: `등록 팀 ${teams.map((t) => `${t.grade}(${t.seed})`).join(", ")} · 첫 팀(${id}) 클리어 ${challenge.teamProgress(progress, id).cleared}단계`,
+      };
+    },
+    steps: [{ text: "도전 모드" }, { click: '.ch-stage[data-stage="4"]' }],
+    ready: '.ch-stage.sel[data-stage="4"]',
+    expect: { screen: "challenge", modal: false },
+  },
+  {
+    name: "og_challenge_sample",
+    title: "도전 모드 — 등록 팀 없음 → 테스트용 샘플 팀, 1단계만 열림",
+    outgame: true,
+    build: () => ({ runState: null, teams: [], summary: "등록 팀 없음 · 진행 기록 없음 → 샘플 팀" }),
+    steps: [{ text: "도전 모드" }],
+    ready: ".ch-ladder .ch-stage",
+    expect: { screen: "challenge", modal: false },
+  },
+  {
+    // 진행 중인 도전 경기(샘플 팀 3단계 1회차, 막 시작)를 주입 → 시작 화면 [도전 모드 — 이어하기] (부트는 늘 시작 화면)
+    name: "og_challenge_resume",
+    title: "시작 화면 — 진행 중인 도전 경기 저장됨 → [도전 모드 — 이어하기] (3단계 1회차)",
+    outgame: true,
+    build: (data) => challengeInProgress(data, 3),
+    ready: ".start-menu .challenge-btn.resume",
+    expect: { screen: "start", modal: false },
+  },
+  {
+    // 같은 저장본 → [도전 모드 — 이어하기] → 도전 경기 화면 (오른쪽 위 [나가기] [포기], 헤더 "도전 3단계")
+    name: "og_challenge_match",
+    title: "도전 경기 화면 — 이어하기로 복원, 오른쪽 위 [나가기] [포기] (수동)",
+    outgame: true,
+    auto: false,
+    build: (data) => challengeInProgress(data, 3),
+    steps: [{ text: "도전 모드" }],
+    ready: ".match-screen .m-exits",
+    expect: { screen: "challengeMatch", modal: false },
+  },
+  {
+    // 진행 중인 도전 경기(끝난 경기 — 샘플 팀이 이긴 2단계)를 주입 → [도전 모드] 가 그 경기로 → 결과 모달 [확인] → 도전 결과 모달 (기록 1회)
+    name: "og_challenge_result",
+    title: "도전 결과 — 샘플 팀 2단계 승리 ([도전 모드 — 이어하기] 복원 → 경기 결과 [확인] → 도전 결과 모달: 다음 단계 · 다시 도전 · 도전 목록)",
+    outgame: true,
+    build: (data) => {
+      const team = challenge.sampleTeam(data);
+      if (!team) throw new Error("[og_challenge_result] data/challenge_sample_team.json 이 없습니다");
+      const id = challenge.teamIdOf(team);
+      let progress = recordPlays(challenge.emptyProgress(), id, [[1, true, 2, 1]]);
+      // 2단계: 이길 때까지 도전 번호를 올린다 (진 판은 기록) — 결정적
+      for (let attempt = 1; attempt <= 40; attempt++) {
+        const setup = challenge.challengeSetup(team, 2, attempt, data);
+        const ms = createFromSetup(data, setup, setup.seed);
+        match.simulateAuto(ms, data);
+        const r = match.getResult(ms);
+        if (r.winner === "home") {
+          return {
+            runState: null,
+            teams: [],
+            storage: {
+              "soccer.challenge": progress,
+              "soccer.challengeMatch": { version: 1, teamId: id, stage: 2, attempt, seed: setup.seed, team, match: ms },
+            },
+            summary: `샘플 팀 2단계 ${attempt}회차 승리 ${r.homeGoals}:${r.awayGoals}${r.penalties ? ` (승부차기 ${r.penalties.home}:${r.penalties.away})` : ""} — 끝난 경기 주입`,
+          };
+        }
+        progress = challenge.recordResult(progress, id, 2, { ...r, attempt, at: "2026-10-01T09:00:00.000Z" });
+      }
+      throw new Error("[og_challenge_result] 40번 안에 2단계를 이기지 못했습니다");
+    },
+    steps: [{ text: "도전 모드" }, { text: "^확인$" }],
+    ready: "#modal-root .ch-result",
+    expect: { screen: "challenge", modal: ".ch-result" },
+  },
 ];
 SCENARIOS.push(...OUTGAME_SCENARIOS);
+
+/** 진행 중인 도전 경기 저장본: 샘플 팀이 1~(stage−1) 단계를 이긴 진행 + stage 단계 1회차 막 시작한 경기 ('soccer.challengeMatch') */
+function challengeInProgress(data, stage) {
+  const team = challenge.sampleTeam(data);
+  if (!team) throw new Error("[og_challenge] data/challenge_sample_team.json 이 없습니다");
+  const id = challenge.teamIdOf(team);
+  const plays = [];
+  for (let s = 1; s < stage; s++) plays.push([s, true, 2, 1]);
+  const progress = recordPlays(challenge.emptyProgress(), id, plays);
+  const attempt = challenge.nextAttempt(progress, id, stage);
+  const setup = challenge.challengeSetup(team, stage, attempt, data);
+  const ms = createFromSetup(data, setup, setup.seed);
+  return {
+    runState: null,
+    teams: [],
+    storage: {
+      "soccer.challenge": progress,
+      "soccer.challengeMatch": { version: 1, teamId: id, stage, attempt, resets: 0, seed: setup.seed, team, match: ms },
+    },
+    summary: `샘플 팀 ${stage}단계 ${attempt}회차 진행 중 (시드 ${setup.seed}) — 시작 화면 [도전 모드 — 이어하기]`,
+  };
+}
+
+/** 도전 진행 기록 만들기: plays = [[단계, 승?, 우리 골, 상대 골], …] 순서대로 (도전 번호 자동) */
+function recordPlays(progress, teamId, plays) {
+  let p = progress;
+  for (const [stage, win, home, away] of plays) {
+    p = challenge.recordResult(p, teamId, stage, { win, homeGoals: home, awayGoals: away, at: "2026-10-01T09:00:00.000Z" });
+  }
+  return p;
+}

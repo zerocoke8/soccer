@@ -40,7 +40,8 @@ test("아웃게임 CSS: vw/vh/dvh 단위 · 창 크기 media query 없음, 옛 4
   const og = fs.readFileSync(path.join(ROOT, "css/outgame.css"), "utf8");
   assert.ok(!/max-width:\s*420px/.test(og), "옛 세로 폰 열(420px) 규칙 제거");
   for (const sel of [".start-screen", ".setup-main", ".mini-pitch", ".training-screen", ".slot-rows", ".roster", ".actionbar", ".meeting-cols", ".ev-body", ".relic-row", ".route-row", ".result-main",
-    ".sp-chips", ".lu-pool", ".lu-card", ".lu-ghost", ".lu-hint", ".drop-ok", ".drop-bad", ".lu-shake", ".meeting-board"]) {
+    ".sp-chips", ".lu-pool", ".lu-card", ".lu-ghost", ".lu-hint", ".drop-ok", ".drop-bad", ".lu-shake", ".meeting-board",
+    ".challenge-screen", ".ch-ladder", ".ch-stage", ".ch-preview", ".ch-pitch", ".ch-result"]) {
     assert.ok(og.includes(sel), `outgame.css 에 ${sel}`);
   }
   const base = fs.readFileSync(path.join(ROOT, "css/base.css"), "utf8");
@@ -472,6 +473,75 @@ test("jsdom: 아웃게임 화면 전부 스테이지 안에 그려지고 주요 
   const acts = $(".result-actions");
   for (const re of [/^처음으로$/, /^새 런 \(랜덤 seed\)$/, /^다시 하기/, /^팀 등록/]) assert.ok(btnByText(re, acts), `결과 버튼 줄: ${re}`);
   noErrorToast("결과");
+
+  // ---------- 도전 모드 (2026-10-01): 시작 [도전 모드] → 팀 선택 · 사다리 · 미리보기 · 결과 모달 (tools/scenarios.mjs og_challenge* 와 같은 상태) ----------
+  const ogBuild = (name) => OUTGAME_SCENARIOS.find((s) => s.name === name).build(sdata, { runSeed: 1 });
+  const putStorage = (b) => {
+    window.localStorage.setItem("soccer.teams", JSON.stringify(b.teams ?? []));
+    for (const [k, v] of Object.entries(b.storage || {})) window.localStorage.setItem(k, JSON.stringify(v));
+  };
+  S.store.run = null;
+  S.store.screen = "start";
+  S.render();
+  // 등록 팀 저장본이 고장(선수 없음)이면 목록에서 빠진다 → 샘플 팀만
+  btnByText(/도전 모드/, $(".start-menu")).click();
+  inStage(".screen.og.challenge-screen", "도전(샘플)");
+  assert.equal($$(".ch-team").length, 1, "도전: 고장 난 등록 팀은 빼고 샘플 팀");
+  assert.ok($(".ch-team.sel.sample") && $(".ch-team .badge").textContent.includes("테스트용"), "도전: 샘플 팀 = 테스트용 표시");
+  assert.deepEqual($$(".ch-stage").map((b) => b.dataset.state), ["open", ...Array(9).fill("locked")], "도전: 1단계만 열림");
+  assert.ok($(".ch-reset").disabled, "도전: 진행 없음 → 진행 초기화 비활성");
+  btnByText(/^처음으로$/, $(".ch-head")).click();
+  assert.equal(S.store.screen, "start");
+
+  const chB = ogBuild("og_challenge");
+  putStorage(chB);
+  S.store.challenge.teamId = null; // 고른 팀은 한 세션 동안 기억한다 → 새로 연 것처럼
+  S.store.challenge.stage = null;
+  S.render();
+  btnByText(/도전 모드/, $(".start-menu")).click();
+  const chScr = inStage(".screen.og.challenge-screen", "도전");
+  assert.ok(chScr.querySelector(".ch-left .ch-teams .og-scroll"), "도전: 팀 목록만 안쪽 스크롤");
+  assert.equal($$(".ch-team").length, 3, "도전: 샘플 + 등록 팀 2");
+  const firstId = S.challenge.teamIdOf(chB.teams[0]);
+  assert.equal($(".ch-team.sel")?.dataset.team, firstId, "도전: 기본 = 가장 최근 등록 팀");
+  assert.deepEqual($$(".ch-stage").map((b) => b.dataset.state), ["cleared", "cleared", "cleared", "open", ...Array(6).fill("locked")], "도전: 1~3 클리어 · 4 열림 · 나머지 잠김");
+  assert.equal($(".ch-stage.sel")?.dataset.stage, "4", "도전: 기본 미리보기 = 열린 가장 높은 단계");
+  assert.equal($$(".ch-team-sum .ch-pl").length, 7, "도전: 고른 팀 선수 7명");
+  assert.equal($$(".ch-preview .ch-pitch .ch-tok").length, 7, "도전 미리보기: 미니 필드 7명");
+  assert.equal($$(".ch-preview .ch-pv-players .ch-pl").length, 7, "도전 미리보기: 선수 7줄");
+  assert.equal($$('.ch-stage[data-stage="10"] .ch-feat').length, 5, "10단계 배지: 액티브 · 간파 · 필살 슛 · 필살 세이브 · 캐논 킥");
+  assert.equal($$('.ch-stage[data-stage="1"] .ch-feat').length, 0, "1단계: 스킬 없음");
+  assert.ok(!$(".ch-go").disabled && $(".ch-go").textContent.includes("3번째 도전"), "4단계 [도전] (2패 뒤 3번째)");
+  $('.ch-stage[data-stage="7"]').click();
+  assert.ok($(".ch-pv-head h3").textContent.includes("7단계") && $(".ch-pv-head h3").textContent.includes("(각성)"), "7단계 미리보기 이름");
+  assert.ok($(".ch-go").disabled, "잠긴 7단계: 도전 불가");
+  $('.ch-stage[data-stage="2"]').click();
+  assert.ok($(".ch-go").textContent.startsWith("다시 도전"), "클리어한 단계 = 다시 도전");
+  $('.ch-team[data-team="sample"]').click();
+  assert.equal(S.store.challenge.teamId, "sample");
+  assert.deepEqual($$(".ch-stage").map((b) => b.dataset.state), ["open", ...Array(9).fill("locked")], "팀을 바꾸면 그 팀의 진행");
+  $(`.ch-team[data-team="${firstId}"]`).click();
+  $(".ch-reset").click(); // confirm → true
+  assert.equal($$(".ch-stage.st-cleared").length, 0, "진행 초기화 → 클리어 없음");
+  noErrorToast("도전");
+
+  // 결과: 끝난 도전 경기(샘플 팀 2단계 승리) 저장본 → [도전 모드] 가 그 경기로 → 결과 [확인] → 도전 결과 모달
+  const resB = ogBuild("og_challenge_result");
+  putStorage(resB);
+  S.actions.resetToStart();
+  assert.ok($(".start-menu .challenge-btn.resume") && /이어하기/.test($(".start-menu .challenge-btn").textContent),
+    "시작 화면: 진행 중인 도전 경기 → [도전 모드 — 이어하기]");
+  btnByText(/도전 모드/, $(".start-menu")).click();
+  assert.equal(S.store.screen, "challengeMatch", "진행 중인 도전 경기 → 경기 화면");
+  btnByText(/^확인$/, $("#modal-root")).click();
+  inStage("#modal-root .modal.modal-md .ch-result", "도전 결과");
+  assert.ok($(".ch-result").classList.contains("win") && $(".ch-res-title").textContent === "2단계 클리어!", "도전 결과: 2단계 클리어!");
+  for (const re of [/^도전 목록$/, /^다시 도전$/, /^다음 단계/]) assert.ok(btnByText(re, $(".ch-result")), `도전 결과 버튼: ${re}`);
+  btnByText(/^도전 목록$/, $(".ch-result")).click();
+  assert.equal($$("#modal-root .ch-result").length, 0, "도전 목록 → 모달 닫힘");
+  assert.equal($(".ch-stage.sel")?.dataset.stage, "3", "이긴 뒤 사다리 = 다음 단계");
+  assert.equal(S.store.screen, "challenge");
+  noErrorToast("도전 결과");
 
   assert.deepEqual(errors, [], "window error 없음");
   assert.deepEqual(consoleErrors, [], "console.error 없음");

@@ -1,6 +1,13 @@
 // js/ui/app.js — 진입점. 고정 스테이지(1280×720) → 데이터 로드 → 화면 라우팅(render) → 엔진 호출 래퍼/저장
+// 2026-10-01 도전 모드: 화면 'challenge'(목록 · js/ui/screens/challenge.js) · 'challengeMatch'(경기 — 경기 화면에 경기 모드 훅 ctx.matchMode).
+//   진행 기록 = 'soccer.challenge', 진행 중인 경기 = 'soccer.challengeMatch' (store.js). 런 상태 · 런 저장('soccer.run' · 'soccer.match')은 건드리지 않는다.
+//   새로고침(부트)은 런과 같이 늘 시작 화면 — 진행 중인 도전 경기가 저장돼 있으면 시작 화면 [도전 모드] 가 "이어하기" 로 바뀌고 누르면 그 경기로.
+//   경기 중 나가기 = [나가기] (경기는 저장한 채 시작 화면, 기록 없음) · [포기] (기권 패로 기록).
 import { mountStage } from './stage.js';
-import { store, saveRun, loadRun, saveMatch, loadMatch, clearRunSaves, addTeam, resetMatchUi } from './store.js';
+import {
+  store, saveRun, loadRun, saveMatch, loadMatch, clearRunSaves, addTeam, resetMatchUi, loadTeams, TEAMS_CAP,
+  loadChallengeProgress, saveChallengeProgress, loadChallengeMatch, saveChallengeMatch, CHALLENGE_MATCH_VERSION,
+} from './store.js';
 import { h, toast, closeOverlays } from './dom.js';
 import { renderStart } from './screens/start.js';
 import { renderSetup, initSetup } from './screens/setup.js';
@@ -10,14 +17,18 @@ import { renderMatch } from './screens/match.js';
 import { renderRelicModal } from './screens/relic.js';
 import { renderRoute } from './screens/route.js';
 import { renderResult } from './screens/result.js';
+import { renderChallenge } from './screens/challenge.js';
 
-const DATA_FILES = ['config', 'characters', 'supports', 'skills', 'events', 'relics', 'opponents', 'routes', 'traits', 'combos'];
+const DATA_FILES = ['config', 'characters', 'supports', 'skills', 'events', 'relics', 'opponents', 'routes', 'traits', 'combos',
+  'challenge', 'challenge_sample_team'];
 // v0.3: 없어도 엔진(DEFAULT_TRAITS/DEFAULT_COMBOS)·화면(TRAIT_LABELS)이 같은 기본값으로 동작 → 404 면 건너뛴다
-const OPTIONAL_FILES = new Set(['traits', 'combos']);
+// 도전 모드: challenge 가 없으면 도전 모드만 못 연다, 샘플 팀이 없으면 팀 목록에서 빠진다
+const OPTIONAL_FILES = new Set(['traits', 'combos', 'challenge', 'challenge_sample_team']);
 
 // 엔진 모듈 (계약: js/engine/run.js, js/engine/match.js). 로드 실패 시에도 화면은 뜨도록 동적 import.
 let run = null;
 let match = null;
+let challenge = null; // js/engine/challenge.js (도전 모드 — 없으면 도전 모드만 못 연다)
 
 function errMsg(e) {
   if (!e) return '알 수 없는 오류';
@@ -67,6 +78,138 @@ function announce(lines) {
   toast(text.length > 160 ? `${text.slice(0, 160)}…` : text, 'info', 3500);
 }
 
+// ---- 도전 모드 도우미 (규칙 · 진행 계산은 엔진 challenge.js, 여기는 저장 · 화면 전환만) ----
+/** 진행 기록 (localStorage → 엔진 정리본). 매번 새로 읽는다 */
+function challengeProgress() {
+  return challenge.normalizeProgress(loadChallengeProgress());
+}
+
+/** 진행 중인 도전 경기 저장 (경기 화면 훅 save). null = 지움 */
+function persistChallengeMatch(ms) {
+  const a = store.challenge.active;
+  if (!a || !ms) return saveChallengeMatch(null);
+  return saveChallengeMatch({
+    version: CHALLENGE_MATCH_VERSION, teamId: a.teamId, stage: a.stage, attempt: a.attempt, resets: a.resets, seed: a.seed, team: a.team, match: ms,
+  });
+}
+
+/**
+ * 저장된 도전 경기('soccer.challengeMatch') 살펴보기 — 저장은 바꾸지 않는다.
+ * @returns {{ status: 'none' } | { status: 'unknown' } | { status: 'invalid' } | { status: 'ok', active: object, match: object|null }}
+ *   none = 저장 없음, unknown = 엔진 · 도전 데이터가 없어 판단할 수 없음 (저장본은 그대로 둔다),
+ *   invalid = 쓸 수 없는 저장본 (형식 · 단계 · 시드가 안 맞음, 이미 기록된 도전 번호), ok = 이어서 할 수 있음
+ */
+function peekChallengeMatch() {
+  const s = loadChallengeMatch();
+  if (!s) return { status: 'none' };
+  if (!challenge || !match || !store.data?.challenge) return { status: 'unknown' };
+  try {
+    if (Number(s.version) !== CHALLENGE_MATCH_VERSION || !Array.isArray(s.team?.players)) return { status: 'invalid' };
+    const def = challenge.getStage(store.data, s.stage);
+    const attempt = Math.floor(Number(s.attempt));
+    const teamId = challenge.teamIdOf(s.team);
+    const progress = challengeProgress();
+    const resets = challenge.teamProgress(progress, teamId).resets; // 진행 초기화 횟수 = 시드 일부 (초기화 전 경기 저장본은 시드가 달라 버린다)
+    const seed = challenge.challengeSeed(teamId, def.stage, attempt, resets);
+    const counted = challenge.nextAttempt(progress, teamId, def.stage) > attempt; // 이미 센 도전 = 다시 세지 않는다
+    const matchOk = s.match == null || (typeof s.match === 'object' && s.match.seed === seed);
+    if (!(attempt >= 1) || (s.teamId && s.teamId !== teamId) || counted || !matchOk) return { status: 'invalid' };
+    return {
+      status: 'ok',
+      active: { teamId, stage: def.stage, attempt, resets, seed, team: s.team, displayName: challenge.stageDisplayName(store.data, def.stage) },
+      match: s.match || null,
+    };
+  } catch (e) {
+    console.warn('도전 경기 저장본을 읽지 못했습니다', e);
+    return { status: 'invalid' };
+  }
+}
+
+/** 시작 화면 [도전 모드] 버튼용: 이어서 할 도전 경기 { displayName, stage, attempt, finished } 또는 null */
+function pendingChallenge() {
+  const p = peekChallengeMatch();
+  if (p.status !== 'ok') return null;
+  const { displayName, stage, attempt } = p.active;
+  return { displayName, stage, attempt, finished: !!p.match?.finished };
+}
+
+/**
+ * 저장된 도전 경기 → store 로 복원하고 화면을 'challengeMatch' 로. 없거나 쓸 수 없으면 false — 쓸 수 없는 저장본(invalid)만 지운다
+ * (엔진 · data/challenge.json 이 없어 판단할 수 없을 때는 그대로 둔다). 런 상태(store.run)는 그대로 둔다.
+ */
+function restoreChallengeMatch() {
+  const p = peekChallengeMatch();
+  if (p.status === 'invalid') saveChallengeMatch(null);
+  if (p.status !== 'ok') return false;
+  const active = p.active;
+  store.challenge.active = active;
+  store.challenge.teamId = active.teamId;
+  store.challenge.stage = active.stage;
+  store.challenge.result = null;
+  store.match = p.match; // 없으면 경기 화면이 셋업으로 같은 시드의 경기를 만든다
+  resetMatchUi();
+  store.screen = 'challengeMatch';
+  return true;
+}
+
+/** 도전 경기 화면의 경기 모드 훅 (js/ui/screens/match.js renderMatch 머리 주석) */
+function challengeMatchMode() {
+  const a = store.challenge.active;
+  return {
+    label: `도전 ${a.stage}단계`,
+    getSetup: () => challenge.challengeSetup(a.team, a.stage, a.attempt, store.data, { resets: a.resets }),
+    save: persistChallengeMatch,
+    onFinish: (result) => actions.finishChallengeMatch(result),
+    exits: [
+      { label: '나가기', title: '경기를 저장한 채 시작 화면으로 — [도전 모드]를 누르면 이어서 합니다 (기록 없음)', onClick: () => actions.suspendChallenge() },
+      { label: '포기', title: '도전 포기 — 이번 도전은 기권 패로 기록됩니다', danger: true, onClick: () => actions.forfeitChallenge() },
+    ],
+    discard: { label: '도전 경기 버리기', title: '고장 난 도전 경기 저장본을 기록 없이 지웁니다', onClick: () => actions.discardChallengeMatch() },
+  };
+}
+
+/**
+ * 도전 경기를 정리하고 화면 전환 (store.match 는 도전 경기였다 — 런 경기는 'soccer.match' 에 그대로, 이어하기가 다시 읽는다).
+ * keepSave = true 면 'soccer.challengeMatch' 를 남긴다 ([나가기] · 처음으로 — [도전 모드] 가 이어서 한다).
+ */
+function leaveChallengeMatch(screen = 'challenge', keepSave = false) {
+  if (!keepSave) saveChallengeMatch(null);
+  store.challenge.active = null;
+  store.match = null;
+  resetMatchUi();
+  store.screen = screen;
+}
+
+/**
+ * 진행 기록 한 판 (엔진 recordResult — 같은 도전 번호는 한 번만 센다). 엔진 오류면 undefined.
+ * saved = false: localStorage 쓰기 실패 → 기록되지 않았다. 부르는 쪽은 경기 화면 · 저장본을 그대로 두어 다시 시도하게 한다.
+ */
+function recordChallenge(a, result) {
+  const before = challengeProgress();
+  const prev = challenge.teamProgress(before, a.teamId);
+  const next = safe(() => challenge.recordResult(before, a.teamId, a.stage, { ...result, attempt: a.attempt, at: new Date().toISOString() }));
+  if (next === undefined) return undefined;
+  const counted = next !== before;
+  const saved = !counted || saveChallengeProgress(next);
+  if (!saved) toast('도전 기록을 저장하지 못했습니다 (localStorage) — 경기는 그대로 두었습니다. 다시 시도하세요.', 'error', 5000);
+  return { prev, tp: challenge.teamProgress(next, a.teamId), counted, saved };
+}
+
+/** 등록 팀 상한(TEAMS_CAP)에 밀려난 팀의 도전 진행 기록 지우기 (남은 팀과 id 가 같으면 둔다). 도전 모듈이 없으면 건너뛴다 */
+function forgetDroppedTeams(dropped, kept) {
+  if (!challenge || !dropped.length) return;
+  const idOf = (t) => { try { return challenge.teamIdOf(t); } catch (_) { return null; } };
+  try {
+    const keep = new Set(kept.map(idOf));
+    const ids = dropped.map(idOf).filter((id) => id && !keep.has(id));
+    const before = challengeProgress();
+    if (!ids.some((id) => before.teams[id])) return;
+    saveChallengeProgress(challenge.forgetTeams(before, ids));
+  } catch (e) {
+    console.warn('밀려난 팀의 도전 진행 기록을 정리하지 못했습니다', e);
+  }
+}
+
 // ---- 액션 ----
 const actions = {
   goto(screen) { store.screen = screen; render(); },
@@ -100,7 +243,12 @@ const actions = {
     render();
   },
 
-  resetToStart() { store.screen = 'start'; render(); },
+  resetToStart() {
+    // 도전 경기 화면(오류 화면 [처음으로])에서: 도전 경기 메모리만 비우고 저장본은 남긴다 ([도전 모드] 가 이어서 한다)
+    if (store.screen === 'challengeMatch') leaveChallengeMatch('start', true);
+    store.screen = 'start';
+    render();
+  },
 
   startRun({ squad, formation, supportIds, tactics, seed }) {
     if (!run) return toast('엔진 모듈(run.js)이 로드되지 않았습니다.');
@@ -160,12 +308,13 @@ const actions = {
     const team = store.final?.registeredTeam;
     if (!team) return toast('등록할 팀 정보가 없습니다.');
     const rating = store.final.rating || store.run?.rating || team.rating || {};
-    addTeam({
+    const all = addTeam({
       ...team,
       grade: rating.cappedGrade ?? rating.grade ?? '-',
       score: rating.score ?? null,
       registeredAt: new Date().toISOString(),
     });
+    forgetDroppedTeams(all.slice(TEAMS_CAP), all.slice(0, TEAMS_CAP)); // 도전 모드: 상한에 밀려난 팀의 진행 기록 정리
     store.registered = true;
     toast('팀을 등록했습니다.', 'good', 2500);
     render();
@@ -180,6 +329,136 @@ const actions = {
     resetMatchUi();
     actions.newRun(seed || '');
   },
+
+  // ---- 도전 모드 ----
+  /** 시작 화면 [도전 모드]: 진행 중인 도전 경기가 있으면 그 경기로, 아니면 도전 목록 */
+  openChallenge() {
+    if (!challenge || !match) return toast('도전 모드 엔진 모듈(challenge.js)을 불러오지 못했습니다.');
+    if (!store.data?.challenge) return toast('도전 모드 데이터(data/challenge.json)가 없습니다.');
+    if (restoreChallengeMatch()) { render(); return; }
+    store.challenge.result = null;
+    store.screen = 'challenge';
+    render();
+  },
+
+  selectChallengeTeam(teamId) {
+    if (store.challenge.teamId !== teamId) store.challenge.stage = null; // 새 팀 = 그 팀의 열린 가장 높은 단계부터
+    store.challenge.teamId = teamId;
+    render();
+  },
+
+  selectChallengeStage(stage) {
+    store.challenge.stage = Number(stage);
+    render();
+  },
+
+  /** n 단계 도전 시작: 다음 도전 번호 → 셋업 확인 → 경기 화면 (경기는 경기 화면이 셋업으로 만들고 'soccer.challengeMatch' 에 저장) */
+  startChallenge(teamId, stage) {
+    if (!challenge || !match) return toast('도전 모드 엔진 모듈을 불러오지 못했습니다.');
+    const entry = safe(() => challenge.listChallengeTeams(loadTeams(), store.data))?.find((t) => t.teamId === teamId);
+    if (!entry) return toast('팀을 찾을 수 없습니다.');
+    const progress = challengeProgress();
+    if (!challenge.isUnlocked(progress, teamId, stage)) return toast(`${stage}단계는 아직 잠겨 있습니다.`);
+    const attempt = challenge.nextAttempt(progress, teamId, stage);
+    const resets = challenge.teamProgress(progress, teamId).resets; // 진행 초기화 횟수 → 시드 (초기화 뒤 1회차는 새 경기)
+    const setup = safe(() => challenge.challengeSetup(entry.team, stage, attempt, store.data, { resets })); // 고장 난 팀이면 화면을 바꾸지 않는다
+    if (!setup) return;
+    store.challenge.active = {
+      teamId, stage: setup.stage, attempt, resets: setup.resets, seed: setup.seed, team: entry.team, displayName: setup.displayName,
+    };
+    store.challenge.teamId = teamId;
+    store.challenge.stage = setup.stage;
+    store.challenge.result = null;
+    store.match = null;
+    resetMatchUi();
+    store.screen = 'challengeMatch';
+    render();
+  },
+
+  /** 경기 결과 [확인] (경기 화면 훅 onFinish): 진행 기록 1회 → 저장 경기 지움 → 도전 목록 + 결과 모달 */
+  finishChallengeMatch(result) {
+    const a = store.challenge.active;
+    if (!a || !challenge) { leaveChallengeMatch(); render(); return; }
+    const rec = recordChallenge(a, result || {});
+    // 엔진 오류 · 기록 저장 실패: 경기 상태 · 'soccer.challengeMatch' 를 그대로 두고 경기 화면을 다시 그린다 → 결과 모달 [확인] 으로 다시 시도
+    if (rec === undefined || !rec.saved) { render(); return; }
+    const ms = store.match || {};
+    const win = result?.winner === 'home';
+    const total = challenge.stageCount(store.data);
+    const mvpId = result?.stats?.home?.mvpId ?? ms.stats?.home?.mvpId;
+    const info = safe(() => challenge.getStage(store.data, a.stage));
+    store.challenge.result = {
+      teamId: a.teamId,
+      stage: a.stage,
+      attempt: a.attempt,
+      displayName: a.displayName,
+      title: info?.title ?? '',
+      win,
+      homeGoals: result?.homeGoals ?? ms.score?.home ?? 0,
+      awayGoals: result?.awayGoals ?? ms.score?.away ?? 0,
+      penalties: result?.penalties ?? null,
+      homeName: ms.home?.name ?? null,
+      awayName: ms.away?.name ?? null,
+      mvp: ms.home?.players?.find?.((p) => p.id === mvpId)?.name ?? null,
+      firstClear: win && rec.prev.cleared < a.stage,
+      counted: rec.counted,
+      wins: rec.tp.wins[a.stage] || 0,
+      attempts: rec.tp.attempts[a.stage] || 0,
+      nextName: a.stage < total ? safe(() => challenge.stageDisplayName(store.data, a.stage + 1)) : null,
+    };
+    store.challenge.stage = win && a.stage < total ? a.stage + 1 : a.stage; // 결과를 닫으면 사다리는 다음에 할 단계
+    leaveChallengeMatch();
+    render();
+  },
+
+  /** 경기 중 [포기]: 기권 패로 기록 (지금 점수 · forfeit) → 도전 목록. 이미 끝난 경기면 결과 [확인] 과 같다 */
+  forfeitChallenge() {
+    const a = store.challenge.active;
+    if (!a || !challenge) { leaveChallengeMatch(); render(); return; }
+    const ms = store.match;
+    if (ms && safe(() => match.isFinished(ms)) === true) {
+      const r = safe(() => match.getResult(ms));
+      if (r) { actions.finishChallengeMatch(r); return; }
+    }
+    if (!confirm(`${a.displayName} 도전을 포기할까요?\n이번 도전(${a.attempt}회차)은 기권 패로 기록됩니다.`)) return;
+    const rec = recordChallenge(a, { forfeit: true, win: false, homeGoals: ms?.score?.home ?? 0, awayGoals: ms?.score?.away ?? 0 });
+    if (rec === undefined || !rec.saved) return; // 기록 못 함 → 경기 그대로 (토스트 표시됨)
+    store.challenge.result = null;
+    leaveChallengeMatch();
+    toast(`${a.stage}단계 도전을 포기했습니다 — 기권 패로 기록`, 'info', 3000);
+    render();
+  },
+
+  /** 경기 중 [나가기]: 기록 없이 시작 화면으로. 경기는 'soccer.challengeMatch' 에 남는다 (매 비트 저장) → [도전 모드] 가 이어서 한다 */
+  suspendChallenge() {
+    if (!store.challenge.active) { leaveChallengeMatch(); render(); return; }
+    leaveChallengeMatch('start', true);
+    toast('도전 경기를 저장했습니다 — [도전 모드]를 누르면 이어서 합니다.', 'info', 3000);
+    render();
+  },
+
+  /** 오류 화면 [도전 경기 버리기]: 고장 난 도전 경기 저장본을 기록 없이 지우고 도전 목록으로 (다시 도전하면 같은 회차를 처음부터) */
+  discardChallengeMatch() {
+    if (!confirm('진행 중인 도전 경기를 버릴까요?\n기록은 남지 않고, 다시 도전하면 같은 회차를 처음부터 시작합니다.')) return;
+    leaveChallengeMatch('challenge');
+    render();
+  },
+
+  /** 고른 팀의 진행 기록 지우기 (확인 후). 초기화 횟수는 남아 시드에 섞인다 → 다시 도전하면 초기화 전과 다른 새 경기 */
+  resetChallenge(teamId) {
+    if (!challenge || !teamId) return;
+    if (!confirm('이 팀의 도전 진행 기록(클리어 · 도전 · 승리)을 모두 지울까요?\n1단계부터 다시 시작하며, 경기는 초기화 전과 다른 새 경기로 치릅니다.')) return;
+    saveChallengeProgress(challenge.resetProgress(challengeProgress(), teamId));
+    store.challenge.stage = null;
+    store.challenge.result = null;
+    toast('도전 진행 기록을 초기화했습니다.', 'info', 2500);
+    render();
+  },
+
+  closeChallengeResult() {
+    store.challenge.result = null;
+    render();
+  },
 };
 
 function makeCtx() {
@@ -188,6 +467,8 @@ function makeCtx() {
     data: store.data,
     run,
     match,
+    challenge,
+    pendingChallenge, // 시작 화면 [도전 모드]: 이어서 할 도전 경기 (없으면 null)
     render,
     safe,
     engine,
@@ -197,14 +478,18 @@ function makeCtx() {
 }
 
 function errorPanel(e, extra) {
+  // 도전 경기 화면에서 난 오류: 런 [저장 삭제] 대신 도전 경기 저장본을 버리는 버튼 ([처음으로] 는 저장본을 남긴다 — resetToStart)
+  const inChallenge = store.screen === 'challengeMatch' && !!store.challenge.active;
   return h('div', { class: 'screen' },
     h('div', { class: 'error-panel' },
       h('b', {}, '오류'), h('div', {}, errMsg(e)),
       e?.stack ? h('pre', {}, String(e.stack).split('\n').slice(0, 6).join('\n')) : null),
     extra,
     h('div', { class: 'btn-list' },
-      h('button', { class: 'btn', onclick: () => { store.screen = 'start'; render(); } }, '처음으로'),
-      h('button', { class: 'btn btn-danger', onclick: () => { if (confirm('저장된 런을 삭제할까요?')) actions.discardSave(); } }, '저장 삭제')));
+      h('button', { class: 'btn', onclick: () => actions.resetToStart() }, '처음으로'),
+      inChallenge
+        ? h('button', { class: 'btn btn-danger', onclick: () => actions.discardChallengeMatch() }, '도전 경기 버리기')
+        : h('button', { class: 'btn btn-danger', onclick: () => { if (confirm('저장된 런을 삭제할까요?')) actions.discardSave(); } }, '저장 삭제')));
 }
 
 function renderBackdrop(root, ctx) {
@@ -233,6 +518,16 @@ export function render() {
   const ctx = makeCtx();
   try {
     if (store.screen === 'setup') { renderSetup(root, ctx); return; }
+    // 도전 모드: 목록 · 경기 (런 상태와 무관 — store.run 이 있어도 건드리지 않는다)
+    if (store.screen === 'challengeMatch') {
+      if (challenge && match && store.challenge.active) {
+        setStageMode('match');
+        renderMatch(root, { ...ctx, matchMode: challengeMatchMode() });
+        return;
+      }
+      store.screen = 'challenge';
+    }
+    if (store.screen === 'challenge') { renderChallenge(root, ctx); return; }
     if (store.screen !== 'run' || !store.run) { renderStart(root, ctx); return; }
     if (!run || !match) { root.append(errorPanel(new Error('엔진 모듈이 로드되지 않아 런을 진행할 수 없습니다.'))); return; }
     const phase = safe(() => run.getPhase(store.run)) ?? store.run.phase;
@@ -281,10 +576,21 @@ async function boot() {
     console.error(e);
     toast(`엔진 모듈 로드 실패: ${errMsg(e)}`, 'error', 8000);
   }
+  // 도전 모드 엔진은 따로: 실패해도 런은 그대로 할 수 있다
+  try {
+    challenge = await import('../engine/challenge.js');
+  } catch (e) {
+    console.warn('도전 모드 모듈 로드 실패', e);
+    challenge = null;
+  }
 
   // 디버깅 편의
-  window.__soccer = { store, get run() { return run; }, get match() { return match; }, get stage() { return stage?.fit ?? null; }, render, actions };
+  window.__soccer = {
+    store, get run() { return run; }, get match() { return match; }, get challenge() { return challenge; },
+    get stage() { return stage?.fit ?? null; }, render, actions,
+  };
 
+  // 부트는 늘 시작 화면 (런 [이어하기] 와 같다). 진행 중인 도전 경기는 시작 화면 [도전 모드] 가 "이어하기" 로 보여 주고 누르면 복원한다
   render();
 }
 

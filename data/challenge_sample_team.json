@@ -1,0 +1,339 @@
+{
+  "_comment": "도전 모드 테스트용 샘플 팀 (플레이테스트용). 기본 편성 · 자동 선택(tools/sim.mjs smart 정책: 추천 칸 훈련, 체력 부족 추천이면 휴식, 살 수 있는 스킬 구매, 이벤트 0번, 유물 첫 번째, 루트 순환)으로 고정 시드 런을 완주한 등록 팀 저장본. 다시 만들기: node tools/challenge_sim.mjs --write-sample",
+  "generator": {
+    "tool": "tools/challenge_sim.mjs --write-sample",
+    "seed": "challenge-sample-7",
+    "routeStart": 1,
+    "policy": "smart"
+  },
+  "team": {
+    "name": "우리 클럽",
+    "seed": "challenge-sample-7",
+    "formation": "2-2-2",
+    "tactics": {
+      "attack": "balanced",
+      "shootTiming": "breakAll",
+      "defense": "balanced",
+      "tension": "clutch",
+      "duelPicker": "best",
+      "distribution": "auto"
+    },
+    "players": [
+      {
+        "id": "p1",
+        "charId": "ch_spirit_keeper",
+        "name": "네리아",
+        "slot": "GK",
+        "position": "GK",
+        "style": "technique",
+        "element": "water",
+        "race": "spirit",
+        "stats": {
+          "shoot": 124,
+          "dribble": 140,
+          "pass": 355,
+          "defense": 1000,
+          "physical": 1000
+        },
+        "skillIds": [
+          "sk_tide_wall"
+        ],
+        "portraitColor": "#3f8cff",
+        "isYouth": false,
+        "aptitude": "A",
+        "rarity": "SR",
+        "trait": "distributor"
+      },
+      {
+        "id": "p2",
+        "charId": "ch_dwarf_wall",
+        "name": "돌바르",
+        "slot": "DF1",
+        "position": "DF",
+        "style": "power",
+        "element": "earth",
+        "race": "dwarf",
+        "stats": {
+          "shoot": 220,
+          "dribble": 244,
+          "pass": 427,
+          "defense": 968,
+          "physical": 830
+        },
+        "skillIds": [
+          "sk_iron_tackle",
+          "sk_eagle_eye"
+        ],
+        "portraitColor": "#8b5a2b",
+        "isYouth": false,
+        "aptitude": "A",
+        "rarity": "SR",
+        "trait": "wall"
+      },
+      {
+        "id": "p3",
+        "charId": "ch_human_captain",
+        "name": "아르덴",
+        "slot": "DF2",
+        "position": "DF",
+        "style": "power",
+        "element": "fire",
+        "race": "human",
+        "stats": {
+          "shoot": 189,
+          "dribble": 150,
+          "pass": 418,
+          "defense": 795,
+          "physical": 617
+        },
+        "skillIds": [
+          "sk_captain_call"
+        ],
+        "portraitColor": "#b3261e",
+        "isYouth": false,
+        "aptitude": "A",
+        "rarity": "R",
+        "trait": "captain"
+      },
+      {
+        "id": "p4",
+        "charId": "ch_elf_playmaker",
+        "name": "실루엔",
+        "slot": "MF1",
+        "position": "MF",
+        "style": "technique",
+        "element": "wind",
+        "race": "elf",
+        "stats": {
+          "shoot": 431,
+          "dribble": 457,
+          "pass": 651,
+          "defense": 303,
+          "physical": 323
+        },
+        "skillIds": [
+          "sk_wind_thread"
+        ],
+        "portraitColor": "#3cb371",
+        "isYouth": false,
+        "aptitude": "A",
+        "rarity": "SSR",
+        "trait": "killpass"
+      },
+      {
+        "id": "p5",
+        "charId": "ch_human_runner",
+        "name": "타린",
+        "slot": "MF2",
+        "position": "MF",
+        "style": "speed",
+        "element": "lightning",
+        "race": "human",
+        "stats": {
+          "shoot": 375,
+          "dribble": 456,
+          "pass": 568,
+          "defense": 337,
+          "physical": 519
+        },
+        "skillIds": [
+          "sk_tireless"
+        ],
+        "portraitColor": "#ffd23f",
+        "isYouth": false,
+        "aptitude": "A",
+        "rarity": "R",
+        "trait": "runner"
+      },
+      {
+        "id": "p6",
+        "charId": "ch_wolf_winger",
+        "name": "울릭",
+        "slot": "FW1",
+        "position": "FW",
+        "style": "speed",
+        "element": "wind",
+        "race": "beast",
+        "stats": {
+          "shoot": 600,
+          "dribble": 629,
+          "pass": 327,
+          "defense": 187,
+          "physical": 431
+        },
+        "skillIds": [
+          "sk_line_breaker"
+        ],
+        "portraitColor": "#8fd14f",
+        "isYouth": false,
+        "aptitude": "A",
+        "rarity": "SR",
+        "trait": "crosser"
+      },
+      {
+        "id": "p7",
+        "charId": "ch_giant_striker",
+        "name": "그룸바",
+        "slot": "FW2",
+        "position": "FW",
+        "style": "power",
+        "element": "fire",
+        "race": "giant",
+        "stats": {
+          "shoot": 674,
+          "dribble": 452,
+          "pass": 428,
+          "defense": 329,
+          "physical": 678
+        },
+        "skillIds": [
+          "sk_meteor_shot"
+        ],
+        "portraitColor": "#ff5a36",
+        "isYouth": false,
+        "aptitude": "A",
+        "rarity": "SSR",
+        "trait": "targetman"
+      }
+    ],
+    "teamwork": 97,
+    "rating": {
+      "score": 533.7,
+      "grade": "B",
+      "cappedGrade": "B",
+      "breakdown": {
+        "avgStat": 475.2,
+        "learnedSkills": 1,
+        "skillScore": 10,
+        "teamwork": 97,
+        "teamworkScore": 48.5,
+        "losses": 1,
+        "cap": "A",
+        "goalMatches": [
+          {
+            "season": 1,
+            "opponentId": "op_s1_ironhoof",
+            "win": true,
+            "home": 3,
+            "away": 1
+          },
+          {
+            "season": 2,
+            "opponentId": "op_s2_silverleaf",
+            "win": false,
+            "home": 0,
+            "away": 1
+          },
+          {
+            "season": 3,
+            "opponentId": "op_s3_emberthrone",
+            "win": true,
+            "home": 3,
+            "away": 1
+          }
+        ],
+        "friendlies": [
+          {
+            "season": 2,
+            "opponentId": "op_f2_thunderclaw",
+            "win": false,
+            "draw": true,
+            "home": 1,
+            "away": 1,
+            "reason": "route"
+          }
+        ],
+        "perPlayer": [
+          {
+            "id": "p1",
+            "name": "네리아",
+            "slot": "GK",
+            "total": 2619
+          },
+          {
+            "id": "p2",
+            "name": "돌바르",
+            "slot": "DF1",
+            "total": 2689
+          },
+          {
+            "id": "p3",
+            "name": "아르덴",
+            "slot": "DF2",
+            "total": 2169
+          },
+          {
+            "id": "p4",
+            "name": "실루엔",
+            "slot": "MF1",
+            "total": 2165
+          },
+          {
+            "id": "p5",
+            "name": "타린",
+            "slot": "MF2",
+            "total": 2255
+          },
+          {
+            "id": "p6",
+            "name": "울릭",
+            "slot": "FW1",
+            "total": 2174
+          },
+          {
+            "id": "p7",
+            "name": "그룸바",
+            "slot": "FW2",
+            "total": 2561
+          }
+        ]
+      }
+    },
+    "createdTurnIndex": 23,
+    "leagueTier": 1,
+    "relics": [
+      "rl_stone_greaves",
+      "rl_odd_boots"
+    ],
+    "record": {
+      "goalMatches": [
+        {
+          "season": 1,
+          "opponentId": "op_s1_ironhoof",
+          "win": true,
+          "home": 3,
+          "away": 1
+        },
+        {
+          "season": 2,
+          "opponentId": "op_s2_silverleaf",
+          "win": false,
+          "home": 0,
+          "away": 1
+        },
+        {
+          "season": 3,
+          "opponentId": "op_s3_emberthrone",
+          "win": true,
+          "home": 3,
+          "away": 1
+        }
+      ],
+      "friendlies": [
+        {
+          "season": 2,
+          "opponentId": "op_f2_thunderclaw",
+          "win": false,
+          "draw": true,
+          "home": 1,
+          "away": 1,
+          "reason": "route"
+        }
+      ],
+      "losses": 1
+    },
+    "grade": "B",
+    "score": 533.7,
+    "registeredAt": "2026-10-01T00:00:00.000Z"
+  }
+}

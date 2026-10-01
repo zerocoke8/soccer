@@ -6,7 +6,7 @@
 //
 // 1) 내장 정적 서버(node:http, 포트 0)로 프로젝트 루트를 띄운다.
 // 2) Node 에서 엔진(js/engine/run.js · match.js)으로 시나리오 상황의 run/match 상태를 찾는다 (tools/scenarios.mjs).
-// 3) puppeteer-core + 로컬 Chrome/Edge 로 페이지를 열고 localStorage('soccer.run' / 'soccer.match' / 'soccer.teams')에 주입 →
+// 3) puppeteer-core + 로컬 Chrome/Edge 로 페이지를 열고 localStorage('soccer.run' / 'soccer.match' / 'soccer.teams' + 시나리오 storage)에 주입 →
 //    reload → 경기 · 저장된 런이면 시작 화면 "이어하기" 클릭 → (아웃게임) 조작 steps(클릭 · 드래그) → 뷰포트 캡처 (페이지는 스크롤하지 않는다).
 // 4) 시나리오마다 파일 경로, 스테이지 배율, 페이지 · 안쪽 스크롤, 캡처 시점 상태 확인, pageerror/console.error 를 출력.
 //
@@ -331,15 +331,18 @@ async function runScenario(browser, baseUrl, sc, prepared, opts) {
     const qs = q.toString();
     await page.goto(`${baseUrl}/index.html${qs ? `?${qs}` : ""}`, { waitUntil: "load" });
     const json = (v) => (v == null ? null : JSON.stringify(v));
-    await page.evaluate((runJson, matchJson, teamsJson) => {
+    // 그 밖의 키 (아웃게임 시나리오 storage — 도전 모드 'soccer.challenge' · 'soccer.challengeMatch')
+    const extra = Object.entries(prepared.storage || {}).map(([k, v]) => [k, json(v)]);
+    await page.evaluate((runJson, matchJson, teamsJson, extraKv) => {
       const put = (k, v) => (v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v));
       put("soccer.run", runJson);
       put("soccer.match", matchJson);
       put("soccer.teams", teamsJson);
-    }, json(prepared.runState), json(prepared.matchState), json(prepared.teams));
+      for (const [k, v] of extraKv) put(k, v);
+    }, json(prepared.runState), json(prepared.matchState), json(prepared.teams), extra);
     await page.reload({ waitUntil: "load" });
 
-    // 시작 화면 (데이터 로드 끝)
+    // 시작 화면 (데이터 로드 끝). 진행 중인 도전 경기가 주입돼도 부트는 시작 화면 ([도전 모드 — 이어하기] 를 눌러야 경기로)
     await page.waitForFunction(() => [...document.querySelectorAll("button")].some((b) => /새 런 시작|이어하기/.test(b.textContent || "")), { timeout: 15000 });
     if (opts.freeze) await page.evaluate(() => { window.__shot.frozen = true; });
 

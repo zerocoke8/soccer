@@ -1,0 +1,38 @@
+{
+  "_comment": "도전 모드 (2026-10-01, 플레이테스트용 — 밸런스 확정 아님). 완성된 팀(등록 팀 · 테스트용 샘플 팀)으로 1~10단계 사다리. 상대 = opponents.json 템플릿 복제 → 전체 스탯을 statTarget(7명 × 5스탯 평균)에 맞춰 배율(10 단위 반올림, 1000 상한 없음) → skillTier 규칙으로 스킬 추가(템플릿 고유 스킬·특성은 유지). 엔진 js/engine/challenge.js, 보정 tools/challenge_sim.mjs.",
+  "_calibration": "2026-10-01 한 번 보정 (tools/challenge_sim.mjs --runs 100 --teams 6, 자동 A안, B 등급 팀 7개): 처음 기하 배치 340/390/450/515/590/680/735/790/850/920 은 6단계(엠버스론 31%)가 7단계(42%)보다 어려워 순서가 뒤집혀 6단계를 낮추고 2·3·7~9단계를 올렸다 → 전체 승률 95/90/81/65/51/39/34/26/18/10%. 이후 미세 조정 없음. 참고: 5·6단계는 템플릿 원래 전력보다 낮춘 값(×0.92 · ×0.90 — 6단계 엠버스론 610 < 런 3시즌 보스 680; 원래 필살기에 2단계 액티브가 더해져 승률은 실제 보스와 비슷한 39%). 단계 간격도 고르지 않다(1→2 +35%, 2→3 +4%) — 승률 순서만 맞췄다. 10단계 캐논 킥은 상대 텐션 전술이 '결승골 상황만'(clutch)이라 자동 진행에서는 거의 쓰이지 않는다 (배지만 보임).",
+  "version": 1,
+  "possessions": 8,
+  "kind": "goal",
+  "statRound": 10,
+  "activePool": [
+    { "skillId": "sk_power_shot",    "positions": ["FW"],       "pick": "shoot" },
+    { "skillId": "sk_stone_shield",  "positions": ["DF"],       "pick": "defense" },
+    { "skillId": "sk_through_pass",  "positions": ["MF"],       "pick": "pass" },
+    { "skillId": "sk_burst_dribble", "positions": ["FW", "MF"], "pick": "dribble" },
+    { "skillId": "sk_eagle_eye",     "positions": ["DF", "MF"], "pick": "defense" },
+    { "skillId": "sk_see_through",   "positions": ["FW", "MF"], "pick": "dribble" },
+    { "skillId": "sk_pickpocket",    "positions": ["MF"],       "pick": "defense" },
+    { "skillId": "sk_rally_cry",     "positions": ["MF", "DF", "FW"], "pick": "physical" }
+  ],
+  "tiers": [
+    { "tier": 0, "label": "스킬 없음", "actives": 0, "gaanpaTickets": 0 },
+    { "tier": 1, "label": "액티브",     "actives": 2, "gaanpaTickets": 0 },
+    { "tier": 2, "label": "액티브 · 간파", "actives": 3, "gaanpaTickets": 1 },
+    { "tier": 3, "label": "필살 슛",    "actives": 3, "gaanpaTickets": 1, "aceShot": "sk_boss_strike" },
+    { "tier": 4, "label": "필살 세이브", "actives": 3, "gaanpaTickets": 2, "aceShot": "sk_boss_strike", "gkSave": "sk_boss_save" },
+    { "tier": 5, "label": "총력",       "actives": 4, "gaanpaTickets": 2, "aceShot": "sk_boss_strike", "gkSave": "sk_boss_save", "gkDistribution": "sk_cannon_kick" }
+  ],
+  "stages": [
+    { "stage": 1,  "title": "첫 시험",         "opponentTemplate": "op_f1_riverside",   "statTarget": 340, "skillTier": 0, "teamwork": 25,  "possessions": 8, "kind": "goal" },
+    { "stage": 2,  "title": "산맥의 벽",       "opponentTemplate": "op_s1_ironhoof",    "statTarget": 460, "skillTier": 0, "teamwork": 25,  "possessions": 8, "kind": "goal" },
+    { "stage": 3,  "title": "번개 평원",       "opponentTemplate": "op_f2_thunderclaw", "statTarget": 480, "skillTier": 1, "teamwork": 50,  "possessions": 8, "kind": "goal" },
+    { "stage": 4,  "title": "은빛 숲의 지휘",  "opponentTemplate": "op_s2_silverleaf",  "statTarget": 525, "skillTier": 1, "teamwork": 50,  "possessions": 8, "kind": "goal" },
+    { "stage": 5,  "title": "얼음 호수",       "opponentTemplate": "op_f3_frostveil",   "statTarget": 590, "skillTier": 2, "teamwork": 75,  "possessions": 8, "kind": "goal" },
+    { "stage": 6,  "title": "챔피언의 왕좌",   "opponentTemplate": "op_s3_emberthrone", "statTarget": 610, "skillTier": 2, "teamwork": 75,  "possessions": 8, "kind": "goal" },
+    { "stage": 7,  "title": "폭주하는 발톱",   "opponentTemplate": "op_f2_thunderclaw", "suffix": "각성", "statTarget": 790, "skillTier": 3, "teamwork": 85,  "possessions": 8, "kind": "goal" },
+    { "stage": 8,  "title": "깨어난 숲",       "opponentTemplate": "op_s2_silverleaf",  "suffix": "각성", "statTarget": 830, "skillTier": 3, "teamwork": 85,  "possessions": 8, "kind": "goal" },
+    { "stage": 9,  "title": "얼어붙은 심연",   "opponentTemplate": "op_f3_frostveil",   "suffix": "각성", "statTarget": 875, "skillTier": 4, "teamwork": 100, "possessions": 8, "kind": "goal", "tactics": { "tension": "clutch" } },
+    { "stage": 10, "title": "업화의 정점",     "opponentTemplate": "op_s3_emberthrone", "suffix": "각성", "statTarget": 920, "skillTier": 5, "teamwork": 100, "possessions": 8, "kind": "goal" }
+  ]
+}

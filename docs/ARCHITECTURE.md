@@ -26,6 +26,7 @@
 | `index.html`, `css/base.css` · `css/outgame.css` · `css/match.css` (v0.3.2 — `css/style.css` 를 나눔, §14.2), `js/ui/**` | UI | 화면 전부 (고정 스테이지 1280×720 가로, §14) |
 | `js/engine/rng.js`, `js/engine/run.js`, `js/engine/training.js`, `js/engine/rating.js`, `js/engine/effects.js`, `data/config.json`, `data/routes.json` | 엔진(육성) | 런 상태 머신, 훈련, 이벤트 효과 적용, 평가 |
 | `js/engine/match.js`, `js/engine/ai.js`, `js/engine/skills.js` | 엔진(경기) | 경기 시뮬, 전술 AI, 스킬 효과 |
+| `js/engine/challenge.js`, `data/challenge.json`, `data/challenge_sample_team.json`, `tools/challenge_sim.mjs` (v0.4.5) | 엔진(도전 모드) | 도전 모드 단계 상대 생성 · 등록 팀 스냅샷 · 진행 기록 헬퍼 · 보정 도구 (§18) |
 | `data/characters.json`, `data/supports.json`, `data/events.json`, `data/skills.json`, `data/relics.json`, `data/opponents.json` | 데이터 | 콘텐츠 |
 | `test/**`, `tools/sim.mjs` | 통합 | 테스트, 헤드리스 시뮬 |
 | `docs/**`, `README.md`, `package.json` | 기획 | 문서 |
@@ -37,6 +38,7 @@
 const data = {
   config, characters, supports, events, skills, relics, opponents, routes
 };
+// 이후 추가 (선택 파일 — 없으면 404 를 건너뛴다): traits · combos (v0.3), challenge · challenge_sample_team (v0.4.5 도전 모드, §18.1)
 ```
 
 ---
@@ -1794,3 +1796,277 @@ v0.4.4 리뷰(화면 · 코드 · 규칙)에서 나온 결함을 고쳤다. 판�
 - scenarios.mjs `20_ace_call` 은 정규 포제션 우선(마지막 공격 포제션은 `26_last_attack`) — 다시 포제션 3/6.
 - 테스트 161 (+6): v05 +5 (배급 대기 JSON 왕복 · 연장 마지막 공격 부여/종료 · 마지막 포제션 문구 · 칩 보완 · 배급 추천), outgame +1 (배급 전술 목록 = run.js 하나), match(수비 문구 하네스가 마지막 포제션 "막으면 — 경기 종료"를 확인), layout(롱패스 차단으로 끝난 모습의 레인), ui.smoke(캐논 킥 힌트 · "우리 선택" · 첫 듀얼 보너스 · 이름표 숨김 · 세컨드볼 문구 · 마지막 공격 배급 "실패 경기 종료" → "— 경기 종료").
 - 확인: `shot.mjs` 42 캡처 스크롤 · 콘솔 에러 없음, 추가 장면(마지막 공격 배급 카드 · 롱패스 실패로 종료 · 세컨드볼 문구 · 캐논 킥 힌트/정보 줄/다음 카드 · 마지막 수비 카드 · 박스 연결 결과 자리)은 scratchpad `gkfix/fix_shots.mjs`.
+
+---
+
+## 18. v0.4.5 — 도전 모드 (플레이테스트용, GDD v0.5 0.1 #69~70 · §11.7)
+
+> 사용자 요청 (2026-10-01): "완성된 최종팀으로, 점점 강해지는 도전모드… 1단계~10단계 정도… 플레이테스트용이라 밸런스를 꼼꼼하게 챙기지 않아도 괜찮아. 스탯이나 스킬이 단계별로 증가". 입장 · 팀 선택 · 단계 수치 · 저장 · 화면 같은 세부는 기본값으로 정했고, 단계 수치는 모두 `data/challenge.json` 에서 바꾼다.
+> 이 절이 도전 모드의 구현 기준이다. **기존 엔진 파일(run.js · match.js · ai.js · skills.js · rng.js)과 규칙 · 수치는 그대로** — 같은 시드 → 같은 경기, 런 시뮬 승률 그대로. 도전 모드는 런 상태(`store.run`)와 런 저장(`'soccer.run'` · `'soccer.match'`)을 읽지도 쓰지도 않는다. 커밋 전(로컬 작업 트리).
+
+### 18.0 이번 라운드 소유권
+
+| 담당 | 파일 |
+|---|---|
+| 도전 엔진 · 데이터 | js/engine/challenge.js (신규), data/challenge.json · challenge_sample_team.json (신규), tools/challenge_sim.mjs (신규), test/challenge.test.mjs (신규), package.json (test 스크립트에 challenge 추가) |
+| 화면 | js/ui/screens/challenge.js (신규), js/ui/app.js, js/ui/store.js, js/ui/screens/start.js, js/ui/screens/match.js (경기 모드 훅만), css/outgame.css · match.css, tools/scenarios.mjs · shot.mjs, test/ui.smoke · outgame.test.mjs |
+| 기획 | docs/GDD_v0.5.md, docs/ARCHITECTURE.md, README.md |
+
+### 18.1 데이터
+
+**로딩**: app.js `DATA_FILES` 와 `OPTIONAL_FILES` 에 `'challenge'` · `'challenge_sample_team'` → `data.challenge` · `data.challenge_sample_team`. 둘 다 선택 파일이다 — `challenge` 가 없으면 시작 화면 [도전 모드] 버튼이 숨고, 샘플 팀이 없으면 `sampleTeam(data)` 가 null 이라 팀 목록에서 빠진다. tools/scenarios.mjs `loadData` 도 선택 파일로 읽고, tools/challenge_sim.mjs `loadData` = sim.mjs 번들 + 두 파일.
+
+**`data/challenge.json`**
+
+```jsonc
+{
+  "version": 1,
+  "possessions": 8, "kind": "goal",       // 단계 기본값 (단계에 없을 때)
+  "statRound": 10,                         // 상대 스탯 반올림 단위
+  "activePool": [                          // 일반 액티브 후보 — 우선순위 순
+    { "skillId": "sk_power_shot", "positions": ["FW"], "pick": "shoot" },   // pick = 받는 선수 고르는 스탯
+    …                                      // 바위 방벽 DF/defense → 스루 패스 MF/pass → 폭발 드리블 FW·MF/dribble → 매의 눈 DF·MF/defense
+  ],                                       // → 꿰뚫어보기 FW·MF/dribble → 소매치기 MF/defense → 함성 MF·DF·FW/physical
+  "tiers": [ { "tier", "label", "actives", "gaanpaTickets", "aceShot"?, "gkSave"?, "gkDistribution"? }, … ],
+  "stages": [ { "stage", "title", "opponentTemplate", "suffix"?, "statTarget", "skillTier", "teamwork"?, "tactics"?, "possessions", "kind" }, … ]
+}
+```
+
+| tier | label | 단계 | actives | gaanpaTickets | 추가 |
+|---|---|---|---|---|---|
+| 0 | 스킬 없음 | 1–2 | 0 | 0 | — |
+| 1 | 액티브 | 3–4 | 2 | 0 | — |
+| 2 | 액티브 · 간파 | 5–6 | 3 | 1 | — |
+| 3 | 필살 슛 | 7–8 | 3 | 1 | `aceShot: "sk_boss_strike"` (업화의 일격) |
+| 4 | 필살 세이브 | 9 | 3 | 2 | + `gkSave: "sk_boss_save"` (불꽃 장벽) |
+| 5 | 총력 | 10 | 4 | 2 | + `gkDistribution: "sk_cannon_kick"` (캐논 킥) |
+
+| stage | title | opponentTemplate | suffix | statTarget | skillTier | teamwork | tactics |
+|---|---|---|---|---|---|---|---|
+| 1 | 첫 시험 | op_f1_riverside | — | 340 | 0 | 25 | — |
+| 2 | 산맥의 벽 | op_s1_ironhoof | — | 460 | 0 | 25 | — |
+| 3 | 번개 평원 | op_f2_thunderclaw | — | 480 | 1 | 50 | — |
+| 4 | 은빛 숲의 지휘 | op_s2_silverleaf | — | 525 | 1 | 50 | — |
+| 5 | 얼음 호수 | op_f3_frostveil | — | 590 | 2 | 75 | — |
+| 6 | 챔피언의 왕좌 | op_s3_emberthrone | — | 610 | 2 | 75 | — |
+| 7 | 폭주하는 발톱 | op_f2_thunderclaw | 각성 | 790 | 3 | 85 | — |
+| 8 | 깨어난 숲 | op_s2_silverleaf | 각성 | 830 | 3 | 85 | — |
+| 9 | 얼어붙은 심연 | op_f3_frostveil | 각성 | 875 | 4 | 100 | `{ "tension": "clutch" }` |
+| 10 | 업화의 정점 | op_s3_emberthrone | 각성 | 920 | 5 | 100 | — |
+
+모두 `possessions: 8`, `kind: "goal"`. 템플릿 평균(7명 × 5스탯): 강변 321.1 · 아이언후프 340 · 썬더클로 465.7 · 실버리프 514.6 · 프로스트베일 639.7 · 엠버스론 679.7. statTarget 은 §18.10 보정 뒤 값이다 (`_calibration` 주석에 이력).
+
+**`data/challenge_sample_team.json`**: `{ _comment, generator: { tool, seed: "challenge-sample-7", routeStart: 1, policy: "smart" }, team }`. `team` = 등록 팀 저장본과 같은 모양(`run.finalizeRun().registeredTeam` + `grade` · `score` · `registeredAt: "2026-10-01T00:00:00.000Z"`). tools/sim.mjs `simulateOne`(기본 편성 · smart 자동 정책)으로 고정 시드 런을 완주한 결과다. 다시 만들기 `node tools/challenge_sim.mjs --write-sample [--sample-seed S] [--route-start R]`. 지금 값: 2-2-2 · B · 533.7 · 전력 475 · 팀워크 97 · 유물 바위 각반 · 짝짝이 축구화. 선수는 GK 네리아(수비 1000) · DF 돌바르(968, 철의 태클 · 매의 눈) · DF 아르덴(795) · MF 실루엔(패스 651, 바람의 실) · MF 타린(568) · FW 울릭(슛 600) · FW 그룸바(674, 메테오 슛).
+
+### 18.2 js/engine/challenge.js — API (순수)
+
+- 의존: rng.js `hashString`, run.js `STATS · POSITIONS · formationSlots · slotPosition · mainStatOf · normalizeTactics · migrateRegisteredTeam · buildOpponentSnapshot · opponentStyleHint`, skills.js `getSkillMap · isGaanpaSkill · isDistributionSkill`.
+- **순수 함수**: DOM · fetch · Date · Math.random · localStorage 를 쓰지 않는다. 입력(데이터 · 팀 · 진행)을 바꾸지 않고 새 객체를 돌려준다 — §0 의 "엔진 함수는 상태를 in-place 로" 와 다르다(도전 진행은 엔진 상태가 아니라 UI 저장값). 날짜(`lastResult.at`)는 호출하는 쪽이 넘긴다.
+- 데이터 오류(없는 템플릿 · 스킬, 0 평균, 없는 단계)는 throw.
+
+**상수**
+
+```js
+CHALLENGE_PROGRESS_VERSION = 1
+SAMPLE_TEAM_ID = "sample", SAMPLE_TEAM_NAME = "테스트용 샘플 팀"
+FEATURE_KEYS   = ["active", "gaanpa", "ultShot", "ultSave", "cannon"]
+FEATURE_LABELS = { active: "액티브", gaanpa: "간파", ultShot: "필살 슛", ultSave: "필살 세이브", cannon: "캐논 킥" }
+STAGE_STATES   = ["locked", "open", "cleared"]
+```
+
+**단계**
+
+| 함수 | 반환 |
+|---|---|
+| `getStages(data)` | `ChallengeStage[]` (stage 오름차순, 기본값 채운 사본) — `{ stage, title, opponentTemplate, suffix \| null, statTarget, skillTier, teamwork \| null, tactics \| null, possessions, kind }` |
+| `stageCount(data)` | 10 |
+| `getStage(data, n)` | 단계 하나 (없으면 throw) |
+| `stageDisplayName(data, n \| def)` | `"7단계 · 썬더클로 (각성)"` |
+
+**단계 상대**
+
+| 함수 | 반환 |
+|---|---|
+| `buildStageOpponent(n \| def, data)` | opponents.json 항목 모양 `{ id(= 템플릿 id), name("썬더클로 (각성)"), baseName, race, element, role, season, formation, description, tactics, teamwork, players }` + `challenge: { stage, tier, tierLabel, statTarget, scale, templateId, templatePower, power, gaanpaTickets, added: [{ slot, name, skillId, skillName, kind: "active" \| "ultimate" \| "distribution" }], features }` |
+| `buildStageOpponentSnapshot(n \| def, data)` | away `TeamSnapshot` (`run.buildOpponentSnapshot`) + `modifiers.gaanpaTicket` · `gaanpaTickets` = 티어 간파 사용권, `challengeStage` |
+| `featuresOf(data, players, gaanpaTickets)` | `{ active, gaanpa, ultShot, ultSave, cannon }` — 액티브(배급 스킬 제외) / 간파(사용권 또는 간파 스킬) / 필살 슛 / 필살 세이브 / 배급 스킬 |
+| `featureBadges(features)` | `[{ key, label }]` (FEATURE_KEYS 순서, 켜진 것만) |
+| `teamPower(players)` | 7명 × 5스탯 평균 (배율 기준 · 화면 "전력") |
+
+**단계 보기**
+
+- `stageInfo(n | def, data)` → `{ stage, title, displayName, teamName, opponentId, opponentName, suffix, description, formation, power, statTarget, skillTier, tierLabel, teamwork, possessions, kind, tactics, styleHint: { key, label }, features, badges, gaanpaTickets, added, players: [{ slot, position, name, style, element, trait, traitName, mainStat, mainValue, stats, skillIds, skillNames, addedSkillIds, ultimate \| null }] }`
+- `ladderView(data, progress, teamId)` → 단계마다 `stageInfo` + `{ state, attempts, wins }`.
+
+**우리 팀**
+
+| 함수 | 반환 |
+|---|---|
+| `sampleTeam(data)` | `{ ...challenge_sample_team.team, name: "테스트용 샘플 팀", isSample: true, challengeId: "sample" }` 또는 null |
+| `teamIdOf(team)` | `"sample"` 또는 `"t_" + base36(hashString(seed \| createdTurnIndex \| registeredAt))` — 사본이면 같은 id, registeredAt 이 다르면 다른 id (`team.challengeId` 가 있으면 그것) |
+| `teamSummary(team, data)` | `{ teamId, isSample, name, grade, score(반올림 안 함), formation, registeredAt, seed, power, teamwork, relics: [{ id, name }], tactics, features, players: [슬롯 순(GK 먼저) { id, slot, position, name, aptitude, rarity, element, style, trait, traitName, mainStat, mainValue, stats, skillIds, skillNames, ultimate }] }` |
+| `listChallengeTeams(registeredTeams, data)` | `[{ teamId, team, summary }]` — 샘플 팀 먼저, 이어서 등록 팀(주어진 순서). 같은 id 는 처음 것만, 고장 난 저장본(슬롯 불일치 등 — teamSummary throw)은 뺀다 |
+| `buildChallengeTeamSnapshot(team, data, { kind })` | home `TeamSnapshot` (§18.4) |
+
+**진행 기록** (§18.5)
+
+| 함수 | 반환 |
+|---|---|
+| `emptyProgress()` | `{ version: 1, teams: {} }` |
+| `normalizeProgress(raw)` | 정리한 사본 (쓰레기 입력 → 빈 진행) |
+| `teamProgress(progress, teamId)` | `{ cleared, attempts: { [stage]: n }, wins: { [stage]: n }, lastResult \| null, resets }` — `resets` = [진행 초기화] 횟수(시드에 섞인다), `lastResult.forfeit` = 경기 중 [포기] |
+| `isUnlocked(p, id, n)` · `isCleared(p, id, n)` · `stageState(p, id, n)` | 1단계는 늘 열림, n ≤ cleared → "cleared", n ≤ cleared + 1 → "open", 그 밖 "locked" |
+| `nextAttempt(p, id, n)` | `attempts[n] + 1` (경기 시드에 쓴다) |
+| `recordResult(p, id, n, { attempt, winner \| win, homeGoals, awayGoals, penalties?, at?, forfeit? })` | 새 진행. **한 번만 세기**: `attempt ≤ attempts[n]` 이면 **입력 그대로(같은 참조)** — `===` 로 확인. 승리면 `wins[n] + 1`, `cleared = max(cleared, n)` (클리어한 단계에서 져도 클리어 유지). `forfeit: true` = 경기 중 [포기] — 늘 패배, `lastResult.forfeit = true`. `match.getResult(ms)` 에 attempt · at 을 더해 넘기면 된다. attempt 를 안 주면 다음 번호(중복 방지 없음) |
+| `resetProgress(p, id)` | 그 팀의 기록(클리어 · 도전 · 승리 · 최근)을 지우고 **`resets + 1` 만 남긴** 새 진행 — 초기화 뒤 1회차가 초기화 전 1회차와 다른 시드 |
+| `forgetTeams(p, ids)` | 그 팀들을 `resets` 까지 통째로 뺀 새 진행 (샘플 팀은 빼지 않는다) — 등록 팀 상한(50)에 밀려난 팀 정리용 |
+
+**경기 준비**
+
+- `challengeSeed(teamId, stage, attempt, resets = 0)` → uint32 = `hashString("challenge|팀|단계|도전 번호")`, `resets > 0` 이면 키 끝에 `"|r<resets>"`. resets 0 은 예전 키 그대로(옛 저장 경기 · 도구 시드 호환).
+- `challengeSetup(team, stage, attempt, data, { resets }?)` → `{ home, away, seed, possessions, kind, reason: "challenge", rules: { allowDraw, extraTime, penalties, isGoalMatch, possessions }, opponentName, opponentId, stage, attempt, resets, teamId, displayName }` — `run.getMatchSetup` 과 같은 모양이라 `match.createMatch({ data, seed, home, away, possessions, kind })` 에 바로 넘긴다. UI 는 `resets = teamProgress(progress, teamId).resets` 를 넘긴다.
+
+### 18.3 단계 상대 생성 규칙 (`buildStageOpponent`)
+
+1. **스탯**: 템플릿 선수 복제, 모든 스탯 = round(원래 × statTarget / 템플릿 평균 / statRound) × statRound. **1000 상한 없음** — 원래 엠버스론도 1000을 넘고 경기 엔진에는 상한이 없다. 결과 전력 339 / 460 / 480 / 526 / 591 / 610 / 791 / 830 / 875 / 920, 10단계 최고 스탯 1580(GK).
+2. 템플릿 고유 스킬 · 필살기 · 연계 특성 · 포메이션 · 원소 · 종족은 그대로. 전술 = `normalizeTactics({ ...config.defaultTactics, ...템플릿.tactics, ...단계.tactics })`. 팀워크 = 단계 teamwork (없으면 템플릿 시즌 기본 25 / 50 / 75 — buildOpponentSnapshot 과 같은 값).
+3. **일반 액티브**: `activePool` 순서대로 `tier.actives` 개. 팀이 이미 가진 스킬은 건너뛰고 개수에 넣지 않는다. 후보 = entry.positions ∩ 스킬 positions 에 맞는 선수 → 이번에 받은 스킬이 적은 → `pick` 스탯(없으면 포지션 주 스탯)이 높은 → 슬롯 순서.
+4. **aceShot**: 팀에 슛 필살기가 없을 때만, 필살기가 없는 FW 중 shoot 최고(동률 슬롯 순서). **gkSave**: 팀에 세이브 필살기가 없고 GK 에게 필살기가 없을 때 GK. **gkDistribution**: GK 에게 배급 스킬이 없으면 GK.
+5. **간파 사용권** = `tier.gaanpaTickets` → 스냅샷 `modifiers.gaanpaTicket` · `gaanpaTickets`.
+
+단계별 추가 (현재 데이터): 3 파낙 파워 슛 · 파르그 바위 방벽 / 4 시온델 파워 슛 · 노르윈 바위 방벽 / 5 헤일 · 글라시아 + 세렌 스루 패스 / 6 엠버스론(파워 슛 · 바위 방벽 · 매의 눈 보유) 세르바 스루 패스 · 코르드 폭발 드리블 · 브란트 소매치기 / 7 · 8 액티브 3 + FW 업화의 일격(파낙 · 시온델) / 9 + 헤일 업화의 일격 · GK 니벨 불꽃 장벽 / 10 스루 패스 · 폭발 드리블 · 소매치기 · 마그로스 함성 + GK 볼카르 캐논 킥 (필살 슛 · 필살 세이브는 보스 고유라 추가 없음).
+
+### 18.4 우리 팀 스냅샷 (`buildChallengeTeamSnapshot`)
+
+- `run.migrateRegisteredTeam` → 선수 정리: 스탯 정수화, position = 슬롯, **없는 스킬 id · 특성 id 는 버린다**(옛 저장본 방어 — 실패하지 않음), 특성이 없으면 migrate 가 캐릭터 데이터로 채운다. 슬롯 · 선수 수 · id 가 포메이션과 안 맞으면 throw(→ 목록에서 빠짐).
+- `side "home"`, 이름 = 팀 이름(없으면 "우리 클럽"), 전술 = `normalizeTactics(team.tactics)`, 팀워크 = 저장값.
+- 컨디션 = `config.condition.matchMult[condition.start (+ 목표 경기면 유물 goalMatchCondition)]` — 낡은 주장 완장 +1단계.
+- `modifiers` = **등록 팀 `relics` 에서 다시 계산** (run.js `SNAPSHOT_MODIFIER_KEYS` 와 같은 키 — 예: 감독의 수첩 → gaanpaTicket 1). 런 중 이벤트 · 루트 modifier 는 등록 팀에 저장되지 않아 빠진다.
+- 공명 = `run.buildOpponentSnapshot` 과 같은 계산(그 함수로 슬롯 검증 겸 계산). 체력 · 텐션 · 필살 게이지는 `match.createMatch` 가 시작값으로 채운다.
+
+### 18.5 진행 기록 · 저장 키 (js/ui/store.js)
+
+| 키 | 값 | 쓰는 곳 |
+|---|---|---|
+| `'soccer.challenge'` (`KEYS.challenge`) | `{ version: 1, teams: { [teamId]: { cleared, attempts: { "1": 3 }, wins: { "1": 1 }, lastResult: { stage, attempt, win, homeGoals, awayGoals, penalties: { home, away } \| null, at: ISO \| null, forfeit } \| null, resets } } }` | `loadChallengeProgress()` → 엔진 `normalizeProgress` 로 읽고, `recordResult` · `resetProgress` · `forgetTeams` 결과를 `saveChallengeProgress` |
+| `'soccer.challengeMatch'` (`KEYS.challengeMatch`) | `{ version: CHALLENGE_MATCH_VERSION(1), teamId, stage, attempt, resets, seed, team, match: MatchState }` — `team` 은 팀 저장본 자체(복원이 팀 목록에 기대지 않게). `resets` 는 참고용 — 복원은 진행 기록의 `resets` 로 시드를 다시 계산해 맞춘다 | `loadChallengeMatch()` · `saveChallengeMatch()` — 경기 step 마다 저장, 기록하거나 포기 · 버리기하면 지움, [나가기] · [처음으로]는 남김 |
+
+- 메모리 전용(세션): `store.challenge = { teamId, stage, active: { teamId, stage, attempt, resets, seed, team, displayName } | null, result | null }` — 고른 팀 · 고른 단계 · 진행 중인 경기 · 열린 결과 모달.
+- 화면 키 `store.screen`: `'challenge'`(목록) · `'challengeMatch'`(경기) 추가.
+- `TEAMS_CAP = 50` (store.js) — `addTeam` 은 자르기 전 목록을 돌려준다. `registerTeam` 이 `slice(TEAMS_CAP)`(밀려난 팀)의 도전 기록을 `forgetTeams` 로 지운다(남은 팀과 id 가 같으면 둔다).
+- **도전 경기는 `store.match` 슬롯을 빌려 쓴다** (경기 화면이 그것을 읽으므로). 나갈 때(`leaveChallengeMatch(screen, keepSave)` — 기록 · 포기 · 버리기 · [나가기] · [처음으로]) null 로 비운다. 런 경기는 `'soccer.match'` 에 그대로 있고 [이어하기]가 다시 읽는다. `store.run` · `'soccer.run'` · `'soccer.match'` 는 읽지도 쓰지도 않는다 (ui.smoke 와 실제 브라우저 플레이에서 바이트 단위로 같음을 확인).
+
+### 18.6 화면 흐름 (js/ui/app.js)
+
+```text
+부트: 엔진 run · match 로드 → challenge.js 따로 동적 import (실패해도 런은 그대로, 도전 모드만 못 연다) → 늘 시작 화면 (런과 같다)
+시작 화면: ctx.pendingChallenge() (= peekChallengeMatch 가 'ok') 면 [🏆 도전 모드 — 이어하기] (.challenge-btn.resume, "진행 중: 단계 · n회차")
+시작 [🏆 도전 모드] → actions.openChallenge(): restoreChallengeMatch() 성공이면 그 경기, 아니면 'challenge'
+'challenge' (renderChallenge) ─ selectChallengeTeam(id) · selectChallengeStage(n) · resetChallenge(id)(confirm) · resetToStart
+   [도전] → startChallenge(teamId, n): listChallengeTeams 에서 팀 → isUnlocked → attempt = nextAttempt, resets = teamProgress.resets
+            → challengeSetup 확인(고장 난 팀이면 화면 그대로) → store.challenge.active, store.match = null → 'challengeMatch'
+'challengeMatch' → renderMatch(root, { ...ctx, matchMode: challengeMatchMode() })   // §18.7
+   결과 모달 [확인] → mode.onFinish → finishChallengeMatch(result):
+        recordChallenge (recordResult + saveChallengeProgress, at = new Date().toISOString()) → { prev, tp, counted, saved }
+          — 엔진 오류 · saved = false(localStorage 쓰기 실패)면 경기 화면 · 저장본 그대로 render() → 결과 모달 [확인] 으로 재시도
+        → store.challenge.result (도전 결과 모달 데이터: win · 점수 · 승부차기 · firstClear · counted · wins/attempts · MVP · nextName)
+        → store.challenge.stage = 이겼고 다음이 있으면 n+1 → leaveChallengeMatch() → 'challenge' + 결과 모달
+   [나가기] → suspendChallenge(): 기록 없이 leaveChallengeMatch('start', keepSave) — 저장본은 남아 [도전 모드 — 이어하기]
+   [포기] → forfeitChallenge(): 끝난 경기면 finishChallengeMatch 와 같음, 아니면 confirm → { forfeit: true, win: false, 지금 점수 } 기록
+            (saved = false 면 경기 그대로) → 목록 + 토스트
+   오류 화면 [처음으로] → resetToStart(): 'challengeMatch' 면 leaveChallengeMatch('start', keepSave) (저장본 유지)
+   오류 화면 [도전 경기 버리기] → discardChallengeMatch(): confirm → 기록 없이 저장본 지움 → 'challenge'
+도전 결과 모달: [도전 목록] closeChallengeResult · [다시 도전] startChallenge(같은 단계) · [다음 단계 ▶] startChallenge(n+1) (이겼고 다음이 있을 때)
+[팀 등록] (런 결과) → addTeam → forgetDroppedTeams(밀려난 팀) — 도전 기록 정리
+```
+
+- **peekChallengeMatch** (저장은 바꾸지 않음) → `none` · `unknown`(엔진 · `data.challenge` 없음 — 판단하지 않고 **저장본을 남긴다**) · `invalid` · `ok`. `ok` 조건: `version === 1`, `team.players` 배열, `getStage` 성공, `attempt ≥ 1`, `s.teamId`(있으면) = `teamIdOf(team)`, **아직 세지 않은 도전 번호**(`nextAttempt > attempt` 이면 이미 기록 → 버림), `match.seed === challengeSeed(teamId, stage, attempt, 진행 기록의 resets)`(match 가 없으면 경기 화면이 같은 시드로 새로 만든다 — 초기화 전 경기 저장본은 시드가 달라 버린다). **restoreChallengeMatch** 는 `invalid` 만 지운다.
+- **기록은 한 번**: [확인] 연타(match.js `finishing` — ui.smoke 가 떼어진 버튼을 다시 켜고 눌러 확인) · 새로고침 뒤 다시 [확인] · 포기 후 복원 — 모두 `recordResult` 의 도전 번호 검사로도 막힌다 (`counted` 가 결과 모달에 남는다).
+- 오류 패널(app.js `errorPanel`, render 예외)은 도전 경기 화면이면 런 [저장 삭제] 대신 **[도전 경기 버리기]** 를 보인다. 경기 화면 자체 오류 화면(match.js `errorScreen` — 셋업 · 경기 생성 실패)은 훅 `discard` 로 같은 버튼.
+
+### 18.7 경기 화면 훅 — `ctx.matchMode` (js/ui/screens/match.js)
+
+```js
+ctx.matchMode = {
+  label,                 // 점수판 아랫줄 · 결과 모달 제목의 경기 종류 글자 — "도전 3단계" (없으면 L.KIND_LABELS[kind])
+  getSetup(),            // 셋업 (없으면 ctx.run.getMatchSetup(store.run, data)) — 도전: challengeSetup(team, stage, attempt, data, { resets })
+  save(ms | null),       // 경기 저장 (없으면 saveMatch → 'soccer.match') — 도전: 'soccer.challengeMatch'
+  onFinish(result),      // 결과 모달 [확인] (없으면 actions.finishMatch → run.finishMatch) — 정확히 1회(연타 방지 그대로)
+  exits: [{ label, title?, danger?, onClick() }],   // 오른쪽 위 버튼들 `.m-exits > .m-exit[.danger]` — 도전: "나가기" · "포기"(danger)
+  discard: { label, title?, onClick() },            // 오류 화면(셋업 · 경기 생성 실패)에 더하는 버튼 — 도전: "도전 경기 버리기"
+}
+```
+
+- 바꾼 곳은 이것뿐이다: 셋업 출처, `saveMatch` 4곳(옛 버전 경기 폐기 · 새 경기 · step · ⏭ simulateAuto) → `persist`, 결과 [확인] 호출, 경기 종류 글자 2곳(결과 제목은 `label ?? KIND_LABELS[kind] ?? ''` — 런 출력 그대로), `.m-exits` 버튼(컷인 층 아래), `errorScreen` 의 discard 버튼. **훅이 없으면 런 경기는 전과 똑같다** (ui.smoke: 런 경기에는 [포기]가 없고 "친선전" 글자 그대로).
+- css/match.css `.m-exits`: 상황 배너 띠 오른쪽 끝(top 16px, 버튼 사이 6px). `.stage[data-mode="match"]:has(.m-exits) #toast-root` 로 토스트 칸을 왼쪽으로 좁힌다(right 150px · 폭 250px — `:has()` 없는 브라우저에서는 토스트가 몇 초 버튼을 가릴 수 있다).
+- 규칙 · 연출 · 자동 · 개입 · 배속 · ⏭ 는 같다. 배속 · 자동 설정은 새로고침하면 기본값(런 경기와 같음).
+
+### 18.8 도전 화면 (js/ui/screens/challenge.js · css/outgame.css)
+
+- `renderChallenge(root, ctx)` — `ctx.challenge`(엔진 모듈) · `data.challenge` 가 없으면 오류 패널 + [처음으로]. 진행 = `normalizeProgress(loadChallengeProgress())`, 팀 = `listChallengeTeams(loadTeams(), data)`, 사다리 = `ladderView`.
+- `.challenge-screen` 격자 (1280×720, 페이지 스크롤 없음): 머리 줄 `.ch-head`("도전 모드" · "플레이테스트" 배지 · 안내 · [처음으로]) / 왼쪽 `.ch-left` = `.ch-teams`(팀 목록 — 안쪽 스크롤, 행 `.ch-team[.sel][.sample]`: 등급 · 이름 · "테스트용" · 포메이션 · 전력 · 점수 · 날짜(샘플 "고정 팀") · 클리어 n/10) + `.ch-team-sum`(선수 7명 `.ch-pl` · 유물 · 전술 · 최근 결과 · 배지 · 클리어 · [진행 초기화] `.ch-reset`) / 가운데 `.ch-ladder`(`.ch-stage[data-stage][.sel]` — 번호 · 상대 · 부제 · 배지 `.ch-feat` · 전력 · 상태 🔒 / 도전 가능 / ✓ n승 n패) / 오른쪽 `.ch-preview`(이름 · 부제 · 티어, 설명, 상대 전력과 우리와의 차, 팀워크, 포제션 · 연장 · 승부차기, 간파 사용권, 성향 · 전술(공격 · 수비 · 텐션), 미니 필드 `.ch-pitch`(lineup.js `slotSpot`, 좌우 반전), 선수 7명(추가 스킬 `.ch-added` "+", 필살기 "★"), [도전] / [다시 도전] `.ch-go` — 잠긴 단계는 disabled "🔒 n−1단계를 클리어하면 열립니다").
+- 기본 선택: 팀 = 가장 최근 등록 팀(목록 첫 비샘플), 없으면 샘플 / 단계 = 열린 가장 높은 단계. 팀을 바꾸면 단계 선택을 다시 계산.
+- 배지 색 `FEATURE_CLASS`: 액티브 accent · 간파 purple · 필살 슛 / 필살 세이브 gold · 캐논 킥 warn.
+- 결과 모달 `.ch-result`(modal-md): 제목 "N단계 클리어!"(첫 클리어) / "N단계 승리" / "N단계 패배", 점수 · 승부차기, "N+1단계가 열렸습니다" / "10단계 전부 클리어!", "n회차 도전", "이 단계 n승 / n전", MVP, 버튼 3개.
+- 최근 결과 한 줄 `lastResultText`: "4단계 2회차 · 1:2 패" (승부차기면 괄호), 기권이면 "4단계 2회차 · 기권 패 (0:0)".
+- 미리보기 세로 배분: 설명 `.ch-pv-desc` 는 `flex: none`(두 줄 그대로), 미니 필드 `.ch-pitch` 는 `flex: 0 1 150px; min-height: 130px` — 열린 단계의 두 줄짜리 [도전] 버튼(56px)만큼 모자란 5px 는 필드가 내준다(예전에는 설명이 줄어 둘째 줄 아래가 잘렸다 — 4~6 · 8~10단계).
+- 시작 화면 (start.js): 메뉴 맨 아래 `.challenge-btn` "🏆 도전 모드" + 아랫줄 "완성된 팀으로 1~N단계 · 등록 팀 N + 샘플 팀" (`data.challenge.stages` 가 없으면 숨김). 진행 중인 도전 경기가 있으면 `.challenge-btn.resume` "🏆 도전 모드 — 이어하기" + "진행 중: 3단계 · 썬더클로 · 1회차"(끝난 경기면 "(결과 확인 전)").
+
+### 18.9 테스트 (npm test 172 — rng 8, run 26, match 24, v05 55, challenge 11, layout 22, orient 5, stage 6, lineup 9, outgame 4, ui.smoke 2)
+
+- **test/challenge** (신규 11): challenge.json(10단계 · 템플릿 존재 · 연속 단계 다른 상대 · 8포제션 목표 경기 · statTarget 증가 · 티어 비감소) / buildStageOpponent(전력 = 목표 ± 반올림, 템플릿 스킬 · 특성 유지, 스킬 · 포지션 유효, 입력 불변) / 스킬 티어 0~5 / 상대 스냅샷(createMatch 검증 · 자동 경기 완주 · 목표 경기 무승부 없음 · 간파 사용권) / teamIdOf / challengeSetup(getMatchSetup 모양 · 시드 결정 · 팀 불변 · 우리 스탯 = 저장본) / 유물 modifier(간파 사용권 · 목표 경기 컨디션) / 옛 등록 팀 방어 / 샘플 팀(모양 · B 등급 · 요약 · 생성 결정적) / 진행 기록(잠김 · 패배 · 클리어 · 한 번만 · 초기화 · 입력 불변) / 기권 · 초기화 시드 · forgetTeams(포기 = forfeit 패, resets 0 = 예전 시드, 초기화마다 새 시드, 저장 왕복, 밀려난 팀 정리).
+- **test/ui.smoke** (테스트 수 그대로 확장): 시작 [도전 모드] → 샘플 팀 1단계 → ⏭ → 결과 [확인] → 기록 1회 · 연타 방지(떼어진 버튼을 다시 켜고 눌러도 onFinish 1회) · 도전 결과 모달, 이미 기록된 끝난 경기 저장본은 복원하지 않음, 다음 단계 → 몇 비트 → [나가기](시작 화면 · 저장본 유지 · 기록 없음 · 런 저장 불변) → "새로고침"(메모리 비우고 시작 화면) → [도전 모드 — 이어하기] → 같은 경기, [포기] → 기권 패 기록 · "기권 패" 표시, 진행 초기화(resets 1) → 1단계 1회차 = 새 시드, 기록 저장 실패 → 경기 · 저장본 유지 → 다시 [확인] → 1회 기록, 고장 난 도전 경기 → 오류 화면 [처음으로](저장본 유지) · [도전 경기 버리기](지움), `data.challenge` 없으면 저장본 유지, `store.run` · 런 저장 불변. 런 경기에는 [포기] 없음 · "친선전" 글자.
+- **test/outgame** (테스트 수 그대로 4 — 기존 테스트 안에 확장): 도전 화면 — 팀 목록(고장 난 등록 팀 제외), 사다리 상태 · 배지 수(1단계 0 · 10단계 5), 미리보기, 잠긴 단계, 팀 바꾸기, 진행 초기화, 시작 화면 [도전 모드 — 이어하기], `og_challenge_result` 상태의 결과 모달.
+
+### 18.10 도구
+
+- **tools/scenarios.mjs**: `challenge` 모듈 export, 아웃게임 시나리오 `build()` 가 `storage`({ 키: 값 } — 그 밖의 localStorage)를 낼 수 있다. 추가 5개:
+  - `og_challenge` — 등록 팀 2개, 첫 팀 1~3단계 클리어 · 4단계 2패 · 5~10단계 잠김, 4단계 미리보기.
+  - `og_challenge_sample` — 등록 팀 없음 → 샘플 팀, 1단계만 열림.
+  - `og_challenge_resume` — 샘플 팀 3단계 1회차 진행 중 저장본 → 시작 화면 [🏆 도전 모드 — 이어하기].
+  - `og_challenge_match` — 같은 저장본 → [도전 모드 — 이어하기] → 도전 경기 화면(수동, 오른쪽 위 [나가기] [포기]).
+  - `og_challenge_result` — 샘플 팀이 이긴 2단계의 끝난 경기를 `'soccer.challengeMatch'` 로 주입 → [도전 모드] 가 그 경기로 → 결과 [확인] → 도전 결과 모달.
+  - 도우미 `recordPlays(progress, teamId, [[단계, 승?, 우리 골, 상대 골], …])` · `challengeInProgress(data, stage)`.
+- **tools/shot.mjs**: 시나리오 `storage` 를 localStorage 에 주입. 부트는 늘 시작 화면이라 시작 대기 조건은 예전 그대로("새 런 시작" · "이어하기" 버튼).
+- **tools/challenge_sim.mjs** (신규):
+
+```text
+node tools/challenge_sim.mjs [--runs 100] [--teams 6] [--seed 1] [--targets 340,390,...] [--json]
+node tools/challenge_sim.mjs --write-sample [--sample-seed challenge-sample-7] [--route-start 1]
+```
+  - 팀 = 샘플 팀 + sim.mjs `simulateOne`(smart 정책)으로 완주한 팀 `--teams` 개(시드 `challenge-cal-<seed>-<i>`, 루트 시작 i % 3). 단계 × 팀마다 도전 번호 1..runs 로 `challengeSetup` → `createMatch` → `simulateAuto`(A안 자동) — UI 와 같은 시드 규칙.
+  - 출력: 팀 표(등급 · 점수 · 전력 · 팀워크 · 포메이션), 단계 표(statTarget · 전력 · 스킬 티어 · 샘플 승률 · 완주 평균(최저~최고) · 전체 · 골 · 연장/PK). `--targets` 는 statTarget 을 메모리에서만 덮어쓴다. export: `parseArgs · loadData · autoTeam · buildSampleFile · applyTargets · runChallengeSim · printSummary`.
+
+### 18.11 보정 (한 번 — GDD 14장 v0.4.5)
+
+`node tools/challenge_sim.mjs --runs 100 --teams 6` (샘플 + B 등급 완주 팀 6개 = 7팀, 단계 × 팀 100판). 목표(B 등급 팀): 1단계 ≥ 85% · 5단계 ≈ 50% · 10단계 ≤ 15%.
+
+| 단계 | 상대 | statTarget 처음 | 승률 처음 | statTarget 조정 후 | 승률 조정 후 (전체 / 샘플) |
+|---|---|---|---|---|---|
+| 1 | 강변 | 340 | 95% | 340 | 95% / 95% |
+| 2 | 아이언후프 | 390 | 95% | 460 | 90% / 89% |
+| 3 | 썬더클로 | 450 | 83% | 480 | 81% / 76% |
+| 4 | 실버리프 | 515 | 67% | 525 | 65% / 55% |
+| 5 | 프로스트베일 | 590 | 51% | 590 | 51% / 43% |
+| 6 | 엠버스론 | 680 | 31% | 610 | 39% / 35% |
+| 7 | 썬더클로 (각성) | 735 | 42% | 790 | 34% / 31% |
+| 8 | 실버리프 (각성) | 790 | 30% | 830 | 26% / 21% |
+| 9 | 프로스트베일 (각성) | 850 | 19% | 875 | 18% / 16% |
+| 10 | 엠버스론 (각성) | 920 | 10% | 920 | 10% / 7% |
+
+- 처음 기하 배치에서 6단계(보스 — 고유 필살 슛 · 필살 세이브 + 티어 2 액티브)가 7단계보다 어려워 6을 내리고 2 · 3 · 7~9를 올렸다. 6단계 39% ≈ 실제 시즌 3 보스전 승률(약 40%).
+- `--seed 2`(다른, 조금 강한 팀 6개): 96 / 92 / 84 / 69 / 58 / 46 / 40 / 25 / 23 / 18% — 순서 유지.
+- 후보 목표 묶음 두 개를 `--targets` 로 비교한 뒤 한 번 바꿨고 이후 조정 없음 (#61).
+
+### 18.12 남은 문제 (GDD 16-39~44)
+
+1. ~~포기 표시 없음~~ → 리뷰 수정: `lastResult.forfeit` · "기권 패". 남은 질문: 기권을 전적 "n패"에 그대로 셀지(지금 셈).
+2. ~~진행 중인 도전 경기 우선(부트가 바로 경기로)~~ → 리뷰 수정: 부트는 시작 화면, [도전 모드 — 이어하기], 경기 중 [나가기]. 진행 중인 도전 경기가 있는 동안 [도전 모드]는 늘 그 경기로 간다(다른 단계를 하려면 끝내거나 포기).
+3. **포제션 고정 8** (런 목표 경기는 8 / 10 / 12) — 단계별 `possessions` 로 바꿀 수 있다.
+4. **1000 넘는 스탯 그대로 표시** (10단계 GK 1580) — 표시를 자를지, 스탯 대신 다른 축으로 난이도를 올릴지.
+5. **경기 전 전술 변경 없음** — 등록 팀 저장 전술 그대로.
+6. **클리어 보상 · 첫 클리어 보너스 없음.**
+7. **등록 팀 저장 범위**: 런 중 이벤트 · 루트 modifier 는 등록 팀에 없어 빠진다(유물만 다시 계산).
+8. 등록 팀 이름이 대부분 "우리 클럽"이라 목록에서 등급 · 점수 · 날짜로만 구별된다. 시작 화면 "등록 팀 N" 숫자는 고장 난 저장본까지 센다(도전 목록은 뺀다).
+9. `:has()` 없는 브라우저에서는 경기 화면 토스트가 몇 초 동안 [나가기] [포기]를 가릴 수 있다.
+10. 경기 밸런스를 일괄 조정하면(GDD 16-25) 단계 승률도 움직인다 — 그 뒤 `challenge_sim.mjs` 로 statTarget 을 다시 맞춘다.

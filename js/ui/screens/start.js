@@ -1,4 +1,4 @@
-// js/ui/screens/start.js — 시작 화면: 새 런 / 이어하기 / 등록 팀 목록
+// js/ui/screens/start.js — 시작 화면: 새 런 / 이어하기 / 도전 모드 / 등록 팀 목록
 // 가로 스테이지(1280×720): 왼쪽 = 타이틀(필드 선 배경), 오른쪽 = 메뉴 패널 + 등록 팀 패널(목록만 안쪽 스크롤)
 import { h, gradeBadge, fmtDate, panel } from '../dom.js';
 import { loadRun, loadTeams } from '../store.js';
@@ -31,6 +31,14 @@ export function renderStart(root, ctx) {
   const savedInfo = saved && saved.phase
     ? `시즌 ${saved.season ?? '?'} · ${saved.turn ?? '?'}턴 · ${phaseLabel(saved.phase)} · seed ${saved.seed ?? ''}`
     : null;
+  // 도전 모드 (2026-10-01, 플레이테스트용): 등록 팀 · 테스트용 샘플 팀으로 1~N단계. 데이터가 없으면 버튼을 숨긴다.
+  // 진행 중인 도전 경기가 저장돼 있으면 (경기 중 [나가기] · 새로고침) 버튼이 "이어하기" 로 — 누르면 그 경기로 (app.js openChallenge)
+  const chStages = Array.isArray(ctx.data?.challenge?.stages) ? ctx.data.challenge.stages.length : 0;
+  const chSample = !!ctx.data?.challenge_sample_team?.team;
+  const chPending = chStages && typeof ctx.pendingChallenge === 'function' ? ctx.pendingChallenge() : null;
+  const chSub = chPending
+    ? `진행 중: ${chPending.displayName} · ${chPending.attempt}회차${chPending.finished ? ' (결과 확인 전)' : ''}`
+    : `완성된 팀으로 1~${chStages}단계 · 등록 팀 ${teams.length}${chSample ? ' + 샘플 팀' : ''}`;
 
   // ---- 메뉴 (오른쪽 위) ----
   const buttons = h('div', { class: 'btn-list start-menu' },
@@ -46,6 +54,11 @@ export function renderStart(root, ctx) {
       ? h('button', { class: 'btn btn-ghost btn-sm', onclick: () => {
         if (confirm('저장된 런을 삭제할까요?')) actions.discardSave();
       } }, '저장 삭제')
+      : null,
+    chStages
+      ? h('button', { class: ['btn', 'btn-block', 'btn-col', 'btn-lg', 'challenge-btn', chPending ? 'resume' : ''], onclick: () => actions.openChallenge() },
+        h('span', {}, chPending ? '🏆 도전 모드 — 이어하기' : '🏆 도전 모드'),
+        h('span', { class: 'btn-sub' }, chSub))
       : null,
   );
 

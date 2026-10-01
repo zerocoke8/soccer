@@ -9,5 +9,5 @@ art/**/events*.jsonl
 art/**/err*.txt
 art/**/last*.txt
 # 도트 작업 폴더의 source.png 는 art/style_test 일러스트 사본
-art/pixel/*/source.png
+art/pixel*/*/source.png
 art/**/reference*.png

@@ -51,6 +51,9 @@
 //    경기가 끝났으면 "— 경기 종료" (엔진 matchEnd), 롱패스 경합에 진 선수 이름표 숨김(.tag-off), 캐논 킥 힌트 맨 앞 · 다음 카드
 //    "첫 듀얼 +10%" (ballState.pending.nextBonus), 고른 배급의 연출 중 정보 줄 "우리 선택: …", 결과 한 줄은 공 위 · 아래 자리부터.
 //
+// 2026-10-01 도전 모드: 경기 모드 훅 ctx.matchMode (js/ui/app.js challengeMatchMode). 없으면 런 경기 그대로 (아래 renderMatch 머리).
+//    셋업 · 저장 · 결과 [확인] · 경기 종류 글자만 바꾸고, 도전 모드면 오른쪽 위에 [나가기] [포기] 버튼, 오류 화면에 [도전 경기 버리기]. 규칙 · 연출은 같다.
+//
 // 가로 전용 (고정 스테이지 1280×720 — js/ui/stage.js, css/match.css). 세로 경기 화면·방향 전환은 없다 (?orient · 저장값은 무시).
 //  - 필드 좌표(layout.js)는 그대로, 픽셀 변환만 가로 (layout.js fieldToScreen 'land' — home 골 왼쪽, away 골 오른쪽, 필드 x 0 = 위).
 //    화면에 그리는 좌표는 전부 toPx(x, y) 를 거친다.
@@ -124,6 +127,14 @@ export function renderMatch(root, ctx) {
   const { store, data, match, safe, actions } = ctx;
   const ui = store.matchUi;
   const cfg = data.config || {};
+  // 경기 모드 훅 (도전 모드). 없으면 런 경기: run.getMatchSetup · saveMatch('soccer.match') · actions.finishMatch · KIND_LABELS
+  //   { label?: 헤더 줄 · 결과 제목의 경기 종류 글자, getSetup?(): 셋업, save?(ms | null): 저장, onFinish?(result): 결과 [확인],
+  //     exits?: [{ label, title?, danger?, onClick() }] — 오른쪽 위 버튼들 (도전: [나가기] [포기]),
+  //     discard?: { label, title?, onClick() } — 오류 화면(경기를 만들 수 없음)에 더하는 버튼 (도전: [도전 경기 버리기]) }
+  const mode = ctx.matchMode && typeof ctx.matchMode === 'object' ? ctx.matchMode : null;
+  const persist = typeof mode?.save === 'function' ? mode.save : saveMatch;
+  const kindLabel = (kind) => mode?.label ?? L.KIND_LABELS[kind] ?? kind ?? '';
+  const exits = (Array.isArray(mode?.exits) ? mode.exits : []).filter((x) => x && typeof x.onClick === 'function');
   const BEATS = new Set(Array.isArray(match.BEAT_TYPES) && match.BEAT_TYPES.length ? match.BEAT_TYPES : BEAT_FALLBACK);
   const REVERSE_TEXT = match.REVERSE_CUTIN_TEXT && typeof match.REVERSE_CUTIN_TEXT === 'object' ? match.REVERSE_CUTIN_TEXT : REVERSE_FALLBACK;
   const DIST_ACTIONS = Array.isArray(match.DISTRIBUTION_ACTIONS) && match.DISTRIBUTION_ACTIONS.length ? match.DISTRIBUTION_ACTIONS : DIST_FALLBACK;
@@ -134,18 +145,18 @@ export function renderMatch(root, ctx) {
   if (store.match && !((Number(store.match.version) || 0) >= wantVersion)) {
     // 이전 규칙(v0.2 이하)으로 저장된 경기: 상태 모양이 달라 이어서 진행할 수 없다 → 새로 만든다 (§13.2-14)
     store.match = null;
-    saveMatch(null);
+    persist(null);
     toast('이전 버전에서 저장된 경기라 새로 시작합니다.', 'info', 3000);
   }
   if (!store.match) {
-    const setup = safe(() => ctx.run.getMatchSetup(store.run, data));
-    if (!setup) { root.append(errorScreen('경기 정보를 불러올 수 없습니다.', ctx)); return; }
+    const setup = safe(() => (typeof mode?.getSetup === 'function' ? mode.getSetup() : ctx.run.getMatchSetup(store.run, data)));
+    if (!setup) { root.append(errorScreen('경기 정보를 불러올 수 없습니다.', ctx, mode)); return; }
     const ms = safe(() => match.createMatch({
       data, seed: setup.seed, home: setup.home, away: setup.away, possessions: setup.possessions, kind: setup.kind,
     }));
-    if (!ms) { root.append(errorScreen('경기를 생성할 수 없습니다.', ctx)); return; }
+    if (!ms) { root.append(errorScreen('경기를 생성할 수 없습니다.', ctx, mode)); return; }
     store.match = ms;
-    saveMatch(ms);
+    persist(ms);
     ui.intervene = false;
     ui.selectedSkillId = null;
     ui.ultimate = false;
@@ -223,7 +234,14 @@ export function renderMatch(root, ctx) {
       h('button', { class: 'btn m-logbox-close', type: 'button', title: '로그 닫기', 'aria-label': '로그 닫기', onclick: () => setLogOpen(false) }, '✕')),
     log);
   const cutLayer = h('div', { class: 'm-cutin', 'aria-live': 'polite' });
-  screen.append(grass, bannerEl, hud, track, dock, ctlBox, skillRow, logBox, cutLayer);
+  screen.append(grass, bannerEl, hud, track, dock, ctlBox, skillRow, logBox);
+  // 경기 모드 나가기 버튼들 (도전: [나가기] [포기]): 상황 배너 띠의 오른쪽 빈 곳. 런 경기에는 없다
+  if (exits.length) {
+    screen.append(h('div', { class: 'm-exits' }, exits.map((x) => h('button', {
+      class: ['btn', 'btn-sm', 'm-exit', x.danger ? 'danger' : ''], type: 'button', title: x.title || '', onclick: () => x.onClick(),
+    }, x.label || '나가기'))));
+  }
+  screen.append(cutLayer);
   root.append(screen);
 
   /* ------------------------------------------------------------------ */
@@ -1165,7 +1183,7 @@ export function renderMatch(root, ctx) {
     // 마지막 공격 보장 (view.lastAttack.active): 추가 포제션 진행 중 → "⏱ 추가시간"
     const la = !finished && view?.lastAttack?.active ? view.lastAttack : null;
     const sub = [
-      L.KIND_LABELS[kind] ?? kind ?? '',
+      kindLabel(kind),
       `포제션 ${view?.possession ?? ms.possession ?? '-'}/${view?.possessionsTotal ?? ms.possessionsTotal ?? '-'}`,
       stage === 'extraTime' ? '연장' : null,
       la ? `⏱ 추가시간${la.side === humanOf(view) ? '' : ' (상대)'}` : null,
@@ -2699,7 +2717,7 @@ export function renderMatch(root, ctx) {
     const prevView = curView;
     const r = safe(() => match.step(ms, data, decision));
     if (r === undefined) { refresh(); return false; } // 엔진 오류: 루프를 멈춘다 (토스트 표시됨)
-    saveMatch(ms);
+    persist(ms);
     lastDecision = decision && decision.action ? decision : null; // 자동 비트(결정 없음)는 이전 사람 결정을 물려받지 않는다
     if (decision && decision.action) ui.lastDecision = { ...decision }; // 테스트·도구용 (읽기 전용)
     const fresh = Array.isArray(ms.events) ? ms.events.slice(before) : [];
@@ -2781,7 +2799,7 @@ export function renderMatch(root, ctx) {
     field.classList.remove('phase-act', 'phase-move');
     const ms = store.match;
     const r = safe(() => match.simulateAuto(ms, data));
-    saveMatch(ms);
+    persist(ms);
     refresh();
     if (r !== undefined) showResult();
   }
@@ -2804,7 +2822,7 @@ export function renderMatch(root, ctx) {
     const rows = [['슛', 'shots'], ['듀얼 승', 'duelsWon'], ['골', 'goals'], ['필살기', 'ultimatesUsed'], ['합체기', 'combos'], ['간파', 'gaanpaUsed']]
       .filter(([, k]) => k in (st.home || {}) || k in (st.away || {}) || ['shots', 'duelsWon', 'goals'].includes(k));
     openModal(h('div', { class: 'col', style: { gap: '12px' } },
-      h('h2', { class: 'center' }, `${L.KIND_LABELS[result.kind ?? ms.kind] ?? ''} 결과`),
+      h('h2', { class: 'center' }, `${mode?.label ?? L.KIND_LABELS[result.kind ?? ms.kind] ?? ''} 결과`),
       h('div', { class: 'row between small muted' }, h('span', { class: 'ellipsis' }, home.name ?? '우리 클럽'), h('span', { class: 'ellipsis' }, away.name ?? '상대')),
       h('div', { class: 'score-big' }, `${hg} : ${ag}`),
       h('div', { class: ['result-verdict', winner === 'home' ? 'good' : winner === 'away' ? 'bad' : 'muted'] }, verdict),
@@ -2818,13 +2836,14 @@ export function renderMatch(root, ctx) {
         class: 'btn btn-primary btn-block',
         type: 'button',
         onclick: (e) => {
-          // run.finishMatch 는 정확히 1회: 연타 방지 (실패하면 app.js 가 render() 로 경기 화면을 다시 그려 재시도 가능)
+          // run.finishMatch (도전 모드: mode.onFinish) 는 정확히 1회: 연타 방지 (실패하면 app.js 가 render() 로 경기 화면을 다시 그려 재시도 가능)
           if (finishing) return;
           finishing = true;
           if (e?.currentTarget) e.currentTarget.disabled = true;
           closeOverlays();
           ui.resultShown = false;
-          actions.finishMatch(result);
+          if (typeof mode?.onFinish === 'function') mode.onFinish(result);
+          else actions.finishMatch(result);
         },
       }, '확인'),
     ), { closable: false });
@@ -2907,10 +2926,13 @@ export function renderMatch(root, ctx) {
 /* ------------------------------------------------------------------ */
 /* 헬퍼                                                                  */
 /* ------------------------------------------------------------------ */
-function errorScreen(msg, ctx) {
+function errorScreen(msg, ctx, mode) {
+  // 경기 모드 훅 discard (도전: [도전 경기 버리기] — 고장 난 저장본을 지운다). 런 경기는 [처음으로] 하나 그대로
+  const discard = mode?.discard && typeof mode.discard.onClick === 'function' ? mode.discard : null;
   return h('div', { class: 'screen' },
     h('div', { class: 'error-panel' }, msg),
-    h('button', { class: 'btn', onclick: () => ctx.actions.resetToStart() }, '처음으로'));
+    h('button', { class: 'btn', onclick: () => ctx.actions.resetToStart() }, '처음으로'),
+    discard ? h('button', { class: 'btn btn-danger', title: discard.title || '', onclick: () => discard.onClick() }, discard.label || '버리기') : null);
 }
 
 function svgEl(tag, attrs = {}, ...kids) {
