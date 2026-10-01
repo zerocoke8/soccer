@@ -4,5 +4,8 @@ Thumbs.db
 *.log
 .vscode/
 
-# 아트 탐색용 생성 이미지 (Pages 게시 제외 — 확정 에셋만 커밋)
-art/style_test/
+# 아트: 생성 이미지 · 프롬프트는 커밋, Codex 실행 로그와 외부 참고 그림은 제외
+art/**/events_*.jsonl
+art/**/err_*.txt
+art/**/last_*.txt
+art/**/reference.png

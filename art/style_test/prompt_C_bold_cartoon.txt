@@ -1,0 +1,16 @@
+$imagegen
+Generate exactly ONE high-resolution full-body character illustration for a fantasy soccer gacha game (used for character cards and full-screen skill cut-ins). Use the highest-quality image setting available.
+
+STYLE (C_bold_cartoon): Bold graphic comic style: thick confident black outlines, flat colors with hard-edged cel shadows, strong silhouette, high contrast, dynamic speed lines around the ball, punchy sports-manga energy.
+
+CHARACTER (same design in every style test):
+Silluen, a young forest elf playmaker (midfielder) of a fantasy soccer team, wind element.
+Graceful, slightly androgynous, calm confident smile. Long pointed elf ears.
+Long silver-green hair loosely tied at the back, a few strands blown by wind; leaf-shaped hair clip.
+Outfit: fantasy soccer uniform with elven motifs - fitted short-sleeve jersey in forest green and white with subtle leaf/vine trim, white shorts, green knee socks with thin gold bands, light soccer boots with leaf-shaped accents, a thin wind-ribbon sash around the waist.
+Pose: full body, dynamic moment just after a precise pass - right leg follow-through after kicking, arms balanced, body turned 3/4 toward the viewer, a soccer ball leaving the foot with a soft swirling green wind trail.
+Composition: entire body visible from hair tips to boots with a small margin, character centered, portrait orientation.
+Background: transparent background with true alpha if possible; otherwise a flat plain light gray background. No scenery.
+Hard rules: no text, no letters, no numbers on the jersey, no logos, no watermark, no signature, no frame, no UI elements.
+
+Save the final PNG in the current working directory as C_bold_cartoon.png. Do not create any other files. Reply with the saved file path only.
