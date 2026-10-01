@@ -5,7 +5,9 @@ Thumbs.db
 .vscode/
 
 # 아트: 생성 이미지 · 프롬프트는 커밋, Codex 실행 로그와 외부 참고 그림은 제외
-art/**/events_*.jsonl
-art/**/err_*.txt
-art/**/last_*.txt
+art/**/events*.jsonl
+art/**/err*.txt
+art/**/last*.txt
+# 도트 작업 폴더의 source.png 는 art/style_test 일러스트 사본
+art/pixel/*/source.png
 art/**/reference*.png

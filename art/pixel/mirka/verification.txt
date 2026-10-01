@@ -1,0 +1,15 @@
+MIRKA / native 64x64 idle base sprite
+PASS: Native document and PNG are exactly 64x64
+PASS: Exactly one idle frame
+PASS: Alpha values are only 0 and 255; transparent background present
+PASS: Opaque colour count 23; total RGBA colours including transparency 24
+PASS: Whole silhouette contained in canvas; bbox inclusive (8,8)-(49,62)
+PASS: Foot baseline y=62
+PASS: Two separated boot soles share the baseline (2 runs)
+PASS: Single connected silhouette; component sizes 1173; no isolated stray pixels
+PASS: Flattened native document exactly matches base.png
+Opaque pixels: 1173
+Layers: 8
+Visual intent: petite 3/4 right-facing character; no soccer ball; simplified knot clasps, split jacket panels, striped socks and tail.
+Known limitations: single idle frame only; tiny fang is one pixel; decorative embroidery simplified. Relative height cannot be compared without other team sprites.
+RESULT: PASS

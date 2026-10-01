@@ -1,0 +1,15 @@
+GRETA BASE SPRITE - PASS
+Native canvas: 64x64; flattened PNG: 64x64
+Frames: 1; visible semantic layers: 6
+Native composite and base.png: pixel-exact match
+Alpha values: 0, 255 only
+Opaque colors: 23; total including transparency: 24 / 32
+All opaque colors are sampled from source.png: PASS
+Opaque bounding box (inclusive, zero-based): (12, 2)-(55, 62); 44x61
+Both boot baselines: y=62
+Opaque pixels: 1565; 8-connected components: 1; isolated stray pixels: 0
+Preview: 512x512, exact nearest-neighbour 8x over neutral gray
+Comparison: 896x544, source beside native sprite enlarged 8x
+Visual intent: 3/4 right-facing idle, oversized head, muscular broad build, two horns, cheek scar, grin, flame cloth and boots; no ball.
+Known limitations: dense costume embroidery is simplified at 64x64; no animation frames. No tail is visible in the source, so none was added.
+Draft: one built-in imagegen call; prompt recorded in scripts/draft_prompt.txt. Final construction/cleanup/export performed in Aseprite Lua.
