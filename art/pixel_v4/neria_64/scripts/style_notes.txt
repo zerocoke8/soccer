@@ -1,0 +1,32 @@
+NERIA / native 64 x 64 base sprite
+
+Reference inspection (coordinates measured in the original reference_pose.png):
+The first frame occupies an approximately 97 x 98 cell. Its painted extent is
+about x=3..84, y=6..101 (the shoes approach the following cell boundary).
+Crown to chin is about y=12..53, and crown/ornament to collar about y=6..57:
+roughly half the standing height. Hair reaches the sides of the cell and frames
+the cheeks; the small torso is nested between the hair masses. Shoe centres
+are approximately x=36 and x=60, with an approximately 9 px negative gap.
+The head faces three-quarter right with both eyes visible. The near eye is wider.
+Highlights group into broad masses; dark outlines are coloured, not black.
+
+Translation to Neria:
+60 px standing extent, y=2..61; upper head mass about 29 px tall. Large smooth
+white crown, asymmetrical side-swept fringe, calm aqua-tipped straight hair
+hanging behind the body to knee height. No curls copied from the pose sheet.
+Face turned slightly right; near eye 5 px wide, far eye 4 px, iris height 4 px.
+Warm small face, half-lowered upper lids, single short mouth and restrained blush.
+Compact white-and-blue keeper blouse, navy collar and straps, two large readable
+keeper gloves. Navy shorts, one long white/blue side panel, short sturdy legs,
+white/navy socks and boots sharing a common baseline. No ball.
+
+Light is upper-left. Hair uses large cel-shaded ribbons, no dithering. Patterns
+are a few purposeful blue clusters; glove ornament is reduced to muted brass.
+The reference_pixel.png sheet informs only eye highlights, clean pixel clusters,
+local-hue outlines and concise costume details. No character art is copied.
+
+All sprite marks are hand-authored character rows in draw.lua. Aseprite draws
+those maps at native resolution into named layers. No image generation, tracing,
+automatic vector rasterization, downsampling of artwork or brush simulation.
+Reference inspection crops are held only in memory. Outputs contain no reference
+sheet crops. Previews use exact nearest-neighbour copies of the native pixels.
