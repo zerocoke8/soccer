@@ -1,0 +1,38 @@
+NERIA palette: 26 opaque colours + transparent.
+Sample evidence: scripts/source_samples.txt (Aseprite Image:getPixel).
+
+Adjustment: warm hair #E3DCD8 -> ivory #FFF6E6 and cool #D8DEDD;
+#CBC5C2 -> #A7B8C2 shadow; aqua #B0C2C4 -> #83BDCA/#C0E1DF;
+skin #ECD6CB/#EAD0C3 -> #FFE3C3/#F5C7AA;
+navy #353C49/#3B4958 -> #303C53/#425D79;
+blue-grey #60707E/#7F848A -> #63849C/#4B7D9D and cerulean #337F9F;
+cloth #EAE4DE -> #FFF6E6/#E6E3D6; trim #9E9189 -> #D0BE96;
+coral #B77766 -> #C67D74/#EFAC8F. Semantic labels of raw point samples
+are approximate; palette decisions also use direct visual inspection.
+
+O #303C53 deep blue outline / navy shadow
+h #718391 cool hair outline
+s #A7B8C2 hair shadow
+m #D8DEDD hair mid
+w #FFF6E6 hair highlight / warm cloth light / eye glint
+a #83BDCA aqua hair tip
+b #568BA3 aqua shadow
+i #C0E1DF aqua light
+k #A7767C warm face contour
+p #DDA391 skin shadow
+f #F5C7AA skin middle
+l #FFE3C3 skin light
+r #E99694 cheek blush
+e #4D4C61 upper lashes
+v #4B7D9D blue-grey iris
+u #91C5D4 iris light
+c #E6E3D6 warm white cloth
+d #AFBEC8 cloth shade
+n #425D79 navy cloth
+t #63849C navy light
+B #337F9F cerulean wave
+C #65AEC0 wave light
+g #8C8073 antique trim shadow
+G #D0BE96 antique trim light
+R #C67D74 coral accent shade
+T #EFAC8F coral accent light
