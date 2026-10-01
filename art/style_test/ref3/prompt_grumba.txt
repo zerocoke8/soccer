@@ -1,0 +1,19 @@
+$imagegen
+Generate exactly ONE high-resolution full-body character illustration (portrait orientation) for a game's character card / skill cut-in. Use the attached image as the style reference input for the image generation (drawing technique only). Use the highest-quality image setting available.
+
+STYLE REFERENCE: the attached image is the reference for DRAWING TECHNIQUE ONLY. Do NOT copy its characters, faces, swords, outfits or its black/white/gold colour scheme.
+Take from it:
+- high-end anime character-design illustration, crisp thin clean lineart with confident varied line weight
+- restrained flat cel shading with subtle soft gradients; no painterly texture, no 3D look
+- elegant fashion-model proportions and poised, confident stance
+- very detailed ornate costume design: layered garments, high collars, straps, harness belts, buckles, metal fittings, tassels and cords, asymmetric long coat-tails or skirt panels, emblem/crest motifs on fabric
+- beastfolk features (if any): large furry ears and a big fluffy tail
+- full body visible head to toe with a small margin, single character, centred, plain light background, no scenery
+COLOUR: vivid, rich and varied — each character has her OWN distinct palette (given below) built around her element and personality. Use several harmonious colours generously; do not default to black, white and gold.
+Hard rules: no text, no letters, no numbers, no logos, no watermark, no signature, no frame. The character is an adult woman. Tasteful sports-fashion outfit, no nudity.
+
+GAME CONTEXT: a fantasy SOCCER (football) gacha game where every player is a woman. The costume is a fantasy soccer uniform reinterpreted in ornate fashion (sporty jersey/top with a high collar, shorts with long ornamental side panels or a coat-tail, knee socks or leg wraps, ornate SOCCER BOOTS — no high heels), and she holds or plays an ornate soccer ball whose colours match her palette. No swords or weapons.
+
+CHARACTER: 그룸바 — giant-race striker (forward), fire element, power type. A GIANTESS: much taller and bigger than normal women, powerfully muscular yet voluptuous (broad shoulders, strong arms and thighs, full figure). Short wild crimson hair, small stubby horns, a cheek scar, wide fearless grin. PALETTE: crimson red, ember orange and flame yellow with charcoal and burnished gold. Costume adapted to her huge frame: sleeveless high-collar jersey, heavy buckled harness belts, armoured bracers. Pose: ball tucked under one arm, other fist raised, chest out, cheerful and intimidating.
+
+Save the final PNG in the current working directory as grumba.png. Do not create any other files. Reply with the saved file path only.
