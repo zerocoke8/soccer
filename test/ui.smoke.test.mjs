@@ -920,13 +920,27 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
     assert.equal(!!chip.parentElement.querySelector(".dchip-upset"), !!ev.upset, "대이변 표시 = 이벤트 upset");
     assert.ok(await until(() => !ui.busy, 6000), "연출 끝");
     S.actions.resetToStart();
-    // 대이변: 이긴 쪽 확률 < 30% 인 판정 (주사위만 바꿈) → 금색 "대이변!"
+    // 대이변: 이긴 쪽 확률 < upsetP(25%) 인 판정 (주사위만 바꿈) → 금색 "대이변!"
+    // 시나리오 25 는 드리블 74% · 패스 64% 라 어느 쪽이 이겨도 25% 밑이 아니다 → 공 가진 선수 스탯을 두 배로 올려
+    // 실패(수비 승)가 25% 미만이 되게 한 뒤, 켜진 공격 액션을 차례로 시도한다
     inject("25_decisive_chip");
-    const rsU = findRng({ action: "dribble" }, (evs) => evs.some((e) => e.upset), "upset");
+    {
+      const mm = S.store.match;
+      const cp = mm.home.players.find((p) => p.id === mm.ball.carrierId);
+      for (const k of ["dribble", "pass"]) cp.stats[k] = Math.round(cp.stats[k] * 2);
+      S.render();
+    }
+    const v25u = { actions: S.match.getMatchView(S.store.match, S.store.data, "home").actions };
+    let rsU = null;
+    let upAct = null;
+    for (const a of v25u.actions.filter((x) => x.enabled).map((x) => x.action)) {
+      rsU = findRng({ action: a }, (evs) => evs.some((e) => e.upset), `upset-${a}`);
+      if (rsU) { upAct = a; break; }
+    }
     assert.ok(rsU, "대이변 주사위");
     S.store.match.rngState = rsU;
     const s25u = doc.querySelector(".match-screen");
-    s25u.querySelector('button[data-action="dribble"]').click();
+    s25u.querySelector(`button[data-action="${upAct}"]`).click();
     const up = await until(() => s25u.querySelector(".m-pop .dchip-upset"), 3000);
     assert.ok(up && up.textContent === "대이변!", "대이변 칩");
     assert.ok(await until(() => !ui.busy, 6000));

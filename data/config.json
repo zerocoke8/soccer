@@ -123,7 +123,7 @@
     "boxLink": { "gkMult": 0.6 },
     "longPassAutoMin": 0.55,
     "lastAttackDeficit": 1,
-    "upsetP": 0.3,
+    "upsetP": 0.25,
     "decisiveMinDelta": 0.02,
     "bonusCap": 0.60,
     "passChainBonus": 0.1,

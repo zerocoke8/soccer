@@ -1947,7 +1947,7 @@ const FACTOR_GROUP_TEXT = { style: "상성 우위", condition: "컨디션 우위
  *   승자 확률 하락폭 — 다른 요인과 같은 잣대로 겨룬다 (2026-09-30 재수정: 예전엔 모든 요인이 2%p 미만일 때만 후보였다).
  *  decisive = 크기가 가장 큰 후보 (동률은 목록 앞 — 능력치 우위는 맨 끝이라 동률이면 요인). 가장 큰 크기도
  *   config.match.decisiveMinDelta (0.02 = 2%p) 미만이면 null (팀워크 ×1.02 같은 작은 요인은 칩이 아니다).
- *  upset = 승자의 확률 < config.match.upsetP (0.3).
+ *  upset = 승자의 확률 < config.match.upsetP (0.25, 2026-10-01 사용자 결정).
  * @returns {{ factors: object[], decisive: object|null, upset: boolean, winnerP: number }}
  */
 function chipOf(factors, p, success, m) {
@@ -2032,7 +2032,7 @@ function chipOf(factors, p, success, m) {
       decisive = { id: best.id, side: best.side, favours: winner, label: best.label, text: best.text, mult: round6(best.mult), effect };
     }
   }
-  return { factors: list, decisive, upset: winnerP < num(m.upsetP, 0.3), winnerP };
+  return { factors: list, decisive, upset: winnerP < num(m.upsetP, 0.25), winnerP };
 }
 
 /* ------------------------------------------------------------------ */
