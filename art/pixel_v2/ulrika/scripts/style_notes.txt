@@ -1,0 +1,19 @@
+Reference study: reference_pixel.png (1665 x 1842)
+Inspected crops: silver-haired winged chibi (230,675,185,155), pale-haired
+blue-costumed chibi (1250,1475,180,165), cat-eared dark-haired chibi
+(1070,875,150,155). Crops used for style comparison only.
+
+Hair/head dominates roughly 50-60% of character height excluding props.
+Tiny torso and short separated legs; feet only a few logical pixels wide.
+Three-quarter face retains two visible eyes, near eye slightly wider.
+Eyes: dark upper lash, 2-3 px vertical iris, warm lower edge, pale glint.
+Face: warm peach main plane, orange shadow on lower/side edges, small red mouth.
+Hair: broad light cap/highlight band, medium side plane, dark lower/back locks;
+chunky 2-5 px steps, not individual one-pixel hair filaments or dithering.
+Outlines: local dark purple/slate/brown, selective lighter lit edges; 1 logical px.
+Clusters are coherent flat shapes, with small isolated colour accents only for
+intentional eye glints, buckles and blush (never detached opaque pixels).
+Ulrika target: 49-50 px high at y=12..61, approximately two heads tall,
+silver ears/bob/fluffy tail; pine teal + cream crop top and shorts,
+dark harness, black knee socks and teal/cream boots. No soccer ball.
+Use <=31 opaque colours plus transparency. Binary alpha. Light upper left.

@@ -1,0 +1,19 @@
+REFERENCE STUDY (three actual crops in reference_study.png)
+Brown-haired swordsman: enormous hair cap, face right-shifted, short body;
+head + hair roughly 55-60% of visible height; stepped 2-4 pixel hair tufts.
+Blond armoured sprite: compact face with two separated vertical eyes;
+hair highlights form broad connected bands, not textured strands.
+Flame/hood sprite: local plum/teal outlines, saturated accents, costume
+compressed into very few broad clusters; eye and cheek pixels carry expression.
+
+Greta adaptation: 50 px total height, y=12..61, hair/head about 27 px.
+Broaden shoulders and arms for giantess identity, keep limbs short.
+Three-quarter front facing screen right, both amber eyes visible.
+Eyes 3 px high with 1 px white glints; tiny grin, small cheek scar.
+Crimson hair uses 4 principal red tones plus local dark outline.
+Outline 1 px dark coloured; upper-left clustered illumination.
+Typical clusters 2-5 px; large hair highlight regions 4-9 px.
+No dithering/gradients/stray opaque pixels. <=32 opaque colours.
+Readability priority: hair + horns, grin/amber eyes, broad arms,
+brass bracers, crop-top and shorts, red/gold side cloth, flame boots.
+Reference crops used only for comparison, never as drawing material.

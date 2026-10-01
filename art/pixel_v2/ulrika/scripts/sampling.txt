@@ -1,0 +1,3 @@
+Draft 1254x1254; foreground bbox (346,77)-(1101,1218).
+Sample target 33x50 at (15,12). Nine-point majority foreground sampling.
+Removed detached singleton components: 0

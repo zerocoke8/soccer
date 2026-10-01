@@ -1,0 +1,26 @@
+TASK: create ONE native 64x64 PIXEL-ART BASE SPRITE of the character in source.png (attached image 1) in the PIXEL STYLE of reference_pixel.png (attached image 2 — a sheet of chibi pixel characters from another game; use it ONLY to learn the pixel style, never copy any of its characters). Use Aseprite (Lua scripts through the Aseprite CLI). Work only inside the current directory.
+
+Aseprite CLI: "C:/Program Files (x86)/Steam/steamapps/common/Aseprite/Aseprite.exe" -b --script-param key=value --script scripts/<name>.lua   (Aseprite 1.3.18 Lua API)
+
+PIXEL STYLE TO MATCH (learned from reference_pixel.png — study several sprites in it closely before drawing):
+- VERY CHIBI proportions: about 2 heads tall — the head (with hair) is roughly half of the total height; tiny body, short stubby arms and legs, small feet. Total character height about 44-50 px (hair/ears included), feet on a baseline at y = 60-61.
+- VIEW: 3/4 FRONT view — face toward the viewer with BOTH eyes visible, body slightly turned to the RIGHT (the sprite is mirrored for the other team). Standing idle, readable silhouette.
+- FACE: big expressive eyes about 3 px tall with a coloured iris and a 1 px white highlight, eyes set wide; tiny mouth (1-3 px, can be an open smile), 1-2 px blush; small nose omitted or 1 px.
+- HAIR: big voluminous hair shape (the dominant shape), built from clean clusters of 3-4 tones with a clear highlight band; strands as chunky clusters, no noise.
+- OUTLINE: 1 px dark COLOURED outline (dark version of the local hue, not pure black); selective outline (slightly lighter) is fine on lit edges.
+- COLOUR: brighter and more saturated than the illustration, like the reference, but keep each character's hues; high readability; at most 32 colours.
+- SHADING: cel-style clusters (light from upper left), no dithering, no gradients, no single stray pixels. Alpha strictly 0 or 255 (no semi-transparent pixels). Inner anti-alias tones only where they help curves.
+- COSTUME: simplify to the 2-3 most iconic features and the main colours; accessories (ears, horns, tail, gloves, hair ornaments) slightly exaggerated so they read at 1x.
+- No soccer ball (the ball is a separate game sprite). Transparent background.
+
+DELIVERABLES (in the current directory): base.aseprite (layers welcome: hair, face, body, outfit, accessories), base.png (flattened 64x64), preview_8x.png (nearest-neighbour 8x on neutral grey), compare.png (scaled-down illustration + the 8x sprite + one or two style-similar sprites cropped from reference_pixel.png for side-by-side checking), verification.txt, and reusable scripts in scripts/.
+
+SUGGESTED PROCESS
+1. Look closely at reference_pixel.png (crop/zoom a few sprites with a script) and write down the style rules you see in scripts/style_notes.txt (head ratio, eye construction, outline colours, cluster sizes).
+2. Use $imagegen once with BOTH images as references to make a pixel-art DRAFT of this character in that chibi style (presented as a clean nearest-neighbour enlargement of a native 64x64 sprite, flat background). Save draft.png.
+3. In Aseprite Lua build the real 64x64 sprite from the draft (grid detection / cell sampling, palette reduction, background removal) and then CLEAN UP pixel by pixel with Lua drawing so it matches the style rules: face and eyes first, then hair clusters, outline continuity, hands, feet, accessories.
+4. Verify (size, alpha 0/255, colour count <= 32, bounding box, baseline, no isolated pixels) into verification.txt and export the previews.
+
+Reply with a short report: what you made, colour count, bounding box / height, verification result, known issues.
+
+CHARACTER: 울리카 — wolf beastfolk winger, confident and sporty. Big silver-grey wolf ears, big fluffy silver tail, short silver hair, fang grin, grey-teal eyes. Outfit: deep teal/pine-green crop top with cream panels and harness straps, teal shorts, black knee socks, teal-cream boots.

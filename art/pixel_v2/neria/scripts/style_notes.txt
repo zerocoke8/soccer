@@ -1,0 +1,27 @@
+Reference study: scripts/reference_study.png, made with Aseprite Lua.
+Studied four sprites: pale-blue long-hair and ponytail characters in row 7,
+white-blue winged character in row 4, and pale pink-haired character in row 2.
+These are STYLE references only. None of their designs are reused.
+
+Observed style:
+- Hair/head mass approximately half of figure height; legs about 1/6 height.
+- Head much wider than torso, with stepped rounded silhouette; face is offset
+  toward the viewing direction. Both eyes remain visible in three-quarter view.
+- Wide-set vertical eyes: dark upper lash, 2-3 px iris, bright glint; compact
+  warm cheek clusters and a tiny mouth; little or no nose rendering.
+- Large continuous white highlight cluster across top and bangs. Middle blue
+  planes and desaturated indigo shadows define only a few substantial locks.
+- Hair ramps about 3-4 tones, plus the contour; no individual thin hair noise.
+- Contours are dark desaturated purple/blue/brown, not flat black. Lit contours
+  can be lighter. Dark shapes separate white hair, warm skin, and white outfit.
+- At native scale typical small clusters are 2x2 to 3x5 pixels, with larger
+  uninterrupted crown/face regions; isolated bright pixels are functional glints.
+- Bright warm faces balance cool pale hair. Accessories are boldly simplified.
+
+Neria translation:
+- 64x64 transparent canvas; intended 48-50 px height, baseline y60 or y61.
+- Big white hair cap, straight ankle-length curtains with aqua tips.
+- Blue flower ornament, high navy collar, white/cerulean shirt and navy shorts.
+- Exaggerated keeper gloves, short blue-white socks, tiny coral tassel.
+- Calm blue-grey eyes; no ball. Light comes from upper left.
+- Final art is native-pixel cleanup in Aseprite, not a smoothed thumbnail.

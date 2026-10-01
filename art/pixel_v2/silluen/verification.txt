@@ -1,0 +1,22 @@
+SILLUEN BASE SPRITE - VERIFICATION
+Tool: Aseprite 1.3.18.6, Lua drawing and export
+Canvas: 64 x 64 pixels
+Frames: 1
+Opaque RGB colours: 27 (limit 32)
+Total RGBA values including transparent: 28
+Alpha values: 0, 255; binary check: true
+Bounding box, inclusive: x=13..50, y=12..61
+Width: 38 px; height: 50 px
+Foot baseline: y=61 (zero-based)
+Opaque pixels: 1258
+8-connected opaque components: 1 (1258 pixels)
+4-connected opaque components: 1 (1258 pixels)
+Isolated opaque pixels (8-neighbour): 0
+Reopened ASEPRITE composite vs PNG mismatches: 0
+Preview: 512 x 512, exact nearest-neighbour 8x; neutral grey #808484
+Head region including ornament: y=12..38, 27/50 = 54% of height
+Intentional single-colour pixels: eye catchlights, tiny jewellery and leaf/face accents; none detached from silhouette.
+Visual review: both green eyes visible; calm straight silver-sage hair; leaf ornament; long pointed ears; ivory/moss/ochre costume; long panels; white socks; small boots; no ball.
+Known limits: fine embroidery simplified; generated draft was not native-grid accurate and was rebuilt using explicit native-pixel clusters.
+Layers: hidden sampled draft plus seven editable cleanup layers. Hidden draft excluded from PNG and colour counts.
+Result: PASS
