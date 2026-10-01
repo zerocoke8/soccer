@@ -1,6 +1,7 @@
 // 카드 레슨 개편안(docs/OUTGAME_LESSON_draft.md · OUTGAME_CARDS_draft.md) 수치 점검용 간이 시뮬 — 기획 확인용, 게임 코드 아님
-// 실행: GS=0.5 CR=0.3 UCR=0.2 CTW=3 node tools/drafts/lesson_sim.mjs 400   (카드 목록 초안 7장의 조건)
-// node lesson_sim.mjs [runs]
+// 실행: GS=0.5 CR=0.3 UCR=0.2 CTW=3 SK=0.3 PK=0.05 PRK=0.2 PRC=0.2 node tools/drafts/lesson_sim.mjs 400   (카드 목록 초안 7장의 조건)
+//   FORM=2-2-2|3-1-2|1-3-2|2-3-1 로 포메이션, PLANS=ace,team,counter,poss,press 로 방침을 고른다.
+// 카드 위력은 처음 생각한 값(문서 위력 × 2)으로 적혀 있고 GS=0.5 가 절반으로 줄인다.
 import fs from "node:fs";
 const ROOT = "C:/Users/민철/Desktop/soccer/data/";
 const CH = JSON.parse(fs.readFileSync(ROOT + "characters.json", "utf8"));
@@ -9,13 +10,23 @@ const chars = Object.fromEntries((Array.isArray(CH) ? CH : CH.characters).map((c
 const STATS = ["shoot", "dribble", "pass", "defense", "physical"];
 const SUB = { shoot: "dribble", dribble: "pass", pass: "shoot", defense: "physical", physical: "defense" };
 const MAINS = { GK: ["defense", "physical"], DF: ["defense", "physical"], MF: ["dribble", "pass"], FW: ["shoot", "dribble"] };
-const SQUAD = [["GK", "ch_spirit_keeper"], ["DF", "ch_dwarf_wall"], ["DF", "ch_human_captain"], ["MF", "ch_elf_playmaker"], ["MF", "ch_human_runner"], ["FW", "ch_wolf_winger"], ["FW", "ch_giant_striker"]];
+const FORMS = {
+  "2-2-2": [["GK", "ch_spirit_keeper"], ["DF", "ch_dwarf_wall"], ["DF", "ch_human_captain"], ["MF", "ch_elf_playmaker"], ["MF", "ch_human_runner"], ["FW", "ch_wolf_winger"], ["FW", "ch_giant_striker"]],
+  "3-1-2": [["GK", "ch_spirit_keeper"], ["DF", "ch_dwarf_wall"], ["DF", "ch_human_captain"], ["MF", "ch_elf_playmaker"], ["DF", "ch_human_runner"], ["FW", "ch_wolf_winger"], ["FW", "ch_giant_striker"]],
+  "1-3-2": [["GK", "ch_spirit_keeper"], ["DF", "ch_dwarf_wall"], ["MF", "ch_human_captain"], ["MF", "ch_elf_playmaker"], ["MF", "ch_human_runner"], ["FW", "ch_wolf_winger"], ["FW", "ch_giant_striker"]],
+  "2-3-1": [["GK", "ch_spirit_keeper"], ["DF", "ch_dwarf_wall"], ["DF", "ch_human_captain"], ["MF", "ch_elf_playmaker"], ["MF", "ch_human_runner"], ["MF", "ch_wolf_winger"], ["FW", "ch_giant_striker"]],
+};
+const SQUAD = FORMS[process.env.FORM || "2-2-2"];
+const ATTL = ["MF", "FW"];
 const COACHES = ["harna", "selia", "ornella", "barbara", "hanna"]; // 기본 서포트 6장 중 친구 타입(루미) 제외
 const COACH_TYPE = { harna: "shoot", selia: "dribble", ornella: "pass", barbara: "defense", hanna: "physical", joy: "shoot", irene: "pass" };
 
 const P = {
   focusK: 12, moodK: 3, hojoMult: 1.5, subRatio: 20 / 56, autoRatio: 0.35, costRate: Number(process.env.CR || 0.3), uniqueCostRate: Number(process.env.UCR || 0.2), gainScale: Number(process.env.GS || 1), clearTw: Number(process.env.CTW || 0),
   turns: [6, 7, 8], hand: 3, failLoss: 5, injuryChance: 0.5, coachTypeMult: 1.3, special: 0.5, uniqueMult: 1.5,
+  stealK: Number(process.env.SK || 0.25), stealCap: 4,
+  possK: Number(process.env.PK || 0.05), possCap: 8, possFailHalf: process.env.PHALF === "1", possNoMF: Number(process.env.PNOMF ?? 2),
+  pressK: Number(process.env.PRK || 0.2), pressCostK: Number(process.env.PRC || 0.3), pressCap: 3, pressHeal: 4,
 };
 const failRate = (st) => (st >= 60 ? 0.02 : st >= 40 ? 0.1 : st >= 20 ? 0.25 : 0.45);
 
@@ -55,6 +66,27 @@ const CARDS = {
   moodMaker: { fam: "team", t: "none", moodX2: true, exhaust: true },
   breathTogether: { fam: "team", t: "none", noDecay: 3 },
   linkLine: { fam: "team", t: "line", lines: ["GK", "DF"], power: 70, perMood: 5 },
+  // 역습형 (탈취) — 시뮬 단위 = 문서 위력 × 2
+  lineUp: { fam: "counter", t: "line", lines: ["GK", "DF"], power: 64, stealSet: 2 },
+  longBall: { fam: "counter", t: "none", steal: 1, extra: 1 },
+  counterSprint: { fam: "counter", t: "line", lines: ["MF", "FW"], power: 72, stealPer: 0.4 },
+  finisher: { fam: "counter", t: "single", attackOnly: true, power: 60, stealPer: 0.45 },
+  recover: { fam: "counter", t: "none", healLines: ["GK", "DF"], heal: 12, steal: 1 },
+  allCounter: { fam: "counter", t: "line", lines: ["GK", "DF", "MF", "FW"], power: 60, twOnSteal: 2 },
+  // 점유형 (점유) — MF 없는 대상 카드는 점유 −2 (possKeep 카드 제외)
+  triangle: { fam: "poss", t: "pair", power: 36, tw: 2, poss: 2 },
+  circulate: { fam: "poss", t: "none", poss: 3, heal1: 15 },
+  tempo: { fam: "poss", t: "none", possGuard: 1, draw: 1 },
+  midControl: { fam: "poss", t: "line", lines: ["MF"], power: 68, poss: 2 },
+  dominate: { fam: "poss", t: "line", lines: ["MF", "FW"], power: 64, possX2: true },
+  backBuild: { fam: "poss", t: "line", lines: ["GK", "DF"], power: 68, possKeep: true },
+  // 압박형 (압박 단계)
+  frontPress: { fam: "press", t: "line", lines: ["MF", "FW"], power: 68, press: 1 },
+  fullPress: { fam: "press", t: "none", press: 2, extra: 1 },
+  sixSec: { fam: "press", t: "single", power: 56, press: 1, noPressCost: true },
+  dropLine: { fam: "press", t: "none", dropLine: true, nextNoFail: true },
+  allOut: { fam: "press", t: "line", lines: ["GK", "DF", "MF", "FW"], power: 60, perPress: 20 },
+  gegen: { fam: "press", t: "line", lines: ["MF", "FW"], power: 80, noPressCostAlways: true },
   // 코치 (유대 80 강화판은 생략)
   harna: { fam: "coach", coach: "harna", t: "line", lines: ["FW"], power: 80, lastTurnX2: true },
   selia: { fam: "coach", coach: "selia", t: "pair", power: 40, draw: 1 },
@@ -77,6 +109,9 @@ const REWARD_POOL = {
   common: ["fwDrill", "mfDrill", "dfDrill", "gkSession", "attack", "defense", "oneTwo", "oneOnOne", "board", "icing"],
   ace: ["hojoUp", "focusRoutine", "aceTraining", "onePoint", "immerse", "breakLimit", "routine", "breath"],
   team: ["highFive", "setPiece", "passMove", "oneTeam", "chant", "moodMaker", "breathTogether", "linkLine"],
+  counter: ["lineUp", "longBall", "counterSprint", "finisher", "recover", "allCounter"],
+  poss: ["triangle", "circulate", "tempo", "midControl", "dominate", "backBuild"],
+  press: ["frontPress", "fullPress", "sixSec", "dropLine", "allOut", "gegen"],
 };
 
 // ── 난수 ──
@@ -95,7 +130,7 @@ function runLesson(team, deckIds, stat, turns, special, r, plan, track) {
   let deck = shuffle(deckIds.filter((c) => !(c.unique && !avail(team[c.owner]))).slice(), r);
   let discard = [];
   const exhausted = new Set();
-  const B = { hojo: 0, focus: 0, mood: 0, noDecay: 0, nextPct: 0, nextPairPct: 0, nextNoFail: false, nextCostZero: false, singleBonus: 0, extraDraw: 0 };
+  const B = { hojo: 0, focus: 0, mood: 0, noDecay: 0, nextPct: 0, nextPairPct: 0, nextNoFail: false, nextCostZero: false, singleBonus: 0, extraDraw: 0, steal: 0, poss: 0, possGuard: 0, press: 0 };
   const draw = (n) => { const h = []; for (let k = 0; k < n; k++) { if (!deck.length) { deck = shuffle(discard, r); discard = []; } if (!deck.length) break; h.push(deck.pop()); } return h; };
   const special1 = 1 + (special ? P.special : 0);
   const gainFor = (p, perPower, mult) => Math.round(perPower * p.growth[stat] * mult * special1 * P.gainScale);
@@ -104,7 +139,7 @@ function runLesson(team, deckIds, stat, turns, special, r, plan, track) {
     const live = team.filter(avail);
     if (def.t === "line") return live.filter((p) => def.lines.includes(p.pos));
     if (def.t === "owner") { const o = team[c.owner]; if (!avail(o)) return []; if (def.pairWith) { const mate = pickBest(live.filter((p) => p !== o), 1); return [o, ...mate]; } return [o]; }
-    if (def.t === "single") return pickBest(live, 1);
+    if (def.t === "single") return pickBest(def.attackOnly ? live.filter((p) => ATTL.includes(p.pos)) : live, 1);
     if (def.t === "pair") return pickBest(live, 2);
     return [];
   }
@@ -141,11 +176,20 @@ function runLesson(team, deckIds, stat, turns, special, r, plan, track) {
     if (B.hojo > 0 && tg.length) mult *= P.hojoMult;
     if (def.coach && COACH_TYPE[def.coach] === stat) mult *= P.coachTypeMult;
     if (def.lastTurnX2 && turnIdx === turns - 1) mult *= 2;
-    const rate = def.costRate || P.costRate;
+    const hasAtt = tg.some((p) => ATTL.includes(p.pos));
+    const isDefOnly = tg.length > 0 && !hasAtt;
+    const side = tg.length ? (hasAtt ? "att" : "def") : null;
+    const consumes = process.env.CV === "2" ? side && B.steal > 0 && side !== B.stealSide : hasAtt;
+    if (plan === "counter" && consumes && B.steal > 0) mult *= 1 + (def.stealPer || P.stealK) * B.steal;
+    if (plan === "poss" && tg.length && B.poss > 0) mult *= 1 + P.possK * B.poss * (def.possX2 ? 2 : 1);
+    let costMult = 1;
+    if (plan === "press" && tg.length && B.press > 0) { mult *= 1 + P.pressK * B.press; if (!(def.noPressCost && B.press >= 2) && !def.noPressCostAlways) costMult = 1 + P.pressCostK * B.press; }
+    if (def.perPress && tg.length) per = per.map((v) => v + (def.perPress * B.press) / tg.length);
+    const rate = (def.costRate || P.costRate) * costMult;
     const costs = per.map((v) => (B.nextCostZero ? 0 : Math.round(v * rate)));
     const fp = tg.length && !def.noFail && !B.nextNoFail ? Math.min(0.95, Math.max(...tg.map((p) => failRate(p.stamina))) + (def.failPlus || 0)) : 0;
     const gains = tg.map((p, k) => gainFor(p, per[k], mult));
-    return { def, tg, per, gains, costs, fp };
+    return { def, tg, per, gains, costs, fp, hasAtt, isDefOnly, side, consumes };
   }
   function value(res, remaining) {
     const { def, tg, gains, fp } = res;
@@ -167,6 +211,22 @@ function runLesson(team, deckIds, stat, turns, special, r, plan, track) {
     if (def.healAll) v += def.healAll * 7 * 0.3 + lowSt * 2;
     if (def.healOwner || def.heal) v += 8 + lowSt * 2;
     if (def.tw) v += def.tw * 2;
+    if (plan === "counter") {
+      const sg = process.env.CV === "2" ? (res.side ? def.stealSet || 1 : def.steal || 0) * (res.side && res.side !== B.stealSide ? 1 : 1) : res.isDefOnly ? def.stealSet || 1 : def.t === "none" ? def.steal || 0 : 0;
+      if (sg) v += Math.min(P.stealCap - B.steal, sg) * P.stealK * 40 * (remaining > 0 ? 0.8 : 0);
+    }
+    if (plan === "poss") {
+      const g = (tg.length && tg.some((p) => p.pos === "MF") ? 1 : 0) + (def.poss || 0);
+      v += Math.min(P.possCap - B.poss, g) * P.possK * 40 * remaining * 0.7;
+      if (tg.length && !B.possGuard) v -= fp * B.poss * P.possK * 40 * remaining;
+      if (tg.length && !tg.some((p) => p.pos === "MF") && !def.possKeep) v -= Math.min(P.possNoMF, B.poss) * P.possK * 40 * remaining * 0.7;
+      if (def.possGuard) v += B.poss * P.possK * 40 * remaining * 0.1 + 5;
+    }
+    if (plan === "press") {
+      if (def.press) v += Math.min(P.pressCap - B.press, def.press) * (P.pressK * 40 * remaining * 0.6 - 4);
+      const lowSt2 = team.filter((p) => avail(p) && p.stamina < 50).length;
+      if (def.dropLine) v += B.press * 7 * 6 * 0.3 + lowSt2 * 3 - (remaining > 1 ? B.press * P.pressK * 40 * 0.8 : 0);
+    }
     // 체력 부담
     v -= res.costs.reduce((a, b) => a + b, 0) * 0.15;
     return v;
@@ -189,7 +249,27 @@ function runLesson(team, deckIds, stat, turns, special, r, plan, track) {
       if (B.hojo > 0) B.hojo--;
       B.nextPct = 0; B.nextNoFail = false; B.nextCostZero = false;
       if (def.t === "pair") B.nextPairPct = 0;
+      if (plan === "counter") {
+        if (process.env.CV === "2") {
+          if (res.consumes) { L.stealUsed = (L.stealUsed || 0) + B.steal; L.stealPays = (L.stealPays || 0) + 1; B.steal = 0; }
+          if (!failer) { B.steal = Math.min(P.stealCap, B.steal + (def.stealSet || 1)); B.stealSide = res.side; }
+        } else {
+        if (res.hasAtt) { if (B.steal > 0) { L.stealUsed = (L.stealUsed || 0) + B.steal; L.stealPays = (L.stealPays || 0) + 1; if (def.twOnSteal) L.tw += def.twOnSteal; } B.steal = 0; }
+        else if (!failer) B.steal = Math.min(P.stealCap, B.steal + (def.stealSet || 1));
+        }
+      }
+      if (plan === "poss") {
+        if (failer) { if (B.possGuard > 0) B.possGuard--; else { L.possLost = (L.possLost || 0) + B.poss; L.possBreaks = (L.possBreaks || 0) + 1; B.poss = P.possFailHalf ? Math.floor(B.poss / 2) : 0; } }
+        else if (tg.some((p) => p.pos === "MF")) B.poss = Math.min(P.possCap, B.poss + 1);
+        else if (!def.possKeep) B.poss = Math.max(0, B.poss - P.possNoMF);
+      }
     }
+    if (plan === "counter" && def.steal) B.steal = Math.min(P.stealCap, B.steal + def.steal);
+    if (plan === "poss" && def.poss) B.poss = Math.min(P.possCap, B.poss + def.poss);
+    if (plan === "poss" && def.possGuard) B.possGuard += def.possGuard;
+    if (plan === "press" && def.press) B.press = Math.min(P.pressCap, B.press + def.press);
+    if (plan === "press" && def.dropLine) { team.filter(avail).forEach((p) => (p.stamina = Math.min(100, p.stamina + 6 * B.press))); B.press = 0; }
+    if (plan === "press" && res.tg.length) { L.pressSum = (L.pressSum || 0) + B.press; L.pressN = (L.pressN || 0) + 1; }
     if (def.tw) L.tw += def.tw;
     if (def.hojo) B.hojo += def.hojo;
     if (def.focus) B.focus += def.focus;
@@ -223,7 +303,8 @@ function runLesson(team, deckIds, stat, turns, special, r, plan, track) {
       const live = team.filter(avail);
       const restV = live.filter((p) => p.stamina < 40).length * 18 + (live.some((p) => p.stamina < 20) ? 30 : 0);
       if (!best || restV > bestV) {
-        if (plays === 1 && t >= 0) { const p = live.sort((a, b) => a.stamina - b.stamina)[0]; if (p) p.stamina = Math.min(100, p.stamina + 20); live.forEach((q) => q !== p && (q.stamina = Math.min(100, q.stamina + 5))); L.rests++; }
+        if (plays === 1 && t >= 0) { const p = live.sort((a, b) => a.stamina - b.stamina)[0]; if (p) p.stamina = Math.min(100, p.stamina + 20); live.forEach((q) => q !== p && (q.stamina = Math.min(100, q.stamina + 5))); L.rests++;
+          if (plan === "press" && B.press > 0) { live.forEach((q) => (q.stamina = Math.min(100, q.stamina + P.pressHeal * B.press))); B.press = 0; } }
         break;
       }
       hand.splice(hand.indexOf(best.c), 1);
@@ -271,6 +352,9 @@ function runOnce(seed, plan) {
       out.lessons.push({ season, stat, special, score: L.score, sub: L.sub, auto: L.auto, plays: L.plays });
       out.tw += L.tw + P.clearTw; out.injuries += L.injuries; out.fails += L.fails; out.rests += L.rests;
       L.targetCount.forEach((n, i) => (out.targetCount[i] += n));
+      out.stealUsed = (out.stealUsed || 0) + (L.stealUsed || 0); out.stealPays = (out.stealPays || 0) + (L.stealPays || 0);
+      out.possLost = (out.possLost || 0) + (L.possLost || 0); out.possBreaks = (out.possBreaks || 0) + (L.possBreaks || 0);
+      out.pressSum = (out.pressSum || 0) + (L.pressSum || 0); out.pressN = (out.pressN || 0) + (L.pressN || 0);
       // 보상 3택1 (클리어 판정은 나중에 목표치로 — 여기선 항상 보상)
       const pool = [...REWARD_POOL.common, ...REWARD_POOL[plan], ...COACHES.flatMap((c) => [c, c])];
       const offer = shuffle(pool.slice(), r).slice(0, 3);
@@ -287,13 +371,17 @@ function runOnce(seed, plan) {
 }
 
 const N = Number(process.argv[2] || 400);
-for (const plan of ["ace", "team"]) {
+for (const plan of (process.env.PLANS || "ace,team,counter,poss,press").split(",")) {
   const agg = { bySeason: [[], [], []], total: 0, sub: 0, auto: 0, tw: 0, inj: 0, fails: 0, rests: 0, weekRests: 0, lessons: 0, tc: Array(7).fill(0), coachPicks: 0 };
   for (let s = 1; s <= N; s++) {
     const o = runOnce(s * 7919, plan);
     o.lessons.forEach((l) => { agg.bySeason[l.season].push(l.score); agg.total += l.score; agg.sub += l.sub; agg.auto += l.auto; agg.lessons++; });
     agg.tw += o.tw; agg.inj += o.injuries; agg.fails += o.fails; agg.rests += o.rests; agg.weekRests += o.weekRests; agg.coachPicks += o.coachPicks;
     o.targetCount.forEach((n, i) => (agg.tc[i] += n));
+    agg.ex = agg.ex || { su: 0, sp: 0, pl: 0, pb: 0, ps: 0, pn: 0 };
+    agg.ex.su += o.stealUsed || 0; agg.ex.sp += o.stealPays || 0; agg.ex.pl += o.possLost || 0; agg.ex.pb += o.possBreaks || 0; agg.ex.ps += o.pressSum || 0; agg.ex.pn += o.pressN || 0;
+    agg.pstats = agg.pstats || SQUAD.map(() => Object.fromEntries(STATS.map((s) => [s, 0])));
+    o.stats.forEach((st, i) => STATS.forEach((s) => (agg.pstats[i][s] += st[s])));
   }
   const mean = (a) => a.reduce((x, y) => x + y, 0) / a.length;
   const pct = (a, q) => { const b = a.slice().sort((x, y) => x - y); return b[Math.floor(q * (b.length - 1))]; };
@@ -301,5 +389,12 @@ for (const plan of ["ace", "team"]) {
   agg.bySeason.forEach((a, i) => console.log(`시즌${i + 1} 레슨 점수: 평균 ${mean(a).toFixed(0)}  p30 ${pct(a, 0.3)}  p70 ${pct(a, 0.7)}  p90 ${pct(a, 0.9)}  (레슨 ${a.length / N}회/런)`));
   console.log(`런당: 레슨 수 ${(agg.lessons / N).toFixed(1)}  주 스탯 ${(agg.total / N).toFixed(0)}  부 스탯 ${(agg.sub / N).toFixed(0)}  자율 ${(agg.auto / N).toFixed(0)}  합 ${((agg.total + agg.sub + agg.auto) / N).toFixed(0)}`);
   console.log(`런당: 팀워크(레슨+자유주) ${(agg.tw / N).toFixed(0)}  실패 ${(agg.fails / N).toFixed(2)}  부상 ${(agg.inj / N).toFixed(2)}  레슨 중 쉬기 ${(agg.rests / N).toFixed(1)}  주 휴식 ${(agg.weekRests / N).toFixed(1)}  코치 카드 ${(agg.coachPicks / N).toFixed(1)}장`);
+  const mainOf = (i) => { const [pos] = SQUAD[i]; const m = MAINS[pos]; return (agg.pstats[i][m[0]] + agg.pstats[i][m[1]]) / N; };
+  const totOf = (i) => STATS.reduce((a, s) => a + agg.pstats[i][s], 0) / N;
+  const lineAvg = (ls, f) => { const idx = SQUAD.map((x, i) => [x[0], i]).filter(([p]) => ls.includes(p)).map(([, i]) => i); return idx.reduce((a, i) => a + f(i), 0) / idx.length; };
+  console.log(`라인별 1인 성장(주스탯2개 합 / 5스탯 합): 수비진 ${lineAvg(["GK","DF"], mainOf).toFixed(0)} / ${lineAvg(["GK","DF"], totOf).toFixed(0)}  MF ${lineAvg(["MF"], mainOf).toFixed(0)} / ${lineAvg(["MF"], totOf).toFixed(0)}  FW ${lineAvg(["FW"], mainOf).toFixed(0)} / ${lineAvg(["FW"], totOf).toFixed(0)}  최저 선수 주스탯 ${Math.min(...SQUAD.map((_, i) => mainOf(i))).toFixed(0)}`);
+  if (plan === "counter") console.log(`탈취: 런당 사용 ${(agg.ex.sp / N).toFixed(1)}회, 회당 평균 ${(agg.ex.su / Math.max(1, agg.ex.sp)).toFixed(2)}스택`);
+  if (plan === "poss") console.log(`점유: 런당 깨짐 ${(agg.ex.pb / N).toFixed(2)}회, 깨질 때 평균 ${(agg.ex.pl / Math.max(1, agg.ex.pb)).toFixed(1)}스택`);
+  if (plan === "press") console.log(`압박: 대상 카드 낼 때 평균 단계 ${(agg.ex.ps / Math.max(1, agg.ex.pn)).toFixed(2)}`);
   console.log(`선수별 대상 횟수/런: ${SQUAD.map(([pos, id], i) => `${chars[id].name}(${pos}) ${(agg.tc[i] / N).toFixed(1)}`).join(" · ")}`);
 }
