@@ -8,4 +8,4 @@ Thumbs.db
 art/**/events_*.jsonl
 art/**/err_*.txt
 art/**/last_*.txt
-art/**/reference.png
+art/**/reference*.png

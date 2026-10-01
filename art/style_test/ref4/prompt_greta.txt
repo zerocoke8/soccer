@@ -1,0 +1,21 @@
+$imagegen
+Generate exactly ONE high-resolution full-body character illustration (portrait orientation) for a game's character card / skill cut-in. Use BOTH attached images as style reference inputs for the image generation (drawing technique and matte finish only). Use the highest-quality image setting available.
+
+STYLE REFERENCES: two attached images are references for DRAWING TECHNIQUE and FINISH ONLY. Do NOT copy their characters, faces, swords or outfits.
+Take from them:
+- refined anime character-design illustration with crisp thin lineart and confident varied line weight
+- MATTE, SOFT, FLAT finish like the second reference (teal kimono cat-eared woman): flat cel colours with very gentle shading, slightly muted / desaturated tones, a calm paper-like look
+- NO glossy or shiny rendering: no specular highlights on skin, hair, fabric, leather or metal, no sparkles, no glints, no bloom, no glow, no shine lines; metal ornaments are drawn as flat ochre/brass colour with simple shading
+- HAIR: long hair hangs down calmly and naturally with gravity, falling straight or in soft gentle waves along the body, only a slight sway — NOT blown by wind, NOT floating or flaring out, no dramatic flowing strands
+- elegant fashion-model proportions, calm poised stance (quiet confidence rather than wild action)
+- very detailed ornate costume design: layered garments, high collars, straps, harness belts, buckles, metal fittings, tassels and cords, asymmetric long coat-tails or skirt panels, embroidered emblem / motif patterns on fabric
+- beastfolk features (if any): large furry ears and a big fluffy tail drawn with soft matte fur
+- full body visible head to toe with a small margin, single character, centred, plain warm off-white background, a faint flat floor shadow is fine, no scenery
+COLOUR: each character has her OWN palette (given below) — varied and harmonious, but in muted matte tones like reference 2, not neon, not glossy.
+Hard rules: no text, no letters, no numbers, no logos, no watermark, no signature, no frame. The character is an adult woman. Tasteful sports-fashion outfit, no nudity.
+
+GAME CONTEXT: a fantasy SOCCER (football) gacha game where every player is a woman. The costume is a fantasy soccer uniform reinterpreted in this ornate fashion (sporty top with a high collar, shorts with long embroidered side panels or a coat-tail, knee socks or leg wraps, ornate SOCCER BOOTS — no high heels), and she holds or rests a hand / foot on an ornate soccer ball whose colours match her palette. No swords or weapons.
+
+CHARACTER: 그레타 — giant-race striker (forward), fire element, power type. A GIANTESS: much taller and bigger than normal women, powerfully muscular yet voluptuous (broad shoulders, strong arms and thighs, full figure). Short crimson hair, small stubby horns, a cheek scar, wide fearless grin. PALETTE (muted): brick red, burnt orange and mustard with charcoal brown and brass. Costume adapted to her huge frame: sleeveless high-collar top, heavy buckled harness belts, leather-and-brass bracers. Pose: standing tall, ball tucked under one arm, other hand on her hip, cheerful and imposing.
+
+Save the final PNG in the current working directory as greta.png. Do not create any other files. Reply with the saved file path only.
