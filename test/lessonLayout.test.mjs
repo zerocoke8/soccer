@@ -130,3 +130,33 @@ test("fxPlan: 실제 엔진 lastFx (기초 훈련 = 전원 → 턴 끝 → 새 �
   assert.ok(p.turn && p.turn.turn === 1, "1장 = 사용 1 → 턴 끝");
   assert.deepEqual(p.draw, v.hand.map((c) => c.uid), "새 손패");
 });
+
+// 플레이 점검 (2026-10-02): 보상 · 상담 카드 앞면의 비용이 "체력 −위력×0.6" 이 아니라 실제 1인 비용 (엔진 cards.staminaCost 와 같은 값)
+test("cards.js estimateCost/costText: 보상 · 상담 카드 비용 = 엔진 1인 비용 (기본 위력 · 범위 인원, 강화판 · 유대 80 은 비용 그대로)", async () => {
+  const { estimateCost, costText, rangeCount } = await import("../js/ui/cards.js");
+  const engineCards = await import("../js/engine/cards.js");
+  const data = loadData();
+  const cfg = data.config;
+  const st = lessonRun.createRun({ data, seed: "cost-ui", squad: cfg.defaultSquad.slots, formation: cfg.defaultSquad.formation, supportIds: cfg.defaultSupports, tactics: cfg.defaultTactics, policy: "team" });
+  const players = st.players;
+  let checked = 0;
+  for (const raw of data.cards.cards) {
+    for (const plus of [false, true]) {
+      if (plus && !engineCards.canUpgrade(raw)) continue;
+      const def = engineCards.resolveCardDef(data, raw, { plus });
+      const kind = def.target.kind;
+      const view = { cardId: raw.id, targetKind: kind, target: def.target, power: def.power, costRate: def.costRate, plus };
+      const est = estimateCost(view, raw, players);
+      if (!["all", "line", "attack", "defense", "single", "pair", "owner"].includes(kind) || raw.power == null) { assert.equal(est, null, raw.id); continue; }
+      const count = rangeCount(kind, def.target, players);
+      if (["all", "line", "attack", "defense"].includes(kind) && !count) { assert.equal(est, null, `${raw.id}: 인원 0`); continue; }
+      assert.equal(est, engineCards.staminaCost(def, { count: count || 1 }), `${raw.id}${plus ? "+" : ""}`);
+      assert.match(costText(view, raw, players), /^체력 −\d+( \(1인당\))?$/, raw.id);
+      checked++;
+    }
+  }
+  assert.ok(checked > 60, `비용 확인 ${checked}장`);
+  // 선수를 모르면 예전 문구로
+  const basic = data.cards.cards.find((c) => c.id === "cd_basic");
+  assert.equal(costText({ cardId: "cd_basic", targetKind: "all", costRate: 0.6 }, basic, null), "체력 −위력×0.6");
+});

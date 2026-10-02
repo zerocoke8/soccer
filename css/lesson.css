@@ -340,6 +340,7 @@
 .ls-btns { display: flex; flex-direction: column; justify-content: center; gap: 8px; }
 .ls-btns .btn { position: relative; justify-content: center; min-height: 46px; }
 .ls-btns .ls-play { min-height: 58px; font-size: 17px; }
+.ls-btns .ls-play:disabled { background: var(--panel-2); border-color: var(--border); color: var(--muted); } /* 카드를 고르기 전 [내기] 가 눌러야 할 버튼처럼 보이지 않게 (플레이 점검) */
 .ls-btns .rec-badge { position: absolute; top: -8px; right: -6px; font-size: 10px; padding: 1px 6px; background: var(--accent); color: #041224; }
 .ls-btns .btn.recommended { border-color: var(--accent); }
 

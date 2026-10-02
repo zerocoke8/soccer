@@ -80,14 +80,62 @@ export function powerText(view, def) {
   return `1인 ${p}`;
 }
 
-/** 비용 줄: 손패 뷰(cost 있음) "체력 −12" (범위 · 짝은 "1인당"), 그 밖(보상 · 상담 카드 뷰) = 비용 비율 "체력 −위력×0.6" */
-export function costText(view) {
-  const kind = view.targetKind;
-  if (view.mode === 'support' || kind === 'none' || kind === 'tap') return '체력 소모 없음';
-  if (Number.isFinite(view.cost)) {
-    const per = ['all', 'line', 'attack', 'defense', 'pair'].includes(kind) ? ' (1인당)' : '';
-    return `체력 −${view.cost}${per}`;
+const RANGE_KINDS = ['all', 'line', 'attack', 'defense'];
+
+/**
+ * 범위 카드의 지금 대상 수 (보상 · 상담 · 덱 카드 뷰에는 count 가 없다 → 선수 배치로 센다). 결장은 세지 않는다 (레슨 시작 때 빠지므로 대략값).
+ * @param {string} kind all | line | attack | defense
+ * @param {object} target cards.json target ({ line })
+ * @param {object[]} players RunPlayer 목록 (position 또는 slot)
+ * @returns {number} 모르면 0
+ */
+export function rangeCount(kind, target, players) {
+  const ps = (players || []).filter((p) => p && (p.position || p.slot));
+  if (!ps.length || !RANGE_KINDS.includes(kind)) return 0;
+  const pos = ps.map((p) => p.position || L.positionOfSlot(p.slot));
+  if (kind === 'all') return pos.length;
+  if (kind === 'line') return pos.filter((x) => x === target?.line).length;
+  if (kind === 'attack') return pos.filter((x) => x === 'MF' || x === 'FW').length;
+  return pos.filter((x) => x === 'GK' || x === 'DF').length;
+}
+
+/**
+ * 손패 밖(보상 · 상담 · 덱) 카드의 1인 체력 비용 = round(강화 전 기본 위력 / 대상 수 × 비용 비율) — 엔진 cards.staminaCost 와 같은 식
+ * (분위기 · 압박 몫 · 압박 비용 배율은 레슨 중 값이라 뺀다). 정의 · 인원을 모르면 null.
+ * @param {object} view 카드 뷰 (targetKind · target · costRate)
+ * @param {object|null} def cards.json 원본 (기본 power — 강화판 · 유대 80 증가분은 비용을 올리지 않는다, D12)
+ * @param {object[]} [players]
+ * @returns {number|null}
+ */
+export function estimateCost(view, def, players) {
+  const kind = view.targetKind ?? def?.target?.kind;
+  const base = def?.power;
+  const rate = Number.isFinite(view.costRate) ? view.costRate : def?.costRate;
+  if (!Number.isFinite(base) || !Number.isFinite(rate)) return null;
+  let per;
+  if (RANGE_KINDS.includes(kind)) {
+    const n = rangeCount(kind, view.target || def?.target, players);
+    if (!(n > 0)) return null;
+    per = base / n;
+  } else if (['single', 'pair', 'owner'].includes(kind)) {
+    per = base;
+  } else {
+    return null;
   }
+  return Math.round(Number((per * rate).toFixed(9)));
+}
+
+/**
+ * 비용 줄: 손패 뷰(cost 있음) "체력 −12" (범위 · 짝은 "1인당"), 그 밖(보상 · 상담 카드 뷰)은 선수 배치로 센 1인 비용
+ * (def · players 를 모르면 비용 비율 "체력 −위력×0.6")
+ */
+export function costText(view, def = null, players = null) {
+  const kind = view.targetKind ?? def?.target?.kind;
+  if (view.mode === 'support' || kind === 'none' || kind === 'tap') return '체력 소모 없음';
+  const per = ['all', 'line', 'attack', 'defense', 'pair'].includes(kind) ? ' (1인당)' : '';
+  if (Number.isFinite(view.cost)) return `체력 −${view.cost}${per}`;
+  const est = estimateCost(view, def, players);
+  if (est != null) return `체력 −${est}${per}`;
   if (Number.isFinite(view.costRate)) return `체력 −위력×${view.costRate}`;
   return '';
 }
@@ -97,9 +145,13 @@ export function costText(view) {
  * @param {object} view 카드 뷰
  * @param {object} [opts]
  */
-export function cardFace(view, opts = {}) {
+export function cardFace(view0, opts = {}) {
   const { data, players, recommended = false, selected = false, onClick, title, tag } = opts;
-  const def = cardDefOf(data, view.cardId);
+  const def = cardDefOf(data, view0.cardId);
+  // 보상 · 상담 카드 뷰에는 범위 카드 인원(count)이 없다 → 선수 배치로 세어 "합계 40 → 1인 20" 을 손패와 같게
+  const kind0 = view0.targetKind ?? def?.target?.kind;
+  const view = view0.count == null && RANGE_KINDS.includes(kind0) && rangeCount(kind0, view0.target || def?.target, players) > 0
+    ? { ...view0, count: rangeCount(kind0, view0.target || def?.target, players) } : view0;
   const family = view.family ?? def?.family ?? 'common';
   const dim = opts.dim ?? (view.playable === false);
   const reason = opts.reason ?? (view.playable === false ? (view.deadReason || '낼 수 없음') : null);
@@ -108,7 +160,9 @@ export function cardFace(view, opts = {}) {
     : family === 'coach'
       ? `코치${view.coachType || def?.coach?.type ? ` · ${L.STAT_LABELS[view.coachType ?? def?.coach?.type] ?? ''}` : ''}`
       : L.CARD_FAMILY_LABELS[family] ?? family;
-  const desc = descForMode(view.desc ?? def?.desc ?? '', view.mode);
+  const powerLine = powerText(view, def);
+  const desc0 = descForMode(view.desc ?? def?.desc ?? '', view.mode);
+  const desc = desc0.trim() === powerLine ? '' : desc0; // 고유 카드 강화 모드 "주인 53" 처럼 위력 줄과 같은 문구는 두 번 쓰지 않는다
   const fullDesc = view.desc ?? def?.desc ?? '';
   const uniqueColor = family === 'unique' ? (players || []).find((p) => p.charId === (view.ownerCharId ?? def?.ownerCharId))?.portraitColor : null;
   const tagName = opts.el ?? (onClick ? 'button' : 'div');
@@ -123,7 +177,7 @@ export function cardFace(view, opts = {}) {
     attrs.onclick = onClick;
     attrs['aria-pressed'] = selected ? 'true' : 'false';
   }
-  const cost = costText(view);
+  const cost = costText(view, def, players);
   const el = h(tagName, attrs,
     h('span', { class: 'cf-band', 'aria-hidden': 'true' }),
     h('span', { class: 'cf-name' }, view.name ?? view.cardId, view.plus ? h('b', { class: 'cf-plus' }, '+') : null),
@@ -133,7 +187,7 @@ export function cardFace(view, opts = {}) {
       view.bond80 ? h('span', { class: 'cf-bond' }, '유대80') : null,
       view.exhaust ? h('span', { class: 'cf-ex', title: '낸 뒤 이번 레슨에서 빠진다' }, '1회') : null),
     h('span', { class: 'cf-target' }, targetText(view, def)),
-    h('span', { class: ['cf-power', view.mode === 'support' || view.power == null ? 'muted' : ''] }, powerText(view, def)),
+    h('span', { class: ['cf-power', view.mode === 'support' || view.power == null ? 'muted' : ''] }, powerLine),
     cost ? h('span', { class: ['cf-cost', /소모 없음/.test(cost) ? 'none' : ''] }, cost) : null,
     h('span', { class: 'cf-desc' }, desc),
     recommended ? h('span', { class: 'cf-rec' }, '추천') : null,

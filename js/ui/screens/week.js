@@ -212,6 +212,10 @@ export function renderWeek(root, ctx, { inert = false } = {}) {
         h('h3', {}, `${L.FREE_ACTION_ICONS.outing} ${free ? '무료 외출 (온천)' : '외출'} — 누구와 갈까요?`),
         h('button', { class: 'btn btn-sm btn-ghost', onclick: closeOverlays }, '닫기')),
       h('p', { class: 'small muted' }, `그 선수 +${picked} / 전원 +${team} / 컨디션 +${outingCfg.condition ?? 1}`, free ? ' · 주를 쓰지 않습니다' : ' · 주를 씁니다'),
+      // 온천 직후처럼 전원 체력 100 · 컨디션 최고면 외출은 아무것도 바꾸지 않는다 → 미리 알려 준다
+      players.every((p) => (Number(p.stamina) || 0) >= 100) && Number(state?.condition) >= (L.CONDITION_LABELS.length - 1)
+        ? h('p', { class: 'small warn outing-nogain' }, '지금은 전원 체력 100 · 컨디션 최고라 외출 효과가 없습니다.')
+        : null,
       h('div', { class: 'pick-grid outing-grid' }, players.map((p) => {
         const st = Math.round(Number(p.stamina) || 0);
         const after = Math.min(100, st + picked + team);

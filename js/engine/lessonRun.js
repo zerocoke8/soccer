@@ -1063,7 +1063,7 @@ export function consultAction(state, data, op) {
       const p = playerById(state, op.playerId);
       p.learnedSkillIds.push(op.skillId);
       state.skillPoints -= cost;
-      log(state, `상담: ${p.name} 이(가) '${sk.name}' 습득 (SP −${cost})`);
+      log(state, `상담: ${p.name} — '${sk.name}' 습득 (SP −${cost})`);
       return state;
     }
     default:

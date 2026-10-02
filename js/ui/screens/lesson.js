@@ -21,6 +21,7 @@ import { ZONES } from '../layout.js';
 import { cardFace, miniCard } from '../cards.js';
 import { tokenSpot, drillSpots, drillZone, fxPlan, scoreAfterPlay, handStep, FIELD_PX, TOKEN_PX } from '../lesson_layout.js';
 import { stamCls } from '../hud.js';
+import { uniqueNote } from './reward.js';
 
 /** 연출 시간 (ms): 달려가기 · 머무르기(+N 팝) · 돌아오기 · 턴 끝 틱 · 레슨 끝 배너 · 자동 진행 간격 */
 export const LESSON_T = { move: 300, hold: 520, back: 300, tick: 650, turn: 260, end: 1000, auto: 600 };
@@ -597,13 +598,13 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     const items = (uids || []).map((uid) => {
       const e = entryOf(uid);
       const d = e ? defs.get(e.cardId) : null;
-      return d ? { uid, cardId: d.id, name: d.name, family: d.family, plus: !!e.plus, desc: e.plus && d.descPlus ? d.descPlus : d.desc } : null;
+      return d ? { uid, cardId: d.id, name: d.name, family: d.family, plus: !!e.plus, ownerCharId: d.ownerCharId, desc: e.plus && d.descPlus ? d.descPlus : d.desc } : null;
     }).filter(Boolean);
     if (which === 'draw') items.sort((a, b) => a.name.localeCompare(b.name, 'ko'));
     const title = which === 'draw' ? `뽑을 더미 ${items.length}장 (순서는 비밀)` : `버린 더미 ${items.length}장`;
     const m = openModal(h('div', { class: 'col pile-modal' },
       h('h3', {}, title),
-      items.length ? h('div', { class: 'pile-grid' }, items.map((it) => miniCard(it, { data }))) : h('p', { class: 'muted' }, '비어 있음'),
+      items.length ? h('div', { class: 'pile-grid' }, items.map((it) => miniCard(it, { data, note: uniqueNote(it, st().players) }))) : h('p', { class: 'muted' }, '비어 있음'),
       h('div', { class: 'row end modal-foot' }, h('button', { class: 'btn', onclick: () => m.close() }, '닫기'))), { className: 'modal-lg' });
   }
 
