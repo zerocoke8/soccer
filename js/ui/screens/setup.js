@@ -1,8 +1,9 @@
 // js/ui/screens/setup.js — 편성 화면 (런 시작 전)
 // 가로 스테이지(1280×720), 페이지 스크롤 없음:
 //   ┌ 머리 줄: ← 처음으로 · 편성 · 조작 안내 ················ seed · [기본 편성으로 시작] [런 시작] ┐
-//   │ 포메이션 · 배치: 가로 미니 필드(우리 골 왼쪽 — 경기 화면과 같은 방향), 슬롯 7개 │ 서포트 카드 (작은 칩 2열, n/6)   │
+//   │ 포메이션 · 배치: 가로 미니 필드(우리 골 왼쪽 — 경기 화면과 같은 방향), 슬롯 7개 │ 코치 (서포트 칩 2열, n/6)       │
 //   │ 원소 공명 · 경고                                                         │ 전술 지시 4개 (+ 배급)           │
+//   │                                                                          │ 훈련 방침 5개 (레슨 버프 — 경기 전술 아님) │
 //   │ 선수 풀: 캐릭터 전원 카드 한 줄 (배치된 선수 = 슬롯 표시, 나머지 = 벤치)                                    │
 //   └──────────────────────────────────────────────────────────────────────────────────────┘
 // 배치는 라인업 보드(js/ui/lineup.js): 선수 카드를 끌어 슬롯에 놓기 (초록 = 가능 · 빨강 = 불가), 눌러서 고른 뒤 자리 누르기도 된다.
@@ -10,7 +11,7 @@ import { h, avatar, select, toast, panel, openModal, closeOverlays } from '../do
 import {
   STATS, POSITIONS, slotsOf, positionOfSlot, POSITION_LABELS, ELEMENT_LABELS, ELEMENT_ICONS, STYLE_LABELS,
   RACE_LABELS, SUPPORT_TYPE_LABELS, TACTIC_SETUP_KEYS, TACTIC_LABELS, TACTIC_OPTIONS,
-  APTITUDE_ORDER, FORMATIONS, randomSeed, traitInfo,
+  APTITUDE_ORDER, FORMATIONS, randomSeed, traitInfo, POLICIES, policyInfo,
 } from '../labels.js';
 import { lineupBoard, reseat, slotSpot, slotOfId, checkMove, applyMove, badText } from '../lineup.js';
 
@@ -27,8 +28,15 @@ export function initSetup(data, seedPrefill = '') {
       attack: 'balanced', shootTiming: 'breakAll', defense: 'balanced', tension: 'clutch', duelPicker: 'best', distribution: 'auto',
       ...(cfg.defaultTactics || {}),
     },
+    policy: data?.lesson?.defaultPolicy || 'team', // 훈련 방침 (LESSON_PROTO_PLAN §6.3) — createRun({ policy })
     seed: seedPrefill || '',
   };
+}
+
+/** 고를 수 있는 훈련 방침 id (data.policies 순서, 없으면 labels.POLICIES) */
+function policyIds(data) {
+  const list = Array.isArray(data?.policies?.policies) ? data.policies.policies.map((p) => p?.id).filter(Boolean) : [];
+  return list.length ? list : POLICIES;
 }
 
 function aptBadge(apt) {
@@ -236,6 +244,26 @@ export function renderSetup(root, ctx) {
       h('span', { class: 'tiny muted' }, TACTIC_LABELS[key]),
       select(TACTIC_OPTIONS[key], s.tactics[key], (v) => { s.tactics[key] = v; }, { 'aria-label': TACTIC_LABELS[key] }))));
 
+  // ---- 훈련 방침 (버튼 5개 — 전술 select 와 섞이지 않게 <select> 를 쓰지 않는다) ----
+  const pids = policyIds(data);
+  if (!pids.includes(s.policy)) s.policy = pids.includes(data?.lesson?.defaultPolicy) ? data.lesson.defaultPolicy : pids[0];
+  const curPolicy = policyInfo(s.policy, data);
+  const policyEl = h('div', { class: 'policy-pick' },
+    h('div', { class: 'policy-row', role: 'radiogroup', 'aria-label': '훈련 방침' }, pids.map((id) => {
+      const info = policyInfo(id, data);
+      const on = id === s.policy;
+      return h('button', {
+        type: 'button',
+        class: ['btn', 'btn-sm', 'policy-btn', on ? 'active' : ''],
+        role: 'radio',
+        'aria-checked': on ? 'true' : 'false',
+        dataset: { policy: id },
+        title: `${info.name} — ${info.desc}`,
+        onclick: () => { if (!on) { s.policy = id; rerender(); } },
+      }, info.name);
+    })),
+    h('p', { class: 'tiny muted policy-desc' }, curPolicy.desc));
+
   // ---- 시작 ----
   function startCustom() {
     if (missing.length) return toast(`비어 있는 슬롯이 있습니다: ${missing.join(', ')}`);
@@ -247,6 +275,7 @@ export function renderSetup(root, ctx) {
       formation: s.formation,
       supportIds: [...s.supportIds],
       tactics: { ...s.tactics },
+      policy: s.policy,
       seed: (s.seed || '').trim() || randomSeed(),
     });
   }
@@ -258,6 +287,7 @@ export function renderSetup(root, ctx) {
       formation: dsq.formation || '2-2-2',
       supportIds: [...(cfg.defaultSupports || [])],
       tactics: { ...(cfg.defaultTactics || {}) },
+      policy: s.policy, // 기본 편성이어도 고른 방침은 쓴다
       seed: (s.seed || '').trim() || randomSeed(),
     });
   }
@@ -294,13 +324,15 @@ export function renderSetup(root, ctx) {
 
       h('div', { class: 'setup-side' },
         // 서포트 칩은 데이터 개수만큼 늘어난다 → 이 패널만 남는 높이를 쓰고 안쪽 스크롤 (전술 패널은 늘 보인다 — outgame.css)
-        panel(`서포트 카드 ${s.supportIds.length}/${supportCount}`, {
+        panel(`코치 ${s.supportIds.length}/${supportCount}`, {
           cls: ['grow-panel', 'setup-supports', s.supportIds.length === supportCount ? 'done' : ''].filter(Boolean).join(' '),
           scroll: true,
-          right: h('span', { class: 'tiny muted' }, `${supports.length}장 중 ${supportCount}장 · 누르면 선택/해제`),
+          right: h('span', { class: 'tiny muted' }, `${supports.length}명 중 ${supportCount}명 · 누르면 선택/해제`),
         }, supportGrid),
         panel('전술 지시', { cls: 'setup-tactics', right: h('span', { class: 'tiny muted', title: '텐션 사용·듀얼 담당은 기본값을 따르며 런 중 전술 미팅에서 바꿀 수 있습니다.' }, '텐션·듀얼 담당은 미팅에서') },
-          tacticsEl)),
+          tacticsEl),
+        panel('훈련 방침', { cls: 'setup-policy', right: h('span', { class: 'tiny muted', title: '레슨에서 붙는 버프가 바뀝니다. 경기 전술과는 상관없습니다.' }, '경기 전술 아님') },
+          policyEl)),
 
       poolPanel,
     ),

@@ -1,4 +1,6 @@
 // test/ui.smoke.test.mjs — index.html 을 jsdom 으로 올리고 js/ui/app.js 가 start → setup → run 화면을 그리는지 확인
+// 카드 레슨 시험판 (LESSON_PROTO_PLAN §9.2): 시작 → 편성(훈련 방침) → 기본 편성 → 주 선택(week) → 레슨 1장 → (감독 AI 로 자유 주까지) 친선전 경기.
+// 저장 키는 js/ui/store.js KEYS ('soccer-lesson.' 앞머리) — 본편 키('soccer.')는 읽지 않는다.
 // jsdom 이 없으면(devDependency 미설치) 건너뛴다. fetch 는 fs 읽기로 폴리필한다.
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -7,6 +9,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
+const { KEYS, STORAGE_PREFIX } = await import(pathToFileURL(path.join(ROOT, "js/ui/store.js")).href);
 
 let JSDOM = null;
 try {
@@ -94,7 +97,11 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
   });
 
   // 경기 화면은 가로 전용 (고정 스테이지 1280×720): 옛 세로 저장값 · ?orient 는 무시된다 (아래 가로 좌표 블록에서 확인)
-  window.localStorage.setItem("soccer.orient", "port");
+  window.localStorage.setItem(`${STORAGE_PREFIX}orient`, "port");
+  // 같은 origin 의 본편 저장(앞머리 'soccer.')은 레슨판이 읽지 않는다 — jsdom 저장소에만 흉내 낸다
+  const MAIN_RUN = JSON.stringify({ seed: "main-game", phase: "turn", season: 2, turn: 3 });
+  window.localStorage.setItem("soccer.run", MAIN_RUN);
+  window.localStorage.setItem("soccer.teams", JSON.stringify([{ name: "본편 팀", grade: "A", formation: "2-2-2", seed: "m" }]));
   await import(pathToFileURL(path.join(ROOT, "js/ui/app.js")).href);
   const doc = window.document;
 
@@ -107,13 +114,31 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
   assert.equal(doc.querySelectorAll("#toast-root .toast-error").length, 0, "에러 토스트 없음");
   assert.ok(window.__soccer.stage && window.__soccer.stage.scale > 0, "고정 스테이지가 섰다");
   assert.equal(doc.getElementById("stage").dataset.mode, "og", "아웃게임 화면 표시 (#stage[data-mode])");
+  // 시험판 표시 · 흐름 · 저장 분리
+  assert.equal(KEYS.run, "soccer-lesson.run", "런 저장 키");
+  for (const k of Object.values(KEYS)) assert.ok(k.startsWith("soccer-lesson.") && !k.startsWith("soccer."), `키 앞머리: ${k}`);
+  assert.equal(doc.title, "경계전 클럽 — 카드 레슨 시험판");
+  assert.match(doc.querySelector(".hero-badge")?.textContent ?? "", /카드 레슨 시험판 — 본편과 저장이 따로입니다/, "시작 화면 배지");
+  assert.match(startBtn.textContent, /3시즌 · 15주 · 레슨 최대 9회 · 경계전 3회/, "흐름 문구");
+  assert.ok(![...doc.querySelectorAll(".start-menu button")].some((b) => !b.classList.contains("challenge-btn") && b.textContent.includes("이어하기")), "본편 런 저장 → 이어하기 없음");
+  assert.equal(doc.querySelectorAll(".start-teams .team-row").length, 0, "본편 등록 팀은 보이지 않는다");
 
   // setup 화면
   startBtn.click();
   await until(() => window.__soccer.store.screen === "setup");
   const slotCards = doc.querySelectorAll(".slot-card");
   assert.equal(slotCards.length, 7, "2-2-2 슬롯 카드 7개");
-  assert.equal(doc.querySelectorAll(".support-card.selected").length, 6, "기본 서포트 6장 선택됨");
+  assert.equal(doc.querySelectorAll(".support-card.selected").length, 6, "기본 코치 6명 선택됨");
+  // 훈련 방침: 버튼 5개 (기본 팀형) → 에이스형으로
+  const polBtns = [...doc.querySelectorAll(".setup-policy .policy-row button")];
+  assert.equal(polBtns.length, 5, "방침 버튼 5개");
+  assert.deepEqual(polBtns.map((b) => b.dataset.policy), ["ace", "team", "counter", "press", "poss"]);
+  assert.equal(doc.querySelector(".policy-btn.active")?.dataset.policy, "team", "기본 방침 = 팀형");
+  assert.equal(window.__soccer.store.setup.policy, "team");
+  doc.querySelector('.policy-btn[data-policy="ace"]').click();
+  assert.equal(window.__soccer.store.setup.policy, "ace", "방침 고르기");
+  assert.equal(doc.querySelector(".policy-btn.active")?.dataset.policy, "ace");
+  assert.match(doc.querySelector(".policy-desc").textContent, /호조 · 집중/, "방침 설명 한 줄");
   // v0.3: 캐릭터 카드에 연계 특성 이름, 전술 수비 성향에 "버티기 선호" · "의도 따라가기" 없음
   assert.equal(doc.querySelectorAll(".slot-card .trait-tag").length, 7, "슬롯 카드마다 연계 특성");
   assert.ok([...doc.querySelectorAll(".slot-card .trait-tag")].some((el) => el.textContent.includes("킬패스")), "실루엔 = 킬패스");
@@ -134,43 +159,54 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
   closeBtn.click();
   assert.equal(doc.querySelectorAll("#modal-root .modal").length, 0);
 
-  // 기본 편성으로 시작
+  // 기본 편성으로 시작 (고른 방침은 그대로) → 레슨 런 · 주 선택 화면
   const defaultBtn = [...doc.querySelectorAll("button")].find((b) => b.textContent.includes("기본 편성으로 시작"));
   defaultBtn.click();
   await until(() => window.__soccer.store.screen === "run" && window.__soccer.store.run);
   const run = window.__soccer.store.run;
+  assert.equal(run.kind, "lessonRun", "레슨 런 (lessonRun.createRun)");
   assert.equal(run.seed, "ui-smoke");
-  assert.ok(["turn", "event"].includes(run.phase));
-  assert.ok(doc.querySelector(".topbar"), "훈련 화면 상단 바");
-  const nmView = window.__soccer.run.getTurnView(window.__soccer.store.run, window.__soccer.store.data).nextMatch;
-  assert.ok(nmView.styleHint && doc.querySelector(".next-match").textContent.includes(nmView.styleHint), "다음 경기 정보에 상대 성향(styleHint)");
+  assert.equal(run.policy, "ace", "방침 전달");
+  assert.equal(run.phase, "week", "1주 = 주 선택");
+  assert.ok(doc.querySelector(".screen.og.week-screen"), "주 선택 화면");
+  assert.ok(doc.querySelector(".week-screen .topbar") && doc.querySelector(".week-screen .roster"), "상단 바 · 선수 패널 (hud.js)");
+  const wv = window.__soccer.run.getWeekView(run, window.__soccer.store.data);
+  assert.ok(wv.nextMatch.styleHint && doc.querySelector(".next-match").textContent.includes(wv.nextMatch.styleHint), "다음 경기 정보에 상대 성향(styleHint)");
   assert.ok(!doc.querySelector(".next-match").textContent.includes("의도"), "의도 공개 표시 제거");
-  assert.equal(doc.querySelectorAll(".slot-row").length, 5, "훈련 칸 5개");
-  if (run.phase === "event") {
-    assert.ok(doc.querySelector("#modal-root .choice-btn"), "이벤트 모달");
-    doc.querySelector("#modal-root .choice-btn").click();
-    await until(() => window.__soccer.store.run.phase !== "event");
-  }
-  assert.equal(window.__soccer.store.run.phase, "turn");
-  // 저장 확인
-  const savedRun = JSON.parse(window.localStorage.getItem("soccer.run"));
+  assert.equal(doc.querySelectorAll(".topbar .turn-pips i").length, 5, "주 점 5");
+  assert.ok(doc.querySelector(".topbar .turn-pips .pip-match"), "주 점 끝 ⚔");
+  assert.deepEqual([...doc.querySelectorAll(".topbar .status-chip")].map((e) => e.textContent.trim().split(" ")[0]), ["컨디션", "팀워크", "SP", "TP"], "상태 칩 4 (호출권 없음)");
+  assert.ok(!doc.querySelector(".topbar").textContent.includes("호출권"));
+  assert.equal(doc.querySelectorAll(".roster .ro-row").length, 7, "선수 7");
+  assert.equal(doc.querySelectorAll(".roster .bond-row").length, 6, "코치 유대 6");
+  const lessonBtns = [...doc.querySelectorAll(".week-lesson")];
+  assert.equal(lessonBtns.length, 5, "레슨 종목 5");
+  const recLesson = lessonBtns.find((b) => b.classList.contains("recommended"));
+  assert.ok(recLesson && recLesson.textContent.includes("추천"), "추천 배지 (manager.recommendWeek)");
+  assert.equal(recLesson.dataset.stat, window.__soccer.manager.recommendWeek(run, window.__soccer.store.data).stat);
+  // 저장 확인: 레슨판 키에만, 본편 저장은 그대로
+  const savedRun = JSON.parse(window.localStorage.getItem(KEYS.run));
   assert.equal(savedRun.seed, "ui-smoke");
+  assert.equal(savedRun.kind, "lessonRun");
+  assert.equal(window.localStorage.getItem("soccer.run"), MAIN_RUN, "본편 런 저장은 건드리지 않는다");
 
-  // 훈련 한 번: 추천 칸 시트 → [훈련하기]
-  const view = window.__soccer.run.getTurnView(window.__soccer.store.run, window.__soccer.store.data);
-  const rows = [...doc.querySelectorAll(".slot-row")];
-  const recRow = rows.find((r) => r.classList.contains("recommended"));
-  assert.ok(recRow, "추천 칸 표시");
-  recRow.click();
-  const trainBtn = await until(() => [...doc.querySelectorAll("#modal-root button")].find((b) => b.textContent === "훈련하기"));
-  assert.ok(trainBtn);
-  const turnBefore = window.__soccer.store.run.turnIndex;
-  trainBtn.click();
-  await until(() => window.__soccer.store.run.turnIndex !== turnBefore || window.__soccer.store.run.phase !== "turn");
-  const after = window.__soccer.store.run;
-  assert.ok(after.turnIndex === turnBefore + 1 || after.phase === "event", "턴 진행 또는 이벤트");
-  assert.ok(after.log.some((l) => l.text.startsWith("훈련[")), "훈련 로그");
-  void view;
+  // 레슨 시작 → (임시 레슨 화면) 추천 행동 1번 → seq 1 · 저장
+  recLesson.click();
+  await until(() => window.__soccer.store.run.phase === "lesson" && doc.querySelector(".lesson-screen"));
+  assert.equal(doc.getElementById("stage").dataset.mode, "lesson", "레슨 화면 표시 → 토스트는 손패 위 (css/lesson.css)");
+  assert.equal(window.__soccer.store.run.lesson.seq, 0);
+  assert.equal(doc.querySelectorAll(".lesson-screen .lt-card").length, 3, "손패 3장");
+  [...doc.querySelectorAll(".lesson-screen button")].find((b) => b.textContent.startsWith("추천 행동")).click();
+  await until(() => window.__soccer.store.run.lesson?.seq === 1);
+  assert.equal(window.__soccer.store.run.lesson.seq, 1, "레슨 호출 1번 = seq +1");
+  assert.equal(JSON.parse(window.localStorage.getItem(KEYS.run)).lesson.seq, 1, "레슨 호출마다 저장");
+  // 이어하기: 레슨 런 저장본만 (kind 가 다른 저장본은 거절)
+  window.__soccer.actions.resetToStart();
+  const contBtn = [...doc.querySelectorAll(".start-menu button")].find((b) => !b.classList.contains("challenge-btn") && b.textContent.includes("이어하기"));
+  assert.ok(contBtn && /시즌 1 · 1\/5주 · 레슨/.test(contBtn.textContent), `이어하기 줄: ${contBtn?.textContent}`);
+  contBtn.click();
+  assert.equal(window.__soccer.store.run.phase, "lesson", "이어하기 → 레슨");
+  assert.ok(doc.querySelector(".lesson-screen"));
 
   // ---- 경기 화면 (§12.3 + v0.3 §13.6): 친선전 한 판 — 수동 결정(받는 선수 선택) → 연출 → 스킵 → 결과 → finishMatch 1회 ----
   const S = window.__soccer;
@@ -180,16 +216,18 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
   let finishCalls = 0;
   const origFinish = S.actions.finishMatch;
   S.actions.finishMatch = (r) => { finishCalls++; return origFinish(r); };
-  for (let i = 0; i < 5 && S.store.run.phase === "event"; i++) {
-    doc.querySelector("#modal-root .choice-btn").click();
-    await until(() => S.store.run.phase !== "event");
-  }
-  assert.equal(S.store.run.phase, "turn");
-  S.actions.doAction({ type: "friendly" });
-  for (let i = 0; i < 5 && S.store.run.phase === "event"; i++) {
-    doc.querySelector("#modal-root .choice-btn").click();
-    await until(() => S.store.run.phase !== "event");
-  }
+  // 친선전이 열린 자유 주까지 감독 AI 로 걷는다 (경기는 실제 match.js 자동 진행)
+  const playMatch = (setup) => {
+    const ms0 = S.match.createMatch({ data: S.store.data, seed: setup.seed, home: setup.home, away: setup.away, possessions: setup.possessions, kind: setup.kind });
+    S.match.simulateAuto(ms0, S.store.data);
+    return S.match.getResult(ms0);
+  };
+  const friendlyOpen = (st) => st.phase === "week" && st.weekOffer?.kind === "free" && st.weekOffer.actions.includes("friendly");
+  for (let i = 0; i < 3000 && !friendlyOpen(S.store.run) && S.store.run.phase !== "finished"; i++) S.manager.autoStep(S.store.run, S.store.data, { playMatch });
+  assert.ok(friendlyOpen(S.store.run), "친선전이 열린 자유 주");
+  S.render();
+  assert.ok(doc.querySelector('.week-screen .week-act[data-act="friendly"]'), "자유 주 친선전 버튼");
+  S.actions.weekAction({ type: "friendly" });
   const scr = await until(() => S.store.run.phase === "match" && doc.querySelector(".match-screen"));
   assert.ok(scr, "경기 화면");
   assert.equal(doc.getElementById("stage").dataset.mode, "match", "경기 화면 표시 → 토스트는 오른쪽 위 (css/match.css)");
@@ -1038,14 +1076,14 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
     S.render();
     assert.equal(S.store.match.version, 3, "새 경기");
     assert.equal(S.store.match.events.length < prep.matchState.events.length || S.store.match.possession === 1, true, "처음부터");
-    assert.equal(JSON.parse(window.localStorage.getItem("soccer.match")).version, 3, "저장도 새 경기");
+    assert.equal(JSON.parse(window.localStorage.getItem(KEYS.match)).version, 3, "저장도 새 경기");
     S.actions.resetToStart();
   }
 
-  // 가로 전용: 옛 세로 저장값(soccer.orient) · ?orient=port · matchUi.orient 는 무시한다 — home 골 왼쪽 · away 골 오른쪽 (필드 y → 화면 x, 필드 x → 화면 y).
+  // 가로 전용: 옛 세로 저장값(…orient) · ?orient=port · matchUi.orient 는 무시한다 — home 골 왼쪽 · away 골 오른쪽 (필드 y → 화면 x, 필드 x → 화면 y).
   // 받는 선수 탭 · 크로스 포물선 · 결정 { action, receiverId } 는 그대로. 창 크기가 바뀌어도(연출 중이어도) 경기 화면을 다시 그리지 않는다.
   {
-    window.localStorage.setItem("soccer.orient", "port");
+    window.localStorage.setItem(`${STORAGE_PREFIX}orient`, "port");
     ui.orient = "port";
     window.history.replaceState(null, "", "?orient=port&auto=1");
     try {
@@ -1153,13 +1191,13 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
   // ---- 도전 모드 (2026-10-01): 시작 화면 [도전 모드] → 샘플 팀 1단계 → ⏭ → 결과 [확인] 연타 → 진행 기록 1회 · 결과 모달,
   // 이미 기록된 경기는 복원하지 않음, 경기 중 "새로고침"(저장본 복원) → 같은 경기, [포기] → 패배 기록. 런 상태 · 런 저장은 그대로 ----
   {
-    const runSave = window.localStorage.getItem("soccer.run");
-    const runMatchSave = window.localStorage.getItem("soccer.match");
+    const runSave = window.localStorage.getItem(KEYS.run);
+    const runMatchSave = window.localStorage.getItem(KEYS.match);
     const runMem = JSON.stringify(S.store.run);
     const CH = S.challenge;
     assert.ok(CH && typeof CH.challengeSetup === "function", "도전 모드 엔진 모듈 로드됨");
-    window.localStorage.removeItem("soccer.challenge");
-    window.localStorage.removeItem("soccer.challengeMatch");
+    window.localStorage.removeItem(KEYS.challenge);
+    window.localStorage.removeItem(KEYS.challengeMatch);
     S.store.challenge.teamId = null;
     S.store.challenge.stage = null;
     S.render();
@@ -1187,15 +1225,15 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
     assert.deepEqual([...cms.querySelectorAll(".m-exits .m-exit")].map((b) => b.textContent), ["나가기", "포기"], "도전 경기 [나가기] [포기]");
     assert.match(cms.querySelector(".mh-sub").textContent, /^도전 1단계 · 포제션 \d+\/8/, "헤더 줄 = 도전 단계 · 8 포제션");
     assert.equal(S.store.match.kind, "goal", "경계전 규칙 (연장 · 승부차기)");
-    const saved1 = JSON.parse(window.localStorage.getItem("soccer.challengeMatch"));
-    assert.deepEqual([saved1.version, saved1.teamId, saved1.stage, saved1.attempt], [1, "sample", 1, 1], "도전 경기 저장 'soccer.challengeMatch'");
+    const saved1 = JSON.parse(window.localStorage.getItem(KEYS.challengeMatch));
+    assert.deepEqual([saved1.version, saved1.teamId, saved1.stage, saved1.attempt], [1, "sample", 1, 1], "도전 경기 저장 KEYS.challengeMatch");
     assert.equal(saved1.match.seed, CH.challengeSeed("sample", 1, 1), "시드 = (팀, 단계, 도전 번호)");
-    assert.equal(window.localStorage.getItem("soccer.match"), runMatchSave, "런 경기 저장 그대로");
+    assert.equal(window.localStorage.getItem(KEYS.match), runMatchSave, "런 경기 저장 그대로");
     cms.querySelector(".skip-btn").click();
     const chOk = await until(() => [...doc.querySelectorAll("#modal-root button")].find((b) => b.textContent === "확인"));
     assert.ok(chOk, "경기 결과 모달");
     assert.match(doc.querySelector("#modal-root h2").textContent, /^도전 1단계 결과$/);
-    const finishedSave = window.localStorage.getItem("soccer.challengeMatch");
+    const finishedSave = window.localStorage.getItem(KEYS.challengeMatch);
     assert.ok(JSON.parse(finishedSave).match.finished, "끝난 경기도 [확인] 전까지는 저장 (새로고침하면 결과 모달로)");
     const r1 = S.match.getResult(S.store.match);
     chOk.click();
@@ -1205,12 +1243,12 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
     chOk.disabled = false;
     chOk.click();
     assert.equal(chFinish, 1, "finishChallengeMatch 정확히 1회 (연타 방지)");
-    const p1 = JSON.parse(window.localStorage.getItem("soccer.challenge"));
+    const p1 = JSON.parse(window.localStorage.getItem(KEYS.challenge));
     const won1 = r1.winner === "home";
     assert.equal(p1.teams.sample.attempts["1"], 1, "도전 1회 기록");
     assert.equal(p1.teams.sample.wins["1"] ?? 0, won1 ? 1 : 0);
     assert.equal(p1.teams.sample.cleared, won1 ? 1 : 0);
-    assert.equal(window.localStorage.getItem("soccer.challengeMatch"), null, "기록 뒤 도전 경기 저장 지움");
+    assert.equal(window.localStorage.getItem(KEYS.challengeMatch), null, "기록 뒤 도전 경기 저장 지움");
     assert.equal(S.store.screen, "challenge");
     assert.equal(S.store.match, null);
     const resEl = doc.querySelector("#modal-root .ch-result");
@@ -1221,32 +1259,32 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
     assert.equal(resBtns.some((t) => t.startsWith("다음 단계")), won1, "이기면 [다음 단계]");
     // 또 불러도(끝난 뒤) 다시 세지 않는다 · 이미 기록된 끝난 경기 저장본은 복원하지 않고 버린다
     origChFinish(r1);
-    assert.equal(JSON.parse(window.localStorage.getItem("soccer.challenge")).teams.sample.attempts["1"], 1, "두 번 세지 않음");
-    window.localStorage.setItem("soccer.challengeMatch", finishedSave);
+    assert.equal(JSON.parse(window.localStorage.getItem(KEYS.challenge)).teams.sample.attempts["1"], 1, "두 번 세지 않음");
+    window.localStorage.setItem(KEYS.challengeMatch, finishedSave);
     S.actions.openChallenge();
     assert.equal(S.store.screen, "challenge", "기록된 도전 번호의 저장본 → 복원 안 함");
-    assert.equal(window.localStorage.getItem("soccer.challengeMatch"), null, "그 저장본은 지움");
-    assert.equal(JSON.parse(window.localStorage.getItem("soccer.challenge")).teams.sample.attempts["1"], 1);
+    assert.equal(window.localStorage.getItem(KEYS.challengeMatch), null, "그 저장본은 지움");
+    assert.equal(JSON.parse(window.localStorage.getItem(KEYS.challenge)).teams.sample.attempts["1"], 1);
     // 다음 단계(지면 다시 도전) → 몇 비트 진행 → [나가기] (기록 없이 시작 화면, 저장본 유지) → "새로고침"(메모리를 비우고 시작 화면 —
     // 부트는 늘 시작 화면) → [도전 모드 — 이어하기] → 같은 경기 → [포기] = 기권 패 기록
     const nextStage = won1 ? 2 : 1;
-    const attemptsOf = (stage) => JSON.parse(window.localStorage.getItem("soccer.challenge") || "null")?.teams?.sample?.attempts?.[String(stage)] ?? 0;
+    const attemptsOf = (stage) => JSON.parse(window.localStorage.getItem(KEYS.challenge) || "null")?.teams?.sample?.attempts?.[String(stage)] ?? 0;
     const doneBefore = attemptsOf(nextStage);
     S.actions.startChallenge("sample", nextStage);
     assert.equal(S.store.screen, "challengeMatch");
     assert.equal(S.store.challenge.active.attempt, won1 ? 1 : 2, "도전 번호 = 끝난 도전 + 1");
-    await until(() => (JSON.parse(window.localStorage.getItem("soccer.challengeMatch") || "null")?.match?.events?.length ?? 0) >= 4, 8000);
-    const mid = JSON.parse(window.localStorage.getItem("soccer.challengeMatch"));
+    await until(() => (JSON.parse(window.localStorage.getItem(KEYS.challengeMatch) || "null")?.match?.events?.length ?? 0) >= 4, 8000);
+    const mid = JSON.parse(window.localStorage.getItem(KEYS.challengeMatch));
     assert.ok(mid.match.events.length >= 4 && !mid.match.finished, "경기 중 저장");
     doc.querySelector(".match-screen .m-exit:not(.danger)").click(); // [나가기]
     assert.equal(S.store.screen, "start", "[나가기] → 시작 화면");
     assert.equal(S.store.match, null, "도전 경기 메모리 비움");
     assert.equal(S.store.challenge.active, null);
-    const kept = JSON.parse(window.localStorage.getItem("soccer.challengeMatch"));
+    const kept = JSON.parse(window.localStorage.getItem(KEYS.challengeMatch));
     assert.ok(kept && kept.attempt === mid.attempt && kept.match.events.length >= mid.match.events.length && !kept.match.finished, "[나가기] = 저장본 유지");
     assert.equal(attemptsOf(nextStage), doneBefore, "[나가기] 는 기록하지 않는다");
-    assert.equal(window.localStorage.getItem("soccer.run"), runSave, "[나가기] 뒤 'soccer.run' 그대로");
-    assert.equal(window.localStorage.getItem("soccer.match"), runMatchSave, "[나가기] 뒤 'soccer.match' 그대로");
+    assert.equal(window.localStorage.getItem(KEYS.run), runSave, "[나가기] 뒤 런 저장 그대로");
+    assert.equal(window.localStorage.getItem(KEYS.match), runMatchSave, "[나가기] 뒤 런 경기 저장 그대로");
     // 시작 화면에서 런은 그대로 고를 수 있다 (도전 경기가 런을 막지 않는다)
     assert.ok([...doc.querySelectorAll(".start-menu button")].some((b) => b.textContent.includes("새 런 시작")), "시작 화면 [새 런 시작]");
     S.store.screen = "start";
@@ -1260,16 +1298,16 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
     assert.deepEqual([S.store.challenge.active.stage, S.store.challenge.active.attempt], [mid.stage, mid.attempt]);
     doc.querySelector(".match-screen .m-exit.danger").click(); // [포기] (confirm → true 폴리필)
     assert.equal(S.store.screen, "challenge", "[포기] → 도전 목록");
-    const p2 = JSON.parse(window.localStorage.getItem("soccer.challenge"));
+    const p2 = JSON.parse(window.localStorage.getItem(KEYS.challenge));
     assert.equal(p2.teams.sample.attempts[String(nextStage)], won1 ? 1 : 2, "포기 = 도전 1회");
     assert.equal(p2.teams.sample.lastResult.win, false, "포기 = 패배");
     assert.equal(p2.teams.sample.lastResult.forfeit, true, "포기 = 기권 표시");
     assert.match(doc.querySelector(".ch-team-sum .ch-sum-more").textContent, /기권 패/, "최근 결과 = 기권 패");
-    assert.equal(window.localStorage.getItem("soccer.challengeMatch"), null);
+    assert.equal(window.localStorage.getItem(KEYS.challengeMatch), null);
     assert.equal(chFinish, 1, "포기는 결과 [확인] 경로가 아니다");
     // 진행 초기화 (confirm → true): 기록은 지우고 초기화 횟수만 남는다 → 다시 1단계 1회차는 초기화 전과 다른 시드
     doc.querySelector(".ch-reset").click();
-    const p3 = JSON.parse(window.localStorage.getItem("soccer.challenge")).teams.sample;
+    const p3 = JSON.parse(window.localStorage.getItem(KEYS.challenge)).teams.sample;
     assert.deepEqual([p3.cleared, p3.attempts, p3.wins, p3.lastResult, p3.resets], [0, {}, {}, null, 1], "진행 초기화");
     assert.deepEqual([...doc.querySelectorAll(".ch-ladder .ch-stage")].map((b) => b.dataset.state), ["open", ...Array(9).fill("locked")], "초기화 → 1단계만 열림");
     S.actions.startChallenge("sample", 1);
@@ -1283,7 +1321,7 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
     const realSetItem = SP.setItem;
     const realWarn = console.warn;
     SP.setItem = function (k, v) {
-      if (k === "soccer.challenge") throw new Error("QuotaExceededError (테스트)");
+      if (k === KEYS.challenge) throw new Error("QuotaExceededError (테스트)");
       return realSetItem.call(this, k, v);
     };
     console.warn = () => {}; // store.lsSet 경고 (의도한 실패)
@@ -1295,7 +1333,7 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
     }
     assert.equal(S.store.screen, "challengeMatch", "기록 저장 실패 → 경기 화면 그대로");
     assert.ok(S.store.challenge.active && S.store.match?.finished, "도전 경기 상태 그대로");
-    assert.ok(window.localStorage.getItem("soccer.challengeMatch"), "도전 경기 저장본 그대로");
+    assert.ok(window.localStorage.getItem(KEYS.challengeMatch), "도전 경기 저장본 그대로");
     assert.equal(attemptsOf(1), 0, "기록 안 됨");
     assert.equal(doc.querySelectorAll("#toast-root .toast-error").length, 1, "저장 실패 토스트");
     doc.querySelectorAll("#toast-root .toast-error").forEach((el) => el.remove());
@@ -1304,7 +1342,7 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
     ok3.click();
     assert.equal(S.store.screen, "challenge");
     assert.equal(attemptsOf(1), 1, "다시 시도 → 한 번 기록");
-    assert.equal(window.localStorage.getItem("soccer.challengeMatch"), null);
+    assert.equal(window.localStorage.getItem(KEYS.challengeMatch), null);
     assert.ok(doc.querySelector("#modal-root .ch-result"), "도전 결과 모달");
     S.actions.closeChallengeResult();
     // 고장 난 도전 경기(셋업 실패) → 경기 오류 화면 [처음으로](저장본 유지) · [도전 경기 버리기](저장본 지움, 기록 없음)
@@ -1313,7 +1351,7 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
     const realErr = console.error;
     console.error = () => {}; // safe() 가 찍는 의도한 오류
     try {
-      window.localStorage.setItem("soccer.challengeMatch", brokenSave);
+      window.localStorage.setItem(KEYS.challengeMatch, brokenSave);
       S.store.challenge.active = brokenActive();
       S.store.match = null;
       S.store.screen = "challengeMatch";
@@ -1323,14 +1361,14 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
       [...doc.querySelectorAll("#app .screen button")].find((b) => b.textContent === "처음으로").click();
       assert.equal(S.store.screen, "start");
       assert.equal(S.store.challenge.active, null);
-      assert.equal(window.localStorage.getItem("soccer.challengeMatch"), brokenSave, "[처음으로] = 저장본 유지");
+      assert.equal(window.localStorage.getItem(KEYS.challengeMatch), brokenSave, "[처음으로] = 저장본 유지");
       S.store.challenge.active = brokenActive();
       S.store.screen = "challengeMatch";
       S.render();
       [...doc.querySelectorAll("#app .screen button")].find((b) => b.textContent === "도전 경기 버리기").click();
       assert.equal(S.store.screen, "challenge", "[도전 경기 버리기] → 도전 목록");
       assert.equal(S.store.challenge.active, null);
-      assert.equal(window.localStorage.getItem("soccer.challengeMatch"), null, "도전 경기 저장본 지움");
+      assert.equal(window.localStorage.getItem(KEYS.challengeMatch), null, "도전 경기 저장본 지움");
       assert.equal(attemptsOf(1), 1, "버리기는 기록하지 않는다");
     } finally {
       console.error = realErr;
@@ -1339,21 +1377,21 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
     // data/challenge.json 이 없으면(선택 파일 404) 저장본을 판단하지 않고 그대로 둔다 (지우지 않는다)
     const chData = S.store.data.challenge;
     try {
-      window.localStorage.setItem("soccer.challengeMatch", brokenSave);
+      window.localStorage.setItem(KEYS.challengeMatch, brokenSave);
       delete S.store.data.challenge;
       S.actions.resetToStart();
       S.actions.openChallenge();
-      assert.equal(window.localStorage.getItem("soccer.challengeMatch"), brokenSave, "도전 데이터 없음 → 저장본 그대로");
+      assert.equal(window.localStorage.getItem(KEYS.challengeMatch), brokenSave, "도전 데이터 없음 → 저장본 그대로");
     } finally {
       S.store.data.challenge = chData;
-      window.localStorage.removeItem("soccer.challengeMatch");
+      window.localStorage.removeItem(KEYS.challengeMatch);
     }
     doc.querySelectorAll("#toast-root .toast-error").forEach((el) => el.remove()); // "도전 모드 데이터가 없습니다" (의도한 안내)
     S.actions.openChallenge();
     assert.equal(S.store.screen, "challenge");
     // 런 상태 · 런 저장은 그대로
-    assert.equal(window.localStorage.getItem("soccer.run"), runSave, "'soccer.run' 그대로");
-    assert.equal(window.localStorage.getItem("soccer.match"), runMatchSave, "'soccer.match' 그대로");
+    assert.equal(window.localStorage.getItem(KEYS.run), runSave, "런 저장 그대로");
+    assert.equal(window.localStorage.getItem(KEYS.match), runMatchSave, "런 경기 저장 그대로");
     assert.equal(JSON.stringify(S.store.run), runMem, "store.run 그대로");
     S.actions.finishChallengeMatch = origChFinish;
     [...doc.querySelectorAll(".ch-head button")].find((b) => b.textContent === "처음으로").click();
@@ -1362,5 +1400,6 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
   }
 
   assert.equal(doc.querySelectorAll("#toast-root .toast-error").length, 0, "에러 토스트 없음");
+  assert.equal(window.localStorage.getItem("soccer.run"), MAIN_RUN, "본편 런 저장은 끝까지 그대로");
   assert.deepEqual(errors, []);
 });

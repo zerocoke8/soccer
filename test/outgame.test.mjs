@@ -1,6 +1,7 @@
 // test/outgame.test.mjs — 아웃게임 화면(가로 스테이지 1280×720) jsdom 검사
-// index.html 을 jsdom 으로 올려 js/ui/app.js 를 부트하고, 시작 → 편성 → 훈련(시트 · 미팅 · 호출권 · 기록 · 확인) →
+// index.html 을 jsdom 으로 올려 js/ui/app.js 를 부트하고, 시작 → 편성(훈련 방침) → 주 선택(카드 레슨 시험판, hud.js) →
 // 시나리오 주입(이벤트 · 유물 · 루트 · 결과)까지 각 화면이 스테이지(#stage) 안에 오류 없이 그려지고 주요 조작 요소가 있는지 본다.
+// 저장 키는 js/ui/store.js KEYS ('soccer-lesson.' 앞머리, LESSON_PROTO_PLAN §2.2).
 // 라인업 보드(편성 · 미팅, js/ui/lineup.js)는 포인터 이벤트로 드래그를 흉내 낸다 (jsdom 은 레이아웃이 없어 elementFromPoint 를 고정).
 // 레이아웃(넘침 · 잘림)은 jsdom 이 계산하지 않으므로 tools/shot.mjs --only og 스크린샷으로 확인한다 (실제 마우스 드래그: og_setup_drag · og_meeting_drag …).
 // jsdom 이 없으면(devDependency 미설치) 건너뛴다. fetch 는 fs 읽기로 폴리필한다 (ui.smoke.test.mjs 와 같은 방식).
@@ -11,6 +12,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
+const { KEYS } = await import(pathToFileURL(path.join(ROOT, "js/ui/store.js")).href);
 
 let JSDOM = null;
 try {
@@ -32,7 +34,7 @@ async function until(fn, ms = 4000, step = 20) {
 
 // ---- 정적 검사: 아웃게임 CSS 는 스테이지 논리 px 만 쓴다 (vw/vh · 창 크기 media query 금지 — base.css .stage 주석) ----
 test("아웃게임 CSS: vw/vh/dvh 단위 · 창 크기 media query 없음, 옛 420px 폰 열 규칙 제거", () => {
-  for (const f of ["css/base.css", "css/outgame.css"]) {
+  for (const f of ["css/base.css", "css/outgame.css", "css/lesson.css"]) {
     const src = fs.readFileSync(path.join(ROOT, f), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
     assert.ok(!/\d(?:\.\d+)?(?:vw|vh|dvh|svh|lvh|vmin|vmax)\b/.test(src), `${f}: 뷰포트 단위`);
     assert.ok(!/@media[^{]*(?:min|max)-(?:width|height)/.test(src), `${f}: 창 크기 media query`);
@@ -44,6 +46,16 @@ test("아웃게임 CSS: vw/vh/dvh 단위 · 창 크기 media query 없음, 옛 4
     ".challenge-screen", ".ch-ladder", ".ch-stage", ".ch-preview", ".ch-pitch", ".ch-result"]) {
     assert.ok(og.includes(sel), `outgame.css 에 ${sel}`);
   }
+  // 카드 레슨 화면 (LESSON_PROTO_PLAN §9.2): lesson.css 는 match.css 다음에 링크
+  const lesson = fs.readFileSync(path.join(ROOT, "css/lesson.css"), "utf8");
+  for (const sel of [".week-screen", ".lesson-screen", ".card-face", ".reward-modal", ".consult-screen", ".prep-screen", ".policy-row", '.stage[data-mode="lesson"] #toast-root']) {
+    assert.ok(lesson.includes(sel), `lesson.css 에 ${sel}`);
+  }
+  for (const sel of [".meeting-cols", ".topbar", ".roster"]) assert.ok(og.includes(sel), `outgame.css 에 ${sel}`);
+  const html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
+  const links = [...html.matchAll(/href="\.\/css\/([a-z]+)\.css"/g)].map((m) => m[1]);
+  assert.deepEqual(links, ["base", "outgame", "match", "lesson"], "CSS 순서: … → match → lesson");
+  assert.match(html, /<title>경계전 클럽 — 카드 레슨 시험판<\/title>/);
   const base = fs.readFileSync(path.join(ROOT, "css/base.css"), "utf8");
   for (const sel of [".modal.modal-md", ".modal.modal-lg", ".modal.modal-xl", ".sheet.sheet-wide"]) assert.ok(base.includes(sel), `base.css 에 ${sel}`);
 });
@@ -54,6 +66,26 @@ test("배급 전술 선택지 (labels TACTIC_OPTIONS.distribution) = 엔진 run.
   assert.deepEqual(Lb.TACTIC_OPTIONS.distribution.map(([k]) => k).sort(), [...run.DISTRIBUTION_TACTICS].sort());
   const aiSrc = fs.readFileSync(path.join(ROOT, "js/engine/ai.js"), "utf8");
   assert.ok(/import \{ DISTRIBUTION_TACTICS \} from "\.\/run\.js"/.test(aiSrc) && !/const DISTRIBUTION_TACTICS\s*=/.test(aiSrc), "ai.js 는 사본을 두지 않는다");
+});
+
+test("저장 키: 'soccer-lesson.' 앞머리 · loadRun 은 레슨 런 저장본만 (store 사본 = 엔진 lessonRun.isLessonRun)", async () => {
+  const st = await import(pathToFileURL(path.join(ROOT, "js/ui/store.js")).href);
+  const lr = await import(pathToFileURL(path.join(ROOT, "js/engine/lessonRun.js")).href);
+  assert.equal(st.STORAGE_PREFIX, "soccer-lesson.");
+  assert.deepEqual(Object.keys(st.KEYS).sort(), ["challenge", "challengeMatch", "match", "run", "teams"]);
+  for (const [k, v] of Object.entries(st.KEYS)) assert.equal(v, `soccer-lesson.${k}`, `KEYS.${k}`);
+  assert.equal(st.LESSON_RUN_KIND, lr.RUN_KIND);
+  assert.equal(st.LESSON_RUN_VERSION, lr.RUN_VERSION);
+  const cases = [null, undefined, 0, "x", [], {}, { phase: "turn", seed: 1 }, { kind: "lessonRun", version: 1 }, { kind: "lessonRun", version: 2, phase: "week" },
+    { kind: "lessonRun", version: "1", phase: "week" }, { kind: "run", version: 1, phase: "week" }, { kind: "lessonRun", version: 1, phase: "week" },
+    { kind: "lessonRun", version: 1, phase: 3 }];
+  for (const c of cases) assert.equal(st.isLessonRunSave(c), lr.isLessonRun(c), `같은 검사: ${JSON.stringify(c)}`);
+  // 코드에 본편 키 문자열('soccer.run' 등)이 남지 않았다 (UI · 도구)
+  const files = ["js/ui/app.js", "js/ui/store.js", "js/ui/screens/challenge.js", "js/ui/screens/start.js", "js/ui/hud.js", "tools/shot.mjs", "tools/scenarios.mjs", "tools/lesson_scenarios.mjs"];
+  for (const f of files) {
+    const src = fs.readFileSync(path.join(ROOT, f), "utf8");
+    assert.doesNotMatch(src, /['"`]soccer\.(run|match|teams|challenge|challengeMatch)['"`]/, `${f}: 본편 키 문자열`);
+  }
 });
 
 test("편성 미니 필드 슬롯 자리: GK 왼쪽 → FW 오른쪽, 같은 줄은 위아래로 고르게", async () => {
@@ -123,7 +155,7 @@ test("jsdom: 아웃게임 화면 전부 스테이지 안에 그려지고 주요 
   });
 
   // 등록 팀 1개 (시작 화면 목록)
-  window.localStorage.setItem("soccer.teams", JSON.stringify([
+  window.localStorage.setItem(KEYS.teams, JSON.stringify([
     { name: "테스트 클럽", grade: "B", score: 512, formation: "2-2-2", seed: "t-1", registeredAt: "2026-09-27T10:00:00.000Z" },
   ]));
   await import(pathToFileURL(path.join(ROOT, "js/ui/app.js")).href);
@@ -149,7 +181,9 @@ test("jsdom: 아웃게임 화면 전부 스테이지 안에 그려지고 주요 
   inStage(".screen.og.start-screen", "시작");
   assert.ok($(".start-screen .hero h1")?.textContent.length > 0, "시작: 타이틀");
   assert.equal($$(".hero-flow li").length, 3, "시작: 런 흐름 3단계");
-  assert.ok($(".hero-flow").textContent.includes(`육성 ${data.config.seasons * data.config.turnsPerSeason}턴`), "시작: 흐름은 config 값");
+  assert.ok($(".hero-flow").textContent.includes(`육성 ${data.config.seasons * data.lesson.weeksPerSeason}주`), "시작: 흐름은 config · lesson 값 (15주)");
+  assert.ok($(".hero-flow").textContent.includes("15주"), "시작: 15주");
+  assert.match($(".hero-badge")?.textContent ?? "", /본편과 저장이 따로입니다/, "시작: 시험판 배지");
   assert.ok(btnByText(/^새 런 시작/, start), "시작: [새 런 시작]");
   assert.equal($$(".start-teams .team-row").length, 1, "시작: 등록 팀 목록");
   assert.ok($(".start-teams .og-panel-body").classList.contains("og-scroll"), "시작: 등록 팀 목록만 안쪽 스크롤");
@@ -181,6 +215,18 @@ test("jsdom: 아웃게임 화면 전부 스테이지 안에 그려지고 주요 
   $$(".setup-supports .sp-chip:not(.selected)")[0].click();
   await until(() => $$(".setup-supports .sp-chip.selected").length === data.config.defaultSupports.length);
   assert.equal($$(".setup-tactics .tac-row select").length, 4, "편성: 전술 4개 (공격 성향 · 슛 타이밍 · 수비 성향 · 배급)");
+  // 훈련 방침: 전술 패널 아래 별도 패널, <select> 가 아닌 버튼 5개 (편성 화면의 select 는 포메이션 + 전술 4)
+  inStage(".setup-side .setup-policy .policy-row", "편성 방침");
+  assert.equal($$(".setup-policy .policy-row button.btn-sm").length, 5, "편성: 방침 버튼 5개");
+  assert.equal($$(".setup-policy select").length, 0, "편성: 방침은 select 가 아니다");
+  assert.equal($$(".setup-screen select").length, 5, "편성: select = 포메이션 1 + 전술 4");
+  assert.deepEqual($$(".policy-btn").map((b) => b.textContent), data.policies.policies.map((p) => p.name), "편성: 방침 이름 = data/policies.json");
+  assert.equal($(".policy-btn.active").dataset.policy, data.lesson.defaultPolicy, "편성: 기본 방침");
+  assert.equal($(".setup-policy .policy-desc").textContent, data.policies.policies.find((p) => p.id === data.lesson.defaultPolicy).desc);
+  $('.policy-btn[data-policy="counter"]').click();
+  assert.equal(S.store.setup.policy, "counter");
+  assert.equal($(".setup-policy .policy-desc").textContent, data.policies.policies.find((p) => p.id === "counter").desc, "편성: 방침 설명 바뀜");
+  assert.equal($('.policy-btn[data-policy="counter"]').getAttribute("aria-checked"), "true");
   // GK 배급 전술 (2026-09-29): 상황 따라(기본) · 짧게 · 길게
   const distSel = $$(".setup-tactics .tac-row").find((r) => r.textContent.includes("배급"))?.querySelector("select");
   assert.ok(distSel, "편성: 배급 전술 선택");
@@ -301,134 +347,71 @@ test("jsdom: 아웃게임 화면 전부 스테이지 안에 그려지고 주요 
   assert.equal($$("#modal-root .modal").length, 0, "드래그 · 탭 중 모달 안 열림");
   noErrorToast("편성");
 
-  // ---------- 훈련 ----------
+  // ---------- 주 선택 (U1: hud.js 상단 바 · 선수/코치 패널 + 임시 주 패널) ----------
   const seedIn = $(".setup-start input.input");
   seedIn.value = "og-test";
   seedIn.dispatchEvent(new window.Event("input", { bubbles: true }));
   btnByText(/^기본 편성으로 시작$/).click();
-  await until(() => S.store.screen === "run" && S.store.run && $(".training-screen"));
-  // 시작 이벤트: 넓은 모달 (이야기 | 선택지), 배경 훈련 화면은 비활성
-  for (let i = 0; i < 5 && S.store.run.phase === "event"; i++) {
-    inStage("#modal-root .modal.modal-lg .ev-body .event-text", "이벤트");
-    assert.ok($("#modal-root .ev-choices .choice-btn"), "이벤트: 선택지");
-    assert.ok($(".training-screen.inert") && $$(".training-screen .slot-row").every((b) => b.disabled), "이벤트: 배경 훈련 화면 비활성");
-    $("#modal-root .choice-btn").click();
-    await until(() => S.store.run.phase !== "event" || !$("#modal-root .choice-btn"));
-  }
-  assert.equal(S.store.run.phase, "turn");
-  const tv = S.run.getTurnView(S.store.run, data);
-  inStage(".screen.og.training-screen", "훈련");
-  assert.ok(!$(".training-screen").classList.contains("inert"), "훈련: 조작 가능");
-  // 상단 바
-  assert.equal($$(".topbar .turn-pips i").length, data.config.turnsPerSeason, "훈련: 턴 점 = 시즌 턴 수");
-  assert.equal($$(".topbar .turn-pips i.cur").length, 1, "훈련: 현재 턴 1개");
-  assert.ok($(".topbar .next-match").textContent.includes(tv.nextMatch.styleHint), "훈련: 다음 상대 성향");
-  assert.equal($$(".topbar .status-chip").length, 4, "훈련: 컨디션 · 팀워크 · SP · 호출권");
-  assert.ok($(".topbar .tb-seed").textContent.includes("og-test"), "훈련: seed");
-  // 훈련 칸 5열
-  const rows = $$(".slot-rows > .slot-row");
-  assert.equal(rows.length, 5, "훈련: 칸 5개");
-  assert.equal(rows.filter((r) => r.classList.contains("recommended")).length, 1, "훈련: 추천 1칸");
-  assert.equal($$(".slot-row .sl-pl").length, tv.slots.reduce((n, s) => n + s.players.length, 0), "훈련: 칸 선수 줄 = 배치 선수 수");
-  assert.equal($$(".slot-row .sl-sp").length, tv.slots.reduce((n, s) => n + s.supports.length, 0), "훈련: 칸 서포트 줄 = 배치 서포트 수");
-  for (const [i, r] of rows.entries()) {
-    assert.ok(r.querySelector(".slot-meta").textContent.includes("합계") && r.querySelector(".slot-meta").textContent.includes("실패 최대"), `칸 ${i}: 합계 · 실패`);
-    assert.ok(r.querySelector(".slot-gauge .bar"), `칸 ${i}: 합계 막대`);
-  }
-  // 선수 패널
-  assert.equal($$(".roster .ro-row").length, tv.players.length, "훈련: 선수 패널 7명");
-  assert.ok($$(".roster .ro-row").every((r) => r.querySelectorAll(".ro-st").length === 5 && r.querySelector(".ro-stam .bar")), "훈련: 선수마다 스탯 5 · 체력 막대");
-  assert.equal($$(".roster .bond-row").length, tv.supports.length, "훈련: 서포트 유대");
-  // 행동 바: 기록 + 휴식 · 외출 · 미팅 · 친선전 · 호출권
-  const bar = $(".actionbar");
-  assert.equal(bar.querySelectorAll("button").length, 6, "행동 바 버튼 6개");
-  for (const re of [/기록/, /휴식$/, /외출$/, /미팅$/, /친선전$/, /호출권 \d+$/]) assert.ok(btnByText(re, bar), `행동 바: ${re}`);
-
-  // 훈련 상세 시트 (넓은 하단 시트, 2열)
-  rows.find((r) => r.classList.contains("recommended")).click();
-  inStage("#modal-root .sheet.sheet-wide", "훈련 시트");
-  assert.ok($("#modal-root .train-grid") || $("#modal-root .sheet p"), "훈련 시트: 선수 2열");
-  assert.ok(btnByText(/^훈련하기$/, $("#modal-root")), "훈련 시트: [훈련하기]");
+  await until(() => S.store.screen === "run" && S.store.run && $(".week-screen"));
+  assert.equal(S.store.run.phase, "week", "1주 = 주 선택 (시즌 시작 이벤트 없음)");
+  assert.equal(S.store.run.policy, "counter", "고른 방침으로 런 시작");
+  assert.equal(JSON.parse(window.localStorage.getItem(KEYS.run)).seed, "og-test", "저장 = KEYS.run");
+  const wv = S.run.getWeekView(S.store.run, data);
+  inStage(".screen.og.week-screen", "주 선택");
+  assert.ok(!$(".week-screen").classList.contains("inert"), "주 선택: 조작 가능");
+  // 상단 바: 주 점 5 + ⚔, 상태 칩 4 (컨디션 · 팀워크 · SP · TP), 호출권 없음
+  assert.equal($$(".topbar .turn-pips i").length, data.lesson.weeksPerSeason, "주 점 = 시즌 주 수");
+  assert.equal($$(".topbar .turn-pips i.cur").length, 1, "이번 주 1개");
+  assert.ok($(".topbar .turn-pips .pip-match"), "주 점 끝 ⚔");
+  assert.ok($(".topbar .tb-kind").textContent.includes("레슨 주"), "주 종류");
+  assert.ok($(".topbar .next-match").textContent.includes(wv.nextMatch.styleHint), "다음 상대 성향");
+  assert.ok($(".topbar .next-match").textContent.includes("4주 후 경계전"), "경계전까지 남은 주");
+  assert.equal($$(".topbar .status-chip").length, 4, "상태 칩 4");
+  assert.ok(/TP/.test($$(".topbar .status-chip")[3].textContent) && !/호출권/.test($(".topbar").textContent), "TP · 호출권 없음");
+  assert.ok($(".topbar .tb-seed").textContent.includes("og-test") && $(".topbar .tb-seed").textContent.includes("역습형"), "seed · 방침");
+  // 선수 7 · 코치 유대 6 (눈금 = 유대 80)
+  assert.equal($$(".roster .ro-row").length, 7, "선수 7");
+  assert.ok($$(".roster .ro-row").every((r) => r.querySelectorAll(".ro-st").length === 5 && r.querySelectorAll(".ro-st.main").length === 2), "스탯 5 · 주 스탯 쌍 강조 2");
+  assert.equal($$(".roster .bond-row").length, wv.coaches.length, "코치 유대");
+  assert.ok($$(".roster .bond-th").every((e) => e.style.left === `${data.lesson.bond.upgradeAt}%`), "유대 눈금 = 강화 유대");
+  // 이번 주 (레슨 주): 종목 5 + 휴식, 추천 1
+  assert.equal($$(".week-lesson").length, 5, "레슨 종목 5");
+  assert.equal($$(".week-lesson.recommended").length, 1, "추천 1");
+  assert.equal($$(".week-lesson .badge-gold").length, wv.lessons.filter((l) => l.special).length, "★ 특별 배지");
+  assert.ok(btnByText(/^🛌휴식/, $(".week-row")), "휴식");
+  // 덱 · 기록 모달
+  btnByText(/^덱 보기 \d+$/, $(".week-bar")).click();
+  inStage("#modal-root .modal.modal-lg .deck-list", "덱");
+  assert.equal($$("#modal-root .deck-item").length, S.store.run.deck.length, "덱: 카드 전부");
   closeModal();
-  // 기록 (유물 · 보정 · 최근 기록)
-  btnByText(/기록/, bar).click();
+  btnByText(/유물 \d+ · 보정 \d+ · 기록/, $(".week-bar")).click();
   inStage("#modal-root .modal.modal-lg .extras-cols", "기록");
   assert.equal($$("#modal-root .extras-col").length, 2, "기록: 2열");
   closeModal();
-  // 휴식 확인
-  btnByText(/휴식$/, bar).click();
-  inStage("#modal-root .modal.modal-md", "휴식 확인");
-  assert.ok(btnByText(/^실행$/, $("#modal-root")), "휴식 확인: [실행]");
-  closeModal();
-  // 전술 미팅: 3열 (전술 6 — 배급 포함 · 포메이션 + 라인업 보드(슬롯 7, 끌어서 맞바꾸기) · 스킬 상점)
-  btnByText(/미팅$/, bar).click();
-  inStage("#modal-root .modal.modal-xl .meeting-cols", "미팅");
-  assert.equal($$("#modal-root .meeting-col").length, 3, "미팅: 3열");
-  assert.equal($$("#modal-root .meeting-col")[0].querySelectorAll("select").length, 6, "미팅: 전술 6개 (배급 포함)");
-  assert.ok($$("#modal-root .meeting-col")[0].textContent.includes("배급"), "미팅: 배급 전술");
-  assert.equal($$("#modal-root .meeting-board .lu-pitch.compact .lu-slot").length, 7, "미팅: 라인업 보드 슬롯 7개");
-  assert.equal($$("#modal-root .meeting-board select").length, 1, "미팅: 포지션 드롭다운 대신 보드 (포메이션 선택만)");
-  assert.equal($$("#modal-root .lu-pool").length, 0, "미팅: 벤치 없음 (7명 전원 배치)");
-  assert.ok(btnByText(/^미팅 진행$/, $("#modal-root")), "미팅: [미팅 진행]");
-  const mslot = (sl) => $(`#modal-root .lu-slot[data-slot="${sl}"]`);
-  const pidAt = (sl) => mslot(sl)?.dataset.pid;
-  const runSlots0 = Object.fromEntries(S.store.run.players.map((p) => [p.slot, p.id]));
-  for (const [sl, pid] of Object.entries(runSlots0)) assert.equal(pidAt(sl), pid, `미팅: 보드 처음 = 런 배치 (${sl})`);
-  // 드래그: DF1(도르비나 GK B · DF A · MF C · FW -) → FW 빨강, GK 초록(⇄ 네리아)
-  const dorbina = S.store.run.players.find((p) => p.charId === "ch_dwarf_wall");
-  const neria = S.store.run.players.find((p) => p.charId === "ch_spirit_keeper");
-  await drag(mslot(dorbina.slot), mslot("FW1"), { release: false });
-  assert.ok(mslot("FW1").classList.contains("drop-bad") && mslot("FW1").querySelector(".lu-hint").textContent === "FW 적성 없음", "미팅 드래그: FW 빨강");
-  assert.ok(mslot("GK").classList.contains("drop-ok") && mslot("GK").querySelector(".lu-hint").textContent === `GK B ⇄ ${neria.name}`, "미팅 드래그: GK 초록 (맞바꾸기 상대)");
-  ptr("pointerup", window, 300, 240); // 빨강에 놓기 → 거절
-  await wait(5);
-  assert.equal(pidAt("FW1"), runSlots0.FW1, "미팅: 빨강에 놓으면 변경 없음");
-  assert.equal($$("#modal-root .modal").length, 1, "미팅: 보드 밖 click 을 삼켜 모달이 닫히지 않는다");
-  await drag(mslot(dorbina.slot), mslot("GK"));
-  assert.ok(pidAt("GK") === dorbina.id && pidAt(dorbina.slot) === neria.id, "미팅: 도르비나 GK ⇄ 네리아 (도르비나 원래 자리로)");
-  assert.ok(mslot("GK").textContent.includes(`원래 ${dorbina.slot}`), "미팅: 옮긴 선수에 원래 자리 표시");
-  // 탭 경로: 선수를 누르고 → 다른 선수를 누르면 맞바꾸기 (MF1 ⇄ MF2)
-  const mf1 = pidAt("MF1");
-  const mf2 = pidAt("MF2");
-  mslot("MF1").click();
-  assert.ok(mslot("MF1").classList.contains("lu-selected") && mslot("MF2").classList.contains("drop-ok"), "미팅 탭: 고른 선수 기준 색");
-  mslot("MF2").click();
-  assert.ok(pidAt("MF1") === mf2 && pidAt("MF2") === mf1, "미팅 탭: MF1 ⇄ MF2");
-  // [미팅 진행] 이 만드는 액션을 가로채 엔진 resolveMeeting 으로 적용 → 최종 배치 = 보드 배치
-  const boardFinal = Object.fromEntries($$("#modal-root .lu-slot").map((e) => [e.dataset.slot, e.dataset.pid]));
-  let sent = null;
-  const realDo = S.actions.doAction;
-  S.actions.doAction = (a) => { sent = a; };
-  try { btnByText(/^미팅 진행$/, $("#modal-root")).click(); } finally { S.actions.doAction = realDo; }
-  assert.ok(sent && sent.type === "meeting" && Array.isArray(sent.swaps) && sent.swaps.length >= 2 && !sent.formation, "미팅 진행: swaps 액션");
-  const { resolveMeeting } = await import(pathToFileURL(path.join(ROOT, "js/engine/training.js")).href);
-  const probe = JSON.parse(JSON.stringify(S.store.run));
-  resolveMeeting(probe, data, sent);
-  assert.deepEqual(Object.fromEntries(probe.players.map((p) => [p.slot, p.id])), boardFinal, "미팅 진행: 엔진이 적용한 배치 = 보드 배치");
-  assert.equal($$("#modal-root .overlay").length, 0, "미팅 진행: 모달 닫힘");
-  // 다시 열면 런 배치 그대로 (가로챘으므로 적용 안 됨), 포메이션 2-3-1 → MF3 생김 · 7명 유지
-  btnByText(/미팅$/, bar).click();
-  inStage("#modal-root .meeting-board", "미팅 다시");
-  const msel = $("#modal-root .meeting-board .field select");
-  msel.value = "2-3-1";
-  msel.dispatchEvent(new window.Event("change", { bubbles: true }));
-  assert.equal($$("#modal-root .lu-slot").length, 7, "미팅: 포메이션 바꿔도 슬롯 7개");
-  assert.ok(mslot("MF3") && pidAt("MF3") === runSlots0.FW2, "미팅: 2-3-1 → 없어진 FW2 선수가 MF3 로");
-  assert.equal(new Set($$("#modal-root .lu-slot").map((e) => e.dataset.pid)).size, 7, "미팅: 7명 모두 한 자리씩");
-  closeModal();
-  assert.equal(S.store.run.formation, "2-2-2", "미팅 취소: 변경 없음");
-  // 호출권: 선수 3열 → 칸 5개 한 줄
-  if (Number(tv.summonTickets) > 0) {
-    btnByText(/호출권 \d+$/, bar).click();
-    inStage("#modal-root .modal.modal-lg .pick-grid.cols-3", "호출권");
-    assert.equal($$("#modal-root .pick-grid .char-pick").length, tv.players.filter((p) => !(p.injuredTurns > 0)).length, "호출권: 부상 아닌 선수");
-    $("#modal-root .char-pick").click();
-    inStage("#modal-root .summon-slots", "호출권 칸");
-    assert.equal($$("#modal-root .summon-slots button").length, 5, "호출권: 칸 5개");
-    closeModal();
+  noErrorToast("주 선택");
+
+  // 자유 주 (주입: 감독 AI 로 걸은 레슨 런) — 행동 3 + 휴식, 보장 배지, 외출 = 선수 7 고르기
+  {
+    const { OUTGAME_SCENARIOS: OG } = await import(pathToFileURL(path.join(ROOT, "tools/scenarios.mjs")).href);
+    const b = OG.find((x) => x.name === "og_week_free").build(data, { runSeed: 1 });
+    S.store.run = JSON.parse(JSON.stringify(b.runState));
+    S.store.screen = "run";
+    S.render();
+    inStage(".screen.og.week-screen", "자유 주");
+    assert.ok($(".topbar .tb-kind").textContent.includes("자유 주"));
+    assert.equal($$(".week-act").length, 3, "자유 주: 행동 3");
+    assert.equal($$(".week-act .badge-purple").length, 1, "자유 주: 이번 시즌 보장 1");
+    assert.ok($(".week-rest"), "자유 주: 휴식");
+    const outing = $$(".week-act").find((x) => x.textContent.includes("외출"));
+    if (outing) {
+      outing.click();
+      inStage("#modal-root .modal.modal-lg .pick-grid", "외출");
+      assert.equal($$("#modal-root .char-pick").length, 7, "외출: 선수 7");
+      closeModal();
+    }
   }
-  assert.equal($$("#modal-root .overlay").length, 0, "훈련: 모달 전부 닫힘");
-  noErrorToast("훈련");
+  assert.equal($$("#modal-root .overlay").length, 0, "주 선택: 모달 전부 닫힘");
+  noErrorToast("자유 주");
 
   // ---------- 시나리오 주입: 이벤트 · 유물 · 루트 · 결과 (tools/scenarios.mjs, shot.mjs 와 같은 상태) ----------
   const { loadData, OUTGAME_SCENARIOS, clone } = await import(pathToFileURL(path.join(ROOT, "tools/scenarios.mjs")).href);
@@ -449,12 +432,12 @@ test("jsdom: 아웃게임 화면 전부 스테이지 안에 그려지고 주요 
   assert.ok($("#modal-root .ev-story .ev-cast .ev-who"), "이벤트: 등장 인물");
   assert.ok($$("#modal-root .ev-choices .choice-btn").length >= 2, "이벤트: 선택지 2개 이상 (오른쪽 세로)");
   assert.ok($$("#modal-root .choice-btn .preview").length >= 1, "이벤트: 효과 미리보기");
-  assert.ok($(".training-screen.inert"), "이벤트: 배경 훈련 화면");
+  assert.ok($(".week-screen.inert"), "이벤트: 배경 = 주 선택 화면 (조작 불가)");
 
   const relicState = inject("og_relic");
   inStage("#modal-root .modal.modal-lg .relic-row", "유물");
   assert.equal($$("#modal-root .relic-row .relic-card").length, relicState.pendingRelicChoices.length, "유물: 후보 카드가 한 줄에");
-  assert.ok($(".training-screen.inert"), "유물: 배경 훈련 화면");
+  assert.ok($(".week-screen.inert"), "유물: 배경 = 주 선택 화면");
 
   const routeState = inject("og_route");
   inStage(".screen.og.route-screen", "루트");
@@ -477,7 +460,7 @@ test("jsdom: 아웃게임 화면 전부 스테이지 안에 그려지고 주요 
   // ---------- 도전 모드 (2026-10-01): 시작 [도전 모드] → 팀 선택 · 사다리 · 미리보기 · 결과 모달 (tools/scenarios.mjs og_challenge* 와 같은 상태) ----------
   const ogBuild = (name) => OUTGAME_SCENARIOS.find((s) => s.name === name).build(sdata, { runSeed: 1 });
   const putStorage = (b) => {
-    window.localStorage.setItem("soccer.teams", JSON.stringify(b.teams ?? []));
+    window.localStorage.setItem(KEYS.teams, JSON.stringify(b.teams ?? []));
     for (const [k, v] of Object.entries(b.storage || {})) window.localStorage.setItem(k, JSON.stringify(v));
   };
   S.store.run = null;

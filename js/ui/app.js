@@ -1,17 +1,24 @@
 // js/ui/app.js — 진입점. 고정 스테이지(1280×720) → 데이터 로드 → 화면 라우팅(render) → 엔진 호출 래퍼/저장
+// 카드 레슨 시험판 (LESSON_PROTO_PLAN §6.1): 런 엔진 = js/engine/lessonRun.js (ctx.run), 감독 AI = js/engine/manager.js (ctx.manager).
+//   phase: week(주 선택) · lesson(레슨) · reward(레슨 결과 모달) · consult(상담) · prep(경기 전 준비) · event · match · relic · route · finished.
+//   저장 키는 store.js KEYS ('soccer-lesson.' 앞머리 — 본편 저장과 따로). 레슨 화면은 lessonCall 로 엔진을 직접 부르고 저장만 한다 (render 없음).
 // 2026-10-01 도전 모드: 화면 'challenge'(목록 · js/ui/screens/challenge.js) · 'challengeMatch'(경기 — 경기 화면에 경기 모드 훅 ctx.matchMode).
-//   진행 기록 = 'soccer.challenge', 진행 중인 경기 = 'soccer.challengeMatch' (store.js). 런 상태 · 런 저장('soccer.run' · 'soccer.match')은 건드리지 않는다.
+//   진행 기록 = KEYS.challenge, 진행 중인 경기 = KEYS.challengeMatch (store.js). 런 상태 · 런 저장(KEYS.run · KEYS.match)은 건드리지 않는다.
 //   새로고침(부트)은 런과 같이 늘 시작 화면 — 진행 중인 도전 경기가 저장돼 있으면 시작 화면 [도전 모드] 가 "이어하기" 로 바뀌고 누르면 그 경기로.
 //   경기 중 나가기 = [나가기] (경기는 저장한 채 시작 화면, 기록 없음) · [포기] (기권 패로 기록).
 import { mountStage } from './stage.js';
 import {
-  store, saveRun, loadRun, saveMatch, loadMatch, clearRunSaves, addTeam, resetMatchUi, loadTeams, TEAMS_CAP,
+  store, saveRun, loadRun, saveMatch, loadMatch, clearRunSaves, addTeam, resetMatchUi, resetLessonUi, loadTeams, TEAMS_CAP,
   loadChallengeProgress, saveChallengeProgress, loadChallengeMatch, saveChallengeMatch, CHALLENGE_MATCH_VERSION,
 } from './store.js';
 import { h, toast, closeOverlays } from './dom.js';
 import { renderStart } from './screens/start.js';
 import { renderSetup, initSetup } from './screens/setup.js';
-import { renderTraining } from './screens/training.js';
+import { renderWeek } from './screens/week.js';
+import { renderLesson } from './screens/lesson.js';
+import { renderRewardModal } from './screens/reward.js';
+import { renderConsult } from './screens/consult.js';
+import { renderPrep } from './screens/prep.js';
 import { renderEventModal } from './screens/event.js';
 import { renderMatch } from './screens/match.js';
 import { renderRelicModal } from './screens/relic.js';
@@ -20,14 +27,17 @@ import { renderResult } from './screens/result.js';
 import { renderChallenge } from './screens/challenge.js';
 
 const DATA_FILES = ['config', 'characters', 'supports', 'skills', 'events', 'relics', 'opponents', 'routes', 'traits', 'combos',
-  'challenge', 'challenge_sample_team'];
+  'challenge', 'challenge_sample_team', 'cards', 'lesson', 'policies'];
 // v0.3: 없어도 엔진(DEFAULT_TRAITS/DEFAULT_COMBOS)·화면(TRAIT_LABELS)이 같은 기본값으로 동작 → 404 면 건너뛴다
 // 도전 모드: challenge 가 없으면 도전 모드만 못 연다, 샘플 팀이 없으면 팀 목록에서 빠진다
 const OPTIONAL_FILES = new Set(['traits', 'combos', 'challenge', 'challenge_sample_team']);
 
-// 엔진 모듈 (계약: js/engine/run.js, js/engine/match.js). 로드 실패 시에도 화면은 뜨도록 동적 import.
+const REQUIRED_FILE_COUNT = DATA_FILES.filter((n) => !OPTIONAL_FILES.has(n)).length;
+
+// 엔진 모듈 (계약: js/engine/lessonRun.js = ctx.run, js/engine/match.js). 로드 실패 시에도 화면은 뜨도록 동적 import.
 let run = null;
 let match = null;
+let manager = null; // js/engine/manager.js (감독 AI — 추천 배지 · 자리표시 화면의 [추천대로])
 let challenge = null; // js/engine/challenge.js (도전 모드 — 없으면 도전 모드만 못 연다)
 
 function errMsg(e) {
@@ -94,7 +104,7 @@ function persistChallengeMatch(ms) {
 }
 
 /**
- * 저장된 도전 경기('soccer.challengeMatch') 살펴보기 — 저장은 바꾸지 않는다.
+ * 저장된 도전 경기(KEYS.challengeMatch) 살펴보기 — 저장은 바꾸지 않는다.
  * @returns {{ status: 'none' } | { status: 'unknown' } | { status: 'invalid' } | { status: 'ok', active: object, match: object|null }}
  *   none = 저장 없음, unknown = 엔진 · 도전 데이터가 없어 판단할 수 없음 (저장본은 그대로 둔다),
  *   invalid = 쓸 수 없는 저장본 (형식 · 단계 · 시드가 안 맞음, 이미 기록된 도전 번호), ok = 이어서 할 수 있음
@@ -169,8 +179,8 @@ function challengeMatchMode() {
 }
 
 /**
- * 도전 경기를 정리하고 화면 전환 (store.match 는 도전 경기였다 — 런 경기는 'soccer.match' 에 그대로, 이어하기가 다시 읽는다).
- * keepSave = true 면 'soccer.challengeMatch' 를 남긴다 ([나가기] · 처음으로 — [도전 모드] 가 이어서 한다).
+ * 도전 경기를 정리하고 화면 전환 (store.match 는 도전 경기였다 — 런 경기는 KEYS.match 에 그대로, 이어하기가 다시 읽는다).
+ * keepSave = true 면 KEYS.challengeMatch 를 남긴다 ([나가기] · 처음으로 — [도전 모드] 가 이어서 한다).
  */
 function leaveChallengeMatch(screen = 'challenge', keepSave = false) {
   if (!keepSave) saveChallengeMatch(null);
@@ -221,8 +231,9 @@ const actions = {
   },
 
   continueRun() {
-    const s = loadRun();
-    if (!s || !s.phase) return toast('저장된 런이 없습니다.');
+    const s = loadRun(); // 레슨 런 저장본만 (store.isLessonRunSave)
+    if (!s || (run && !run.isLessonRun(s))) return toast('저장된 런이 없습니다.');
+    if (run) safe(() => run.migrateLessonRun(s));
     store.run = s;
     store.final = null;
     store.registered = false;
@@ -230,6 +241,7 @@ const actions = {
     const matchOk = m && s.phase === 'match' && (s.pendingMatch?.seed == null || m.seed === s.pendingMatch.seed);
     store.match = matchOk ? m : null;
     resetMatchUi();
+    resetLessonUi();
     store.screen = 'run';
     render();
   },
@@ -250,25 +262,71 @@ const actions = {
     render();
   },
 
-  startRun({ squad, formation, supportIds, tactics, seed }) {
-    if (!run) return toast('엔진 모듈(run.js)이 로드되지 않았습니다.');
-    const st = safe(() => run.createRun({ data: store.data, seed, squad, formation, supportIds, tactics }));
+  startRun({ squad, formation, supportIds, tactics, policy, seed }) {
+    if (!run) return toast('엔진 모듈(lessonRun.js)이 로드되지 않았습니다.');
+    const st = safe(() => run.createRun({ data: store.data, seed, squad, formation, supportIds, tactics, policy }));
     if (!st) return;
     store.run = st;
     store.match = null;
     store.final = null;
     store.registered = false;
     resetMatchUi();
+    resetLessonUi();
     saveRun(st);
     saveMatch(null);
     store.screen = 'run';
     render();
   },
 
-  doAction(action) {
+  /** 주 행동 (lessonRun.applyWeekAction): lesson · rest · outing · meeting · consult · friendly */
+  weekAction(action) {
     const before = store.run?.log?.length ?? 0;
-    const r = engine(() => run.applyAction(store.run, store.data, action));
+    const r = engine(() => run.applyWeekAction(store.run, store.data, action));
+    if (r !== undefined) {
+      if (store.run?.phase === 'lesson') resetLessonUi(); // 새 레슨 = 선택 · 연출 표시 초기화
+      announce(newLogLines(before));
+    }
+    render();
+  },
+
+  /**
+   * 레슨 화면 전용: 엔진 호출 1번(playCard · lessonRest · endLessonTurn) + 저장만 한다 (render 없음 — 레슨 화면이 연출을 이어 그린다).
+   * @param {'playCard'|'lessonRest'|'endLessonTurn'} fnName
+   * @returns {object|undefined} 엔진 반환값 (오류면 undefined + 토스트)
+   */
+  lessonCall(fnName, args) {
+    if (!run || typeof run[fnName] !== 'function') { toast(`레슨 엔진 함수가 없습니다: ${fnName}`); return undefined; }
+    return engine(() => run[fnName](store.run, store.data, args));
+  },
+
+  /** 레슨 결과 모달 [확인] (lessonRun.resolveReward { pick, upgradeUid }) */
+  resolveReward(args) {
+    const before = store.run?.log?.length ?? 0;
+    const r = engine(() => run.resolveReward(store.run, store.data, args || {}));
+    if (r !== undefined) { resetLessonUi(); announce(newLogLines(before)); }
+    render();
+  },
+
+  /** 상담 행동 1개 (buy · upgrade · delete · skill) — 행동마다 저장 */
+  consultAction(op) {
+    const before = store.run?.log?.length ?? 0;
+    const r = engine(() => run.consultAction(store.run, store.data, op));
     if (r !== undefined) announce(newLogLines(before));
+    render();
+  },
+
+  endConsult() {
+    const before = store.run?.log?.length ?? 0;
+    const r = engine(() => run.endConsult(store.run, store.data));
+    if (r !== undefined) { store.consultUi.selectedUid = null; announce(newLogLines(before)); }
+    render();
+  },
+
+  /** 경기 전 준비 [경기 시작] (lessonRun.confirmPrep { tactics, formation, swaps }) */
+  confirmPrep(args) {
+    const before = store.run?.log?.length ?? 0;
+    const r = engine(() => run.confirmPrep(store.run, store.data, args || {}));
+    if (r !== undefined) { resetMatchUi(); announce(newLogLines(before)); }
     render();
   },
 
@@ -327,6 +385,7 @@ const actions = {
     store.final = null;
     store.registered = false;
     resetMatchUi();
+    resetLessonUi();
     actions.newRun(seed || '');
   },
 
@@ -352,7 +411,7 @@ const actions = {
     render();
   },
 
-  /** n 단계 도전 시작: 다음 도전 번호 → 셋업 확인 → 경기 화면 (경기는 경기 화면이 셋업으로 만들고 'soccer.challengeMatch' 에 저장) */
+  /** n 단계 도전 시작: 다음 도전 번호 → 셋업 확인 → 경기 화면 (경기는 경기 화면이 셋업으로 만들고 KEYS.challengeMatch 에 저장) */
   startChallenge(teamId, stage) {
     if (!challenge || !match) return toast('도전 모드 엔진 모듈을 불러오지 못했습니다.');
     const entry = safe(() => challenge.listChallengeTeams(loadTeams(), store.data))?.find((t) => t.teamId === teamId);
@@ -380,7 +439,7 @@ const actions = {
     const a = store.challenge.active;
     if (!a || !challenge) { leaveChallengeMatch(); render(); return; }
     const rec = recordChallenge(a, result || {});
-    // 엔진 오류 · 기록 저장 실패: 경기 상태 · 'soccer.challengeMatch' 를 그대로 두고 경기 화면을 다시 그린다 → 결과 모달 [확인] 으로 다시 시도
+    // 엔진 오류 · 기록 저장 실패: 경기 상태 · KEYS.challengeMatch 를 그대로 두고 경기 화면을 다시 그린다 → 결과 모달 [확인] 으로 다시 시도
     if (rec === undefined || !rec.saved) { render(); return; }
     const ms = store.match || {};
     const win = result?.winner === 'home';
@@ -429,7 +488,7 @@ const actions = {
     render();
   },
 
-  /** 경기 중 [나가기]: 기록 없이 시작 화면으로. 경기는 'soccer.challengeMatch' 에 남는다 (매 비트 저장) → [도전 모드] 가 이어서 한다 */
+  /** 경기 중 [나가기]: 기록 없이 시작 화면으로. 경기는 KEYS.challengeMatch 에 남는다 (매 비트 저장) → [도전 모드] 가 이어서 한다 */
   suspendChallenge() {
     if (!store.challenge.active) { leaveChallengeMatch(); render(); return; }
     leaveChallengeMatch('start', true);
@@ -467,6 +526,7 @@ function makeCtx() {
     data: store.data,
     run,
     match,
+    manager,
     challenge,
     pendingChallenge, // 시작 화면 [도전 모드]: 이어서 할 도전 경기 (없으면 null)
     render,
@@ -492,16 +552,20 @@ function errorPanel(e, extra) {
         : h('button', { class: 'btn btn-danger', onclick: () => { if (confirm('저장된 런을 삭제할까요?')) actions.discardSave(); } }, '저장 삭제')));
 }
 
+/** 이벤트 · 유물 모달의 배경 = 주 선택 화면 (조작 불가) */
 function renderBackdrop(root, ctx) {
   try {
-    renderTraining(root, ctx, { inert: true });
+    renderWeek(root, ctx, { inert: true });
   } catch (e) {
     console.error(e);
     root.append(h('div', { class: 'screen' }, h('p', { class: 'muted center' }, '…')));
   }
 }
 
-/** 스테이지 화면 종류 표시 (#stage[data-mode]): 'match' = 경기 화면 → 토스트를 오른쪽 위 좁은 칸으로 (css/match.css), 그 밖 = 'og' */
+/**
+ * 스테이지 화면 종류 표시 (#stage[data-mode]): 'match' = 경기 화면 → 토스트를 오른쪽 위 좁은 칸으로 (css/match.css),
+ * 'lesson' = 레슨 화면 · 레슨 결과 → 토스트를 손패 위로 (css/lesson.css), 그 밖 = 'og'
+ */
 function setStageMode(mode) {
   const el = document.getElementById('stage');
   if (el) el.dataset.mode = mode;
@@ -510,6 +574,11 @@ function setStageMode(mode) {
 // ---- 라우팅 ----
 export function render() {
   if (store.matchUi.timer) { clearInterval(store.matchUi.timer); store.matchUi.timer = null; }
+  // 레슨 화면 연출: 옛 화면의 타이머를 지우고 세대를 올린다 → 옛 루프는 gen 검사(alive)로 스스로 멈춘다
+  const lui = store.lessonUi;
+  if (lui.timer) { clearTimeout(lui.timer); lui.timer = null; }
+  lui.busy = false;
+  lui.gen += 1;
   closeOverlays();
   const root = document.getElementById('app');
   if (!root) return;
@@ -532,7 +601,11 @@ export function render() {
     if (!run || !match) { root.append(errorPanel(new Error('엔진 모듈이 로드되지 않아 런을 진행할 수 없습니다.'))); return; }
     const phase = safe(() => run.getPhase(store.run)) ?? store.run.phase;
     switch (phase) {
-      case 'turn': renderTraining(root, ctx); break;
+      case 'week': renderWeek(root, ctx); break;
+      case 'lesson': setStageMode('lesson'); renderLesson(root, ctx); break;
+      case 'reward': setStageMode('lesson'); renderLesson(root, ctx, { inert: true }); renderRewardModal(ctx); break;
+      case 'consult': renderConsult(root, ctx); break;
+      case 'prep': renderPrep(root, ctx); break;
       case 'event': renderBackdrop(root, ctx); renderEventModal(ctx); break;
       case 'match': setStageMode('match'); renderMatch(root, ctx); break;
       case 'relic': renderBackdrop(root, ctx); renderRelicModal(ctx); break;
@@ -565,13 +638,13 @@ async function boot() {
     toast(errMsg(e), 'error', 8000);
     if (root) {
       root.replaceChildren(h('div', { class: 'screen' }, h('div', { class: 'error-panel' }, h('b', {}, '데이터 로드 실패'), h('div', {}, errMsg(e)),
-        h('p', { class: 'muted small' }, 'data/*.json 8개 파일이 index.html과 같은 위치의 data/ 폴더에 있어야 합니다.'))));
+        h('p', { class: 'muted small' }, `data/*.json 필수 파일 ${REQUIRED_FILE_COUNT}개가 index.html과 같은 위치의 data/ 폴더에 있어야 합니다.`))));
     }
     return;
   }
 
   try {
-    [run, match] = await Promise.all([import('../engine/run.js'), import('../engine/match.js')]);
+    [run, match, manager] = await Promise.all([import('../engine/lessonRun.js'), import('../engine/match.js'), import('../engine/manager.js')]);
   } catch (e) {
     console.error(e);
     toast(`엔진 모듈 로드 실패: ${errMsg(e)}`, 'error', 8000);
@@ -586,7 +659,7 @@ async function boot() {
 
   // 디버깅 편의
   window.__soccer = {
-    store, get run() { return run; }, get match() { return match; }, get challenge() { return challenge; },
+    store, get run() { return run; }, get match() { return match; }, get manager() { return manager; }, get challenge() { return challenge; },
     get stage() { return stage?.fit ?? null; }, render, actions,
   };
 

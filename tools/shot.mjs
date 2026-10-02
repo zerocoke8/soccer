@@ -6,7 +6,7 @@
 //
 // 1) 내장 정적 서버(node:http, 포트 0)로 프로젝트 루트를 띄운다.
 // 2) Node 에서 엔진(js/engine/run.js · match.js)으로 시나리오 상황의 run/match 상태를 찾는다 (tools/scenarios.mjs).
-// 3) puppeteer-core + 로컬 Chrome/Edge 로 페이지를 열고 localStorage('soccer.run' / 'soccer.match' / 'soccer.teams' + 시나리오 storage)에 주입 →
+// 3) puppeteer-core + 로컬 Chrome/Edge 로 페이지를 열고 localStorage(KEYS.run / KEYS.match / KEYS.teams + 시나리오 storage — js/ui/store.js)에 주입 →
 //    reload → 경기 · 저장된 런이면 시작 화면 "이어하기" 클릭 → (아웃게임) 조작 steps(클릭 · 드래그) → 뷰포트 캡처 (페이지는 스크롤하지 않는다).
 // 4) 시나리오마다 파일 경로, 스테이지 배율, 페이지 · 안쪽 스크롤, 캡처 시점 상태 확인, pageerror/console.error 를 출력.
 //
@@ -26,6 +26,7 @@ import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { ROOT, loadData, SCENARIOS, buildScenarioState, describeState } from "./scenarios.mjs";
 import { fitStage, STAGE_W, STAGE_H } from "../js/ui/stage.js";
+import { KEYS } from "../js/ui/store.js";
 
 const ACTION_LABELS = { dribble: "드리블", pass: "패스", cross: "크로스", shoot: "슛", tackle: "태클", intercept: "인터셉트", hold: "버티기", block: "버티기" };
 const MIME = {
@@ -244,13 +245,13 @@ async function clickButtonByText(page, re) {
 }
 
 async function readLiveMatch(page) {
-  return page.evaluate(() => {
+  return page.evaluate((matchKey) => {
     try {
       const m = window.__soccer && window.__soccer.store && window.__soccer.store.match;
       if (m) return JSON.parse(JSON.stringify(m));
     } catch (_) { /* fall through */ }
-    try { return JSON.parse(localStorage.getItem("soccer.match") || "null"); } catch (_) { return null; }
-  });
+    try { return JSON.parse(localStorage.getItem(matchKey) || "null"); } catch (_) { return null; }
+  }, KEYS.match);
 }
 
 /** 자동 진행 끄기. ?auto=0 이 먹었으면 "url", 아니면 버튼 클릭("button") → 최후엔 store 직접 수정("store"). */
@@ -331,15 +332,15 @@ async function runScenario(browser, baseUrl, sc, prepared, opts) {
     const qs = q.toString();
     await page.goto(`${baseUrl}/index.html${qs ? `?${qs}` : ""}`, { waitUntil: "load" });
     const json = (v) => (v == null ? null : JSON.stringify(v));
-    // 그 밖의 키 (아웃게임 시나리오 storage — 도전 모드 'soccer.challenge' · 'soccer.challengeMatch')
+    // 그 밖의 키 (아웃게임 시나리오 storage — 도전 모드 KEYS.challenge · KEYS.challengeMatch)
     const extra = Object.entries(prepared.storage || {}).map(([k, v]) => [k, json(v)]);
-    await page.evaluate((runJson, matchJson, teamsJson, extraKv) => {
+    await page.evaluate((keys, runJson, matchJson, teamsJson, extraKv) => {
       const put = (k, v) => (v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v));
-      put("soccer.run", runJson);
-      put("soccer.match", matchJson);
-      put("soccer.teams", teamsJson);
+      put(keys.run, runJson);
+      put(keys.match, matchJson);
+      put(keys.teams, teamsJson);
       for (const [k, v] of extraKv) put(k, v);
-    }, json(prepared.runState), json(prepared.matchState), json(prepared.teams), extra);
+    }, { run: KEYS.run, match: KEYS.match, teams: KEYS.teams }, json(prepared.runState), json(prepared.matchState), json(prepared.teams), extra);
     await page.reload({ waitUntil: "load" });
 
     // 시작 화면 (데이터 로드 끝). 진행 중인 도전 경기가 주입돼도 부트는 시작 화면 ([도전 모드 — 이어하기] 를 눌러야 경기로)

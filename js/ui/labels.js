@@ -38,7 +38,7 @@ export const ELEMENT_ICONS = { fire: '🔥', water: '💧', wind: '🌪', earth:
 export const STYLE_LABELS = { power: '파워', speed: '스피드', technique: '테크닉' };
 export const RACE_LABELS = { human: '인간', elf: '엘프', dwarf: '드워프', beast: '수인', spirit: '정령', giant: '거인' };
 export const RARITY_LABELS = { R: 'R', SR: 'SR', SSR: 'SSR' };
-export const SUPPORT_TYPE_LABELS = { ...STAT_LABELS, friend: '친구' };
+export const SUPPORT_TYPE_LABELS = { ...STAT_LABELS, friend: '친구' }; // friend = 옛 데이터 (레슨판 코치 타입은 5종목)
 
 // v0.3 (GDD v0.5 §9.8): 공격 dribble|pass|cross|shoot, 수비 tackle|intercept|hold (v0.4 block → hold), GK save
 export const ACTION_LABELS = {
@@ -134,6 +134,56 @@ export const TACTIC_OPTIONS = {
 export const TACTIC_MAIN_KEYS = ['attack', 'shootTiming', 'defense'];
 // 편성 화면 · 전술 미팅의 전술 줄: 주요 3개 + 배급 (텐션 사용 · 듀얼 담당은 미팅에서만)
 export const TACTIC_SETUP_KEYS = [...TACTIC_MAIN_KEYS, 'distribution'];
+
+// ---- 카드 레슨 (LESSON_PROTO_PLAN §6, data/policies.json · cards.json · lesson.json) ----
+// 훈련 방침 (경기 전술과 다르다 — 레슨에서 붙는 버프만 바뀐다). 이름 · 설명은 data.policies 가 있으면 그것을 쓴다 (policyInfo)
+export const POLICIES = ['ace', 'team', 'counter', 'press', 'poss'];
+export const POLICY_LABELS = { ace: '에이스형', team: '팀형', counter: '역습형', press: '압박형', poss: '점유형' };
+export const POLICY_DESC = {
+  ace: '한두 명을 확 키운다 — 호조 · 집중',
+  team: '7명을 고르게 — 분위기',
+  counter: '수비진이 쌓고 공격진이 터뜨린다 — 탈취',
+  press: '몰아치고 내려서 정비 — 압박 단계',
+  poss: 'MF를 거쳐 끊기지 않게 — 점유',
+};
+/** 방침 표시 정보 { id, name, desc, buffs } — data.policies(있으면) 우선 */
+export function policyInfo(id, data) {
+  const fromData = Array.isArray(data?.policies?.policies) ? data.policies.policies.find((p) => p && p.id === id) : null;
+  return {
+    id,
+    name: fromData?.name ?? POLICY_LABELS[id] ?? String(id ?? ''),
+    desc: fromData?.desc ?? POLICY_DESC[id] ?? '',
+    buffs: Array.isArray(fromData?.buffs) ? fromData.buffs : [],
+  };
+}
+// 레슨 버프 칩 이름 (엔진 lesson.BUFF_CHIP_LABELS 와 같은 키 · 같은 이름 — 뷰 chips[].label 이 기본, 이 표는 뷰 밖에서 쓸 때)
+export const BUFF_LABELS = {
+  hojo: '호조', focus: '집중', routine: '루틴', mood: '분위기', noDecay: '분위기 유지',
+  steal: '탈취', press: '압박', poss: '점유', possGuard: '점유 가드',
+  nextPct: '다음 카드', nextPairPct: '다음 짝 카드', nextNoFail: '실패 없음', nextCostZero: '비용 0',
+};
+// 주 종류 (lesson.json weekKinds)
+export const WEEK_KIND_LABELS = { lesson: '레슨 주', free: '자유 주', prep: '대비 주' };
+// 카드 대상 종류 (cards.json target.kind)
+export const CARD_TARGET_LABELS = {
+  all: '전원', line: '라인', attack: '공격진', defense: '수비진', single: '지명', pair: '짝',
+  owner: '고유', tap: '지명 회복', none: '대상 없음',
+};
+// 카드 계열 (cards.json family)
+export const CARD_FAMILY_LABELS = {
+  common: '공용', ace: '에이스형', team: '팀형', counter: '역습형', press: '압박형', poss: '점유형',
+  unique: '고유', coach: '코치', prep: '대비',
+};
+// 자유 주 행동 (lesson.json freeWeek) + 늘 열린 휴식
+export const FREE_ACTION_LABELS = { consult: '상담', meeting: '전술 미팅', outing: '외출', friendly: '친선전', rest: '휴식' };
+export const FREE_ACTION_ICONS = { consult: '🗂️', meeting: '📋', outing: '🚶', friendly: '🤝', rest: '🛌' };
+// 레슨 결과 (LessonState.status)
+export const LESSON_STATUS_LABELS = { playing: '진행 중', perfect: '퍼펙트!', clear: '클리어', fail: '실패' };
+// 런 phase (시작 화면 이어하기 줄)
+export const PHASE_LABELS = {
+  week: '주 선택', lesson: '레슨', reward: '레슨 결과', consult: '상담', prep: '경기 전 준비',
+  event: '이벤트', match: '경기', relic: '유물 선택', route: '루트 선택', finished: '완료',
+};
 
 export const SKILL_KIND_LABELS = { passive: '패시브', active: '액티브', unique: '필살기' };
 

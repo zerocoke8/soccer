@@ -23,10 +23,12 @@ import { fileURLToPath } from "node:url";
 import * as run from "../js/engine/run.js";
 import * as match from "../js/engine/match.js";
 import * as challenge from "../js/engine/challenge.js";
+import { KEYS } from "../js/ui/store.js";
+import { LESSON_OG_SCENARIOS } from "./lesson_scenarios.mjs";
 
 export { run, match, challenge };
 export const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const DATA_FILES = ["config", "characters", "supports", "skills", "events", "relics", "opponents", "routes"];
+const DATA_FILES = ["config", "characters", "supports", "skills", "events", "relics", "opponents", "routes", "cards", "lesson", "policies"];
 const OPTIONAL_FILES = ["traits", "combos", "challenge", "challenge_sample_team"]; // v0.3 (없으면 엔진 기본값) · 도전 모드 (og_challenge*)
 
 export function loadData(root = ROOT) {
@@ -579,8 +581,9 @@ function comboOption(view) {
 /* ------------------------------------------------------------------ */
 // 아웃게임 시나리오 = { name: "og_…", title, outgame: true, build(data, { runSeed }), steps?, ready, expect, viewport? }
 //   build(data, { runSeed }) → { runState | null, teams?, storage?, summary, steps?, preferred? }
-//     runState: 주입할 런 (soccer.run). null = 저장된 런 없음 → 시작 화면. teams = 등록 팀 목록 (soccer.teams)
-//     storage: 그 밖의 localStorage { 키: 값 } (도전 모드 'soccer.challenge' 진행 · 'soccer.challengeMatch' 진행 중 경기 — 부트는 시작 화면,
+//     runState: 주입할 런 (KEYS.run). null = 저장된 런 없음 → 시작 화면. teams = 등록 팀 목록 (KEYS.teams)
+//              레슨판(js/ui/store.js loadRun)은 레슨 런(kind "lessonRun")만 이어하기로 연다 — 옛 run.js 상태는 I1 이 레슨 런으로 옮긴다
+//     storage: 그 밖의 localStorage { 키: 값 } (도전 모드 KEYS.challenge 진행 · KEYS.challengeMatch 진행 중 경기 — 부트는 시작 화면,
 //              [도전 모드](이어하기) 를 눌러야 그 경기로 간다)
 //   진입: runState 가 있으면 시작 화면 "이어하기" 클릭 → steps 순서대로 → ready 선택자가 보일 때까지 기다린 뒤 캡처
 //   steps: [{ click: "css 선택자" } | { text: "버튼 글자 정규식" } | { wait: ms } |
@@ -851,7 +854,7 @@ export const OUTGAME_SCENARIOS = [
       return {
         runState: null,
         teams,
-        storage: { "soccer.challenge": progress },
+        storage: { [KEYS.challenge]: progress },
         summary: `등록 팀 ${teams.map((t) => `${t.grade}(${t.seed})`).join(", ")} · 첫 팀(${id}) 클리어 ${challenge.teamProgress(progress, id).cleared}단계`,
       };
     },
@@ -909,8 +912,8 @@ export const OUTGAME_SCENARIOS = [
             runState: null,
             teams: [],
             storage: {
-              "soccer.challenge": progress,
-              "soccer.challengeMatch": { version: 1, teamId: id, stage: 2, attempt, seed: setup.seed, team, match: ms },
+              [KEYS.challenge]: progress,
+              [KEYS.challengeMatch]: { version: 1, teamId: id, stage: 2, attempt, seed: setup.seed, team, match: ms },
             },
             summary: `샘플 팀 2단계 ${attempt}회차 승리 ${r.homeGoals}:${r.awayGoals}${r.penalties ? ` (승부차기 ${r.penalties.home}:${r.penalties.away})` : ""} — 끝난 경기 주입`,
           };
@@ -923,10 +926,12 @@ export const OUTGAME_SCENARIOS = [
     ready: "#modal-root .ch-result",
     expect: { screen: "challenge", modal: ".ch-result" },
   },
+  // 카드 레슨 런 (tools/lesson_scenarios.mjs — 감독 AI 로 걸은 레슨 런 저장본)
+  ...LESSON_OG_SCENARIOS,
 ];
 SCENARIOS.push(...OUTGAME_SCENARIOS);
 
-/** 진행 중인 도전 경기 저장본: 샘플 팀이 1~(stage−1) 단계를 이긴 진행 + stage 단계 1회차 막 시작한 경기 ('soccer.challengeMatch') */
+/** 진행 중인 도전 경기 저장본: 샘플 팀이 1~(stage−1) 단계를 이긴 진행 + stage 단계 1회차 막 시작한 경기 (KEYS.challengeMatch) */
 function challengeInProgress(data, stage) {
   const team = challenge.sampleTeam(data);
   if (!team) throw new Error("[og_challenge] data/challenge_sample_team.json 이 없습니다");
@@ -941,8 +946,8 @@ function challengeInProgress(data, stage) {
     runState: null,
     teams: [],
     storage: {
-      "soccer.challenge": progress,
-      "soccer.challengeMatch": { version: 1, teamId: id, stage, attempt, resets: 0, seed: setup.seed, team, match: ms },
+      [KEYS.challenge]: progress,
+      [KEYS.challengeMatch]: { version: 1, teamId: id, stage, attempt, resets: 0, seed: setup.seed, team, match: ms },
     },
     summary: `샘플 팀 ${stage}단계 ${attempt}회차 진행 중 (시드 ${setup.seed}) — 시작 화면 [도전 모드 — 이어하기]`,
   };

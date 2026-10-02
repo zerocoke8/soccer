@@ -1,14 +1,26 @@
 // js/ui/store.js — 전역 UI 상태 + localStorage 저장/복구 (모든 접근 try/catch)
+// 카드 레슨 시험판 (LESSON_PROTO_PLAN §2.2): 본편(/soccer/)과 같은 origin 을 쓰므로 키 앞머리를 'soccer-lesson.' 으로 나눈다.
+// 본편 키('soccer.' 로 시작)는 읽지도 옮기지도 않는다 — 레슨판의 등록 팀 · 도전 기록은 처음에 비어 있다.
 
+export const STORAGE_PREFIX = 'soccer-lesson.'; // 'soccer.'로 시작하면 안 된다 (본편 키와 섞이지 않게)
 export const KEYS = {
-  run: 'soccer.run',
-  match: 'soccer.match',
-  teams: 'soccer.teams',
+  run: `${STORAGE_PREFIX}run`,
+  match: `${STORAGE_PREFIX}match`,
+  teams: `${STORAGE_PREFIX}teams`,
   // 도전 모드 (2026-10-01): 런 저장(run · match)과 따로 둔다 — 도전 경기는 런 저장을 건드리지 않는다
-  challenge: 'soccer.challenge',           // 진행 기록 { version, teams: { [팀 id]: { cleared, attempts, wins, lastResult, resets } } } (엔진 challenge.normalizeProgress)
-  challengeMatch: 'soccer.challengeMatch', // 진행 중인 도전 경기 { version, teamId, stage, attempt, resets, seed, team, match } — 시작 화면 [도전 모드] 가 이어서 한다
+  challenge: `${STORAGE_PREFIX}challenge`,           // 진행 기록 { version, teams: { [팀 id]: { cleared, attempts, wins, lastResult, resets } } } (엔진 challenge.normalizeProgress)
+  challengeMatch: `${STORAGE_PREFIX}challengeMatch`, // 진행 중인 도전 경기 { version, teamId, stage, attempt, resets, seed, team, match } — 시작 화면 [도전 모드] 가 이어서 한다
 };
-/** 'soccer.challengeMatch' 저장 형식 버전 */
+/**
+ * 레슨 런 저장본인가 — 엔진 lessonRun.isLessonRun 과 같은 검사 (kind "lessonRun" · version 1 · phase 문자열).
+ * store 는 엔진을 정적으로 불러오지 않으므로(엔진 로드가 실패해도 시작 화면은 뜬다) 여기 사본을 두고, test/outgame.test.mjs 가 엔진과 같은지 확인한다.
+ */
+export const LESSON_RUN_KIND = 'lessonRun';
+export const LESSON_RUN_VERSION = 1;
+export function isLessonRunSave(s) {
+  return !!s && typeof s === 'object' && s.kind === LESSON_RUN_KIND && s.version === LESSON_RUN_VERSION && typeof s.phase === 'string';
+}
+/** KEYS.challengeMatch 저장 형식 버전 */
 export const CHALLENGE_MATCH_VERSION = 1;
 /** 등록 팀 저장 개수 상한 (addTeam — 넘친 오래된 팀은 지운다) */
 export const TEAMS_CAP = 50;
@@ -34,8 +46,8 @@ const URL_PREFS = urlMatchPrefs();
 export const store = {
   data: null,          // { config, characters, supports, events, skills, relics, opponents, routes, …, challenge, challenge_sample_team }
   screen: 'start',     // 'start' | 'setup' | 'run' | 'challenge'(도전 목록) | 'challengeMatch'(도전 경기)
-  run: null,           // RunState (엔진 소유)
-  match: null,         // MatchState (엔진 소유), 경기 중에만 — 도전 경기 중에는 도전 경기 상태 (런 경기는 'soccer.match' 에 그대로 있고 이어하기가 다시 읽는다)
+  run: null,           // RunState (엔진 lessonRun.js 소유, kind "lessonRun")
+  match: null,         // MatchState (엔진 소유), 경기 중에만 — 도전 경기 중에는 도전 경기 상태 (런 경기는 KEYS.match 에 그대로 있고 이어하기가 다시 읽는다)
                        //   도전 경기를 떠나면(결과 기록 · 포기 · [나가기] · 처음으로) 늘 null 로 비운다
   // 도전 모드 화면 상태 (메모리만 — 진행 기록 · 진행 중인 경기는 위 KEYS.challenge · KEYS.challengeMatch)
   challenge: {
@@ -44,7 +56,7 @@ export const store = {
     active: null,      // 진행 중인 도전 경기 { teamId, stage, attempt, resets, seed, team, displayName }
     result: null,      // 방금 끝난 도전 결과 (결과 모달) — 닫으면 null
   },
-  setup: null,         // 편성 화면 임시 상태
+  setup: null,         // 편성 화면 임시 상태 (screens/setup.js initSetup — formation · squad · supportIds · tactics · policy · seed)
   final: null,         // finalizeRun 결과 { rating, registeredTeam, seed }
   registered: false,   // 이번 런의 팀 등록 여부
   matchUi: {
@@ -62,8 +74,19 @@ export const store = {
     resultShown: false,
     logOpen: false,     // 로그 서랍 열림 — 한 경기 안에서는 경기 화면을 다시 그려도 유지, 새 경기(resetMatchUi)는 닫힌 채 시작
   },
+  // 레슨 화면 (phase lesson · reward 배경, LESSON_PROTO_PLAN §6.2). 메모리만 — 레슨 상태 자체는 store.run.lesson (호출마다 저장)
+  lessonUi: {
+    selectedUid: null,  // 고른 손패 카드 uid
+    taps: [],           // 고른 대상 선수 id (지명 1 · 짝 2 · 울리카 파트너 1)
+    shownSeq: 0,        // 연출을 마지막으로 보여 준 lesson.seq (새로고침 뒤에는 다시 재생하지 않는다)
+    busy: false,        // 연출 재생 중 (입력 무시)
+    timer: null,        // 연출 타이머 (setTimeout id; app.js render() 가 지운다)
+    gen: 0,             // render() 마다 +1 — 옛 화면의 연출 루프가 스스로 멈춘다
+  },
+  // 상담 화면: 고른 덱 카드 (render 뒤에도 남는다)
+  consultUi: { selectedUid: null },
 };
-// 화면은 인게임·아웃게임 모두 가로 전용 (고정 스테이지 1280×720, js/ui/stage.js) — 방향 상태 · ?orient · 저장값(soccer.orient)은 없다.
+// 화면은 인게임·아웃게임 모두 가로 전용 (고정 스테이지 1280×720, js/ui/stage.js) — 방향 상태 · ?orient · 방향 저장값은 없다.
 
 export function lsGet(key) {
   try {
@@ -87,7 +110,11 @@ export function lsSet(key, value) {
 }
 
 export function saveRun(state) { return lsSet(KEYS.run, state ?? null); }
-export function loadRun() { return lsGet(KEYS.run); }
+/** 저장된 레슨 런 (isLessonRunSave 가 참인 것만 — 그 밖의 저장본은 "저장 없음") */
+export function loadRun() {
+  const s = lsGet(KEYS.run);
+  return isLessonRunSave(s) ? s : null;
+}
 export function saveMatch(state) { return lsSet(KEYS.match, state ?? null); }
 export function loadMatch() { return lsGet(KEYS.match); }
 export function clearRunSaves() { lsSet(KEYS.run, null); lsSet(KEYS.match, null); }
@@ -117,8 +144,7 @@ export function loadChallengeMatch() {
 export function saveChallengeMatch(save) { return lsSet(KEYS.challengeMatch, save ?? null); }
 
 export function hasSavedRun() {
-  const s = loadRun();
-  return !!(s && typeof s === 'object' && s.phase);
+  return !!loadRun();
 }
 
 export function resetMatchUi() {
@@ -135,4 +161,16 @@ export function resetMatchUi() {
   ui.lastDecision = null;
   ui.resultShown = false;
   ui.logOpen = false;
+}
+
+/** 레슨 화면 상태 초기화 (새 레슨 · 레슨 밖으로 나갈 때). gen 은 올려서 옛 연출 루프를 멈춘다 */
+export function resetLessonUi() {
+  const ui = store.lessonUi;
+  if (ui.timer) { try { clearTimeout(ui.timer); } catch (_) { /* ignore */ } }
+  ui.timer = null;
+  ui.busy = false;
+  ui.selectedUid = null;
+  ui.taps = [];
+  ui.shownSeq = 0;
+  ui.gen += 1;
 }
