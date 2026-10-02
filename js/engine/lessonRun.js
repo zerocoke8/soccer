@@ -1090,7 +1090,10 @@ export function getPrepView(state, data) {
     tactics: { ...state.tactics },
     players: state.players.map((p) => playerView(state, data, p)),
     injuredOut: state.players.filter((p) => (Number(p.injuredTurns) || 0) > 0).map((p) => p.id),
-    prepBonus: getModifier(state, "goalMatchCondition") > 0,
+    // 대비 레슨 클리어 보너스만 (유물 '낡은 주장 완장' 의 goalMatchCondition 은 대비 레슨 표시가 아니다)
+    prepBonus: state.modifiers.some(
+      (m) => m.key === "goalMatchCondition" && m.source === "prepLesson" && (m.untilSeason === null || m.untilSeason === undefined || m.untilSeason >= state.season),
+    ),
     status: statusView(state),
   };
 }

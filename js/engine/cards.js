@@ -29,7 +29,7 @@ export const EFFECT_WHEN = ["always", "success", "consume"];
 export const HEAL_TO = ["tap", "all", "defense", "mostTired", "owner"];
 /** 강화판 · 유대 80에서 덮어쓸 수 있는 필드 */
 export const PLUS_FIELDS = ["power", "effects", "mods", "support"];
-export const BOND80_FIELDS = ["power", "effects", "mods"];
+export const BOND80_FIELDS = ["power", "effects", "mods", "desc", "descPlus"];
 
 const isNum = (v) => typeof v === "number" && Number.isFinite(v);
 const isInt = (v) => Number.isInteger(v);
@@ -142,7 +142,7 @@ export function canUpgrade(card) {
  * @param {string|object} card 카드 id 또는 원본 정의
  * @param {{ plus?: boolean, bond?: number }} [opts]
  * @returns {object} 새 객체: 원본 필드 + { plus: bool, bond80: bool, costRate, basePower, baseMods, desc }
- *   (plus · bond80 은 "적용됐는가" 불리언, descPlus 는 desc 로 합쳐진다)
+ *   (plus · bond80 은 "적용됐는가" 불리언, descPlus 는 desc 로 합쳐진다. 유대 80판의 문구는 bond80.desc · bond80.descPlus)
  */
 export function resolveCardDef(data, card, { plus = false, bond = 0 } = {}) {
   const raw = typeof card === "string" ? getCard(data, card) : card;
@@ -156,7 +156,12 @@ export function resolveCardDef(data, card, { plus = false, bond = 0 } = {}) {
 
   const upgradeAt = data && data.lesson && data.lesson.bond && isNum(data.lesson.bond.upgradeAt) ? data.lesson.bond.upgradeAt : 80;
   const bond80 = raw.family === "coach" && !!raw.bond80 && (Number(bond) || 0) >= upgradeAt;
-  if (bond80) Object.assign(d, clone(raw.bond80));
+  if (bond80) {
+    const over = clone(raw.bond80);
+    delete over.desc; // 문구는 아래에서 고른다
+    delete over.descPlus;
+    Object.assign(d, over);
+  }
 
   if (plus) {
     if (!canUpgrade(raw)) throw new Error(`카드 '${raw.id}' 은(는) 강화할 수 없습니다`);
@@ -170,7 +175,9 @@ export function resolveCardDef(data, card, { plus = false, bond = 0 } = {}) {
   d.bond80 = bond80;
   d.basePower = isNum(raw.power) ? raw.power : null;
   d.baseMods = clone(raw.mods || {});
-  d.desc = plus && raw.descPlus ? raw.descPlus : raw.desc;
+  // 문구: 유대 80판이면 bond80.desc · bond80.descPlus (없으면 기본 문구)
+  const src = bond80 && raw.bond80.desc ? raw.bond80 : raw;
+  d.desc = plus && src.descPlus ? src.descPlus : src.desc;
   return d;
 }
 
@@ -527,6 +534,7 @@ export function validateCardsData(data) {
         if ("power" in c.bond80) checkPower(c.bond80.power, `${at}.bond80`, errors);
         if ("effects" in c.bond80) checkEffects(c.bond80.effects, `${at}.bond80`, errors);
         if ("mods" in c.bond80) checkMods(c.bond80.mods, `${at}.bond80`, errors);
+        for (const k of ["desc", "descPlus"]) if (k in c.bond80 && (typeof c.bond80[k] !== "string" || !c.bond80[k])) errors.push(`${at}: bond80.${k} 는 문자열이어야 합니다`);
       }
     } else {
       if (c.coach !== undefined) errors.push(`${at}: coach 는 코치 카드만`);
