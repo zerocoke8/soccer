@@ -1,0 +1,2 @@
+outgame-lesson 브랜치를 /soccer/lesson/ 에 올리라는 표시 파일 (main 의 .github/workflows/pages.yml 이 읽는다).
+저장 키는 soccer-lesson. 앞머리로 본편과 분리되어 있다 (js/ui/store.js).

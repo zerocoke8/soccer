@@ -1,5 +1,9 @@
 name: Deploy to GitHub Pages
 
+# main → https://zerocoke8.github.io/soccer/
+# outgame-lesson 브랜치 → https://zerocoke8.github.io/soccer/lesson/ (그 브랜치에 .lesson-site 표시 파일이 있을 때만)
+# 브랜치에 푸시하면 그 브랜치의 lesson-redeploy.yml 이 이 워크플로를 main 에서 다시 실행한다.
+
 on:
   push:
     branches: [main]
@@ -12,21 +16,62 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
+
+env:
+  LESSON_BRANCH: outgame-lesson
 
 jobs:
   deploy:
+    if: github.ref == 'refs/heads/main'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout main (site root)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: src/main
+
+      - name: Does the lesson branch exist?
+        id: lesson
+        run: |
+          if git ls-remote --exit-code --heads "https://github.com/${GITHUB_REPOSITORY}.git" "refs/heads/${LESSON_BRANCH}" > /dev/null; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout lesson branch (/lesson/)
+        if: steps.lesson.outputs.exists == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.LESSON_BRANCH }}
+          path: src/lesson
+
+      - name: Assemble site
+        run: |
+          set -eu
+          if [ -e src/main/lesson ]; then echo "::error::main has a lesson/ path that would collide with the lesson site"; exit 1; fi
+          mkdir -p _site
+          rsync -a --exclude='.git' --exclude='.github' src/main/ _site/
+          if [ -f src/lesson/.lesson-site ]; then
+            mkdir -p _site/lesson
+            rsync -a --exclude='.git' --exclude='.github' --exclude='/.lesson-site' --exclude='/art/' --exclude='/node_modules/' src/lesson/ _site/lesson/
+            echo "lesson site deployed from $(git -C src/lesson rev-parse --short HEAD)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "lesson site skipped (branch missing or no .lesson-site marker)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - uses: actions/configure-pages@v5
         with:
           enablement: true
+
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: _site
+
       - id: deployment
         uses: actions/deploy-pages@v4
