@@ -11,8 +11,8 @@ const data = loadData();
 const R = cards.roundCost;
 
 /** 기본 편성(2-2-2) 레슨 런 비슷한 상태. deckIds 를 안 주면 시작 덱 3장 + 배치된 7명의 고유 카드. */
-function makeState({ seed = 7, policy = "team", deckIds = null, extra = [] } = {}) {
-  const roster = run.buildRoster({ data });
+function makeState({ seed = 7, policy = "team", deckIds = null, extra = [], squad = undefined } = {}) {
+  const roster = run.buildRoster({ data, squad });
   const uniques = cards.cardList(data).filter((c) => c.family === "unique" && roster.players.some((p) => p.charId === c.ownerCharId));
   const ids = (deckIds || [...data.lesson.startDeck, ...uniques.map((c) => c.id)]).concat(extra);
   return {
@@ -691,4 +691,455 @@ test("특별 레슨 상승 +50%, 검증 실패 시 상태 불변", () => {
   assert.throws(() => lesson.playCard(s, data, { uid, taps: ["p4"] }), /phase/);
   s.phase = "lesson";
   assert.equal(JSON.stringify(s), snap);
+});
+
+// ---------------------------------------------------------------------------
+// E3 — 방침 버프 5종 (§5.3.1 4 · 5 · 7 · 12 · 13 · 14번, §5.3.2, D17 · D18 · D37 · D38)
+// ---------------------------------------------------------------------------
+
+/** 실패 판정은 하고 (첫 수 < 0.25) 부상은 없다 (둘째 수 ≥ 0.5) */
+const FAIL_NO_INJURY = rngWhere((r) => r.next() < 0.25 && r.next() >= 0.5);
+const safePlay = (s, uid, taps) => {
+  s.rngState = SAFE;
+  return lesson.playCard(s, data, { uid, taps });
+};
+const full = (s) => {
+  for (const p of s.players) p.stamina = 100;
+  return s;
+};
+
+test("에이스형: 호조 (더하면 쌓임 · 대상 카드만 1장씩) · 집중 몫 ÷ 인원 · focusX2 · 루틴 (지명만, max) — 비용은 그대로", () => {
+  const extra = ["cd_hojo_up", "cd_focus_routine", "cd_routine", "cd_breath", "cd_ace_training", "cd_one_point", "cd_df_drill", "cd_immerse"];
+  const s = full(lesson.startLesson(makeState({ policy: "ace", extra }), data, { stat: "pass" }));
+  const u = (id) => uidOf(s, id);
+  const L = s.lesson;
+  forceHand(s, [u("cd_hojo_up"), u("cd_immerse"), u("cd_focus_routine"), u("cd_routine"), u("cd_breath"), u("cd_coaching")]);
+  L.playsLeft = 6;
+  lesson.playCard(s, data, { uid: u("cd_hojo_up") });
+  lesson.playCard(s, data, { uid: u("cd_immerse") });
+  assert.deepEqual([L.buffs.hojo, L.buffs.focus], [5, 1]);
+  assert.ok(L.lastFx.some((x) => x.t === "buff" && x.key === "hojo" && x.from === 3 && x.to === 5));
+  lesson.playCard(s, data, { uid: u("cd_focus_routine") });
+  lesson.playCard(s, data, { uid: u("cd_routine") });
+  const p4 = P(s, "p4");
+  p4.stamina = 60;
+  lesson.playCard(s, data, { uid: u("cd_breath"), taps: ["p4"] }); // tap 카드: 호조를 쓰지 않는다, 집중 +1
+  assert.deepEqual([L.buffs.hojo, L.buffs.focus, L.buffs.routine], [5, 4, 8]);
+  assert.equal(p4.stamina, 85);
+  const pv = lesson.previewCard(s, data, { uid: u("cd_coaching"), taps: ["p4"] });
+  assert.equal(pv.targets[0].gain, R((35 + 8 + 4 * 6) * p4.growth.pass * 1.5));
+  assert.equal(pv.targets[0].cost, 21); // 집중 · 루틴은 비용을 올리지 않는다 (D12)
+  assert.ok(pv.notes.includes("호조 ×1.5 (남은 5장)"), pv.notes.join(" / "));
+  assert.ok(pv.notes.includes("집중 4 → 1인 위력 +24"), pv.notes.join(" / "));
+  assert.ok(pv.notes.includes("루틴 → 위력 +8"), pv.notes.join(" / "));
+  const b = p4.stats.pass;
+  safePlay(s, u("cd_coaching"), ["p4"]);
+  assert.equal(p4.stats.pass - b, pv.targets[0].gain);
+  assert.deepEqual([L.buffs.hojo, L.buffs.focus, L.buffs.routine], [4, 4, 8]); // 호조만 1장 소비
+
+  // 범위 카드는 집중 몫을 인원으로 나눈다 · focusX2 · 원포인트의 집중 +1 은 다음 카드부터 · 루틴은 max
+  const s2 = full(lesson.startLesson(makeState({ policy: "ace", extra }), data, { stat: "defense" }));
+  const u2 = (id) => uidOf(s2, id);
+  s2.lesson.buffs.focus = 2;
+  s2.lesson.buffs.routine = 10;
+  forceHand(s2, [u2("cd_df_drill"), u2("cd_ace_training"), u2("cd_one_point"), u2("cd_routine")]);
+  const [d2, d3] = [P(s2, "p2"), P(s2, "p3")];
+  let pv2 = lesson.previewCard(s2, data, { uid: u2("cd_df_drill") });
+  assert.deepEqual(pv2.targets.map((t) => [t.gain, t.cost]), [[R(26 * d2.growth.defense), 12], [R(26 * d3.growth.defense), 12]]);
+  pv2 = lesson.previewCard(s2, data, { uid: u2("cd_ace_training"), taps: ["p2"] });
+  assert.deepEqual([pv2.targets[0].gain, pv2.targets[0].cost], [R((30 + 10 + 24) * d2.growth.defense), 18]);
+  s2.lesson.playsLeft = 4;
+  lesson.playCard(s2, data, { uid: u2("cd_routine") });
+  assert.equal(s2.lesson.buffs.routine, 10);
+  const b3 = d3.stats.defense;
+  safePlay(s2, u2("cd_one_point"), ["p3"]);
+  assert.equal(d3.stats.defense - b3, R((25 + 10 + 12) * d3.growth.defense));
+  assert.equal(s2.lesson.buffs.focus, 3);
+});
+
+test("팀형: 분위기 틱 (출전 선수 · 점수만, 대상 아님) · 감소 1 / 쉬기 턴 2 · 하나 된 호흡 · 분위기 ×2 · perMood (비용 포함)", () => {
+  const extra = ["cd_high_five", "cd_mood_maker", "cd_breath_together", "cd_link_line"];
+  const s = makeState({ policy: "team", extra });
+  P(s, "p7").injuredTurns = 1;
+  lesson.startLesson(s, data, { stat: "defense" });
+  const L = s.lesson;
+  const u = (id) => uidOf(s, id);
+  forceHand(s, [u("cd_high_five")]);
+  const before = Object.fromEntries(s.players.map((p) => [p.id, p.stats.defense]));
+  lesson.playCard(s, data, { uid: u("cd_high_five") }); // 1장뿐 → 턴 끝
+  assert.equal(L.turn, 2);
+  assert.deepEqual(L.lastFx.filter((x) => x.t === "tick").map((x) => x.id), ["p1", "p2", "p3", "p4", "p5", "p6"]);
+  let sum = 0;
+  for (const p of s.players) {
+    const d = p.stats.defense - before[p.id];
+    assert.equal(d, p.id === "p7" ? 0 : R(3 * 1.5 * p.growth.defense), p.id);
+    sum += d;
+  }
+  assert.equal(L.score, sum);
+  assert.equal(L.cardGainSum, 0);
+  assert.deepEqual(L.targeted, {});
+  assert.equal(L.buffs.mood, 2);
+  // 쉬기 턴: 틱은 들어가고 −2
+  lesson.lessonRest(s, data, { playerId: "p1" });
+  assert.equal(L.lastFx.filter((x) => x.t === "tick").length, 6);
+  assert.equal(L.buffs.mood, 0);
+  // 하나 된 호흡: 3턴 동안 감소 없음 (쉬기 턴 포함), 그 뒤 쉬기 턴 −2
+  L.buffs.mood = 4;
+  forceHand(s, [u("cd_breath_together")]);
+  lesson.playCard(s, data, { uid: u("cd_breath_together") });
+  assert.deepEqual([L.buffs.mood, L.buffs.noDecay], [4, 2]);
+  lesson.lessonRest(s, data, { playerId: "p1" });
+  assert.deepEqual([L.buffs.mood, L.buffs.noDecay], [4, 1]);
+  lesson.lessonRest(s, data, { playerId: "p1" });
+  assert.deepEqual([L.buffs.mood, L.buffs.noDecay], [4, 0]);
+  lesson.lessonRest(s, data, { playerId: "p1" }); // 마지막 턴 (6)
+  assert.deepEqual([L.buffs.mood, L.buffs.noDecay], [2, 0]);
+  assert.notEqual(L.status, "playing");
+
+  const s2 = full(lesson.startLesson(makeState({ policy: "team", extra }), data, { stat: "defense" }));
+  const u2 = (id) => uidOf(s2, id);
+  s2.lesson.buffs.mood = 3;
+  forceHand(s2, [u2("cd_mood_maker"), u2("cd_link_line")]);
+  s2.lesson.playsLeft = 2;
+  assert.ok(lesson.previewCard(s2, data, { uid: u2("cd_mood_maker") }).notes.includes("분위기 3 → 6"));
+  lesson.playCard(s2, data, { uid: u2("cd_mood_maker") });
+  assert.equal(s2.lesson.buffs.mood, 6);
+  const pv = lesson.previewCard(s2, data, { uid: u2("cd_link_line") });
+  assert.equal(pv.targets.length, 3);
+  for (const t of pv.targets) {
+    assert.equal(t.gain, R((50 / 3) * P(s2, t.id).growth.defense)); // (35 + 2.5 × 6) / 3
+    assert.equal(t.cost, R((50 / 3) * 0.6));
+  }
+});
+
+test("역습형: 수비진 성공 → 탈취 +1 (stealBuild 2) · 최대 4 · 공격진이 끼면 모두 써서 ×(1 + stealPer × 탈취) · 실패해도 사라짐 · consume", () => {
+  const extra = ["cd_line_up", "cd_recover", "cd_long_ball", "cd_counter_sprint", "cd_finisher", "cd_all_counter", "cd_df_drill"];
+  const s = full(lesson.startLesson(makeState({ policy: "counter", extra }), data, { stat: "defense" }));
+  const u = (id) => uidOf(s, id);
+  const L = s.lesson;
+  forceHand(s, [u("cd_line_up"), u("cd_df_drill"), u("cd_recover"), u("cd_long_ball"), u("cd_counter_sprint")]);
+  L.playsLeft = 4; // 롱볼 추가 사용 +1
+  const pvLine = lesson.previewCard(s, data, { uid: u("cd_line_up") });
+  assert.ok(pvLine.notes.includes("성공하면 탈취 +2"), pvLine.notes.join(" / "));
+  safePlay(s, u("cd_line_up"));
+  assert.equal(L.buffs.steal, 2);
+  safePlay(s, u("cd_df_drill"));
+  assert.equal(L.buffs.steal, 3);
+  lesson.playCard(s, data, { uid: u("cd_recover") });
+  assert.equal(L.buffs.steal, 4);
+  lesson.playCard(s, data, { uid: u("cd_long_ball") });
+  assert.equal(L.buffs.steal, 4);
+  assert.equal(L.playsLeft, 1);
+  const pv = lesson.previewCard(s, data, { uid: u("cd_counter_sprint") });
+  for (const t of pv.targets) assert.equal(t.gain, R(9 * P(s, t.id).growth.defense * (1 + 0.4 * 4)));
+  assert.ok(pv.notes.includes("탈취 4 → ×2.6 (탈취를 모두 씀)"), pv.notes.join(" / "));
+  safePlay(s, u("cd_counter_sprint"));
+  assert.equal(L.buffs.steal, 0);
+
+  // 쓰는 카드가 실패해도 탈취는 사라진다
+  const s2 = full(lesson.startLesson(makeState({ policy: "counter", extra }), data, { stat: "shoot" }));
+  P(s2, "p6").stamina = 30;
+  s2.lesson.buffs.steal = 3;
+  const fin = uidOf(s2, "cd_finisher");
+  forceHand(s2, [fin]);
+  assert.equal(lesson.previewCard(s2, data, { uid: fin, taps: ["p6"] }).targets[0].gain, R(30 * P(s2, "p6").growth.shoot * (1 + 0.45 * 3)));
+  s2.rngState = FAIL_NO_INJURY;
+  lesson.playCard(s2, data, { uid: fin, taps: ["p6"] });
+  assert.equal(s2.lesson.stats.fails, 1);
+  assert.equal(s2.lesson.buffs.steal, 0);
+
+  // 실패자가 있는 수비진 카드는 쌓지 않는다
+  const s3 = full(lesson.startLesson(makeState({ policy: "counter", extra }), data, { stat: "defense" }));
+  P(s3, "p2").stamina = 30;
+  forceHand(s3, [uidOf(s3, "cd_df_drill")]);
+  s3.rngState = FAIL_NO_INJURY;
+  lesson.playCard(s3, data, { uid: uidOf(s3, "cd_df_drill") });
+  assert.deepEqual([s3.lesson.stats.fails, s3.lesson.buffs.steal], [1, 0]);
+
+  // 전원 역습: 탈취를 썼을 때만 팀워크 +2 (L10 +6 은 따로)
+  for (const [steal, cardTw] of [[2, 2], [0, 0]]) {
+    const s4 = full(lesson.startLesson(makeState({ policy: "counter", extra }), data, { stat: "defense" }));
+    s4.lesson.buffs.steal = steal;
+    forceHand(s4, [uidOf(s4, "cd_all_counter")]);
+    safePlay(s4, uidOf(s4, "cd_all_counter"));
+    assert.equal(s4.teamwork, 6 + cardTw, `steal ${steal}`);
+    assert.equal(s4.lesson.buffs.steal, 0);
+  }
+
+  // 방침이 다르면 (D38): 쌓기 · 쓰기 · 배율 없음. 카드에 적힌 탈취 +1 은 그대로
+  const s5 = full(lesson.startLesson(makeState({ policy: "team", extra }), data, { stat: "defense" }));
+  const u5 = (id) => uidOf(s5, id);
+  forceHand(s5, [u5("cd_line_up"), u5("cd_recover"), u5("cd_counter_sprint")]);
+  s5.lesson.playsLeft = 3;
+  safePlay(s5, u5("cd_line_up"));
+  assert.equal(s5.lesson.buffs.steal, 0);
+  lesson.playCard(s5, data, { uid: u5("cd_recover") });
+  assert.equal(s5.lesson.buffs.steal, 1);
+  const pv5 = lesson.previewCard(s5, data, { uid: u5("cd_counter_sprint") });
+  for (const t of pv5.targets) assert.equal(t.gain, R(9 * P(s5, t.id).growth.defense));
+  assert.deepEqual(pv5.notes, []);
+  safePlay(s5, u5("cd_counter_sprint"));
+  assert.equal(s5.lesson.buffs.steal, 1);
+});
+
+test("압박형: 압박 +n (최대 3) · 비용 ×(1 + 0.2 × 압박) · 방침 배율 · noPressCost · perPress · 쉬기 회복 · 라인 내리기 · 실패 리셋", () => {
+  const extra = ["cd_front_press", "cd_full_press", "cd_six_sec", "cd_drop_line", "cd_all_out", "cd_gegen", "cd_attack_build"];
+  const s = full(lesson.startLesson(makeState({ policy: "press", extra }), data, { stat: "shoot" }));
+  const u = (id) => uidOf(s, id);
+  const L = s.lesson;
+  const p6 = P(s, "p6");
+  forceHand(s, [u("cd_front_press"), u("cd_full_press"), u("cd_six_sec"), u("cd_gegen"), u("cd_all_out")]);
+  L.playsLeft = 4; // 풀 프레싱 추가 사용 +1
+  let pv = lesson.previewCard(s, data, { uid: u("cd_front_press") });
+  for (const t of pv.targets) assert.deepEqual([t.gain, t.cost], [R(8.5 * P(s, t.id).growth.shoot), 5]);
+  safePlay(s, u("cd_front_press"));
+  assert.equal(L.buffs.press, 1);
+  assert.equal(lesson.previewCard(s, data, { uid: u("cd_six_sec"), taps: ["p6"] }).targets[0].cost, R(28 * 0.6 * 1.2));
+  lesson.playCard(s, data, { uid: u("cd_full_press") });
+  assert.equal(L.buffs.press, 3); // 1 + 2, 최대 3
+  pv = lesson.previewCard(s, data, { uid: u("cd_six_sec"), taps: ["p6"] });
+  assert.deepEqual([pv.targets[0].gain, pv.targets[0].cost], [R(28 * p6.growth.shoot * 1.6), 17]); // 압박 2 이상 → 비용 증가 없음
+  pv = lesson.previewCard(s, data, { uid: u("cd_gegen") });
+  for (const t of pv.targets) assert.deepEqual([t.gain, t.cost], [R(10 * P(s, t.id).growth.shoot * 1.6), 6]);
+  pv = lesson.previewCard(s, data, { uid: u("cd_all_out") });
+  for (const t of pv.targets) assert.deepEqual([t.gain, t.cost], [R((60 / 7) * P(s, t.id).growth.shoot * 1.6), R((60 / 7) * 0.6 * 1.6)]);
+  assert.ok(pv.notes.includes("압박 3 · 비용 ×1.6"), pv.notes.join(" / "));
+  assert.ok(pv.notes.includes("압박 3 → ×1.6"), pv.notes.join(" / "));
+  safePlay(s, u("cd_six_sec"), ["p6"]);
+  assert.equal(L.buffs.press, 3);
+
+  // 쉬기: 출전 선수 +4 × 단계, 압박 0
+  const s2 = lesson.startLesson(makeState({ policy: "press", extra }), data, { stat: "shoot" });
+  for (const p of s2.players) p.stamina = 50;
+  s2.lesson.buffs.press = 2;
+  lesson.lessonRest(s2, data, { playerId: "p1" });
+  assert.equal(P(s2, "p1").stamina, 50 + 20 + 8);
+  for (const id of ["p2", "p3", "p4", "p5", "p6", "p7"]) assert.equal(P(s2, id).stamina, 50 + 5 + 8);
+  assert.equal(s2.lesson.buffs.press, 0);
+
+  // 라인 내리기: 내린 단계 × 6 회복, 압박 0, 다음 카드 실패 없음
+  const s3 = lesson.startLesson(makeState({ policy: "press", extra }), data, { stat: "shoot" });
+  for (const p of s3.players) p.stamina = 50;
+  s3.lesson.buffs.press = 3;
+  forceHand(s3, [uidOf(s3, "cd_drop_line"), uidOf(s3, "cd_coaching")]);
+  s3.lesson.playsLeft = 2;
+  assert.ok(lesson.previewCard(s3, data, { uid: uidOf(s3, "cd_drop_line") }).notes.includes("압박 3 → 0 · 출전 선수 체력 +18"));
+  lesson.playCard(s3, data, { uid: uidOf(s3, "cd_drop_line") });
+  for (const p of s3.players) assert.equal(p.stamina, 68);
+  assert.deepEqual([s3.lesson.buffs.press, s3.lesson.buffs.nextNoFail], [0, true]);
+  assert.equal(lesson.previewCard(s3, data, { uid: uidOf(s3, "cd_coaching"), taps: ["p6"] }).failRate, 0);
+
+  // 실패 → 압박 0 (압박형일 때만). 다른 방침은 비용 증가만 있고 배율 · 리셋은 없다
+  for (const [policy, pressAfter] of [["press", 0], ["team", 2]]) {
+    const s4 = full(lesson.startLesson(makeState({ policy, extra }), data, { stat: "shoot" }));
+    s4.lesson.buffs.press = 2;
+    const ab = uidOf(s4, "cd_attack_build");
+    forceHand(s4, [ab]);
+    const pv4 = lesson.previewCard(s4, data, { uid: ab });
+    const mult = policy === "press" ? 1.4 : 1;
+    for (const t of pv4.targets) assert.deepEqual([t.gain, t.cost], [R((43 / 4) * P(s4, t.id).growth.shoot * mult), R((43 / 4) * 0.6 * 1.4)], policy);
+    P(s4, "p6").stamina = 30;
+    s4.rngState = FAIL_NO_INJURY;
+    lesson.playCard(s4, data, { uid: ab });
+    assert.equal(s4.lesson.stats.fails, 1);
+    assert.equal(s4.lesson.buffs.press, pressAfter, policy);
+  }
+});
+
+test("점유형: MF가 낀 카드 성공 +1 · MF 없음 −2 (possKeep 유지) · 실패 0 / 가드 · 최대 8 · ×(1 + 0.05 × 점유) · possX2", () => {
+  const extra = ["cd_mid_control", "cd_triangle", "cd_circulate", "cd_tempo", "cd_dominate", "cd_back_build", "cd_df_drill", "cd_attack_build"];
+  const s = full(lesson.startLesson(makeState({ policy: "poss", extra }), data, { stat: "pass" }));
+  const u = (id) => uidOf(s, id);
+  const L = s.lesson;
+  forceHand(s, [u("cd_mid_control"), u("cd_triangle"), u("cd_df_drill"), u("cd_back_build"), u("cd_circulate")]);
+  L.playsLeft = 5;
+  safePlay(s, u("cd_mid_control"));
+  assert.equal(L.buffs.poss, 3); // 기본 +1 + 카드 +2
+  safePlay(s, u("cd_triangle"), ["p4", "p2"]);
+  assert.equal(L.buffs.poss, 6);
+  const pvDf = lesson.previewCard(s, data, { uid: u("cd_df_drill") });
+  assert.ok(pvDf.notes.includes("점유 −2"), pvDf.notes.join(" / "));
+  safePlay(s, u("cd_df_drill"));
+  assert.equal(L.buffs.poss, 4);
+  safePlay(s, u("cd_back_build"));
+  assert.equal(L.buffs.poss, 4);
+  L.buffs.poss = 7;
+  lesson.playCard(s, data, { uid: u("cd_circulate") });
+  assert.equal(L.buffs.poss, 8);
+
+  // 배율: ×(1 + 0.05 × 점유), 지배하는 중원은 2배
+  const s2 = full(lesson.startLesson(makeState({ policy: "poss", extra }), data, { stat: "pass" }));
+  s2.lesson.buffs.poss = 4;
+  forceHand(s2, [uidOf(s2, "cd_dominate"), uidOf(s2, "cd_attack_build")]);
+  let pv = lesson.previewCard(s2, data, { uid: uidOf(s2, "cd_dominate") });
+  for (const t of pv.targets) assert.equal(t.gain, R(8 * P(s2, t.id).growth.pass * 1.4));
+  pv = lesson.previewCard(s2, data, { uid: uidOf(s2, "cd_attack_build") });
+  for (const t of pv.targets) assert.equal(t.gain, R((43 / 4) * P(s2, t.id).growth.pass * 1.2));
+  assert.ok(pv.notes.includes("점유 4 → ×1.2"), pv.notes.join(" / "));
+  assert.ok(pv.notes.includes("성공하면 점유 +1"), pv.notes.join(" / "));
+
+  // 실패: 가드가 있으면 가드 −1 (점유 유지), 없으면 0
+  const s3 = full(lesson.startLesson(makeState({ policy: "poss", extra }), data, { stat: "pass" }));
+  const u3 = (id) => uidOf(s3, id);
+  P(s3, "p4").stamina = 30;
+  s3.lesson.buffs.poss = 6;
+  forceHand(s3, [u3("cd_tempo"), u3("cd_mid_control"), u3("cd_coaching"), u3("cd_df_drill")]);
+  s3.lesson.playsLeft = 3;
+  assert.ok(lesson.previewCard(s3, data, { uid: u3("cd_mid_control") }).notes.includes("실패하면 점유 6을 잃음"));
+  lesson.playCard(s3, data, { uid: u3("cd_tempo") });
+  assert.equal(s3.lesson.buffs.possGuard, 1);
+  assert.equal(s3.lesson.drawNext, 1);
+  assert.ok(lesson.previewCard(s3, data, { uid: u3("cd_mid_control") }).notes.includes("실패해도 점유 유지 (가드 1)"));
+  s3.rngState = FAIL_NO_INJURY;
+  lesson.playCard(s3, data, { uid: u3("cd_mid_control") });
+  assert.deepEqual([s3.lesson.stats.fails, s3.lesson.buffs.poss, s3.lesson.buffs.possGuard], [1, 6, 0]); // 성공 효과 +2 도 없음
+  s3.rngState = FAIL_NO_INJURY;
+  lesson.playCard(s3, data, { uid: u3("cd_coaching"), taps: ["p4"] });
+  assert.deepEqual([s3.lesson.stats.fails, s3.lesson.buffs.poss], [2, 0]);
+
+  // 방침이 다르면 (D38): ± · 배율 없음, 카드의 점유 +2 는 그대로
+  const s4 = full(lesson.startLesson(makeState({ policy: "team", extra }), data, { stat: "pass" }));
+  s4.lesson.buffs.poss = 4;
+  forceHand(s4, [uidOf(s4, "cd_df_drill"), uidOf(s4, "cd_mid_control")]);
+  s4.lesson.playsLeft = 2;
+  for (const t of lesson.previewCard(s4, data, { uid: uidOf(s4, "cd_df_drill") }).targets) assert.equal(t.gain, R(20 * P(s4, t.id).growth.pass));
+  safePlay(s4, uidOf(s4, "cd_df_drill"));
+  assert.equal(s4.lesson.buffs.poss, 4);
+  safePlay(s4, uidOf(s4, "cd_mid_control"));
+  assert.equal(s4.lesson.buffs.poss, 6);
+});
+
+test("뷰 chips: 방침 버프는 0이어도, 그 밖은 0이 아니거나 켜진 것만 (순서 고정)", () => {
+  const want = { ace: [["hojo", "0장"], ["focus", "0"]], team: [["mood", "0"]], counter: [["steal", "0/4"]], press: [["press", "0/3"]], poss: [["poss", "0/8"]] };
+  for (const [policy, chips] of Object.entries(want)) {
+    const s = lesson.startLesson(makeState({ policy }), data, { stat: "pass" });
+    const v = lesson.getLessonView(s, data);
+    assert.deepEqual(v.chips.map((c) => [c.key, c.value]), chips, policy);
+    assert.ok(v.chips.every((c) => c.policy === true && typeof c.label === "string"));
+  }
+  const s = lesson.startLesson(makeState({ policy: "ace" }), data, { stat: "pass" });
+  Object.assign(s.lesson.buffs, { hojo: 2, steal: 2, nextPct: 0.4, nextCostZero: true, noDecay: 3, routine: 8 });
+  const chips = lesson.getLessonView(s, data).chips;
+  assert.deepEqual(chips.map((c) => [c.key, c.label, c.value]), [
+    ["hojo", "호조", "2장"], ["focus", "집중", "0"], ["routine", "루틴", "+8"], ["noDecay", "분위기 유지", "3턴"],
+    ["steal", "탈취", "2/4"], ["nextPct", "다음 카드", "+40%"], ["nextCostZero", "비용 0", "다음 1장"],
+  ]);
+  assert.deepEqual(chips.filter((c) => c.policy).map((c) => c.key), ["hojo", "focus"]);
+});
+
+// ---------------------------------------------------------------------------
+// 퍼즈: 66장 전부 "내기 → 오류 없음" (방침 5개 × 시드 20, 무작위로 유효한 행동) — §12 E3 완료 조건
+// ---------------------------------------------------------------------------
+
+/** 매 행동 뒤 불변식 */
+function checkInvariants(s, allUids, where) {
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(s)), s, `${where}: JSON 왕복`);
+  const L = s.lesson;
+  for (const p of s.players) {
+    assert.ok(Number.isInteger(p.stamina) && p.stamina >= 0 && p.stamina <= 100, `${where}: ${p.id} 체력 ${p.stamina}`);
+    for (const k of Object.keys(p.stats)) assert.ok(Number.isInteger(p.stats[k]) && p.stats[k] >= 0 && p.stats[k] <= 1000, `${where}: ${p.id}.${k}`);
+  }
+  assert.ok(Number.isInteger(s.teamwork) && s.teamwork >= 0 && s.teamwork <= 100, `${where}: 팀워크`);
+  for (const sp of s.supports) assert.ok(sp.bond >= 0 && sp.bond <= 100, `${where}: 유대`);
+  const B = L.buffs;
+  for (const k of ["hojo", "focus", "mood", "noDecay", "steal", "press", "poss", "possGuard", "routine"]) {
+    assert.ok(Number.isInteger(B[k]) && B[k] >= 0, `${where}: buffs.${k} = ${B[k]}`);
+  }
+  assert.ok(B.steal <= 4 && B.press <= 3 && B.poss <= 8, `${where}: 버프 상한`);
+  assert.ok(B.nextPct >= 0 && B.nextPairPct >= 0);
+  assert.equal(typeof B.nextNoFail, "boolean");
+  assert.equal(typeof B.nextCostZero, "boolean");
+  const piles = [...L.hand, ...L.drawPile, ...L.discard, ...L.exhausted, ...L.removed];
+  assert.deepEqual(piles.slice().sort(), allUids, `${where}: 더미 합 = 덱 + 대비 카드`);
+  const net = s.players.reduce((a, p) => a + p.stats[L.stat] - L.before[p.id][L.stat], 0);
+  const auto = Object.values(L.autoGains).reduce((a, x) => a + x, 0);
+  assert.equal(L.score, net - auto, `${where}: 점수 = 종목 순증가 − 자율 훈련`);
+  assert.ok(L.twAccrued <= 8);
+  if (L.status === "playing") {
+    assert.ok(L.playsLeft >= 1, `${where}: playsLeft`);
+    assert.ok(L.hand.length >= 1, `${where}: 손패`);
+  } else {
+    assert.equal(L.status, L.score >= L.cap ? "perfect" : L.score >= L.target ? "clear" : "fail", `${where}: 결과`);
+  }
+}
+
+test("퍼즈: 66장 전부 내기 → 오류 없음 (방침 5개 × 시드 20 × 5종목, 무작위로 유효한 행동 · 매 행동 불변식)", () => {
+  const all = cards.cardList(data);
+  assert.equal(all.length, 66);
+  const prepIds = all.filter((c) => c.family === "prep").map((c) => c.id);
+  const deckIds = all.filter((c) => c.family !== "prep").map((c) => c.id);
+  const formations = Object.keys(FORMATIONS);
+  const STAT_LIST = ["shoot", "dribble", "pass", "defense", "physical"];
+  const mirkaSquad = { ...data.config.defaultSquad.slots, MF2: "ch_cat_trickster" };
+  const uniqueModes = new Set();
+  let plays = 0;
+  let lessons = 0;
+  const statuses = { perfect: 0, clear: 0, fail: 0 };
+  for (const policy of ["ace", "team", "counter", "press", "poss"]) {
+    const played = new Set();
+    for (let seed = 1; seed <= 20; seed++) {
+      for (const [si, stat] of STAT_LIST.entries()) {
+        const r = createRngFromState((seed * 1000 + si * 37 + policy.length * 7919) >>> 0);
+        const s = makeState({ seed: seed * 31 + si, policy, deckIds, squad: r.chance(0.4) ? mirkaSquad : undefined });
+        const fm = r.pick(formations);
+        formationSlots(fm).forEach((slot, i) => {
+          s.players[i].slot = slot;
+          s.players[i].position = slotPosition(slot);
+        });
+        s.formation = fm;
+        for (const e of s.deck) e.plus = r.chance(0.3) && cards.canUpgrade(cards.getCard(data, e.cardId));
+        for (const sp of s.supports) sp.bond = r.int(0, 100);
+        for (const p of s.players) p.stamina = r.int(10, 100);
+        if (r.chance(0.2)) r.pick(s.players).injuredTurns = 1;
+        s.condition = r.int(0, 4);
+        s.season = r.int(1, 3);
+        s.teamwork = r.int(0, 100);
+        if (r.chance(0.2)) s.modifiers = [{ key: "trainingEfficiency", amount: 0.1, untilSeason: null }, { key: "injuryRate", amount: 0.03, untilSeason: null }];
+        const prep = r.chance(0.5);
+        lesson.startLesson(s, data, { stat, special: !prep && r.chance(0.3), prep, prepCards: prep ? prepIds : [] });
+        const allUids = [...s.deck.map((e) => e.uid), ...s.lesson.temp.map((t) => t.uid)].sort();
+        const tag = `${policy} seed ${seed} ${stat}`;
+        checkInvariants(s, allUids, `${tag} 시작`);
+        for (let step = 0; step < 400 && s.lesson.status === "playing"; step++) {
+          const where = `${tag} #${step}`;
+          const v = lesson.getLessonView(s, data);
+          const playable = v.hand.filter((h) => h.playable);
+          const roll = r.next();
+          const seq = s.lesson.seq;
+          if ((v.canRest && (roll < 0.08 || !playable.length)) || (v.canEndTurn && (roll < 0.12 || !playable.length))) {
+            if (v.canRest) lesson.lessonRest(s, data, { playerId: r.pick(s.players).id });
+            else lesson.endLessonTurn(s, data);
+          } else {
+            const h = r.pick(playable);
+            const snap = JSON.stringify(s);
+            const pv0 = lesson.previewCard(s, data, { uid: h.uid, taps: [] });
+            const taps = [];
+            const pool = pv0.tapCandidates.slice();
+            while (taps.length < pv0.needTaps) taps.push(pool.splice(r.int(0, pool.length - 1), 1)[0]);
+            const pv = lesson.previewCard(s, data, { uid: h.uid, taps });
+            assert.equal(JSON.stringify(s), snap, `${where}: preview 순수`);
+            assert.ok(pv.ok, `${where}: ${h.cardId} ${pv.reason}`);
+            assert.ok(Array.isArray(pv.notes) && pv.notes.every((n) => typeof n === "string"));
+            lesson.playCard(s, data, { uid: h.uid, taps });
+            played.add(h.cardId);
+            if (h.family === "unique") uniqueModes.add(`${h.cardId}:${h.mode}`);
+            plays += 1;
+          }
+          assert.equal(s.lesson.seq, seq + 1, `${where}: seq`);
+          checkInvariants(s, allUids, where);
+        }
+        assert.notEqual(s.lesson.status, "playing", `${tag}: 끝나지 않음`);
+        lesson.getLessonView(s, data);
+        lesson.lessonResult(s, data);
+        statuses[s.lesson.status] += 1;
+        lessons += 1;
+      }
+    }
+    assert.deepEqual(all.map((c) => c.id).filter((id) => !played.has(id)), [], `${policy}: 한 번도 내지 않은 카드`);
+  }
+  const uniques = all.filter((c) => c.family === "unique").map((c) => c.id);
+  for (const id of uniques) for (const mode of ["power", "support"]) assert.ok(uniqueModes.has(`${id}:${mode}`), `${id} ${mode}`);
+  assert.equal(lessons, 500);
+  assert.ok(plays > 3000, `plays ${plays}`);
+  assert.ok(statuses.perfect + statuses.clear > 0 && statuses.fail > 0);
 });

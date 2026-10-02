@@ -10,10 +10,10 @@
  * 레슨이 끝나면 (status ≠ "playing") 레슨 안의 끝 처리 (§5.3.3 1~3: 자율 훈련 · 한나 · 결과 판정) 까지만 한다.
  * 보상 · 힌트 · 결장 감소 · 기록 · phase 이동은 lessonRun.js (E4) 가 한다.
  *
- * 방침 버프 (E3): 버프 값 (state.lesson.buffs) 을 "읽는" 쪽 — 호조 배율 · 집중 몫 · routine · perMood · perPress ·
- * 압박 비용 배율 · 방침 배율 · 호조 소비 — 은 여기서 계산한다 (버프가 0이면 영향 없음).
- * 버프 값을 "바꾸는" 쪽 — 버프 effects (hojo · focus · mood · moodX2 · noDecay · steal · press · pressDrop · poss · possGuard · routine),
- * 방침 패시브 (§5.3.1 13번), 분위기 틱 · 감소 (§5.3.2), 쉬기의 압박 회복, chips, 미리보기 notes — 는 아래 "E3 훅" 함수 자리만 있다 (값 0).
+ * 방침 버프: 버프 값 (state.lesson.buffs) 을 "읽는" 쪽 — 호조 배율 · 집중 몫 · routine · perMood · perPress ·
+ * 압박 비용 배율 · 방침 배율 · 호조 소비 — 과 "바꾸는" 쪽 — 버프 effects (hojo · focus · mood · moodX2 · noDecay · steal ·
+ * press · pressDrop · poss · possGuard · routine), 방침 패시브 (§5.3.1 13번, run 방침이 맞을 때만 — D38), 분위기 틱 · 감소 (§5.3.2),
+ * 쉬기의 압박 회복, 뷰 chips, 미리보기 notes — 을 모두 여기서 한다.
  *
  * 순수 로직: DOM/fetch/Date/Math.random/localStorage 를 쓰지 않는다.
  */
@@ -173,44 +173,258 @@ function policyMult(state, data, L, ctx) {
 }
 
 // ---------------------------------------------------------------------------
-// E3 훅 — 버프 값을 바꾸는 쪽. E2 에서는 아무것도 하지 않는다 (값 0).
+// 방침 버프 — 바꾸는 쪽 (E3): 버프 effects · 방침 패시브 · 분위기 틱 · 쉬기 압박 회복 · 칩 · 미리보기 노트
 // ---------------------------------------------------------------------------
 
-/** 버프 effects (hojo · focus · mood · moodX2 · noDecay · steal · press · pressDrop · poss · possGuard · routine). E3. */
+/** 버프 effects (hojo · focus · mood · moodX2 · noDecay · steal · press · pressDrop · poss · possGuard · routine) */
 export const BUFF_EFFECT_TYPES = ["hojo", "focus", "mood", "moodX2", "noDecay", "steal", "press", "pressDrop", "poss", "possGuard", "routine"];
 
-// eslint-disable-next-line no-unused-vars
-function applyBuffEffect(state, data, effect, play) {
-  // E3: 버프 effects. E2 에서는 값 0 (아무것도 하지 않는다).
+/** 방침 → 그 방침의 버프 키 (data/policies.json 이 없을 때의 기본값) */
+const POLICY_BUFFS_FALLBACK = { ace: ["hojo", "focus"], team: ["mood"], counter: ["steal"], press: ["press"], poss: ["poss"] };
+
+/** 버프 칩 순서와 라벨 (뷰 chips 의 label) */
+export const BUFF_CHIP_LABELS = {
+  hojo: "호조", focus: "집중", routine: "루틴", mood: "분위기", noDecay: "분위기 유지",
+  steal: "탈취", press: "압박", poss: "점유", possGuard: "점유 가드",
+  nextPct: "다음 카드", nextPairPct: "다음 짝 카드", nextNoFail: "실패 없음", nextCostZero: "비용 0",
+};
+
+/** 배율 · 소수 표시 (소수 둘째 자리까지, 끝의 0 은 뺀다) */
+function fmt(x) {
+  return String(Math.round(x * 100) / 100);
+}
+
+/** 숫자 뒤 목적격 조사 (한국어 읽기: 0 영 · 1 일 · 3 삼 · 6 육 · 7 칠 · 8 팔 → 을, 그 밖 → 를) */
+function objParticle(n) {
+  const d = Math.abs(Math.trunc(n)) % 10;
+  return [0, 1, 3, 6, 7, 8].includes(d) ? "을" : "를";
+}
+
+/** 이 run 의 방침이 가진 버프 키 */
+function policyBuffKeys(state, data) {
+  const list = (data.policies && data.policies.policies) || [];
+  const p = list.find((x) => x.id === state.policy);
+  if (p && Array.isArray(p.buffs)) return p.buffs;
+  return POLICY_BUFFS_FALLBACK[state.policy] || [];
 }
 
 /**
- * 방침 패시브 (§5.3.1 13번): counter 탈취 쌓기 · 쓰기, poss ± · 가드, press 실패 리셋.
- * play.consumed (이 카드가 탈취를 썼는가) 를 정한다. E3.
+ * 버프 effect 1개 (§4.3 · §5.3.1 14번). 카드에 적힌 효과라서 방침과 관계없이 늘 적용한다 (D38).
+ * 상한: steal ≤ stealCap, press ≤ pressCap, poss ≤ possCap. 분위기 · 호조 · 집중 · 가드는 상한 없이 쌓인다.
  */
-// eslint-disable-next-line no-unused-vars
+function applyBuffEffect(state, data, e, play) {
+  const L = state.lesson;
+  const B = lessonData(data).buffs;
+  const fx = play.fx;
+  const v = (k) => Number(L.buffs[k]) || 0;
+  switch (e.type) {
+    case "hojo":
+    case "focus":
+    case "mood":
+    case "possGuard":
+      setBuff(L, e.type, v(e.type) + e.n, fx);
+      return;
+    case "moodX2":
+      setBuff(L, "mood", v("mood") * 2, fx);
+      return;
+    case "noDecay":
+      setBuff(L, "noDecay", Math.max(v("noDecay"), e.turns), fx);
+      return;
+    case "routine":
+      setBuff(L, "routine", Math.max(v("routine"), e.n), fx);
+      return;
+    case "steal":
+      setBuff(L, "steal", Math.min(B.stealCap, v("steal") + e.n), fx);
+      return;
+    case "press":
+      setBuff(L, "press", Math.min(B.pressCap, v("press") + e.n), fx);
+      return;
+    case "poss":
+      setBuff(L, "poss", Math.min(B.possCap, v("poss") + e.n), fx);
+      return;
+    case "pressDrop": {
+      const dropped = v("press");
+      if (dropped > 0) for (const p of cards.activePlayers(state)) addStamina(p, rnd(dropped * e.perStage), fx);
+      setBuff(L, "press", 0, fx);
+      return;
+    }
+    default:
+      throw new Error(`알 수 없는 버프 effect '${e.type}'`);
+  }
+}
+
+/**
+ * 방침 패시브 (§5.3.1 13번). run 의 방침이 맞을 때만, 그리고 T ≠ ∅ 일 때만 (D38).
+ *   counter: T 에 MF · FW 가 있으면 탈취를 쓴다 (steal → 0, 실패해도). 쓴 탈취가 1 이상이면 play.consumed = true.
+ *            T 가 전부 GK · DF 이고 실패자가 없으면 steal = min(cap, steal + (stealBuild ?? 1)).
+ *   poss:    실패자 → (가드가 있으면 가드 −1, 아니면 poss 0) / 성공 + MF → +1 / 성공 + MF 없음 → −2 (possKeep 이면 유지).
+ *   press:   실패자 → press 0.
+ */
 function applyPolicyPassive(state, data, play) {
   play.consumed = false;
+  if (!play.T.length) return;
+  const L = state.lesson;
+  const B = lessonData(data).buffs;
+  const { ctx, fx } = play;
+  const failed = !!play.failerId;
+  const v = (k) => Number(L.buffs[k]) || 0;
+  switch (state.policy) {
+    case "counter":
+      if (ctx.usesSteal) {
+        if (v("steal") > 0) {
+          play.consumed = true;
+          setBuff(L, "steal", 0, fx);
+        }
+      } else if (ctx.allDefense && !failed) {
+        setBuff(L, "steal", Math.min(B.stealCap, v("steal") + (ctx.mods.stealBuild ?? 1)), fx);
+      }
+      return;
+    case "poss":
+      if (failed) {
+        if (v("possGuard") > 0) setBuff(L, "possGuard", v("possGuard") - 1, fx);
+        else setBuff(L, "poss", 0, fx);
+      } else if (ctx.hasMF) {
+        setBuff(L, "poss", Math.min(B.possCap, v("poss") + 1), fx);
+      } else if (!ctx.mods.possKeep) {
+        setBuff(L, "poss", Math.max(0, v("poss") - B.possNoMF), fx);
+      }
+      return;
+    case "press":
+      if (failed) setBuff(L, "press", 0, fx);
+      return;
+    default:
+      return;
+  }
 }
 
-/** 턴 끝 분위기 틱 · 감소 (§5.3.2 턴 끝 1 · 2). E3. */
-// eslint-disable-next-line no-unused-vars
-function turnEndBuffs(state, data, fx) {}
+/**
+ * 턴 끝 분위기 (§5.3.2 턴 끝 1 · 2). 방침과 관계없이 분위기 값이 있으면 돈다.
+ *   1. 틱 (mood > 0): 출전 선수마다 round(mood × moodK × 성장률 × 컨디션 × (1 + 특별 + Σ훈련 효율)) — 점수에 넣고,
+ *      부 스탯 · 대상 횟수 · cardGainSum 에는 넣지 않는다. 호조는 곱하지 않는다 (D11).
+ *   2. 감소: noDecay > 0 이면 noDecay −1 (감소 없음), 아니면 mood −(쉬기 턴 2 : 1), 0 에서 멈춘다.
+ */
+function turnEndBuffs(state, data, fx) {
+  const L = state.lesson;
+  const LD = lessonData(data);
+  const mood = Number(L.buffs.mood) || 0;
+  if (mood > 0) {
+    const cfg = data.config;
+    const mult = trainingMult(cfg, Number(state.condition) || 0) *
+      (1 + (L.special ? LD.lesson.special.gainBonus : 0) + getModifier(state, "trainingEfficiency"));
+    for (const p of cards.activePlayers(state)) {
+      const g = rnd(mood * LD.buffs.moodK * growthOf(p, L.stat) * mult);
+      const gain = Math.max(0, Math.min(g, cfg.statCap - p.stats[L.stat]));
+      if (gain <= 0) continue;
+      p.stats[L.stat] += gain;
+      L.score += gain;
+      fx.push({ t: "tick", id: p.id, n: gain });
+    }
+  }
+  if ((Number(L.buffs.noDecay) || 0) > 0) setBuff(L, "noDecay", L.buffs.noDecay - 1, fx);
+  else if (mood > 0) setBuff(L, "mood", Math.max(0, mood - (L.restTurn ? 2 : 1)), fx);
+}
 
-/** 레슨 중 쉬기의 압박 회복 (+4 × 단계, 압박 0). E3. */
-// eslint-disable-next-line no-unused-vars
-function restBuffs(state, data, fx) {}
+/** 레슨 중 쉬기의 압박 회복: press > 0 이면 출전 선수 체력 +pressRestHeal × 단계, 압박 0 (방침과 관계없이) */
+function restBuffs(state, data, fx) {
+  const L = state.lesson;
+  const press = Number(L.buffs.press) || 0;
+  if (press <= 0) return;
+  const heal = lessonData(data).buffs.pressRestHeal * press;
+  for (const p of cards.activePlayers(state)) addStamina(p, heal, fx);
+  setBuff(L, "press", 0, fx);
+}
 
-/** 뷰의 버프 칩 (방침에 맞는 것과 0이 아닌 것만). E3. */
-// eslint-disable-next-line no-unused-vars
+/** 버프 칩 1개의 값 문구 */
+function chipValue(data, key, val) {
+  const B = lessonData(data).buffs;
+  switch (key) {
+    case "hojo": return `${val}장`;
+    case "routine": return `+${val}`;
+    case "noDecay": return `${val}턴`;
+    case "steal": return `${val}/${B.stealCap}`;
+    case "press": return `${val}/${B.pressCap}`;
+    case "poss": return `${val}/${B.possCap}`;
+    case "nextPct":
+    case "nextPairPct": return `+${Math.round(val * 100)}%`;
+    case "nextNoFail":
+    case "nextCostZero": return "다음 1장";
+    default: return String(val);
+  }
+}
+
+/** 뷰의 버프 칩: 방침에 맞는 버프는 0 이어도, 그 밖은 0 이 아니거나 켜진 것만. 순서는 BUFF_CHIP_LABELS. */
 function buffChips(state, data) {
-  return [];
+  const L = state.lesson;
+  const mine = policyBuffKeys(state, data);
+  const chips = [];
+  for (const key of Object.keys(BUFF_CHIP_LABELS)) {
+    const val = L.buffs[key];
+    const on = typeof val === "boolean" ? val : (Number(val) || 0) !== 0;
+    if (!on && !mine.includes(key)) continue;
+    chips.push({ key, label: BUFF_CHIP_LABELS[key], value: chipValue(data, key, typeof val === "boolean" ? val : Number(val) || 0), policy: mine.includes(key) });
+  }
+  return chips;
 }
 
-/** 미리보기 노트 문구 ("탈취 3 → ×1.9" 등). E3. */
-// eslint-disable-next-line no-unused-vars
+/**
+ * 미리보기 노트 문구 (§5.3.4 예: "탈취 3 → ×1.9", "실패하면 점유 6을 잃음", "점유 −2", "압박 2 · 비용 ×1.4", "호조 ×1.5 (남은 2장)").
+ * plan 은 planPlay 결과 (카드를 내기 전 상태 기준).
+ */
 function previewNotes(state, data, plan) {
-  return [];
+  const L = state.lesson;
+  const BD = lessonData(data).buffs;
+  const B = L.buffs;
+  const v = (k) => Number(B[k]) || 0;
+  const { ctx } = plan;
+  const notes = [];
+  if (ctx.n) {
+    if (v("hojo") > 0) notes.push(`호조 ×${fmt(BD.hojoMult)} (남은 ${v("hojo")}장)`);
+    if (v("focus") > 0) {
+      const share = (v("focus") * BD.focusPer * (ctx.mods.focusX2 ? 2 : 1)) / ctx.n;
+      notes.push(`집중 ${v("focus")}${ctx.mods.focusX2 ? " ×2" : ""} → 1인 위력 +${fmt(share)}`);
+    }
+    if (plan.kind === "single" && v("routine") > 0) notes.push(`루틴 → 위력 +${v("routine")}`);
+    if (v("press") > 0) {
+      notes.push(plan.pressCostMult === 1 ? `압박 ${v("press")} · 비용 증가 없음` : `압박 ${v("press")} · 비용 ×${fmt(plan.pressCostMult)}`);
+    }
+    const failRisk = plan.f > 0;
+    switch (state.policy) {
+      case "counter":
+        if (ctx.usesSteal && v("steal") > 0) {
+          notes.push(`탈취 ${v("steal")} → ×${fmt(1 + (ctx.mods.stealPer ?? BD.stealPer) * v("steal"))} (탈취를 모두 씀)`);
+        } else if (ctx.allDefense && v("steal") < BD.stealCap) {
+          notes.push(`성공하면 탈취 +${Math.min(BD.stealCap - v("steal"), ctx.mods.stealBuild ?? 1)}`);
+        }
+        break;
+      case "poss":
+        if (v("poss") > 0) notes.push(`점유 ${v("poss")} → ×${fmt(1 + BD.possK * v("poss") * (ctx.mods.possX2 ? 2 : 1))}`);
+        if (failRisk && v("poss") > 0) {
+          notes.push(v("possGuard") > 0 ? `실패해도 점유 유지 (가드 ${v("possGuard")})` : `실패하면 점유 ${v("poss")}${objParticle(v("poss"))} 잃음`);
+        }
+        if (ctx.hasMF) {
+          if (v("poss") < BD.possCap) notes.push("성공하면 점유 +1");
+        } else if (ctx.mods.possKeep) {
+          if (v("poss") > 0) notes.push("MF 없어도 점유 유지");
+        } else if (v("poss") > 0) {
+          notes.push(`점유 −${Math.min(v("poss"), BD.possNoMF)}`);
+        }
+        break;
+      case "press":
+        if (v("press") > 0) {
+          notes.push(`압박 ${v("press")} → ×${fmt(1 + BD.pressK * v("press"))}`);
+          if (failRisk) notes.push("실패하면 압박 0");
+        }
+        break;
+      default:
+        break;
+    }
+  } else {
+    for (const e of plan.effects) {
+      if (e.type === "pressDrop" && v("press") > 0) notes.push(`압박 ${v("press")} → 0 · 출전 선수 체력 +${rnd(v("press") * e.perStage)}`);
+      if (e.type === "moodX2") notes.push(`분위기 ${v("mood")} → ${v("mood") * 2}`);
+    }
+  }
+  return notes;
 }
 
 // ---------------------------------------------------------------------------
@@ -355,7 +569,7 @@ function beginTurn(state, data, rng, fx) {
   fx.push({ t: "draw", uids: L.hand.slice() });
 }
 
-/** 턴 끝: (E3 분위기) → 퍼펙트 판정 → 손패 버림 → 마지막 턴이면 끝, 아니면 다음 턴 시작 */
+/** 턴 끝: 분위기 틱 · 감소 → 퍼펙트 판정 → 손패 버림 → 마지막 턴이면 끝, 아니면 다음 턴 시작 */
 function endTurn(state, data, rng, fx) {
   const L = state.lesson;
   turnEndBuffs(state, data, fx);
@@ -630,7 +844,7 @@ export function playCard(state, data, { uid, taps } = {}) {
     if (plan.ctx.pairCard) setBuff(L, "nextPairPct", 0, fx);
   }
 
-  // 13. 방침 패시브 (E3)
+  // 13. 방침 패시브 (run 방침이 맞고 T ≠ ∅ 일 때만)
   const play = { ...plan, failerId, consumed: false, extraPlay: 0, fx };
   applyPolicyPassive(state, data, play);
 
