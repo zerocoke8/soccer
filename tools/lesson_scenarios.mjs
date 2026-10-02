@@ -1,6 +1,6 @@
 // tools/lesson_scenarios.mjs — 카드 레슨 런의 스크린샷 · 주입 상태 (LESSON_PROTO_PLAN §10.2). tools/scenarios.mjs 가 OUTGAME_SCENARIOS 에 붙인다.
 // 엔진(js/engine/lessonRun.js · manager.js · match.js)만으로 원하는 단계까지 감독 AI 로 걷는다 → 같은 seed · 방침이면 같은 상태.
-// U1: walkLesson + 임시 화면 시나리오 몇 개 (주 선택 · 레슨 · 보상 · 상담 · 준비). U2: 주 선택 · 외출 · 미팅 · 경기 전 준비 완성 화면. I1 이 §10.2 표 전부로 늘린다.
+// U1: walkLesson + 임시 화면 시나리오 몇 개. U2: 주 선택 · 외출 · 미팅 · 경기 전 준비. U3: 레슨. U4: 보상 모달 · 상담. I1 이 §10.2 표 전부로 늘린다.
 import * as lessonRun from "../js/engine/lessonRun.js";
 import * as manager from "../js/engine/manager.js";
 import * as match from "../js/engine/match.js";
@@ -94,6 +94,21 @@ function injuredLessonState(data, runSeed) {
     if (playingLesson(st) && st.lesson.out.some((id) => !st.lesson.outAtStart.includes(id))) return { state: st, before, cardId: card.cardId, steps: found.steps + 1 };
   }
   return null;
+}
+
+/**
+ * 퍼펙트 보상 (결정적): 3턴째 이후 범위 카드가 있는 레슨에서 점수를 퍼펙트 − 1 로 두고 그 카드를 엔진에서 낸다 → phase reward (퍼펙트 · 보상 후보 있음).
+ * 걸어서는 퍼펙트가 드물다.
+ */
+export function perfectRewardState(data, runSeed) {
+  const rangeCard = (s) => lessonHand(data, s).find((c) => RANGE.includes(c.targetKind) && c.playable);
+  const found = walkLesson(data, { seed: runSeed, until: (s) => playingLesson(s) && s.lesson.turn >= 3 && !!rangeCard(s) && s.season >= 1 && s.turnIndex >= 2 });
+  if (!found) return null;
+  const st = found.state;
+  st.lesson.score = st.lesson.cap - 1;
+  lessonRun.playCard(st, data, { uid: rangeCard(st).uid, taps: [] });
+  if (st.phase !== "reward" || st.pendingReward?.result?.status !== "perfect") return null;
+  return { state: st, steps: found.steps + 1 };
 }
 
 /** 방침 버프가 쌓인 레슨 (그 방침 버프 칩 값이 0 이 아닌 3턴째 이후) — 없으면 그냥 3턴째 */
@@ -344,20 +359,102 @@ export const LESSON_OG_SCENARIOS = [
     expect: { screen: "run", phase: "lesson", modal: false },
   })),
   {
-    name: "og_reward_temp",
-    title: "레슨 결과 (임시 모달) — 보상 카드",
+    name: "og_reward_clear",
+    title: "레슨 결과 — 클리어: 점수 막대 · 보상 칩 · 선수 7 · 카드 3장 + 건너뛰기",
     outgame: true,
-    build: (data, { runSeed }) => walkOrThrow("og_reward_temp", data, { seed: runSeed, until: (s) => s.phase === "reward" && s.pendingReward?.offer?.length > 0 }),
-    ready: "#modal-root .reward-modal",
+    build: (data, { runSeed }) => walkOrThrow("og_reward_clear", data, { seed: runSeed, until: (s) => s.phase === "reward" && s.pendingReward?.result?.status === "clear" && s.pendingReward.offer.length > 0 }),
+    ready: "#modal-root .reward-modal .rw-offer .card-face",
     expect: { screen: "run", phase: "reward", modal: ".reward-modal" },
   },
   {
-    name: "og_consult_temp",
-    title: "상담 (임시 화면) — 진열 · 덱 · 스킬",
+    // 클리어 보상에서 카드 1장(추천 카드, 없으면 첫 장)을 고른 상태: 금색 테두리 · 설명 · [확인] 켜짐
+    name: "og_reward_pick",
+    title: "레슨 결과 — 카드를 고른 상태 (설명 · [확인] 켜짐)",
     outgame: true,
-    build: (data, { runSeed }) => walkOrThrow("og_consult_temp", data, { seed: runSeed, until: (s) => s.phase === "consult" }),
-    ready: ".consult-screen",
+    build: (data, { runSeed }) => walkOrThrow("og_reward_pick", data, { seed: runSeed, until: (s) => s.phase === "reward" && s.pendingReward?.result?.status === "clear" && s.pendingReward.offer.length > 0 }),
+    steps: [{ click: "#modal-root .rw-offer .card-face.recommended" }],
+    ready: "#modal-root .rw-offer .card-face.selected",
+    expect: { screen: "run", phase: "reward", modal: ".reward-modal" },
+  },
+  {
+    // 점수를 퍼펙트 − 1 로 주입하고 범위 카드를 엔진에서 낸 직후 (결정적): TP 20 · 힌트 2 · 무료 강화 덱 그리드
+    name: "og_reward_perfect",
+    title: "레슨 결과 — 퍼펙트: 카드 3장 + 무료 강화 덱 그리드 (카드 · 무료 강화 고름)",
+    outgame: true,
+    build: (data, { runSeed }) => {
+      const found = perfectRewardState(data, runSeed);
+      if (!found) throw new Error("[og_reward_perfect] 상태를 찾지 못했습니다");
+      return { runState: found.state, steps: found.steps, preferred: true, summary: `${describeLessonRun(found.state)} (점수 = 퍼펙트 − 1 주입 후 범위 카드)` };
+    },
+    steps: [{ click: "#modal-root .rw-offer .card-face" }, { click: "#modal-root .rw-deck .mini-card.recommended" }],
+    ready: "#modal-root .reward-modal .rw-deck .mini-card.selected",
+    expect: { screen: "run", phase: "reward", modal: ".reward-modal" },
+  },
+  {
+    name: "og_reward_fail",
+    title: "레슨 결과 — 실패: 결과 머리 + 보상 없음 + [계속]",
+    outgame: true,
+    build: (data, { runSeed }) => walkOrThrow("og_reward_fail", data, { seed: runSeed, until: (s) => s.phase === "reward" && s.pendingReward?.result?.status === "fail" }),
+    ready: "#modal-root .reward-modal .rw-none",
+    expect: { screen: "run", phase: "reward", modal: ".reward-modal" },
+  },
+  {
+    // 힌트 스킬이 있는 상담 (TP · SP 가 쌓인 뒤)
+    name: "og_consult",
+    title: "상담 — 진열 3 (가격 · 구매) · 덱 그리드 · 스킬 (SP)",
+    outgame: true,
+    build: (data, { runSeed }) => walkOrThrow("og_consult", data, { seed: runSeed, until: (s) => s.phase === "consult" && Object.keys(s.hints).length >= 2 && s.trainingPoints >= 30 }),
+    ready: ".consult-screen .cs-stock .card-face",
     expect: { screen: "run", phase: "consult", modal: false },
+  },
+  {
+    // 덱의 강화할 수 있는 카드를 고른 상태: 지금 → 강화 후 카드 · [강화] [삭제]
+    name: "og_consult_pick",
+    title: "상담 — 덱 카드를 고름: 지금 → 강화 후 · [강화 30 TP] [삭제 25 TP]",
+    outgame: true,
+    build: (data, { runSeed }) => {
+      const b = walkOrThrow("og_consult_pick", data, { seed: runSeed, until: (s) => s.phase === "consult" && Object.keys(s.hints).length >= 2 && s.trainingPoints >= 30 });
+      const v = lessonRun.getConsultView(b.runState, data);
+      const c = v.deck.find((d) => d.canUpgrade && d.family !== "unique") || v.deck[0];
+      return { ...b, info: { uid: c.uid } };
+    },
+    steps: (prepared) => [{ click: `.cs-deck-grid .mini-card[data-uid="${prepared.info.uid}"]` }],
+    ready: ".consult-screen .cs-detail .card-face",
+    expect: { screen: "run", phase: "consult", modal: false },
+  },
+  {
+    // 꽉 찬 상담 (주입): 힌트 스킬 7개 · 덱 +10장(24장) · TP 200 · SP 600 — 스킬 줄 압축 · 덱 6줄이 스크롤 없이 들어가는지
+    name: "og_consult_full",
+    title: "상담 — 꽉 참: 스킬 7 (압축) · 덱 24장 (TP · SP 주입)",
+    outgame: true,
+    build: (data, { runSeed }) => {
+      const b = walkOrThrow("og_consult_full", data, { seed: runSeed, until: (s) => s.phase === "consult" });
+      const st = b.runState;
+      st.trainingPoints = 200;
+      st.skillPoints = 600;
+      const ids = st.supports.flatMap((x) => (data.supports.find((d) => d.id === x.id)?.hintSkillIds || []));
+      ids.slice(0, 7).forEach((id, i) => { st.hints[id] = 1 + (i % 3); });
+      const extra = ["cd_fw_drill", "cd_mf_drill", "cd_df_drill", "cd_gk_session", "cd_attack_build", "cd_defense_org", "cd_one_two", "cd_one_on_one", "cd_tactics_board", "cd_icing"];
+      while (st.deck.length < 24) { st.deck.push({ uid: `k${st.nextUid}`, cardId: extra[st.deck.length % extra.length], plus: st.deck.length % 3 === 0 }); st.nextUid += 1; }
+      return { ...b, summary: `${b.summary} (힌트 7 · 덱 24 · TP 200 · SP 600 주입)` };
+    },
+    ready: ".consult-screen .cs-skill",
+    expect: { screen: "run", phase: "consult", modal: false },
+  },
+  {
+    // 고유 카드 [삭제] → 확인 모달
+    name: "og_consult_delete",
+    title: "상담 — 고유 카드 삭제 확인 모달",
+    outgame: true,
+    build: (data, { runSeed }) => {
+      const b = walkOrThrow("og_consult_delete", data, { seed: runSeed, until: (s) => s.phase === "consult" && s.trainingPoints >= 25 });
+      const v = lessonRun.getConsultView(b.runState, data);
+      const c = v.deck.find((d) => d.family === "unique");
+      return { ...b, info: { uid: c.uid } };
+    },
+    steps: (prepared) => [{ click: `.cs-deck-grid .mini-card[data-uid="${prepared.info.uid}"]` }, { click: ".cs-ops .cs-delete" }],
+    ready: "#modal-root .cs-confirm",
+    expect: { screen: "run", phase: "consult", modal: ".modal-md" },
   },
   {
     name: "og_prep",

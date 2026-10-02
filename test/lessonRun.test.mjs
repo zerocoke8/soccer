@@ -456,6 +456,12 @@ test("보상: 코치 카드 획득 유대 +15, 고유 강화 후보, 퍼펙트 T
   assert.ok(v.upgradable.length >= 9);
   assert.ok(!v.upgradable.includes("nope"));
   const basic = uidOf(s, "cd_basic");
+  // 뷰 deck = 덱 카드 뷰 (무료 강화 그리드 · 강화 후 미리보기): 덱 순서 · uid · canUpgrade = upgradable
+  assert.deepEqual(v.deck.map((c) => c.uid), s.deck.map((e) => e.uid));
+  assert.deepEqual(v.deck.filter((c) => c.canUpgrade).map((c) => c.uid), v.upgradable);
+  const basicView = v.deck.find((c) => c.uid === basic);
+  assert.equal(basicView.power, 35);
+  assert.deepEqual(basicView.upgrade.power, 44);
   rejects(s, () => LR.resolveReward(s, data, { pick: null, upgradeUid: "k999" }));
   LR.resolveReward(s, data, { pick: null, upgradeUid: basic });
   assert.equal(s.deck.find((e) => e.uid === basic).plus, true);

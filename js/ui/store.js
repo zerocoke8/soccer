@@ -84,8 +84,8 @@ export const store = {
     timer: null,        // 연출 타이머 (setTimeout id; app.js render() 가 지운다)
     gen: 0,             // render() 마다 +1 — 옛 화면의 연출 루프가 스스로 멈춘다
   },
-  // 상담 화면: 고른 덱 카드 (render 뒤에도 남는다)
-  consultUi: { selectedUid: null },
+  // 상담 화면: 고른 덱 카드 · 스킬마다 고른 배울 선수 { [skillId]: playerId } (render 뒤에도 남는다, 상담을 끝내면 비운다)
+  consultUi: { selectedUid: null, skillPick: {} },
 };
 // 화면은 인게임·아웃게임 모두 가로 전용 (고정 스테이지 1280×720, js/ui/stage.js) — 방향 상태 · ?orient · 방향 저장값은 없다.
 

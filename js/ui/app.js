@@ -284,6 +284,7 @@ const actions = {
     const r = engine(() => run.applyWeekAction(store.run, store.data, action));
     if (r !== undefined) {
       if (store.run?.phase === 'lesson') resetLessonUi(); // 새 레슨 = 선택 · 연출 표시 초기화
+      if (store.run?.phase === 'consult') { store.consultUi.selectedUid = null; store.consultUi.skillPick = {}; } // 새 상담 = 선택 없음
       announce(newLogLines(before));
     }
     render();
@@ -318,7 +319,7 @@ const actions = {
   endConsult() {
     const before = store.run?.log?.length ?? 0;
     const r = engine(() => run.endConsult(store.run, store.data));
-    if (r !== undefined) { store.consultUi.selectedUid = null; announce(newLogLines(before)); }
+    if (r !== undefined) { store.consultUi.selectedUid = null; store.consultUi.skillPick = {}; announce(newLogLines(before)); }
     render();
   },
 

@@ -397,25 +397,154 @@ button.mini-card { cursor: pointer; }
 .pile-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
 
 /* ================================================================== */
-/* 레슨 결과 · 보상 모달 (.reward-modal) — U4                                 */
+/* 레슨 결과 · 보상 모달 (.reward-modal) — U4, screens/reward.js            */
+/*   머리(제목 · 점수 막대 · 숫자) · 보상 칩 · 선수 7 · 카드 3 + 건너뛰기 + 설명 · 무료 강화 덱 8열 · 아래 줄 [확인] */
 /* ================================================================== */
-.reward-offer { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
-.reward-pick {
-  align-items: flex-start; justify-content: flex-start; text-align: left; gap: 4px; padding: 14px 14px 12px; min-height: 120px;
-  background: var(--panel-2); border-radius: 12px; box-shadow: inset 0 4px 0 var(--fam, var(--panel-3));
+.modal.reward-modal { padding: 16px 20px 14px; gap: 0; }
+.reward-body { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.rw-head { display: grid; grid-template-columns: 290px minmax(0, 1fr) auto; align-items: center; gap: 20px; }
+.rw-title { display: flex; align-items: center; gap: 12px; min-width: 0; white-space: nowrap; }
+.rw-ico { font-size: 36px; line-height: 1; }
+.rw-status { font-size: 28px; line-height: 1.1; letter-spacing: 0; }
+.rw-score { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.rw-score-top { display: flex; align-items: baseline; gap: 6px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.rw-score-n { font-size: 24px; line-height: 1.1; }
+.rw-score-t { color: var(--muted); font-size: 13px; }
+.rw-bar { position: relative; height: 12px; border-radius: 6px; background: var(--panel-3); }
+.rw-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 6px; background: var(--bad); }
+.rw-score.clear .rw-fill { background: var(--good); }
+.rw-score.perfect .rw-fill { background: linear-gradient(90deg, var(--good), var(--gold)); }
+.rw-mark { position: absolute; top: -4px; bottom: -4px; width: 3px; margin-left: -1px; border-radius: 2px; background: var(--text); box-shadow: 0 0 0 1px rgba(0, 0, 0, .5); }
+.rw-stats { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.rw-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.rw-chip { padding: 3px 11px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--border); font-size: 12.5px; line-height: 18px; white-space: nowrap; }
+.rw-chip.tp b { color: var(--gold); }
+.rw-chip.hint b, .rw-chip.sp b { color: var(--purple); }
+.rw-chip.tw b, .rw-chip.cond b { color: var(--good); }
+.rw-chip.bond b { color: var(--accent-2); }
+.rw-chip.prep { color: var(--warn); border-color: rgba(255, 179, 71, .4); }
+.rw-chip.bad { color: var(--bad); border-color: rgba(255, 92, 92, .4); }
+.rw-players { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.rw-pl {
+  display: grid; grid-template-columns: 30px minmax(0, 1fr); grid-template-rows: auto auto; column-gap: 6px; align-items: center;
+  min-width: 0; padding: 4px 8px; border-radius: 9px; background: var(--panel-2); font-size: 13px; line-height: 17px; white-space: nowrap; font-variant-numeric: tabular-nums;
 }
-.reward-gains { line-height: 1.4; }
+.rw-pl > .avatar { grid-row: 1 / span 2; }
+.rw-pl-nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 700; }
+.rw-pl-slot { margin-left: 4px; font-size: 10.5px; font-weight: 400; color: var(--muted); }
+.rw-pl-gain { display: flex; align-items: baseline; gap: 5px; min-width: 0; }
+.rw-pl-sub { font-size: 11px; color: var(--muted); }
+.rw-pl.zero { opacity: .6; }
+.rw-auto { flex: none; padding: 0 5px; border-radius: 6px; font-size: 10px; line-height: 15px; font-weight: 700; background: rgba(124, 196, 255, .15); color: var(--accent-2); }
+.rw-none { display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; border-radius: 12px; background: var(--panel-2); }
+.rw-none b { font-size: 18px; }
+.rw-sec { display: flex; flex-direction: column; gap: 6px; padding-top: 8px; border-top: 1px solid var(--border); }
+.rw-sec-head { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+.rw-sec-head h4 { flex: none; font-size: 15px; }
+.rw-offer { display: flex; align-items: stretch; gap: 12px; padding-top: 12px; }
+.rw-offer-slot { flex: none; display: flex; }
+/* 보상 · 상담 카드의 오른쪽 칩(새 카드 · 강화 후 …)은 아래로 — 위에 두면 긴 이름을 가린다 */
+.rw-offer .cf-tag, .cs-detail .cf-tag { top: auto; bottom: 8px; }
+.rw-skip {
+  position: relative; flex: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  width: 150px; height: 204px; border-radius: 12px; border: 1px dashed #3a4a63; background: var(--panel-2);
+  color: var(--text); font: inherit; cursor: pointer; transition: transform .16s ease-out, box-shadow .16s, border-color .16s;
+}
+.rw-skip:hover { transform: translateY(-5px); border-color: var(--accent); }
+.rw-skip.recommended { border: 1px solid var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.rw-skip.selected, .rw-skip.selected:hover { transform: translateY(-12px); border: 1px solid var(--gold); box-shadow: 0 0 0 2px var(--gold), 0 12px 24px rgba(0, 0, 0, .55); }
+.rw-skip-ico { font-size: 28px; line-height: 1.1; }
+.rw-skip b { font-size: 16px; }
+.rw-skip-tp { font-size: 22px; font-weight: 800; color: var(--gold); font-variant-numeric: tabular-nums; }
+.rw-explain {
+  flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 6px;
+  padding: 12px 16px; border-radius: 12px; background: var(--panel-2); line-height: 1.4; word-break: keep-all; overflow-wrap: anywhere;
+}
+.rw-explain > b { font-size: 15px; }
+.rw-deck { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 6px; }
+.rw-deck.dense .mc-desc { display: none; }
+.rw-up-line { min-width: 0; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rw-up-line b { color: var(--gold); }
+.rw-foot { align-items: center; gap: 14px; padding-top: 4px; }
+.rw-summary { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rw-ok { min-width: 160px; }
+/* 작은 카드: 추천 (보상 무료 강화 · 상담 덱) */
+.mini-card { position: relative; }
+.mini-card.recommended { border-color: var(--accent); }
+.mc-rec { position: absolute; right: 4px; top: 3px; padding: 0 5px; border-radius: 6px; font-size: 9.5px; line-height: 14px; font-weight: 800; background: var(--accent); color: #041224; pointer-events: none; }
+.mini-card.recommended .mc-name { padding-right: 34px; }
 
 /* ================================================================== */
-/* 상담 (.consult-screen) — columns 300 | 1fr | 340 (U4)                       */
+/* 상담 (.consult-screen) — columns 300 | 1fr | 340 (U4, screens/consult.js) */
 /* ================================================================== */
 .consult-screen { display: flex; flex-direction: column; }
+.consult-screen.og-error { align-items: flex-start; }
+.cs-head h2 { flex: none; }
+.cs-head .status-chip b { font-size: 15px; }
+.cs-end { position: relative; min-width: 150px; justify-content: center; }
+.cs-end-rec { position: absolute; top: -8px; right: -6px; padding: 1px 6px; border-radius: 999px; font-size: 10px; font-weight: 800; background: var(--accent); color: #041224; }
 .consult-cols { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 300px minmax(0, 1fr) 340px; gap: 12px; }
-.cs-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 10px; background: var(--panel-2); }
-.cs-item.bought, .cs-item.disabled { opacity: .55; }
+/* 진열: 카드 앞면 0.8배 (176×204 → 141×163) + 가격 · [구매] */
+.cs-stock-list { display: flex; flex-direction: column; gap: 8px; }
+.cs-item { display: flex; align-items: stretch; gap: 10px; padding: 6px; border-radius: 12px; background: var(--panel-2); border: 1px solid transparent; }
+.cs-item.recommended { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.cs-face { flex: none; width: 141px; height: 164px; }
+.cs-face .card-face { transform: scale(.8); transform-origin: top left; }
+.cs-item.bought .cs-face { opacity: .4; filter: saturate(.3); }
+.cs-buy { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 5px; }
+.cs-price { font-size: 22px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.cs-buy-btn { align-self: stretch; justify-content: center; min-height: 36px; margin-top: 4px; }
+.cs-rec { font-size: 10.5px; padding: 1px 7px; }
+/* 덱: miniCard 4열 + 고른 카드 (지금 → 강화 후) + [강화] [삭제] */
+.cs-deck-rule { white-space: pre; }
 .cs-deck-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
-.cs-card { justify-content: flex-start; box-shadow: inset 3px 0 0 var(--fam, var(--panel-3)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.cs-ops { gap: 8px; align-items: center; }
+.cs-deck-grid.dense .mc-desc { display: none; }
+.cs-deck .divider { margin: 2px 0; }
+.cs-detail { display: flex; align-items: center; gap: 10px; min-height: 204px; }
+.cs-detail.empty {
+  flex-direction: column; justify-content: center; gap: 6px; padding: 0 40px; text-align: center;
+  border: 1px dashed var(--border); border-radius: 12px; line-height: 1.45; word-break: keep-all;
+}
+.cs-detail-ico { font-size: 34px; opacity: .6; }
+.cs-arrow { flex: none; width: 14px; font-size: 20px; color: var(--muted); text-align: center; }
+.cs-noup {
+  flex: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  width: 176px; height: 204px; border-radius: 12px; border: 1px dashed var(--border); color: var(--muted); text-align: center;
+}
+.cs-ops { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
+.cs-ops .btn-col { min-height: 56px; padding: 6px 10px; gap: 2px; white-space: normal; word-break: keep-all; text-align: center; }
+.cs-ops .btn-col b { font-size: 15px; }
+.cs-ops .btn-danger .btn-sub { color: inherit; opacity: .85; }
+.cs-ops .btn.recommended { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.cs-unsel { align-self: center; }
+/* 스킬 (SP): 힌트를 얻은 스킬 줄 + 힌트 대기(회색) */
+.cs-skill-list { display: flex; flex-direction: column; gap: 7px; }
+.cs-skill { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border-radius: 10px; background: var(--panel-2); border: 1px solid transparent; }
+.cs-skill.recommended { border-color: var(--accent); }
+.cs-skill.disabled .cs-sk-top, .cs-skill.disabled .cs-sk-desc { opacity: .6; }
+.cs-sk-top { display: flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap; }
+.cs-sk-name { min-width: 0; font-size: 14px; }
+.cs-sk-lv { flex: none; font-size: 10.5px; padding: 1px 6px; }
+.cs-sk-cost { flex: none; font-variant-numeric: tabular-nums; }
+.cs-sk-desc { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cs-sk-buy { display: flex; align-items: center; gap: 6px; min-height: 30px; }
+.cs-sk-player { flex: 1 1 auto; min-width: 0; min-height: 30px; padding: 3px 8px; font-size: 12.5px; }
+.cs-learn { flex: none; min-width: 72px; min-height: 30px; padding: 3px 10px; justify-content: center; }
+/* 스킬이 6개 이상이면 설명 줄을 빼고(.compact), 9개 이상이면 여백 · 종류를 더 줄인다(.tight) — 스크롤 없이 */
+.cs-skill-list.compact { gap: 4px; }
+.cs-skill-list.compact .cs-skill { padding: 5px 10px; gap: 3px; }
+.cs-skill-list.compact .cs-sk-buy { min-height: 26px; }
+.cs-skill-list.compact .cs-sk-player, .cs-skill-list.compact .cs-learn { min-height: 26px; padding-top: 1px; padding-bottom: 1px; font-size: 12px; }
+.cs-skill-list.tight .cs-skill { padding: 3px 8px; }
+.cs-skill-list.tight .cs-sk-kind { display: none; }
+.cs-skill-list.tight .cs-sk-player, .cs-skill-list.tight .cs-learn { min-height: 24px; }
+.cs-sk-none { line-height: 1.45; word-break: keep-all; }
+.cs-skills > .og-panel-body { flex: 1 1 auto; }
+.cs-wait { display: flex; flex-direction: column; gap: 5px; margin-top: auto; padding-top: 8px; border-top: 1px dashed var(--border); }
+.cs-wait-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.cs-wait-chip { padding: 1px 8px; border-radius: 999px; background: var(--panel-2); color: var(--muted); font-size: 11px; line-height: 17px; white-space: nowrap; opacity: .8; }
+.cs-confirm { gap: 10px; }
+.cs-confirm p { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; line-height: 1.45; }
 
 /* ================================================================== */
 /* 경기 전 준비 (.prep-screen) — columns 340 | 1fr (U2, screens/prep.js)    */
@@ -448,4 +577,3 @@ button.mini-card { cursor: pointer; }
 .prep-edit .meeting-board .lu-pitch { flex: 1 1 auto; height: auto; min-height: 0; }
 .prep-edit .meeting-tactics .field > .select { min-height: 34px; padding: 4px 10px; }
 .prep-go { min-width: 220px; }
-.reward-modal { gap: 12px; }

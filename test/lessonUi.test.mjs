@@ -1,8 +1,10 @@
-// test/lessonUi.test.mjs — 카드 레슨 화면 jsdom 검사 (LESSON_PROTO_PLAN §9.3 lessonUi, U3 = 레슨 화면 부분)
+// test/lessonUi.test.mjs — 카드 레슨 화면 jsdom 검사 (LESSON_PROTO_PLAN §9.3 lessonUi, U3 = 레슨 화면 · U4 = 보상 모달 · 상담 화면)
 // index.html 을 jsdom 으로 올려 js/ui/app.js 를 부트하고, 감독 AI 로 걸은 레슨 런(tools/lesson_scenarios.mjs)을 store.run 에 넣어 레슨 화면을 그린다.
 //  - 골격: HUD(턴 점 · 점수 · 버프 칩) · 경기장 토큰 7 · 이번 레슨 명단 7 · 손패 = 뷰 손패 · [내기][쉬기][턴 끝]
 //  - 카드 선택 → 토큰 탭(초록 · 빨강 · 금) → [내기] → seq +1 · 저장 · 화면은 그대로(같은 DOM) · 연출이 끝나면 선택 풀림
 //  - 다시 그려도(render) 선택이 남는다, Esc = 취소, 쉬기 · 턴 끝, 레슨 끝 → reward phase (레슨 화면 inert + 보상 모달)
+//  - U4 보상: 클리어 카드 고르기 · 건너뛰기(TP) · 퍼펙트 무료 강화 그리드 · 실패 [계속]
+//  - U4 상담: 구매 · 강화(고른 카드는 다시 그려도 남음) · 고유 카드 삭제 확인 모달 · 스킬(배울 선수) · 오류 토스트 · 끝내기
 // 연출은 prefers-reduced-motion 으로 줄여(타이머 0ms) 빨리 끝낸다. 레이아웃(넘침 · 잘림)은 tools/shot.mjs og_lesson* 스크린샷으로 본다.
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -31,7 +33,7 @@ async function until(fn, ms = 4000, step = 10) {
   return fn();
 }
 
-test("jsdom: 레슨 화면 — 골격 · 카드 선택 · 탭 · 내기 · 다시 그리기 · 쉬기 · 턴 끝 · 레슨 끝 → 보상", { skip: !JSDOM && "jsdom 미설치" }, async (t) => {
+test("jsdom: 레슨 화면 — 골격 · 카드 선택 · 탭 · 내기 · 다시 그리기 · 쉬기 · 턴 끝 · 레슨 끝 → 보상 모달 · 상담", { skip: !JSDOM && "jsdom 미설치" }, async (t) => {
   const html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
   const dom = new JSDOM(html, { url: "http://localhost/soccer/lesson/", pretendToBeVisual: true });
   const { window } = dom;
@@ -267,5 +269,194 @@ test("jsdom: 레슨 화면 — 골격 · 카드 선택 · 탭 · 내기 · 다�
   assert.equal(ui.shownSeq, S.store.run.lesson.seq);
   assert.ok(!ui.busy, "이어하기: 연출 없음");
   assert.equal($$("#modal-root .overlay").length, 0);
+  assert.deepEqual(consoleErrors, [], "console.error 없음 (레슨)");
+
+  // =====================================================================
+  // U4 보상 모달 (phase reward): 고르기 · 건너뛰기 · 무료 강화 · 실패 [계속]
+  // =====================================================================
+  const { perfectRewardState } = await import(pathToFileURL(path.join(ROOT, "tools/lesson_scenarios.mjs")).href);
+  const savedRun = () => JSON.parse(window.localStorage.getItem(KEYS.run));
+  const clearReward = walkLesson(data, { seed: "lesson-ui", until: (s) => s.phase === "reward" && s.pendingReward?.result?.status === "clear" && s.pendingReward.offer.length > 0 }).state;
+
+  // ---------- 클리어: 골격 · 카드 고르기 → [확인] ----------
+  putRun(clearReward);
+  let rv = lessonRun.getRewardView(S.store.run, data);
+  assert.ok($(".lesson-screen.inert") && $("#modal-root .reward-modal"), "보상 = 레슨 화면 inert + 모달");
+  assert.match($(".rw-status").textContent, /클리어/, "결과 머리");
+  assert.ok($(".rw-score-n").textContent === String(rv.result.score) && $(".rw-score-t").textContent.includes(String(rv.result.target)), "점수 · 목표");
+  assert.equal($$(".rw-players .rw-pl").length, 7, "선수 7 상승");
+  assert.ok($(".rw-chip.tp").textContent.includes(`+${rv.result.tp}`), "TP 칩");
+  assert.equal($$(".rw-offer .card-face").length, rv.offer.length, "보상 카드 = offer");
+  assert.ok($(".rw-skip").textContent.includes(`TP +${rv.skipTp}`), "건너뛰기 TP");
+  assert.equal($$(".rw-deck").length, 0, "클리어 = 무료 강화 없음");
+  const rrec = S.manager.recommendReward(S.store.run, data);
+  if (rrec.pick !== null) assert.ok($$(".rw-offer .card-face")[rrec.pick].classList.contains("recommended"), "추천 카드 배지");
+  assert.equal($$(".rw-offer .card-face.selected").length, 0, "미리 고르지 않는다");
+  assert.ok($(".rw-ok").disabled, "고르기 전 [확인] 꺼짐");
+  $(".rw-ok").click();
+  assert.equal(S.store.run.phase, "reward", "꺼진 [확인] = 아무것도 안 함");
+  const addIdx = rv.offer.findIndex((o) => o.kind === "add");
+  assert.ok(addIdx >= 0);
+  $$(".rw-offer .card-face")[addIdx].click();
+  assert.ok($$(".rw-offer .card-face")[addIdx].classList.contains("selected"), "고른 카드 강조");
+  assert.ok(!$(".rw-ok").disabled, "[확인] 켜짐");
+  assert.match($(".rw-explain").textContent, /덱에 추가/);
+  $$(".rw-offer .card-face")[addIdx].click(); // 다시 누르면 해제
+  assert.ok($(".rw-ok").disabled, "다시 누르면 해제");
+  $$(".rw-offer .card-face")[addIdx].click();
+  const deckLen0 = S.store.run.deck.length;
+  const tp0 = S.store.run.trainingPoints;
+  $(".rw-ok").click();
+  assert.notEqual(S.store.run.phase, "reward", "[확인] → 보상 끝");
+  assert.equal(S.store.run.deck.length, deckLen0 + 1, "덱 +1");
+  assert.equal(S.store.run.deck.at(-1).cardId, rv.offer[addIdx].cardId, "고른 카드가 덱에");
+  assert.equal(S.store.run.trainingPoints, tp0, "고르면 TP 그대로");
+  assert.equal(S.store.run.lesson, null);
+  assert.equal(savedRun().deck.length, deckLen0 + 1, "저장");
+  assert.equal($$("#modal-root .reward-modal").length, 0, "모달 닫힘");
+  noErrorToast("보상 고르기");
+
+  // ---------- 건너뛰기 → TP +10 ----------
+  putRun(clearReward);
+  $(".rw-skip").click();
+  assert.ok($(".rw-skip").classList.contains("selected") && !$(".rw-ok").disabled, "건너뛰기 고름");
+  $(".rw-ok").click();
+  assert.equal(S.store.run.trainingPoints, clearReward.trainingPoints + rv.skipTp, "건너뛰기 TP");
+  assert.equal(S.store.run.deck.length, clearReward.deck.length, "덱 그대로");
+
+  // ---------- 퍼펙트: 무료 강화 덱 그리드 ----------
+  const perf = perfectRewardState(data, 1).state;
+  putRun(perf);
+  rv = lessonRun.getRewardView(S.store.run, data);
+  assert.match($(".rw-status").textContent, /퍼펙트/);
+  assert.equal($$(".rw-deck .mini-card").length, perf.deck.length, "덱 그리드 = 덱");
+  assert.equal($$(".rw-deck .mini-card:not(:disabled)").length, rv.upgradable.length, "강화할 수 있는 카드만 켜짐");
+  assert.match($(".rw-free .rw-sec-head").textContent, /사라집니다/, "안 고르면 사라진다는 안내");
+  const upOffer = rv.offer.findIndex((o) => o.kind === "upgrade");
+  if (upOffer >= 0) {
+    // 보상으로 강화하는 카드는 무료 강화 그리드에서 꺼진다 (같은 카드 두 번 강화 금지)
+    $$(".rw-offer .card-face")[upOffer].click();
+    assert.ok($(`.rw-deck .mini-card[data-uid="${rv.offer[upOffer].uid}"]`).disabled, "보상 강화 카드 = 그리드 꺼짐");
+    $$(".rw-offer .card-face")[upOffer].click();
+  }
+  const pAdd = rv.offer.findIndex((o) => o.kind === "add");
+  const freeUid = rv.upgradable.find((u) => !(upOffer >= 0 && u === rv.offer[upOffer].uid));
+  $$(".rw-offer .card-face")[pAdd].click();
+  $(`.rw-deck .mini-card[data-uid="${freeUid}"]`).click();
+  assert.ok($(`.rw-deck .mini-card[data-uid="${freeUid}"]`).classList.contains("selected"), "무료 강화 카드 고름");
+  assert.match($(".rw-up-line").textContent, /강화 후/, "강화 후 한 줄");
+  assert.match($(".rw-summary").textContent, /무료 강화/);
+  $(".rw-ok").click();
+  assert.equal(S.store.run.deck.find((e) => e.uid === freeUid).plus, true, "무료 강화 = plus");
+  assert.equal(S.store.run.deck.length, perf.deck.length + 1, "카드 획득 + 무료 강화");
+  noErrorToast("퍼펙트 보상");
+
+  // ---------- 실패: 보상 없음 · [계속] ----------
+  const failReward = walkLesson(data, { seed: "lesson-ui", until: (s) => s.phase === "reward" && s.pendingReward?.result?.status === "fail" }).state;
+  putRun(failReward);
+  assert.match($(".rw-status").textContent, /실패/);
+  assert.ok($(".rw-none") && $$(".rw-offer").length === 0, "보상 없음");
+  assert.ok(!$(".rw-ok").disabled && $(".rw-ok").textContent === "계속", "[계속]");
+  $(".rw-ok").click();
+  $(".rw-ok")?.click(); // 연타해도 1번 (모달은 이미 닫혔다)
+  assert.notEqual(S.store.run.phase, "reward");
+  assert.equal(S.store.run.trainingPoints, failReward.trainingPoints, "실패 = TP 없음");
+  noErrorToast("실패 보상");
+
+  // =====================================================================
+  // U4 상담 (phase consult): 진열 구매 · 덱 강화 · 삭제(고유 = 확인 모달) · 스킬 · 오류 토스트 · 끝내기
+  // =====================================================================
+  const consult0 = walkLesson(data, { seed: "lesson-ui", until: (s) => s.phase === "consult" }).state;
+  consult0.trainingPoints = 200;
+  consult0.skillPoints = 600;
+  for (const st of consult0.supports) for (const id of (data.supports.find((x) => x.id === st.id)?.hintSkillIds || []).slice(0, 1)) consult0.hints[id] = 2;
+  putRun(consult0);
+  let cv = lessonRun.getConsultView(S.store.run, data);
+  assert.ok($(".consult-screen .consult-cols"), "상담 화면 3단");
+  assert.equal($$(".cs-stock .cs-item").length, cv.stock.length, "진열");
+  assert.ok($$(".cs-stock .cs-item").every((e, i) => e.textContent.includes(`${cv.stock[i].price} TP`)), "가격");
+  assert.equal($$(".cs-deck-grid .mini-card").length, cv.deck.length, "덱 그리드");
+  assert.equal($$(".cs-skill").length, cv.skills.length, "스킬 줄");
+  assert.ok(cv.skills.length >= 2);
+  assert.ok($(".cs-head .cs-tp").textContent.includes("200") && $(".cs-head .cs-sp").textContent.includes("600"), "TP · SP");
+  assert.ok($(".cs-detail.empty"), "고른 카드 없음 안내");
+  const crec = S.manager.recommendConsult(S.store.run, data);
+  assert.ok($$(".consult-screen .recommended").length >= 1 || crec.op === "end", "추천 배지");
+
+  // 구매
+  const price0 = cv.stock[0].price;
+  $('.cs-item[data-index="0"] .cs-buy-btn').click();
+  assert.equal(S.store.run.consult.stock[0].bought, true, "구매 → bought");
+  assert.equal(S.store.run.trainingPoints, 200 - price0, "TP −가격");
+  assert.equal(S.store.run.deck.at(-1).cardId, cv.stock[0].cardId, "덱에 추가");
+  assert.equal(savedRun().consult.stock[0].bought, true, "행동마다 저장");
+  assert.ok($('.cs-item[data-index="0"] .cs-buy-btn').disabled && $('.cs-item[data-index="0"]').classList.contains("bought"), "구매함");
+
+  // 덱 카드 고르기 → 다시 그려도 남음 → 강화
+  cv = lessonRun.getConsultView(S.store.run, data);
+  const upCard = cv.deck.find((c) => c.canUpgrade && c.family !== "unique");
+  $(`.cs-deck-grid .mini-card[data-uid="${upCard.uid}"]`).click();
+  assert.equal(S.store.consultUi.selectedUid, upCard.uid, "고른 카드 → consultUi");
+  assert.equal($$(".cs-detail .card-face").length, 2, "지금 → 강화 후 카드");
+  S.render();
+  assert.ok($(`.cs-deck-grid .mini-card[data-uid="${upCard.uid}"]`).classList.contains("selected"), "다시 그려도 선택 유지");
+  const tpU = S.store.run.trainingPoints;
+  $(".cs-ops .cs-upgrade").click();
+  assert.equal(S.store.run.deck.find((e) => e.uid === upCard.uid).plus, true, "강화 → plus");
+  assert.equal(S.store.run.trainingPoints, tpU - cv.prices.upgrade, "TP −30");
+  assert.equal(S.store.run.consult.upgradesLeft, 0);
+  assert.ok($(".cs-ops .cs-upgrade").disabled, "강화한 카드 · 남은 강화 0 → 꺼짐");
+
+  // 고유 카드 삭제 = 확인 모달 (취소 → 그대로, 삭제 → 엔진)
+  const uq = cv.deck.find((c) => c.family === "unique");
+  $(`.cs-deck-grid .mini-card[data-uid="${uq.uid}"]`).click();
+  const deckN = S.store.run.deck.length;
+  $(".cs-ops .cs-delete").click();
+  assert.ok($("#modal-root .cs-confirm"), "고유 카드 삭제 확인 모달");
+  assert.equal(S.store.run.deck.length, deckN, "확인 전에는 그대로");
+  [...doc.querySelectorAll("#modal-root .cs-confirm button")].find((b) => b.textContent === "취소").click();
+  assert.equal($$("#modal-root .cs-confirm").length, 0, "취소 → 모달 닫힘");
+  assert.equal(S.store.run.deck.length, deckN);
+  $(".cs-ops .cs-delete").click();
+  $("#modal-root .cs-confirm-del").click();
+  assert.equal(S.store.run.deck.length, deckN - 1, "삭제");
+  assert.ok(!S.store.run.deck.some((e) => e.uid === uq.uid), "그 카드가 덱에서 빠짐");
+  assert.equal(S.store.run.consult.deletesLeft, 0);
+  assert.equal(S.store.consultUi.selectedUid, null, "지운 카드 선택 풀림");
+  const basicUid = S.store.run.deck.find((e) => e.cardId === "cd_basic").uid;
+  $(`.cs-deck-grid .mini-card[data-uid="${basicUid}"]`).click();
+  assert.ok($(".cs-ops .cs-delete").disabled, "남은 삭제 0 → 꺼짐");
+
+  // 스킬: 선수 고르기(select) → [배우기]
+  cv = lessonRun.getConsultView(S.store.run, data);
+  const sk = cv.skills.find((x) => x.affordable && x.eligiblePlayers.length >= 2) || cv.skills.find((x) => x.affordable && x.eligiblePlayers.length);
+  const row = $(`.cs-skill[data-skill="${sk.skillId}"]`);
+  const who = sk.eligiblePlayers.at(-1);
+  const selEl = row.querySelector(".cs-sk-player");
+  selEl.value = who;
+  selEl.dispatchEvent(new window.Event("change", { bubbles: true }));
+  assert.equal(S.store.consultUi.skillPick[sk.skillId], who, "배울 선수 → consultUi");
+  const sp0 = S.store.run.skillPoints;
+  row.querySelector(".cs-learn").click();
+  assert.ok(S.store.run.players.find((p) => p.id === who).learnedSkillIds.includes(sk.skillId), "스킬 습득");
+  assert.equal(S.store.run.skillPoints, sp0 - sk.cost, "SP −비용");
+  noErrorToast("상담");
+
+  // 오류는 토스트 · 상태 그대로 (이미 산 진열 카드를 다시 사기)
+  const snap = JSON.stringify(S.store.run);
+  S.actions.consultAction({ op: "buy", index: 0 });
+  assert.equal(JSON.stringify(S.store.run), snap, "실패한 op = 상태 그대로");
+  assert.ok($$("#toast-root .toast-error").some((e) => /이미 산 카드/.test(e.textContent)), "오류 토스트");
+  assert.ok($(".consult-screen"), "상담 화면 그대로");
+  for (const e of $$("#toast-root .toast")) e.remove();
+  consoleErrors.length = 0; // safe() 가 남긴 의도한 오류
+
+  // 끝내기 → 주 끝
+  $(".cs-head .cs-end").click();
+  assert.notEqual(S.store.run.phase, "consult", "상담 끝");
+  assert.equal(S.store.run.consult, null);
+  assert.equal(S.store.consultUi.selectedUid, null);
+  assert.equal(savedRun().phase, S.store.run.phase, "저장");
+  noErrorToast("상담 끝");
   assert.deepEqual(consoleErrors, [], "console.error 없음");
 });

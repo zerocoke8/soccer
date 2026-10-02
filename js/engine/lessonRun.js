@@ -875,6 +875,7 @@ export function getRewardView(state, data) {
     freeUpgrades: pr.freeUpgrades,
     upgradable: pr.freeUpgrades > 0 ? state.deck.filter((e) => upgradable(data, e)).map((e) => e.uid) : [],
     skipTp: pr.offer.length ? LD(data).rewards.skipTp : 0,
+    deck: state.deck.map((e) => cardView(state, data, e)), // 무료 강화 그리드 · "강화 후" 미리보기 (U4)
   };
 }
 
