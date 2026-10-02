@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "weeksPerSeason": 5,
+  "weekKinds": ["lesson", "free", "lesson", "free", "prep"],
+  "startDeck": ["cd_basic", "cd_coaching", "cd_cooldown"],
+  "defaultPolicy": "team",
+  "lesson": {
+    "turns": [6, 7, 8],
+    "targets": [[330, 520], [380, 610], [450, 720]],
+    "hand": 3,
+    "costRate": 0.6,
+    "subGainRatio": 0.36,
+    "autoTrainRatio": 0.35,
+    "autoTrainStamina": 10,
+    "failStatLoss": 5,
+    "injuryChanceOnFail": 0.5,
+    "rest": { "picked": 20, "others": 5 },
+    "perfectStaminaPerTurn": 5,
+    "special": { "targetMult": 1.3, "gainBonus": 0.5, "secondChance": 0.5 },
+    "coachSameTypeMult": 1.3
+  },
+  "teamwork": { "pair": 2, "perExtraTarget": 1, "lessonCap": 8, "clear": 3 },
+  "buffs": {
+    "hojoMult": 1.5, "focusPer": 6, "moodK": 1.5,
+    "stealPer": 0.3, "stealCap": 4,
+    "pressK": 0.2, "pressCostK": 0.2, "pressCap": 3, "pressRestHeal": 4,
+    "possK": 0.05, "possCap": 8, "possNoMF": 2
+  },
+  "rewards": {
+    "offer": 3,
+    "skipTp": 10,
+    "clear": { "tp": 10, "hints": 1 },
+    "perfect": { "tp": 20, "hints": 2, "freeUpgrades": 1 },
+    "plusChance": { "special": 0.3, "perfect": 0.5, "max": 0.7 },
+    "weights": { "common": 1, "policy": 1, "coachBase": 2, "coachRef": 0.4, "uniquePlus": 0.5 },
+    "noHintSp": 10
+  },
+  "bond": { "acquire": 15, "play": 8, "sameTypeClear": 5, "upgradeAt": 80, "eventAt": 60 },
+  "consult": {
+    "stock": 3,
+    "price": { "common": 20, "policy": 30, "coach": 30, "upgrade": 30, "delete": 25 },
+    "upgradesPerVisit": 1,
+    "deletesPerVisit": 1,
+    "minDeck": 5
+  },
+  "freeWeek": { "slots": 3, "guaranteed": ["consult", "meeting"], "pool": ["outing", "friendly", "consult", "meeting"] },
+  "outing": { "picked": 20, "team": 10, "condition": 1 },
+  "prepCards": {
+    "dribble": ["cd_p_tackle", "cd_p_tackle"],
+    "pass": ["cd_p_intercept", "cd_p_intercept"],
+    "mixed": ["cd_p_tackle", "cd_p_intercept"],
+    "midrangeSecond": "cd_p_hold"
+  },
+  "routeOverrides": {
+    "rt_hotspring": { "description": "전원 체력 100·컨디션 최고 단계로 회복. 다음 시즌 첫 주에 주를 쓰지 않는 외출 1번", "freeOuting": 1 }
+  },
+  "events": { "support": false }
+}

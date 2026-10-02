@@ -1,0 +1,9 @@
+{
+  "policies": [
+    {"id": "ace", "name": "에이스형", "buffs": ["hojo", "focus"], "desc": "한두 명을 확 키운다 — 호조 · 집중"},
+    {"id": "team", "name": "팀형", "buffs": ["mood"], "desc": "7명을 고르게 — 분위기"},
+    {"id": "counter", "name": "역습형", "buffs": ["steal"], "desc": "수비진이 쌓고 공격진이 터뜨린다 — 탈취"},
+    {"id": "press", "name": "압박형", "buffs": ["press"], "desc": "몰아치고 내려서 정비 — 압박 단계"},
+    {"id": "poss", "name": "점유형", "buffs": ["poss"], "desc": "MF를 거쳐 끊기지 않게 — 점유"}
+  ]
+}
