@@ -329,6 +329,7 @@ async function runScenario(browser, baseUrl, sc, prepared, opts) {
     await page.evaluateOnNewDocument(FREEZE_SCRIPT);
     const q = new URLSearchParams();
     if (sc.auto === false) q.set("auto", "0");
+    for (const [k, val] of Object.entries(sc.query || {})) q.set(k, String(val)); // 시나리오 URL 파라미터 (예: 레슨 ?autolesson=1)
     const qs = q.toString();
     await page.goto(`${baseUrl}/index.html${qs ? `?${qs}` : ""}`, { waitUntil: "load" });
     const json = (v) => (v == null ? null : JSON.stringify(v));
@@ -362,8 +363,8 @@ async function runScenario(browser, baseUrl, sc, prepared, opts) {
         const name = el.tagName.toLowerCase() + (el.id ? `#${el.id}` : "") + (cls ? `.${cls}` : "");
         inner.push({ name, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight, isLog: /log/i.test(name) });
       }
-      // 잘린 글자 (가독성): 스킬 묶음 버튼 이름이 말줄임(가로) · 두 줄 넘침(세로, 2열 모드 line-clamp)으로 잘렸는가 (§14.3 — 4개 이상이면 2열)
-      const clipped = [...document.querySelectorAll(".skill-row .sk-nm")]
+      // 잘린 글자 (가독성): 스킬 묶음 버튼 이름 · 레슨 카드 앞면(이름 · 대상 · 위력 · 효과 문구)이 말줄임(가로) · 줄 제한 넘침(세로, line-clamp)으로 잘렸는가 (§14.3 · LESSON_PROTO_PLAN §10.2)
+      const clipped = [...document.querySelectorAll(".skill-row .sk-nm, .card-face .cf-name, .card-face .cf-desc, .card-face .cf-power, .card-face .cf-target")]
         .map((el) => {
           // 말줄임은 소수 픽셀만 넘쳐도 생긴다 → 정수 scrollWidth 대신 글자 Range 크기와 요소 크기(소수)를 비교
           const rg = document.createRange();
@@ -492,13 +493,20 @@ async function checkMatch(page, sc, prepared, opts, out) {
 
 /** 아웃게임 시나리오: (저장된 런이면) 이어하기 → steps (실제 마우스 클릭 — 스테이지 배율을 거친 좌표) → ready 대기 */
 async function enterOutgame(page, sc, prepared, opts, out) {
+  // steps 는 배열, 또는 상태 준비 결과(prepared)를 받아 배열을 돌려주는 함수 (예: 손패의 특정 uid 를 누르기)
+  const steps = typeof sc.steps === "function" ? sc.steps(prepared) : sc.steps || [];
   if (prepared.runState) {
     const cont = await clickButtonByText(page, /이어하기/);
     if (!cont) throw new Error("시작 화면에 '이어하기' 버튼이 없습니다");
     await delay(150);
   }
-  for (const st of sc.steps || []) {
+  for (const st of steps) {
     if (st.wait) { await delay(st.wait); continue; }
+    // 타이머 고정 켜기/끄기 (연출 중간을 찍을 때: 클릭 → { freeze: false } → { wait } → { freeze: true })
+    if (Object.prototype.hasOwnProperty.call(st, "freeze")) {
+      if (opts.freeze) await page.evaluate((v) => { if (window.__shot) window.__shot.frozen = v; }, !!st.freeze);
+      continue;
+    }
     if (st.drag) { out.notes.push(await dragStep(page, st.drag)); continue; }
     const handle = await page.evaluateHandle((sel, textSrc) => {
       if (sel) return document.querySelector(sel);

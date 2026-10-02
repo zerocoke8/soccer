@@ -190,13 +190,22 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
   assert.equal(savedRun.kind, "lessonRun");
   assert.equal(window.localStorage.getItem("soccer.run"), MAIN_RUN, "본편 런 저장은 건드리지 않는다");
 
-  // 레슨 시작 → (임시 레슨 화면) 추천 행동 1번 → seq 1 · 저장
+  // 레슨 시작 → 레슨 화면(카드 배틀): 추천 카드를 고르고 → (대상이 필요하면 추천 대상 토큰) → [내기] → seq 1 · 저장
   recLesson.click();
   await until(() => window.__soccer.store.run.phase === "lesson" && doc.querySelector(".lesson-screen"));
   assert.equal(doc.getElementById("stage").dataset.mode, "lesson", "레슨 화면 표시 → 토스트는 손패 위 (css/lesson.css)");
   assert.equal(window.__soccer.store.run.lesson.seq, 0);
-  assert.equal(doc.querySelectorAll(".lesson-screen .lt-card").length, 3, "손패 3장");
-  [...doc.querySelectorAll(".lesson-screen button")].find((b) => b.textContent.startsWith("추천 행동")).click();
+  assert.equal(doc.querySelectorAll(".lesson-screen .ls-hand .card-face").length, 3, "손패 3장");
+  assert.equal(doc.querySelectorAll(".lesson-screen .tok").length, 7, "경기장 토큰 7");
+  const recCard = window.__soccer.manager.recommendCard(window.__soccer.store.run, window.__soccer.store.data);
+  if (recCard.kind === "play") {
+    doc.querySelector(`.ls-hand .card-face[data-uid="${recCard.uid}"]`).click();
+    for (const id of recCard.taps || []) doc.querySelector(`.lesson-screen .tok[data-id="${id}"]`).click();
+    doc.querySelector(".ls-btns .ls-play").click();
+  } else {
+    doc.querySelector(".ls-btns .ls-rest").click();
+    doc.querySelector(`.lesson-screen .tok[data-id="${recCard.playerId}"]`).click();
+  }
   await until(() => window.__soccer.store.run.lesson?.seq === 1);
   assert.equal(window.__soccer.store.run.lesson.seq, 1, "레슨 호출 1번 = seq +1");
   assert.equal(JSON.parse(window.localStorage.getItem(KEYS.run)).lesson.seq, 1, "레슨 호출마다 저장");

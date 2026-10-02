@@ -78,6 +78,7 @@ export const store = {
   lessonUi: {
     selectedUid: null,  // 고른 손패 카드 uid
     taps: [],           // 고른 대상 선수 id (지명 1 · 짝 2 · 울리카 파트너 1)
+    restPick: false,    // [쉬기] 를 눌러 쉴 선수를 고르는 중
     shownSeq: 0,        // 연출을 마지막으로 보여 준 lesson.seq (새로고침 뒤에는 다시 재생하지 않는다)
     busy: false,        // 연출 재생 중 (입력 무시)
     timer: null,        // 연출 타이머 (setTimeout id; app.js render() 가 지운다)
@@ -171,6 +172,7 @@ export function resetLessonUi() {
   ui.busy = false;
   ui.selectedUid = null;
   ui.taps = [];
+  ui.restPick = false;
   ui.shownSeq = 0;
   ui.gen += 1;
 }

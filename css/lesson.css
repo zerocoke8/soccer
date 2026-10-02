@@ -177,39 +177,224 @@
 }
 
 /* ================================================================== */
-/* 레슨 (.lesson-screen) — U3 가 경기장 · 토큰 · 손패 dock 으로 채운다           */
+/* 레슨 (.lesson-screen) — U3, screens/lesson.js                          */
+/* grid "hud hud" "pitch side" "dock dock": 56 | 1fr(420) | 212, 1fr(1004) | 252. dock = 더미 84 | 손패 1fr(≈648) | 안내 336 | 버튼 132 */
+/* 경기장 = 경기 화면 마크업 복제 (.pitch > .m-field — match.css 규칙을 그대로 쓰고 변수만 여기서): 필드 968×392, 토큰 40px */
 /* ================================================================== */
-.lesson-screen { --pad: 6px; --fx: 12px; --ft: 8px; --fb: 8px; position: relative; }
-.lesson-screen.no-anim .tok, .lesson-screen.no-anim .m-ball { transition: none !important; }
-/* 카드 앞면 (js/ui/cards.js cardFace — U3). 고정 크기: 넘치면 잘린다 (shot.mjs 잘림 검사 .cf-desc · .cf-name) */
-.card-face { position: relative; width: 176px; height: 204px; overflow: hidden; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--border); }
-
-/* 임시 레슨 화면 (U1): 머리 줄 | 선수 | 손패 줄 */
-.lesson-temp { display: flex; flex-direction: column; gap: 10px; }
-.lt-head { display: flex; align-items: center; gap: 16px; flex: none; padding: 8px 14px; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; }
-.lt-title { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.lt-title h2 { font-size: 20px; white-space: nowrap; }
-.lt-score { flex: 1 1 auto; display: flex; flex-direction: column; gap: 4px; font-variant-numeric: tabular-nums; min-width: 0; }
-.lt-bar { position: relative; display: block; }
-.lt-bar .bar { height: 10px; }
-.lt-target { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: var(--gold); border-radius: 1px; }
-.lt-chips { display: flex; flex-wrap: wrap; gap: 4px; max-width: 300px; }
-.lt-players { flex: 1 1 auto; min-height: 0; }
-.lt-pl-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
-.lt-pl { display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; border-radius: 10px; background: var(--panel-2); min-width: 0; }
-.lt-pl.out { opacity: .5; box-shadow: inset 3px 0 0 var(--bad); }
-.lt-pl-nm { display: flex; align-items: baseline; gap: 4px; min-width: 0; }
-.lt-dock { flex: none; height: 216px; display: grid; grid-template-columns: 110px minmax(0, 1fr) 200px; gap: 12px; align-items: stretch; }
-.lt-piles { align-self: center; line-height: 1.6; }
-.lt-hand { display: flex; gap: 10px; min-width: 0; overflow: hidden; }
-.lt-card {
-  flex: 0 1 190px; min-width: 0; align-items: stretch; justify-content: flex-start; text-align: left; gap: 5px;
-  padding: 10px 12px; background: var(--panel-2); border-radius: 12px; box-shadow: inset 0 4px 0 var(--fam, var(--panel-3));
+.lesson-screen {
+  --pad: 6px; --fx: 12px; --ft: 8px; --fb: 8px;
+  position: relative; display: grid; gap: 8px; padding: 8px;
+  grid-template-columns: minmax(0, 1fr) 252px;
+  grid-template-rows: 56px minmax(0, 1fr) 212px;
+  grid-template-areas: "hud hud" "pitch side" "dock dock";
 }
-.lt-card-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-width: 0; }
-.lt-desc { line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
-.lt-btns { display: flex; flex-direction: column; justify-content: center; gap: 8px; }
-.lt-btns .btn { min-height: 44px; }
+.lesson-screen.og-error, .lesson-screen.lesson-blank { display: flex; }
+.lesson-screen.no-anim .tok, .lesson-screen.no-anim .m-ball { transition: none !important; }
+.lesson-screen.no-anim .card-face { transition: none !important; animation: none !important; }
+.lesson-screen.busy .ls-hand, .lesson-screen.inert .ls-hand, .lesson-screen.inert .tok { pointer-events: none; }
+
+/* ---- HUD: 종목 │ 턴 │ 점수 막대 │ 버프 칩 ---- */
+.lh {
+  grid-area: hud; display: grid; grid-template-columns: 232px 186px minmax(0, 1fr) 320px; align-items: center; gap: 16px;
+  padding: 4px 14px; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; min-width: 0;
+}
+.lh-title { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.lh-title h2 { display: flex; align-items: center; gap: 6px; font-size: 18px; line-height: 1.2; white-space: nowrap; }
+.lh-ico { font-size: 18px; }
+.lh-special { font-size: 11px; padding: 1px 7px; }
+.lh-turn { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.lh-pips { display: flex; gap: 4px; }
+.lh-pips i { width: 13px; height: 13px; border-radius: 4px; background: var(--panel-3); }
+.lh-pips i.done { background: rgba(74, 163, 255, .45); }
+.lh-pips i.cur { background: var(--accent); box-shadow: 0 0 0 2px rgba(74, 163, 255, .35), 0 0 8px rgba(74, 163, 255, .6); }
+.lh-turn-n { font-size: 16px; font-variant-numeric: tabular-nums; }
+.lh-score { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.lh-score-top { display: flex; align-items: baseline; gap: 6px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.lh-score-n { font-size: 21px; line-height: 1.1; }
+.lh-delta { color: var(--good); font-weight: 800; font-size: 14px; }
+.lh-score-t { color: var(--muted); font-size: 13px; }
+.lh-bar { position: relative; height: 10px; border-radius: 5px; background: var(--panel-3); }
+.lh-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 5px; background: var(--accent); transition: width .45s ease-out; }
+.lh-score.clear .lh-fill { background: var(--good); }
+.lh-score.perfect .lh-fill { background: var(--gold); }
+.lh-ghost {
+  position: absolute; top: 0; bottom: 0; border-radius: 0 5px 5px 0;
+  background: repeating-linear-gradient(135deg, rgba(61, 220, 132, .7) 0 4px, rgba(61, 220, 132, .35) 4px 8px);
+}
+.lh-target-mk { position: absolute; top: -4px; bottom: -4px; width: 3px; margin-left: -1.5px; border-radius: 2px; background: var(--gold); box-shadow: 0 0 0 1px rgba(0, 0, 0, .4); }
+.lh-chips { display: flex; flex-wrap: wrap; justify-content: flex-end; align-content: center; gap: 4px; max-height: 46px; overflow: hidden; }
+.lh-chip { display: inline-flex; align-items: baseline; gap: 4px; padding: 2px 8px; font-size: 12px; background: var(--panel-2); border: 1px solid var(--border); color: var(--text); }
+.lh-chip.pol { background: rgba(74, 163, 255, .14); border-color: rgba(74, 163, 255, .5); }
+.lh-chip-k { color: var(--muted); font-weight: 600; }
+.lh-chip.pol .lh-chip-k { color: var(--accent-2); }
+.lh-chip.flash { animation: chip-flash .9s ease-out; }
+@keyframes chip-flash { 0% { box-shadow: 0 0 0 3px var(--gold); background: rgba(255, 209, 102, .35); } 100% { box-shadow: 0 0 0 0 transparent; } }
+
+/* ---- 경기장 ---- */
+.ls-pitch { grid-area: pitch; position: relative; min-height: 0; min-width: 0; }
+.lesson-screen .m-field { --tok: 40px; --t-move: 300ms; cursor: default; }
+/* 훈련장: 종목마다 대상이 달려가는 자리 (lesson_layout.drillZone) — 평소 옅게, 훈련 중 금색 */
+.drill-layer { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+.drill-zone { position: absolute; border: 2px dashed rgba(255, 255, 255, .13); border-radius: 14px; background: rgba(255, 209, 102, .025); transition: border-color .25s, background .25s; }
+.drill-zone.ellipse { border-radius: 50%; }
+.drill-label {
+  position: absolute; transform: translateX(-50%); white-space: nowrap;
+  font-size: 11px; line-height: 14px; font-weight: 800; letter-spacing: .02em; color: rgba(255, 255, 255, .32); transition: color .25s;
+}
+.drill-layer.active .drill-zone { border-color: rgba(255, 209, 102, .65); background: rgba(255, 209, 102, .09); }
+.drill-layer.active .drill-label { opacity: 0; } /* 훈련 중에는 토큰 · +N 팝이 주인공 */
+.lesson-screen .tok-layer { z-index: 3; }
+.lesson-screen .pop-layer { z-index: 9; }
+/* 토큰: 이름표 = 이름 + 체력 숫자, 체력 막대 색 = 체력 단계 (60 · 40) */
+.lesson-screen .tok-name { display: block; padding: 0 6px; }
+.tok-stn { margin-left: 4px; font-variant-numeric: tabular-nums; color: var(--good); }
+.lesson-screen .tok.st-warn .tok-bar > i { background: var(--warn); }
+.lesson-screen .tok.st-bad .tok-bar > i { background: var(--bad); }
+.tok.st-warn .tok-stn { color: var(--warn); }
+.tok.st-bad .tok-stn { color: #ff8a8a; }
+.tok-warn, .tok-out { display: none; position: absolute; white-space: nowrap; pointer-events: none; font-size: 10px; line-height: 14px; font-weight: 800; border-radius: 6px; padding: 0 4px; }
+.tok-warn { left: calc(var(--tok) * -.9); top: calc(var(--tok) * -.78); background: rgba(255, 92, 92, .92); color: #fff; z-index: 2; }
+.tok-warn.on, .tok-out.on { display: block; }
+.tok.st-warn .tok-warn { background: rgba(255, 179, 71, .95); color: #2a1a00; }
+.tok-out { left: 0; top: -7px; transform: translateX(-50%); background: rgba(0, 0, 0, .78); color: #ddd; z-index: 2; }
+.tok.injured .tok-out { background: var(--bad); color: #fff; }
+.lesson-screen .tok.out .tok-face { filter: grayscale(1); opacity: .45; box-shadow: 0 0 0 2px rgba(255, 255, 255, .25); }
+.lesson-screen .tok.out .tok-name { opacity: .65; }
+.lesson-screen .tok.drilling { z-index: 6; }
+.lesson-screen.drilling-on .tok:not(.drilling) { opacity: .3; }
+.lesson-screen .tok.drilling .tok-name, .lesson-screen .tok.drilling .tok-warn { opacity: 0; transition: opacity .15s; } /* 훈련 지점에서는 얼굴 + 팝만 (겹치지 않게) */
+/* 고르기: 초록 = 고를 수 있음 · 빨강 = 안 됨 (라인업 보드 drop-ok · drop-bad 와 같은 색) · 금 = 고름 · 대상 = 흰 고리 */
+.lesson-screen .tok.pickable .tok-face { cursor: pointer; box-shadow: 0 0 0 2px var(--home), 0 0 0 5px var(--good), 0 0 16px rgba(61, 220, 132, .6); animation: pick-pulse 1.1s ease-in-out infinite; }
+.lesson-screen .tok.blocked .tok-face { box-shadow: 0 0 0 2px var(--home), 0 0 0 4px var(--bad); opacity: .7; }
+.lesson-screen .tok.picked .tok-face { box-shadow: 0 0 0 2px var(--home), 0 0 0 5px var(--gold), 0 0 18px rgba(255, 209, 102, .7); outline: none; }
+.lesson-screen .tok.target:not(.picked) .tok-face { box-shadow: 0 0 0 2px var(--home), 0 0 0 4px #fff, 0 0 14px rgba(255, 255, 255, .45); }
+.lesson-screen .tok.rec .tok-face { outline: 2px dashed var(--accent-2); outline-offset: 5px; }
+.lesson-screen.picking .tok:not(.pickable):not(.picked):not(.blocked) { opacity: .55; }
+@keyframes pick-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.07); } }
+.lesson-screen .tok-bubble.risk { background: #ffe2c4; color: #4a2000; }
+.lesson-screen .tok-bubble.no { background: #ffd3d3; color: #7a0000; }
+.lesson-screen .tok-bubble.rest { background: #d5ffe7; color: #04381c; }
+.lesson-screen .tok-bubble.risk::before { border-top-color: #ffe2c4; border-left-color: #ffe2c4; }
+.lesson-screen .tok-bubble.no::before { border-top-color: #ffd3d3; border-left-color: #ffd3d3; }
+.lesson-screen .tok-bubble.rest::before { border-top-color: #d5ffe7; border-left-color: #d5ffe7; }
+/* 연출 팝 (+N · 실패 · 회복 · 분위기 · 자율 · 턴 · 결과) — match.css .m-pop 을 쓰고 색 · 크기만 */
+.ls-pop > span { font-size: 15px; line-height: 18px; padding: 2px 9px; }
+.ls-pop.small > span { font-size: 12px; line-height: 15px; padding: 1px 7px; }
+.ls-pop.mid > span { font-size: 16px; line-height: 20px; padding: 4px 14px; }
+.ls-pop.big > span { font-size: 30px; line-height: 36px; padding: 6px 22px; border-width: 2px; }
+.ls-pop.bad { z-index: 3; }
+.ls-pop.mid, .ls-pop.big { z-index: 4; }
+.ls-pop.bad > span { background: rgba(60, 8, 8, .94); }
+.ls-pop.heal > span { color: #8ff5e6; border-color: rgba(80, 230, 210, .5); }
+.ls-pop.mood > span { color: var(--gold); border-color: rgba(255, 209, 102, .5); }
+.ls-pop.auto > span { color: #c8d3e6; border-color: rgba(255, 255, 255, .25); }
+.ls-pop.turn > span { color: var(--accent-2); border-color: rgba(74, 163, 255, .55); }
+.ls-pop.gold > span { color: var(--gold); border-color: var(--gold); text-shadow: 0 0 12px rgba(255, 209, 102, .6); }
+
+/* ---- 오른쪽: 이번 레슨 (선수 7 · 팀워크 · 방침) ---- */
+.ls-side { grid-area: side; padding: 10px 12px; gap: 7px; }
+.ls-rows { display: flex; flex-direction: column; gap: 3px; }
+.ls-row {
+  display: grid; grid-template-columns: 22px minmax(0, 1fr) 62px 26px 32px; align-items: center; gap: 5px;
+  min-height: 38px; padding: 3px 6px; border-radius: 8px; border: 1px solid transparent; background: var(--panel-2);
+  font: inherit; color: inherit; text-align: left; cursor: default;
+}
+.ls-row:disabled { opacity: 1; }
+.ls-row.pickable { border-color: var(--good); background: rgba(61, 220, 132, .1); cursor: pointer; }
+.ls-row.picked { border-color: var(--gold); background: rgba(255, 209, 102, .12); cursor: pointer; }
+.ls-row.blocked { border-color: rgba(255, 92, 92, .5); }
+.ls-row.target { box-shadow: inset 3px 0 0 #fff; }
+.ls-row.out { opacity: .62; }
+.ls-nm { display: flex; flex-direction: column; min-width: 0; line-height: 1.15; white-space: nowrap; overflow: hidden; }
+.ls-nm b { font-size: 13px; }
+.ls-nm .tiny { font-size: 10px; }
+.ls-st { display: flex; align-items: center; gap: 4px; }
+.ls-st .bar { flex: 1; height: 5px; }
+.ls-st b { min-width: 22px; font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; }
+.ls-tg, .ls-fr { font-size: 11.5px; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ls-outb { justify-self: end; font-size: 10px; padding: 1px 4px; }
+.ls-foot { margin-top: auto; display: flex; flex-direction: column; gap: 3px; padding-top: 7px; border-top: 1px dashed var(--border); }
+.ls-foot-row { display: flex; align-items: baseline; gap: 6px; min-width: 0; font-size: 12.5px; white-space: nowrap; }
+
+/* ---- 손패 dock: 더미 │ 손패 │ 안내 · 미리보기 │ 버튼 ---- */
+.ls-dock {
+  grid-area: dock; display: grid; grid-template-columns: 84px minmax(0, 1fr) 336px 132px; align-items: stretch; gap: 12px;
+  padding: 3px 12px 3px 10px; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; min-width: 0;
+}
+.ls-piles { display: flex; flex-direction: column; justify-content: center; align-items: stretch; gap: 7px; }
+.ls-plays { display: flex; flex-direction: column; align-items: center; line-height: 1.15; margin-bottom: 4px; }
+.ls-plays b { font-size: 22px; }
+.ls-pile { justify-content: center; }
+.ls-pile-note { text-align: center; }
+.ls-hand { display: flex; align-items: center; min-width: 0; padding: 0 2px; }
+.ls-empty { margin: auto; }
+.ls-info {
+  display: flex; flex-direction: column; justify-content: center; gap: 5px; min-width: 0; margin: 8px 0; padding: 8px 12px;
+  border-radius: 10px; background: var(--panel-2); line-height: 1.35; word-break: keep-all; overflow-wrap: anywhere;
+}
+.ls-guide { font-size: 15px; }
+.ls-pv { font-size: 13px; font-weight: 700; }
+.lg-ok { color: var(--good); font-weight: 700; }
+.lg-no { color: var(--bad); font-weight: 700; }
+.cf-notes { margin: 0; padding-left: 16px; list-style: disc; font-size: 12px; line-height: 1.35; color: var(--accent-2); }
+.ls-btns { display: flex; flex-direction: column; justify-content: center; gap: 8px; }
+.ls-btns .btn { position: relative; justify-content: center; min-height: 46px; }
+.ls-btns .ls-play { min-height: 58px; font-size: 17px; }
+.ls-btns .rec-badge { position: absolute; top: -8px; right: -6px; font-size: 10px; padding: 1px 6px; background: var(--accent); color: #041224; }
+.ls-btns .btn.recommended { border-color: var(--accent); }
+
+/* ---- 카드 앞면 (js/ui/cards.js cardFace). 고정 크기: 넘치면 잘린다 (shot.mjs 잘림 검사 .cf-desc · .cf-name) ---- */
+.card-face {
+  position: relative; flex: none; display: flex; flex-direction: column; align-items: stretch; gap: 3px;
+  width: 176px; height: 204px; padding: 13px 11px 9px; overflow: hidden; border-radius: 12px;
+  background: linear-gradient(180deg, var(--panel-3), var(--panel-2) 42%); border: 1px solid var(--border);
+  color: var(--text); font: inherit; text-align: left; box-shadow: 0 4px 12px rgba(0, 0, 0, .35);
+  transition: transform .16s ease-out, box-shadow .16s, border-color .16s, opacity .2s;
+}
+button.card-face { cursor: pointer; }
+button.card-face:hover:not(:disabled) { transform: translateY(-5px); border-color: var(--accent); }
+button.card-face:disabled { cursor: default; }
+.card-face.recommended { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 4px 12px rgba(0, 0, 0, .35); }
+.card-face.selected, button.card-face.selected:hover:not(:disabled) { transform: translateY(-12px); border-color: var(--gold); box-shadow: 0 0 0 2px var(--gold), 0 12px 24px rgba(0, 0, 0, .55); }
+.card-face.dim { opacity: .55; filter: saturate(.4); }
+.card-face.played { transform: translateY(-70px) scale(.92); opacity: 0; transition: transform .3s ease-in, opacity .3s; }
+.card-face.deal { animation: deal-in .3s ease-out both; }
+@keyframes deal-in { from { transform: translateY(46px); opacity: 0; } to { transform: none; opacity: 1; } }
+.cf-band { position: absolute; left: 0; right: 0; top: 0; height: 6px; background: var(--fam, var(--panel-3)); }
+.cf-name { font-size: 15px; font-weight: 800; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cf-plus { margin-left: 2px; color: var(--gold); }
+.cf-meta { display: flex; align-items: center; gap: 4px; min-height: 16px; font-size: 10.5px; line-height: 15px; color: var(--muted); white-space: nowrap; overflow: hidden; }
+.cf-mode, .cf-bond, .cf-ex { padding: 0 5px; border-radius: 6px; font-weight: 800; }
+.cf-mode.power { background: rgba(229, 143, 208, .22); color: #f4b8e6; }
+.cf-mode.support { background: var(--panel-3); color: #c3cbd8; }
+.cf-bond { background: rgba(124, 196, 255, .2); color: var(--accent-2); }
+.cf-ex { background: rgba(255, 179, 71, .18); color: var(--warn); }
+.cf-target { align-self: flex-start; margin-top: 3px; padding: 1px 8px; border-radius: 999px; background: rgba(255, 255, 255, .08); font-size: 11.5px; font-weight: 700; white-space: nowrap; }
+.cf-power { margin-top: 2px; font-size: 14px; font-weight: 800; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cf-power.muted { font-weight: 700; font-size: 13px; }
+.cf-cost { font-size: 12px; font-weight: 700; color: var(--warn); white-space: nowrap; }
+.cf-cost.none { font-weight: 400; color: var(--muted); }
+.cf-desc { margin-top: 2px; font-size: 11.5px; line-height: 1.35; color: #c9d2e0; word-break: keep-all; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.cf-rec, .cf-tag { position: absolute; left: 11px; bottom: 8px; padding: 1px 7px; border-radius: 999px; font-size: 10.5px; font-weight: 800; background: var(--accent); color: #041224; }
+.cf-tag { left: auto; right: 8px; top: 12px; bottom: auto; background: var(--panel-3); color: var(--text); }
+.cf-reason { position: absolute; left: 0; right: 0; bottom: 0; padding: 3px 8px; font-size: 11px; font-weight: 700; text-align: center; background: rgba(255, 92, 92, .88); color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 겹친 손패: 앞 카드 그림자로 경계를 보인다. 마우스를 올린 카드는 맨 앞으로 (가려진 오른쪽 글자 보기) */
+.ls-hand.overlap .card-face { box-shadow: -6px 0 12px rgba(0, 0, 0, .45); }
+.ls-hand .card-face:hover { z-index: 30 !important; }
+
+/* ---- 작은 카드 (cards.js miniCard): 덱 그리드 · 더미 보기 ---- */
+.mini-card {
+  display: flex; flex-direction: column; gap: 1px; min-width: 0; padding: 6px 10px 7px 13px; border-radius: 9px;
+  background: var(--panel-2); border: 1px solid var(--border); box-shadow: inset 4px 0 0 var(--fam, var(--panel-3));
+  color: var(--text); font: inherit; text-align: left;
+}
+button.mini-card { cursor: pointer; }
+.mini-card.selected { border-color: var(--gold); box-shadow: inset 4px 0 0 var(--fam, var(--panel-3)), 0 0 0 1px var(--gold); }
+.mini-card.disabled { opacity: .5; }
+.mc-name { font-size: 13px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mc-desc { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pile-modal { gap: 12px; }
+.pile-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
 
 /* ================================================================== */
 /* 레슨 결과 · 보상 모달 (.reward-modal) — U4                                 */

@@ -134,7 +134,7 @@ export function buildScenarioState(data, scenario, { runSeed = 1, maxSeeds, maxS
     const b = scenario.build(data, { runSeed });
     return {
       seed: runSeed, steps: b.steps ?? 0, preferred: b.preferred !== false, matchState: null, teams: b.teams ?? null, runState: b.runState ?? null,
-      storage: b.storage ?? null, summary: b.summary,
+      storage: b.storage ?? null, summary: b.summary, info: b.info ?? null, // info: 조작 단계 함수(steps(prepared))가 쓰는 값
     };
   }
   const runState = prepareRun(data, { runSeed, kind: scenario.matchKind || "friendly" });
