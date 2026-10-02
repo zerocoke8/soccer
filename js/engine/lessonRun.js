@@ -59,6 +59,8 @@ export {
   getModifier,
 } from "./run.js";
 export { lessonResult } from "./lesson.js";
+// UI 뷰 도우미 (U2 전술 미팅 · 경기 전 준비: 자리를 옮기면 고유 카드 강화 모드 종목이 바뀌는가)
+export { mainStatsOf } from "./cards.js";
 
 export const RUN_KIND = "lessonRun";
 export const RUN_VERSION = 1;

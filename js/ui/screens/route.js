@@ -9,6 +9,8 @@ export function renderRoute(root, ctx) {
   const cfg = data.config || {};
   const routes = Array.isArray(data.routes) ? data.routes : [];
   const byId = new Map(routes.map((r) => [r.id, r]));
+  // 카드 레슨 시험판: 루트 설명 덮어쓰기 (data/lesson.json routeOverrides — 온천 = 다음 시즌 1주차 무료 외출, LESSON_PROTO_PLAN D4)
+  const overrides = data.lesson?.routeOverrides || {};
   const ids = Array.isArray(state?.pendingRoutes) && state.pendingRoutes.length
     ? state.pendingRoutes
     : routes.map((r) => r.id);
@@ -57,7 +59,7 @@ export function renderRoute(root, ctx) {
         h('div', { class: 'row between', style: { width: '100%' } },
           h('span', { class: 'name' }, r.name ?? id),
           r.forcedFriendly ? h('span', { class: 'badge badge-warn' }, '친선전 강제') : null),
-        h('span', { class: 'desc' }, r.description ?? ''),
+        h('span', { class: 'desc' }, overrides[id]?.description ?? r.description ?? ''),
         h('span', { class: 'pick tiny' }, '이 길로 간다 →'),
       );
     }))),

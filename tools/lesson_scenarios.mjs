@@ -1,6 +1,6 @@
 // tools/lesson_scenarios.mjs — 카드 레슨 런의 스크린샷 · 주입 상태 (LESSON_PROTO_PLAN §10.2). tools/scenarios.mjs 가 OUTGAME_SCENARIOS 에 붙인다.
 // 엔진(js/engine/lessonRun.js · manager.js · match.js)만으로 원하는 단계까지 감독 AI 로 걷는다 → 같은 seed · 방침이면 같은 상태.
-// U1: walkLesson + 임시 화면 시나리오 몇 개 (주 선택 · 레슨 · 보상 · 상담 · 준비). I1 이 §10.2 표 전부로 늘린다.
+// U1: walkLesson + 임시 화면 시나리오 몇 개 (주 선택 · 레슨 · 보상 · 상담 · 준비). U2: 주 선택 · 외출 · 미팅 · 경기 전 준비 완성 화면. I1 이 §10.2 표 전부로 늘린다.
 import * as lessonRun from "../js/engine/lessonRun.js";
 import * as manager from "../js/engine/manager.js";
 import * as match from "../js/engine/match.js";
@@ -87,6 +87,47 @@ export const LESSON_OG_SCENARIOS = [
     expect: { screen: "run", phase: "week", modal: false },
   },
   {
+    // 온천 루트 다음 시즌 1주차: 주를 쓰지 않는 무료 외출 (state.freeOuting 주입 — 1주차 레슨 주)
+    name: "og_week_hotspring",
+    title: "주 선택 — 1주차 + 온천 무료 외출 버튼 (freeOuting 1 주입)",
+    outgame: true,
+    build: (data, { runSeed }) => {
+      const b = walkOrThrow("og_week_hotspring", data, { seed: runSeed, until: (s) => s.phase === "week" && s.turn === 1 });
+      b.runState.freeOuting = 1;
+      return { ...b, summary: `${b.summary} (무료 외출 1 주입)` };
+    },
+    ready: ".week-bar .free-outing",
+    expect: { screen: "run", phase: "week", modal: false },
+  },
+  {
+    name: "og_outing",
+    title: "자유 주 외출 — 선수 7명 고르기 모달 (체력 → 외출 뒤)",
+    outgame: true,
+    build: (data, { runSeed }) => walkOrThrow("og_outing", data, { seed: runSeed, until: (s) => s.phase === "week" && s.weekOffer?.kind === "free" && s.weekOffer.actions.includes("outing") }),
+    steps: [{ click: '.week-act[data-act="outing"]' }],
+    ready: "#modal-root .outing-grid .outing-pick",
+    expect: { screen: "run", phase: "week", modal: ".modal-md" },
+  },
+  {
+    name: "og_meeting",
+    title: "전술 미팅 모달 — 2단 (전술 | 포메이션 · 라인업 보드), 스킬 상점 없음",
+    outgame: true,
+    build: (data, { runSeed }) => walkOrThrow("og_meeting", data, { seed: runSeed, until: (s) => s.phase === "week" && s.weekOffer?.kind === "free" && s.weekOffer.actions.includes("meeting") }),
+    steps: [{ click: '.week-act[data-act="meeting"]' }],
+    ready: "#modal-root .meeting-cols .lu-pitch",
+    expect: { screen: "run", phase: "week", modal: ".modal-xl" },
+  },
+  {
+    // 미팅 라인업 보드: DF1 도르비나(GK B · DF A · MF C · FW -)를 끌어 FW1 위에 — FW 빨강 · GK/DF/MF 초록 · 누른 채 캡처
+    name: "og_meeting_drag",
+    title: "전술 미팅 드래그 중 — DF1 을 FW1 위로: FW 빨강 · 나머지 초록, 고스트",
+    outgame: true,
+    build: (data, { runSeed }) => walkOrThrow("og_meeting_drag", data, { seed: runSeed, until: (s) => s.phase === "week" && s.weekOffer?.kind === "free" && s.weekOffer.actions.includes("meeting") }),
+    steps: [{ click: '.week-act[data-act="meeting"]' }, { drag: { from: '#modal-root .lu-slot[data-slot="DF1"]', to: '#modal-root .lu-slot[data-slot="FW1"]' } }],
+    ready: ".lu-ghost",
+    expect: { screen: "run", phase: "week", modal: ".modal-xl" },
+  },
+  {
     name: "og_lesson_temp",
     title: "레슨 (임시 화면) — 1턴 손패 3장",
     outgame: true,
@@ -111,11 +152,21 @@ export const LESSON_OG_SCENARIOS = [
     expect: { screen: "run", phase: "consult", modal: false },
   },
   {
-    name: "og_prep_temp",
-    title: "경기 전 준비 (임시 화면)",
+    name: "og_prep",
+    title: "경기 전 준비 — 상대 패널 + 전술 · 포메이션 · 배치 편집기 (meetingEditor)",
     outgame: true,
-    build: (data, { runSeed }) => walkOrThrow("og_prep_temp", data, { seed: runSeed, until: (s) => s.phase === "prep" }),
-    ready: ".prep-screen .prep-go",
+    build: (data, { runSeed }) => walkOrThrow("og_prep", data, { seed: runSeed, until: (s) => s.phase === "prep" }),
+    ready: ".prep-screen .meeting-cols .lu-pitch",
+    expect: { screen: "run", phase: "prep", modal: false },
+  },
+  {
+    // 경기 전 준비 편집: DF2 아델린(MF B)을 끌어 MF1 실루엔(DF C)에 놓기 (맞바꾸기) → 자리 변경 표시 · 고유 카드 모드 변경 알약
+    name: "og_prep_swap",
+    title: "경기 전 준비 — DF2 ↔ MF1 맞바꾼 뒤 (← 원래 · 고유 카드 모드 변경)",
+    outgame: true,
+    build: (data, { runSeed }) => walkOrThrow("og_prep_swap", data, { seed: runSeed, until: (s) => s.phase === "prep" }),
+    steps: [{ drag: { from: '.prep-edit .lu-slot[data-slot="DF2"]', to: '.prep-edit .lu-slot[data-slot="MF1"]', release: true } }],
+    ready: ".prep-screen .mode-chg",
     expect: { screen: "run", phase: "prep", modal: false },
   },
 ];

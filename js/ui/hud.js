@@ -1,5 +1,5 @@
 // js/ui/hud.js — 레슨 런 공용 HUD (LESSON_PROTO_PLAN §3.1 · §6.3): 상단 바 · 선수 · 코치 패널 · 유물/기록 모달
-// 옛 훈련 화면(screens/training.js)의 상단 바 · 명단 패널을 떼어 내 레슨 런 뷰(lessonRun.getWeekView 모양)에 맞췄다.
+// 옛 훈련 화면(screens/training.js — U2 에서 지움)의 상단 바 · 명단 패널을 떼어 내 레슨 런 뷰(lessonRun.getWeekView 모양)에 맞췄다.
 // 주 선택 · 경기 전 준비 · 상담 화면이 같이 쓴다. 엔진 로직은 없다 — 뷰 값만 그린다.
 //
 //   hudTopbar(view, ctx)  → <header class="topbar">  시즌 · 주 점(●●○○⚔) · 주 종류 │ 다음 경계전 상대 │ 컨디션 · 팀워크 · SP · TP · seed

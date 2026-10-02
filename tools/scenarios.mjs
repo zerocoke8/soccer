@@ -679,17 +679,6 @@ function registeredTeam(data, runSeed, registeredAt) {
   return { ...team, grade: rating.cappedGrade ?? rating.grade ?? "-", score: rating.score ?? null, registeredAt };
 }
 
-/** 시즌 2 후반 훈련 턴: SP · 스킬 상점 · 우정 훈련 · 체력 차이가 보이는 상태 (og_training_mid · 시트 · 미팅) */
-const MID_TURN = {
-  require: (s, { phase }) => phase === "turn" && s.turnIndex >= 9,
-  prefer: (s, { data }) => {
-    const tv = run.getTurnView(s, data);
-    const stam = tv.players.map((p) => Number(p.stamina) || 0);
-    const fr = tv.slots.some((sl) => (sl.supports || []).some((x) => x.friendship));
-    return tv.skillPoints > 0 && (tv.shop || []).length >= 3 && Math.max(...stam) - Math.min(...stam) >= 30 && fr;
-  },
-};
-
 export const OUTGAME_SCENARIOS = [
   {
     name: "og_start",
@@ -743,64 +732,6 @@ export const OUTGAME_SCENARIOS = [
     steps: [{ text: "새 런 시작" }, { drag: { from: '.lu-card[data-pid="ch_cat_trickster"]', to: '.lu-slot[data-slot="GK"]', release: true, waitMs: 120 } }],
     ready: '.lu-slot[data-slot="GK"][data-pid="ch_spirit_keeper"].lu-shake',
     expect: { screen: "setup", modal: false },
-  },
-  {
-    name: "og_training",
-    title: "첫 훈련 턴 — 이벤트 모달 없음 (시작 이벤트가 있으면 0번으로 처리)",
-    outgame: true,
-    build: (data, { runSeed }) => walkOrThrow("og_training", data, { runSeed, require: (s, { phase }) => phase === "turn" }),
-    ready: ".slot-row",
-    expect: { screen: "run", phase: "turn", modal: false },
-  },
-  {
-    name: "og_training_mid",
-    title: "시즌 2 후반 훈련 턴 — SP · 스킬 상점 · 우정 훈련(★) · 힌트(💡) · 체력 차이",
-    outgame: true,
-    build: (data, { runSeed }) => walkOrThrow("og_training_mid", data, { runSeed, ...MID_TURN }),
-    ready: ".slot-row",
-    expect: { screen: "run", phase: "turn", modal: false },
-  },
-  {
-    name: "og_train_sheet",
-    title: "훈련 상세 하단 시트 — og_training_mid 에서 추천 칸 탭",
-    outgame: true,
-    build: (data, { runSeed }) => walkOrThrow("og_train_sheet", data, { runSeed, ...MID_TURN }),
-    steps: [{ click: ".slot-row.recommended" }],
-    ready: "#modal-root .sheet",
-    expect: { screen: "run", phase: "turn", modal: ".sheet" },
-  },
-  {
-    name: "og_meeting",
-    title: "전술 미팅 모달 — 전술 · 포메이션 · 스킬 상점, 첫 스킬 [구매] 선택 (og_training_mid + SP 200 주입)",
-    outgame: true,
-    build: (data, { runSeed }) => {
-      const b = walkOrThrow("og_meeting", data, { runSeed, ...MID_TURN });
-      b.runState.skillPoints = 200; // 상점 스킬을 살 수 있게 (구매 · 배울 선수 선택 모양)
-      return { ...b, summary: `${describeRun(b.runState, data)} (SP 200 주입)` };
-    },
-    steps: [{ text: "미팅$" }, { text: "^구매$" }],
-    ready: "#modal-root .modal select",
-    expect: { screen: "run", phase: "turn", modal: ".modal" },
-  },
-  {
-    // 미팅 라인업 보드: DF1 도르비나(GK B · DF A · MF C · FW -)를 끌어 FW1 위에 — FW 빨강(적성 없음) · GK/DF/MF 초록(맞바꾸기) · 누른 채 캡처
-    name: "og_meeting_drag",
-    title: "전술 미팅 드래그 중 — 도르비나(DF1)를 FW1 위로: FW 빨강 · 나머지 초록(⇄ 맞바꾸기), 고스트",
-    outgame: true,
-    build: (data, { runSeed }) => walkOrThrow("og_meeting_drag", data, { runSeed, ...MID_TURN }),
-    steps: [{ text: "미팅$" }, { drag: { from: '#modal-root .lu-slot[data-slot="DF1"]', to: '#modal-root .lu-slot[data-slot="FW1"]' } }],
-    ready: ".lu-ghost",
-    expect: { screen: "run", phase: "turn", modal: ".modal" },
-  },
-  {
-    // 미팅 놓기: DF1 도르비나 → GK (네리아와 맞바꾸기: 네리아 DF C 가능) — ready = GK 에 도르비나(p2), DF1 에 네리아(p1) (기본 편성 선수 id = 슬롯 순서)
-    name: "og_meeting_drop",
-    title: "전술 미팅 드래그 놓기 — 도르비나를 GK 에 놓음 → 네리아 DF1 (맞바꾸기)",
-    outgame: true,
-    build: (data, { runSeed }) => walkOrThrow("og_meeting_drop", data, { runSeed, ...MID_TURN }),
-    steps: [{ text: "미팅$" }, { drag: { from: '#modal-root .lu-slot[data-slot="DF1"]', to: '#modal-root .lu-slot[data-slot="GK"]', release: true } }],
-    ready: '#modal-root .lu-slot[data-slot="GK"][data-pid="p2"] ~ .lu-slot[data-slot="DF1"][data-pid="p1"]',
-    expect: { screen: "run", phase: "turn", modal: ".modal" },
   },
   {
     name: "og_event",

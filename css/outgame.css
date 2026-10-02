@@ -1,4 +1,4 @@
-/* css/outgame.css — 아웃게임 화면 (가로 스테이지 1280×720): 공통 패널 · 시작 · 편성 · 훈련(상단 바 · 훈련 칸 · 선수 패널 · 행동 바 · 시트/모달) · 이벤트 · 유물 · 루트 · 런 결과
+/* css/outgame.css — 아웃게임 화면 (가로 스테이지 1280×720): 공통 패널 · 시작 · 편성 · 런 HUD(상단 바 · 선수 패널) · 전술 미팅 편집기 · 이벤트 · 유물 · 루트 · 런 결과
    한 화면 = 스테이지 전체, 페이지 스크롤 없음. 길어질 수 있는 목록만 안쪽 스크롤(.og-scroll). 크기는 논리 px (vw/vh · 창 크기 media query 금지 — base.css .stage). */
 
 /* ---- 아웃게임 공통 ---- */
@@ -148,7 +148,7 @@
 .tac-row .select { min-height: 32px; padding: 4px 8px; font-size: 13px; }
 .trait-tag { display: inline-block; padding: 0 6px; border-radius: 6px; background: rgba(74, 163, 255, .16); color: var(--accent-2); font-weight: 700; white-space: nowrap; }
 
-/* 캐릭터 · 선수 고르기 (편성 슬롯 모달 · 호출권) */
+/* 캐릭터 · 선수 고르기 (편성 슬롯 모달 · 외출) */
 .pick-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .pick-grid.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .char-pick {
@@ -258,15 +258,8 @@ html.lu-grabbing, html.lu-grabbing * { cursor: grabbing !important; }
 .lu-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
 /* ================================================================== */
-/* 훈련: 상단 바 | 훈련 칸 5열 + 행동 바 | 선수 패널                      */
+/* 런 공용 HUD (js/ui/hud.js): 상단 바 · 선수/코치 패널 · 유물/기록 모달 — 주 선택 · 경기 전 준비가 쓴다 */
 /* ================================================================== */
-.training-screen {
-  display: grid; gap: 10px 12px; padding: 12px 14px;
-  grid-template-columns: minmax(0, 1fr) 350px;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  grid-template-areas: "top top" "slots roster" "acts roster";
-}
-.training-screen.og-error { display: flex; }
 
 /* ---- 상단 바 ---- */
 .topbar { grid-area: top; display: grid; grid-template-columns: 260px minmax(0, 1fr) auto; gap: 10px; align-items: stretch; }
@@ -296,81 +289,6 @@ html.lu-grabbing, html.lu-grabbing * { cursor: grabbing !important; }
 .cond-dots i { width: 9px; height: 9px; border-radius: 50%; background: var(--panel-3); display: inline-block; }
 .cond-dots i.on { background: var(--good); }
 .tb-seed { padding-right: 4px; }
-
-/* ---- 훈련 칸: 세로 카드 5열 ---- */
-.slot-rows { grid-area: slots; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; min-height: 0; }
-.slot-row {
-  position: relative; display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; overflow: hidden;
-  padding: 12px 10px 11px; border-radius: 14px; border: 1px solid var(--border);
-  background: linear-gradient(180deg, var(--panel-2), var(--panel) 38%);
-  color: var(--text); text-align: left; cursor: pointer; font-size: 13px;
-  transition: border-color .12s, transform .08s, box-shadow .12s;
-}
-.slot-row:hover:not(:disabled) { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
-.slot-row:active:not(:disabled) { transform: translateY(1px); }
-.slot-row:disabled { cursor: default; }
-.slot-row.recommended {
-  border-color: var(--gold);
-  background: linear-gradient(180deg, rgba(255, 209, 102, .16), rgba(255, 209, 102, .03) 45%, var(--panel));
-  box-shadow: 0 0 0 1px rgba(255, 209, 102, .5) inset, 0 0 18px rgba(255, 209, 102, .12);
-}
-.slot-row.empty { background: var(--panel); }
-.slot-row.empty .slot-head, .slot-row.empty .slot-players { opacity: .6; }
-.slot-head { display: flex; align-items: center; gap: 6px; }
-.slot-ico { font-size: 20px; line-height: 1; }
-.slot-name { font-weight: 800; font-size: 17px; }
-.slot-count { margin-left: auto; }
-.slot-badges { display: flex; flex-wrap: wrap; gap: 4px; min-height: 19px; }
-.slot-players { display: flex; flex-direction: column; gap: 4px; flex: none; min-height: 0; }
-.slot-none { padding: 4px 2px; }
-/* 선수 줄: 이름 · 슬롯 · 상승 합(세 자리)이 한 줄 — 4글자 이름(도르비나)도 안 잘리게 여백 · 틈을 줄였다 */
-.sl-pl {
-  display: grid; grid-template-columns: 22px minmax(0, 1fr); column-gap: 5px; row-gap: 1px; align-items: center;
-  min-width: 0; padding: 4px 4px 4px 3px; border-radius: 8px; background: rgba(255, 255, 255, .05);
-}
-.sl-pl > .avatar { grid-row: 1 / span 2; }
-.sl-l1, .sl-l2 { display: flex; align-items: baseline; gap: 5px; min-width: 0; }
-.sl-l1 { gap: 4px; }
-.sl-l2 { font-size: 11px; color: var(--muted); justify-content: space-between; }
-.sl-nm { min-width: 0; font-size: 13px; }
-.sl-slot { font-size: 10px; font-weight: 700; color: var(--muted); }
-.sl-fail { flex: none; font-size: 10.5px; font-weight: 700; }
-.sl-gain { margin-left: auto; font-weight: 800; color: var(--good); font-variant-numeric: tabular-nums; }
-.slot-supports { display: flex; flex-direction: column; gap: 4px; flex: none; }
-.slot-supports:not(:empty) { padding-top: 8px; border-top: 1px dashed var(--border); }
-.sl-sp { display: flex; align-items: center; gap: 7px; min-width: 0; font-size: 12px; color: var(--muted); padding: 1px 2px; }
-.sl-sp.friend { color: var(--gold); }
-.sl-spn { flex: 1 1 auto; min-width: 0; }
-.sl-bond { font-size: 11px; font-variant-numeric: tabular-nums; }
-.sp-icon { position: relative; display: inline-flex; flex: none; }
-.sp-icon .mark { position: absolute; bottom: -4px; right: -5px; font-size: 10px; line-height: 1; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .8)); }
-.sp-icon .mark.hint { left: -5px; right: auto; }
-/* 빈 아래쪽에 칸 아이콘 워터마크 (data-ico) */
-.slot-row::after {
-  content: attr(data-ico); position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%); z-index: 0;
-  font-size: 96px; line-height: 1; opacity: .06; filter: grayscale(1); pointer-events: none;
-}
-.slot-row.recommended::after { opacity: .1; filter: grayscale(.3); }
-.slot-row > * { position: relative; z-index: 1; }
-.slot-gauge .bar { height: 5px; }
-.slot-gauge .bar.gold > i { background: var(--gold); }
-.slot-row.dense .slot-supports { flex-direction: row; flex-wrap: wrap; gap: 6px 9px; }
-.slot-row.dense .sl-spn, .slot-row.dense .sl-bond { display: none; }
-.slot-foot { display: flex; flex-direction: column; gap: 4px; margin-top: auto; padding-top: 8px; border-top: 1px solid var(--border); }
-.slot-sums { display: flex; flex-wrap: wrap; gap: 0 8px; font-size: 12px; color: var(--muted); }
-.slot-meta { display: flex; flex-direction: column; gap: 1px; font-size: 12px; color: var(--muted); white-space: nowrap; }
-.slot-meta > span { display: flex; justify-content: space-between; align-items: baseline; gap: 4px; }
-.slot-meta b { color: var(--text); font-size: 15px; font-variant-numeric: tabular-nums; }
-.slot-meta .warn b { color: var(--warn); }
-.slot-meta .bad b { color: var(--bad); }
-
-/* ---- 행동 바 ---- */
-.actionbar { grid-area: acts; display: grid; grid-template-columns: 1.25fr repeat(5, minmax(0, 1fr)); gap: 8px; }
-.actionbar .btn { min-height: 56px; padding: 6px 10px; font-size: 15px; font-weight: 600; gap: 8px; background: var(--panel); }
-.actionbar .btn:hover:not(:disabled) { background: var(--panel-2); border-color: var(--accent); }
-.actionbar .btn .ico { font-size: 20px; line-height: 1; }
-.actionbar .extras-btn { justify-content: flex-start; text-align: left; background: transparent; }
-.actionbar .extras-btn .col { gap: 0; line-height: 1.25; }
 
 /* ---- 선수 패널 ---- */
 .roster { grid-area: roster; gap: 8px; }
@@ -402,30 +320,20 @@ html.lu-grabbing, html.lu-grabbing * { cursor: grabbing !important; }
 .bond-bar .bar { height: 4px; }
 .bond-th { position: absolute; top: -2px; bottom: -2px; width: 2px; margin-left: -1px; background: var(--gold); opacity: .7; border-radius: 1px; }
 
-/* ---- 훈련 상세 시트 · 호출권 · 기록 (가로 모달) ---- */
-.train-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.sheet-foot { display: flex; align-items: flex-end; gap: 16px; }
-.train-go { min-width: 240px; }
-.summon-slots { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
-.summon-slots .btn { min-height: 88px; font-size: 15px; }
-.summon-slots .btn .ico { font-size: 26px; }
+/* ---- 유물 · 보정 · 기록 (가로 모달) ---- */
 .extras-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 18px; }
 .extras-col { gap: 8px; min-height: 0; }
 .extras-col .list { max-height: 260px; }
 .log-list { display: flex; flex-direction: column; gap: 4px; max-height: 470px; font-size: 12.5px; }
 .log-list li { padding: 5px 9px; background: var(--panel-2); border-radius: 7px; color: var(--muted); }
 
-/* ---- 전술 미팅 (3열: 전술 | 포메이션 + 라인업 보드 | 스킬 상점) ---- */
-.meeting-cols { display: grid; grid-template-columns: 210px minmax(0, 1fr) 290px; gap: 18px; min-height: 0; }
+/* ---- 전술 미팅 · 경기 전 준비 편집기 (js/ui/meeting.js meetingEditor): 2단 = 전술 | 포메이션 + 라인업 보드 (스킬 상점 없음) ---- */
+.meeting-cols { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 18px; min-height: 0; }
 .meeting-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; }
 .meeting-col .divider { margin: 2px 0; }
 .meeting-board .lu-pitch { flex: none; height: 430px; }
 .meeting-formation { flex-direction: row; align-items: center; gap: 8px; }
 .meeting-formation .select { width: 250px; min-height: 32px; padding: 4px 8px; font-size: 13px; }
-.shop-list { max-height: 500px; padding-right: 2px; }
-.shop-list .list-item { gap: 6px; }
-.shop-list .btn { flex: none; white-space: nowrap; }
-.shop-list .list-item.chosen { box-shadow: 0 0 0 1px var(--accent) inset; }
 
 /* ================================================================== */
 /* 이벤트 · 유물 (모달)                                                  */
