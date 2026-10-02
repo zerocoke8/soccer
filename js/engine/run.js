@@ -180,6 +180,15 @@ function log(state, text) {
 }
 
 /**
+ * 로그 한 줄 추가 (log 의 공개 이름 — 레슨 런이 쓴다)
+ * @param {RunState} state
+ * @param {string} text
+ */
+export function logLine(state, text) {
+  log(state, text);
+}
+
+/**
  * @param {RunState} state
  * @param {string} playerId
  * @returns {RunPlayer}
@@ -468,7 +477,7 @@ function eligibleEvents(state, data, trigger, opts = {}) {
  * @param {string|null} onlySupportId  특정 카드만 볼 때
  * @returns {{ event: object, supportId: string }|null}
  */
-function findSupportEvent(state, data, onlySupportId = null) {
+export function findSupportEvent(state, data, onlySupportId = null) {
   const supportsData = indexById(data.supports, "supports");
   const candidates = [];
   for (const st of state.supports) {
@@ -497,7 +506,7 @@ function findSupportEvent(state, data, onlySupportId = null) {
  * @param {object} event
  * @param {string|null} [supportId]
  */
-function fireEvent(state, data, event, supportId = null) {
+export function fireEvent(state, data, event, supportId = null) {
   const sid = supportId || event.supportId || null;
   let playerId = null;
   if (event.characterId) {
@@ -582,8 +591,19 @@ function postActionQueue(state, data, skipEventCheck) {
  * @param {object} data
  */
 function setupGoalMatch(state, data) {
-  const cfg = data.config;
   endTurnTick(state);
+  makeGoalMatch(state, data);
+  state.phase = "match";
+  state.queue.push("seasonEnd");
+}
+
+/**
+ * 목표 경기 pendingMatch 세팅 + 로그. rng 소비. phase · queue 는 건드리지 않는다.
+ * @param {RunState} state
+ * @param {object} data
+ */
+export function makeGoalMatch(state, data) {
+  const cfg = data.config;
   const opp = data.opponents.find((o) => o.role === "goal" && o.season === state.season);
   if (!opp) throw new Error(`시즌 ${state.season} 의 목표 경기 상대(role "goal")가 opponents 에 없습니다`);
   const rng = createRngFromState(state.rngState);
@@ -597,8 +617,6 @@ function setupGoalMatch(state, data) {
     seed,
     reason: "goal",
   };
-  state.phase = "match";
-  state.queue.push("seasonEnd");
   log(state, `시즌 ${state.season} 목표 경기: ${opp.name}`);
 }
 
@@ -609,6 +627,17 @@ function setupGoalMatch(state, data) {
  * @param {"friendly"|"route"} reason
  */
 function setupFriendly(state, data, reason) {
+  makeFriendlyMatch(state, data, reason);
+  state.phase = "match";
+}
+
+/**
+ * 친선전 pendingMatch 세팅 + 로그. rng 소비. phase 는 건드리지 않는다.
+ * @param {RunState} state
+ * @param {object} data
+ * @param {"friendly"|"route"} reason
+ */
+export function makeFriendlyMatch(state, data, reason) {
   const cfg = data.config;
   const seasonPool = data.opponents.filter((o) => o.role === "friendly" && o.season === state.season);
   const anyPool = data.opponents.filter((o) => o.role === "friendly");
@@ -624,7 +653,6 @@ function setupFriendly(state, data, reason) {
   const seed = rng.int(0, 2 ** 31);
   state.rngState = rng.getState();
   state.pendingMatch = { kind: "friendly", opponentId: opp.id, possessions: cfg.friendly.possessions, seed, reason };
-  state.phase = "match";
   log(state, reason === "route" ? `원정 친선전: ${opp.name}` : `친선전: ${opp.name}`);
 }
 
@@ -791,15 +819,13 @@ function describeTraining(state, r) {
 // ---------------------------------------------------------------------------
 
 /**
- * 새 런 생성.
- * @param {{ data: object, seed: string|number, squad?: Record<string,string>, formation?: string,
- *           supportIds?: string[], tactics?: object, leagueTier?: number }} params
- * @returns {RunState}
+ * 편성 검증 + 선수 · 서포트 생성 (rng 를 쓰지 않는다). 빠진 값은 config 기본 편성으로 채운다.
+ * @param {{ data: object, formation?: string, squad?: Record<string,string>, supportIds?: string[] }} params
+ * @returns {{ formation: string, players: RunPlayer[], supports: { id: string, bond: number, firedEventIds: string[] }[] }}
  */
-export function createRun({ data, seed, squad, formation, supportIds, tactics, leagueTier = 1 }) {
+export function buildRoster({ data, formation, squad, supportIds }) {
   assertData(data);
   const cfg = data.config;
-  if (seed === undefined || seed === null || seed === "") throw new Error("seed 가 필요합니다");
   const fm = formation || (cfg.defaultSquad && cfg.defaultSquad.formation) || "2-2-2";
   const sq = squad || (cfg.defaultSquad && cfg.defaultSquad.slots);
   const sup = supportIds || cfg.defaultSupports;
@@ -816,7 +842,6 @@ export function createRun({ data, seed, squad, formation, supportIds, tactics, l
   }
 
   const chars = indexById(data.characters, "characters");
-  const rng = createRng(seed);
 
   const players = formationSlots(fm).map((slot, i) => {
     const ch = chars.get(sq[slot]);
@@ -854,6 +879,25 @@ export function createRun({ data, seed, squad, formation, supportIds, tactics, l
     bond: clamp(Math.round(Number(supportsData.get(id).initialBond) || 0), 0, 100),
     firedEventIds: [],
   }));
+
+  return { formation: fm, players, supports };
+}
+
+/**
+ * 새 런 생성.
+ * @param {{ data: object, seed: string|number, squad?: Record<string,string>, formation?: string,
+ *           supportIds?: string[], tactics?: object, leagueTier?: number }} params
+ * @returns {RunState}
+ */
+export function createRun({ data, seed, squad, formation, supportIds, tactics, leagueTier = 1 }) {
+  assertData(data);
+  const cfg = data.config;
+  if (seed === undefined || seed === null || seed === "") throw new Error("seed 가 필요합니다");
+  const roster = buildRoster({ data, formation, squad, supportIds });
+  const fm = roster.formation;
+  const players = roster.players;
+  const supports = roster.supports;
+  const rng = createRng(seed);
 
   /** @type {RunState} */
   const state = {
@@ -1117,7 +1161,7 @@ function recommendSlot(cfg, state, slots) {
  * @param {RunState} state
  * @param {object} data
  */
-function nextMatchView(state, data) {
+export function nextMatchView(state, data) {
   const cfg = data.config;
   let opp = null;
   let kind = "goal";
@@ -1429,6 +1473,19 @@ export function resolveEvent(state, data, choiceIndex) {
   assertPhase(state, "event");
   if (!state.currentEvent) throw new Error("currentEvent 가 없습니다");
   migrateRun(state);
+  applyEventChoice(state, data, choiceIndex);
+  return continueFlow(state, data);
+}
+
+/**
+ * 이벤트 선택지 효과 적용 + 로그 + currentEvent 해제. phase 는 검사 · 변경하지 않는다.
+ * @param {RunState} state
+ * @param {object} data
+ * @param {number} choiceIndex
+ * @returns {RunState}
+ */
+export function applyEventChoice(state, data, choiceIndex) {
+  if (!state.currentEvent) throw new Error("currentEvent 가 없습니다");
   const ev = getById(data.events, state.currentEvent.eventId, "이벤트");
   const idx = Number(choiceIndex);
   if (!Number.isInteger(idx) || idx < 0 || idx >= ev.choices.length) {
@@ -1445,7 +1502,7 @@ export function resolveEvent(state, data, choiceIndex) {
   log(state, `[${substitute(ev.title, vars)}] ${result}`);
 
   state.currentEvent = null;
-  return continueFlow(state, data);
+  return state;
 }
 
 /**
@@ -1492,6 +1549,26 @@ export function finishMatch(state, data, matchResult) {
   if (!state.pendingMatch) throw new Error("pendingMatch 가 없습니다");
   if (!matchResult || typeof matchResult !== "object") throw new Error("matchResult 가 필요합니다");
   migrateRun(state);
+  const { relicChoices } = settleMatch(state, data, matchResult);
+  if (relicChoices.length) {
+    state.pendingRelicChoices = relicChoices;
+    state.phase = "relic";
+    return state;
+  }
+  return continueFlow(state, data);
+}
+
+/**
+ * 경기 결과 정산: 기록 · SP · 친선전 체력 · 유물 추첨(rng) · lastMatchResult · 로그, pendingMatch 해제.
+ * phase 는 검사 · 변경하지 않고, 유물 선택지는 돌려주기만 한다 (pendingRelicChoices 는 호출한 쪽이 정한다).
+ * @param {RunState} state
+ * @param {object} data
+ * @param {{ winner: "home"|"away"|"draw", homeGoals: number, awayGoals: number, penalties?: object, stats?: object }} matchResult
+ * @returns {{ relicChoices: string[] }}
+ */
+export function settleMatch(state, data, matchResult) {
+  if (!state.pendingMatch) throw new Error("pendingMatch 가 없습니다");
+  if (!matchResult || typeof matchResult !== "object") throw new Error("matchResult 가 필요합니다");
   const cfg = data.config;
   const pm = state.pendingMatch;
   const opp = getById(data.opponents, pm.opponentId, "상대 팀");
@@ -1573,12 +1650,7 @@ export function finishMatch(state, data, matchResult) {
   log(state, `${label} vs ${opp.name} ${homeGoals}:${awayGoals} ${outcome} (SP +${spGain})`);
 
   state.pendingMatch = null;
-  if (choices.length) {
-    state.pendingRelicChoices = choices;
-    state.phase = "relic";
-    return state;
-  }
-  return continueFlow(state, data);
+  return { relicChoices: choices };
 }
 
 /**
@@ -1597,6 +1669,18 @@ export function chooseRelic(state, data, relicId) {
     state.pendingRelicChoices = null;
     return continueFlow(state, data);
   }
+  applyRelicChoice(state, data, relicId);
+  return continueFlow(state, data);
+}
+
+/**
+ * 유물 선택 적용 (선택지 검증 · 획득 · modifiers 추가 · pendingRelicChoices 해제 · 로그). phase 는 검사 · 변경하지 않는다.
+ * @param {RunState} state
+ * @param {object} data
+ * @param {string} relicId
+ * @returns {RunState}
+ */
+export function applyRelicChoice(state, data, relicId) {
   if (!Array.isArray(state.pendingRelicChoices) || !state.pendingRelicChoices.includes(relicId)) {
     throw new Error(`유물 '${relicId}' 은(는) 선택지에 없습니다`);
   }
@@ -1608,7 +1692,7 @@ export function chooseRelic(state, data, relicId) {
   }
   state.pendingRelicChoices = null;
   log(state, `유물 획득: ${relic.name}`);
-  return continueFlow(state, data);
+  return state;
 }
 
 /**

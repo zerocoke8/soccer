@@ -569,9 +569,10 @@ export function validateSquad(data, formation, slotToCharId) {
  * @param {import("./run.js").RunState} state
  * @param {object} data
  * @param {{ tactics?: object, formation?: string, swaps?: Array<{ playerId: string, slot: string }>, buy?: { skillId: string, playerId: string } }} action
+ * @param {{ teamwork?: boolean }} [opts]  teamwork === false 면 팀워크를 올리지 않는다 (레슨 런의 경기 전 준비 등)
  * @returns {{ teamworkGain: number, formationChanged: boolean, swapped: number, bought: { skillId: string, playerId: string, cost: number } | null }}
  */
-export function resolveMeeting(state, data, action) {
+export function resolveMeeting(state, data, action, opts = {}) {
   const cfg = data.config;
   const formation = action.formation || state.formation;
   if (!FORMATIONS[formation]) throw new Error(`알 수 없는 포메이션: '${formation}'`);
@@ -614,7 +615,8 @@ export function resolveMeeting(state, data, action) {
   }
 
   // 3) 적용
-  state.teamwork = clamp(state.teamwork + cfg.meeting.teamwork, 0, 100);
+  const teamworkGain = opts && opts.teamwork === false ? 0 : cfg.meeting.teamwork;
+  state.teamwork = clamp(state.teamwork + teamworkGain, 0, 100);
   if (action.tactics && typeof action.tactics === "object") {
     state.tactics = { ...state.tactics, ...action.tactics };
   }
@@ -632,7 +634,7 @@ export function resolveMeeting(state, data, action) {
     player.learnedSkillIds.push(bought.skillId);
     state.skillPoints -= bought.cost;
   }
-  return { teamworkGain: cfg.meeting.teamwork, formationChanged, swapped: swaps.length, bought };
+  return { teamworkGain, formationChanged, swapped: swaps.length, bought };
 }
 
 /**
