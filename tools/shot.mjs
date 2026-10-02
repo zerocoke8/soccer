@@ -5,10 +5,11 @@
 //                       [--run-seed 1] [--settle 600] [--no-freeze] [--list]
 //
 // 1) 내장 정적 서버(node:http, 포트 0)로 프로젝트 루트를 띄운다.
-// 2) Node 에서 엔진(js/engine/run.js · match.js)으로 시나리오 상황의 run/match 상태를 찾는다 (tools/scenarios.mjs).
+// 2) Node 에서 엔진(js/engine/lessonRun.js · manager.js · match.js)으로 시나리오 상황의 run/match 상태를 찾는다 (tools/scenarios.mjs · lesson_scenarios.mjs).
 // 3) puppeteer-core + 로컬 Chrome/Edge 로 페이지를 열고 localStorage(KEYS.run / KEYS.match / KEYS.teams + 시나리오 storage — js/ui/store.js)에 주입 →
 //    reload → 경기 · 저장된 런이면 시작 화면 "이어하기" 클릭 → (아웃게임) 조작 steps(클릭 · 드래그) → 뷰포트 캡처 (페이지는 스크롤하지 않는다).
-// 4) 시나리오마다 파일 경로, 스테이지 배율, 페이지 · 안쪽 스크롤, 캡처 시점 상태 확인, pageerror/console.error 를 출력.
+// 4) 시나리오마다 파일 경로, 스테이지 배율, 페이지 · 안쪽 스크롤, 잘린 글자(카드 문구 등) · HUD 겹침, 캡처 시점 상태 확인,
+//    pageerror/console.error 를 출력. 마지막 요약 줄에 검사에 걸린 시나리오 이름.
 //
 // 화면은 고정 스테이지(논리 1280×720, js/ui/stage.js)라 기본 뷰포트 1280×720 DPR 1 (데스크톱, 터치 없음) = 스테이지 1배.
 // --width/--height 로 다른 창 크기(1920×1080 · 1600×900 · 1024×576 · 세로 900×1200 …)에서 배율 · 레터박스를 확인한다.
@@ -312,7 +313,7 @@ async function newContext(browser) {
 
 async function runScenario(browser, baseUrl, sc, prepared, opts) {
   const vp = sc.viewport || { width: opts.width, height: opts.height, deviceScaleFactor: opts.dpr, isMobile: false, hasTouch: false };
-  const out = { name: sc.name, file: path.join(opts.outDir, `${sc.name}.png`), errors: [], notes: [], viewport: vp };
+  const out = { name: sc.name, file: path.join(opts.outDir, `${sc.name}.png`), errors: [], notes: [], viewport: vp, allowInnerScroll: sc.allowInnerScroll || null };
   const ctxB = await newContext(browser);
   const page = await ctxB.newPage();
   try {
@@ -363,8 +364,12 @@ async function runScenario(browser, baseUrl, sc, prepared, opts) {
         const name = el.tagName.toLowerCase() + (el.id ? `#${el.id}` : "") + (cls ? `.${cls}` : "");
         inner.push({ name, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight, isLog: /log/i.test(name) });
       }
-      // 잘린 글자 (가독성): 스킬 묶음 버튼 이름 · 레슨 카드 앞면(이름 · 대상 · 위력 · 효과 문구)이 말줄임(가로) · 줄 제한 넘침(세로, line-clamp)으로 잘렸는가 (§14.3 · LESSON_PROTO_PLAN §10.2)
-      const clipped = [...document.querySelectorAll(".skill-row .sk-nm, .card-face .cf-name, .card-face .cf-desc, .card-face .cf-power, .card-face .cf-target")]
+      // 잘린 글자 (가독성): 스킬 묶음 버튼 이름 · 레슨 카드 앞면(이름 · 대상 · 위력 · 효과 문구 · 낼 수 없는 이유) · 작은 카드 이름 ·
+      // 보상 선수 이름 · 방침 설명이 말줄임(가로) · 줄 제한 넘침(세로, line-clamp)으로 잘렸는가 (§14.3 · LESSON_PROTO_PLAN §10.2)
+      const clipped = [...document.querySelectorAll([
+        ".skill-row .sk-nm", ".card-face .cf-name", ".card-face .cf-desc", ".card-face .cf-power", ".card-face .cf-target", ".card-face .cf-reason",
+        ".mini-card .mc-name", ".rw-pl-nm", ".policy-desc", ".ls-nm b", ".lesson-screen .tok-name",
+      ].join(", "))]
         .map((el) => {
           // 말줄임은 소수 픽셀만 넘쳐도 생긴다 → 정수 scrollWidth 대신 글자 Range 크기와 요소 크기(소수)를 비교
           const rg = document.createRange();
@@ -378,12 +383,23 @@ async function runScenario(browser, baseUrl, sc, prepared, opts) {
         })
         .filter((x) => x.haveW > 0 && (x.needW > x.haveW + 0.5 || x.overH))
         .map((x) => `${(x.el.textContent || "").trim()} ${x.needW.toFixed(1)}/${x.haveW.toFixed(1)}${x.overH ? ` 높이 ${x.sh}/${x.ch}` : ""}`);
+      // HUD 겹침 (LESSON_PROTO_PLAN §10.2): 떠 있는 토스트가 레슨 HUD(점수 막대 · 턴 점)를 가리는가
+      const rectOf = (el) => el.getBoundingClientRect();
+      const cut = (a, b) => Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+      const hud = [...document.querySelectorAll(".lesson-screen .lh-score, .lesson-screen .lh-pips")];
+      const overlaps = [];
+      for (const t of document.querySelectorAll("#toast-root .toast")) {
+        for (const el of hud) {
+          if (cut(rectOf(t), rectOf(el)) > 0) overlaps.push(`토스트 "${(t.textContent || "").trim().slice(0, 30)}" ↔ ${el.className}`);
+        }
+      }
       // 고정 스테이지: 배율 · 위치 (js/ui/stage.js), 스테이지 밖으로 넘친 가로 폭 (#app 논리 px)
       const stageEl = document.getElementById("stage");
       const r = stageEl ? stageEl.getBoundingClientRect() : null;
       const app = document.getElementById("app");
       return {
         clipped,
+        overlaps,
         scrollHeight: document.scrollingElement ? document.scrollingElement.scrollHeight : document.documentElement.scrollHeight,
         innerHeight: window.innerHeight,
         innerWidth: window.innerWidth,
@@ -722,7 +738,8 @@ function printScenario(sc, prep, r) {
   for (const s of m.inner || []) {
     console.log(`  내부 스크롤: ${s.name} ${s.scrollHeight}/${s.clientHeight} (+${s.scrollHeight - s.clientHeight}px)${s.isLog ? " — 로그(허용)" : ""}`);
   }
-  if ((m.clipped || []).length) console.log(`  잘린 스킬 이름: ${m.clipped.join(" · ")}`);
+  if ((m.clipped || []).length) console.log(`  잘린 글자: ${m.clipped.join(" · ")}`);
+  if ((m.overlaps || []).length) console.log(`  HUD 겹침: ${m.overlaps.join(" · ")}`);
   console.log(`  캡처 시점 상태: ${r.stateCheck}`);
   for (const n of r.notes) console.log(`  - ${n}`);
   console.log(`  콘솔 에러: ${r.errors.length ? r.errors.length + "건" : "없음"}`);
@@ -732,9 +749,9 @@ function printScenario(sc, prep, r) {
 function printSummary(results) {
   console.log("");
   console.log("요약");
-  const rows = [["시나리오", "PNG", "배율", "scrollHeight", "스크롤", "내부 스크롤(로그 제외)", "잘린 스킬", "상태", "에러"]];
+  const rows = [["시나리오", "PNG", "배율", "scrollHeight", "스크롤", "내부 스크롤(로그 제외)", "잘린 글자", "겹침", "상태", "에러"]];
   for (const r of results) {
-    if (r.failed) { rows.push([r.name, "실패", "-", "-", "-", "-", "-", "-", "-"]); continue; }
+    if (r.failed) { rows.push([r.name, "실패", "-", "-", "-", "-", "-", "-", "-", "-"]); continue; }
     const m = r.metrics;
     const inner = (m.inner || []).filter((s) => !s.isLog).sort((a, b) => (b.scrollHeight - b.clientHeight) - (a.scrollHeight - a.clientHeight));
     rows.push([
@@ -745,6 +762,7 @@ function printSummary(results) {
       m.scrollHeight > m.innerHeight + 1 ? "있음" : "없음",
       inner.length ? `${inner[0].name} +${inner[0].scrollHeight - inner[0].clientHeight}${inner.length > 1 ? ` 외 ${inner.length - 1}` : ""}` : "없음",
       String((m.clipped || []).length),
+      String((m.overlaps || []).length),
       r.stateCheck === "OK" ? "OK" : "다름",
       String(r.errors.length),
     ]);
@@ -754,6 +772,15 @@ function printSummary(results) {
   for (const row of rows) console.log("  " + row.map((c, i) => String(c) + " ".repeat(cols[i] - width(c))).join("  "));
   const failed = results.filter((r) => r.failed).length;
   console.log(`  ${results.length - failed}/${results.length} 캡처 완료`);
+  // 검사에 걸린 시나리오 (실패 · 페이지 스크롤 · 로그가 아닌 안쪽 스크롤 · 잘린 글자 · HUD 겹침 · 상태 다름 · 에러)
+  const bad = results.filter((r) => {
+    if (r.failed) return true;
+    const m = r.metrics;
+    const okInner = (x) => x.isLog || (r.allowInnerScroll && r.allowInnerScroll.test(x.name));
+    return m.scrollHeight > m.innerHeight + 1 || (m.inner || []).some((x) => !okInner(x)) || (m.clipped || []).length ||
+      (m.overlaps || []).length || r.stateCheck !== "OK" || r.errors.length;
+  });
+  console.log(bad.length ? `  검사 걸림 ${bad.length}: ${bad.map((r) => r.name).join(", ")}` : "  검사 통과 (스크롤 · 잘린 글자 · 겹침 · 상태 · 에러 없음)");
 }
 
 function isEntry() {

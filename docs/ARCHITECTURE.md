@@ -2081,3 +2081,70 @@ node tools/challenge_sim.mjs --write-sample [--sample-seed challenge-sample-7] [
 - **합성 테스트 이름** (`test/layout.test.mjs` `NAMES.away`, 데이터에 없는 이름): 카손 → 카샤, 브란 → 브란디, 케일 → 케일라. `withJosa` 받침 있는 경우 검사는 "카손이" 대신 `withJosa("아델린", "이/가") → "아델린이"`.
 - **저장본**: 런(`createRun` 이 `ch.name` 복사) · 등록 팀 · 진행 중인 경기 저장본은 만들 때의 이름을 그대로 가진다 — 이미 브라우저에 저장된 것은 옛 이름으로 보인다. 옮기지 않는다(새 런부터 새 이름). 서포트 카드 이름은 화면에서 데이터로 다시 읽어 새 이름.
 - **남은 것**: 이벤트 문구의 `{player}가` · `{player}를` 처럼 치환자 뒤 조사는 고정이다(`substitute`, run.js). 새 이름 중 받침이 있는 선수는 아델린 · 실루엔뿐이라(서포트 카드는 이제 전원 받침 없음) 이 둘이 이벤트 대상이면 "아델린가"처럼 나온다 — 바꾸기 전부터 있던 문제(옛 이름은 선수 4명 · 서포트 3장이 해당).
+
+## 20. v0.6-lesson 1차 — 카드 레슨 시험판 (브랜치 `outgame-lesson`, 2026-10-02)
+
+육성(훈련 칸 · 서포트 배치 · 호출권)을 **카드 레슨 배틀 + 15주 주 선택**으로 바꾼 시험판이다. 경기 · 도전 모드 · 평가 · 팀 등록은 그대로다. 구현 계획 전문과 구현 중 바뀐 것은 [LESSON_PROTO_PLAN.md](LESSON_PROTO_PLAN.md) (§13), 규칙은 [OUTGAME_LESSON_draft.md](OUTGAME_LESSON_draft.md) · [OUTGAME_CARDS_draft.md](OUTGAME_CARDS_draft.md). 이 절은 그 계약의 요약이다.
+
+### 20.1 주소 · 저장 분리
+
+- **플레이**: `https://zerocoke8.github.io/soccer/lesson/` (본편 `/soccer/` 와 같은 origin). 배포는 main 의 `pages.yml` 이 `outgame-lesson` 브랜치를 `_site/lesson/` 으로 함께 올린다 (계획 §2.3 — D 슬라이스).
+- **저장 키**: `js/ui/store.js` `STORAGE_PREFIX = 'soccer-lesson.'` → `KEYS.run · match · teams · challenge · challengeMatch` (+ `soccer-lesson.orient` 등). 본편 키(`soccer.*`)는 읽지도 쓰지도 옮기지도 않는다 — 그래서 레슨판 도전 모드는 처음에 샘플 팀만 보인다. 앱 · 도구 코드에 `'soccer.'` 문자열이 없어야 한다 (outgame.test 검사). 시작 화면 배지 "카드 레슨 시험판 — 본편과 저장이 따로입니다", `<title>` "경계전 클럽 — 카드 레슨 시험판".
+- **저장본 검사**: `loadRun` · `continueRun` 은 `kind === "lessonRun" && version === 1 && typeof phase === "string"` 인 저장본만 연다 (`lessonRun.isLessonRun`, store.js 사본 `isLessonRunSave`). 옛 run.js 저장본은 "저장 없음".
+
+### 20.2 엔진 (순수 · 결정적, DOM 없음)
+
+| 모듈 | 내용 |
+|---|---|
+| `js/engine/cards.js` | 카드 66장 정의 해석(`resolveCardDef` — base → 유대 80 → 강화판), 대상 · 탭 검증, `mainStatsOf(pos)`, 비용, 데이터 검증 |
+| `js/engine/lesson.js` | 레슨 카드 배틀 (`startLesson · playCard · lessonRest · endLessonTurn · getLessonView · previewCard · lessonResult`), 방침 버프 5종, `seq` · `lastFx` (연출 목록) |
+| `js/engine/lessonRun.js` | 15주 상태 머신 = 앱의 `ctx.run`. 주 행동 · 레슨 뒤 보상 · 상담 · 경기 전 준비 · 경기 · 유물 · 루트 · 평가. run.js 의 경기 · 평가 함수를 그대로 다시 내보낸다 |
+| `js/engine/manager.js` | 감독 AI (rng 없음): `recommendWeek · recommendCard · recommendReward · recommendConsult · recommendPrep · autoStep` |
+| 데이터 | `data/cards.json`(66장) · `data/lesson.json`(주 · 레슨 · 보상 · 상담 수치) · `data/policies.json`(방침 5) |
+
+- 옛 `run.js` · `training.js` · `effects.js` · `rating.js` 는 남는다 (`ai.js` 가 run.js 를 import). 옛 파일에는 export 만 더했다 (§5.6, 동작 불변).
+- **경기 쪽 파일은 바이트 하나도 바꾸지 않는다**: `js/engine/match.js · ai.js · skills.js · rng.js`, `js/ui/screens/match.js`, `js/ui/layout.js`, `css/match.css` — `git diff --stat main -- <이 7개>` 가 비어 있어야 한다.
+- 런 흐름: 시즌 3 × 5주 (레슨 · 자유 · 레슨 · 자유 · 대비) → 경기 전 준비 → 경계전 → (유물) → 루트. 1차에는 이벤트가 없다 (`lesson.events.support = false`, 라우팅 · `supportEventCheck` 단계만 남김).
+- 등록 팀 = `run.finalizeRun` 과 같은 모양 + `policy` (`createdTurnIndex` 14). 도전 모드 `buildChallengeTeamSnapshot` 을 그대로 통과한다.
+
+### 20.3 화면 · 라우팅 (js/ui/app.js `render()`)
+
+| phase | 화면 |
+|---|---|
+| `week` | `screens/week.js` — 레슨 주(종목 5 + 휴식) · 자유 주(행동 3 + 휴식, 보장 배지) · 대비 주(대비 카드 2장), 추천 배지, 외출 모달, 전술 미팅 모달(`js/ui/meeting.js` `meetingEditor`) |
+| `lesson` | `screens/lesson.js` (stage mode `lesson`) — 화면을 유지하는 DOM + 연출 루프(GEN · alive), 카드 앞면 `js/ui/cards.js`, 토큰 · 훈련 지점 `js/ui/lesson_layout.js`, 개발용 `?autolesson=1` |
+| `reward` | 레슨 화면(inert) + `screens/reward.js` 보상 모달 (클리어 · 퍼펙트 · 실패) |
+| `consult` | `screens/consult.js` (진열 · 덱 · 스킬 3단, 행동마다 엔진 호출 + 저장) |
+| `prep` | `screens/prep.js` (상대 패널 + `meetingEditor`, [경기 시작]) |
+| `event` · `relic` | 주 화면(inert) 위 모달 — event 는 1차에 나오지 않는다 |
+| `match` · `route` · `finished` | 그대로 (경기 화면 · 루트 · 결과) |
+
+- 레슨 화면 호출은 `actions.lessonCall(fn, args)` (저장만, render 없음 — 화면이 연출을 이어 그린다). 나머지는 `weekAction · resolveReward · consultAction · endConsult · confirmPrep` + 기존 `finishMatch · chooseRelic · chooseRoute · registerTeam`.
+- 추천은 배지만 붙인다 (자동 진행 버튼 없음). 결과 화면은 레슨 런이면 선수 줄의 "훈련 N회" 를 뺀다 (레슨 런에는 훈련 횟수가 없다).
+- CSS: `css/lesson.css` (주 · 레슨 · 보상 · 상담 · 준비 · 편성 방침 패널), `match.css` 다음에 링크.
+
+### 20.4 도구 · 시나리오
+
+- **tools/lesson_scenarios.mjs**: `walkLesson(data, { seed, policy, until })` (감독 AI 로 걷다가 조건을 만족하는 첫 상태), `prepareLessonMatch(data, { runSeed, kind })` (기본 편성 레슨 런 → 친선전이 열린 첫 자유 주의 친선전 / 첫 경계전 직전), `lessonRegisteredTeam(data, seed, registeredAt, policy)` (완주 → 등록 팀), `perfectRewardState`, 그리고 레슨판 og_* 시나리오 (`LESSON_OG_SCENARIOS`).
+- **tools/scenarios.mjs**: `run` = lessonRun.js, `prepareRun` = `prepareLessonMatch` (경기 시나리오 01~27 도 레슨 런의 경기에서 찾는다 — 옛 run.js 는 더 쓰지 않는다). 시나리오에 `maxSeeds`(기본 400) · `allowInnerScroll`(의도한 안쪽 스크롤) 를 둘 수 있다. `27_df_block_cutin` 은 레슨 런 팀에서 실루엔 게이지가 함께 차 합체기가 되므로 바람의 실을 빼고(`adjustSetup`) 1000 seed 안에서 찾는다.
+- **og_\* (레슨판)**: `og_start`(등록 팀 2 = 감독 AI 로 완주한 레슨 런, 역습형 · 팀형) · `og_setup*` · `og_challenge*` · `og_week_lesson / _free / _prep / _hotspring` · `og_outing` · `og_meeting / _drag` · `og_lesson` + `_pick _aim _pair _mid _tired _rest _injury _fail _turnend _end _hand4 _auto` + 방침 5 (`_ace _team _counter _press _poss`) · `og_reward_clear / _pick / _perfect / _fail` · `og_consult / _pick / _full / _delete` · `og_prep / _swap` · `og_event`(2차 라우팅 확인용 주입 — 유대 60 서포트 이벤트) · `og_relic` · `og_route`(온천 설명 = `lesson.json routeOverrides`) · `og_result`.
+- **tools/shot.mjs**: 잘린 글자 검사 = 스킬 묶음 이름 · 카드 앞면(`.cf-name · .cf-desc · .cf-power · .cf-target · .cf-reason`) · 작은 카드 이름(`.mc-name`) · 보상 선수 이름 · 방침 설명 · 레슨 명단 이름(`.ls-nm b`) · 레슨 토큰 이름. HUD 겹침 = 떠 있는 토스트가 레슨 점수 막대 · 턴 점을 가리는가. 요약 끝 줄에 검사에 걸린 시나리오 이름(페이지 · 로그 아닌 안쪽 스크롤 · 잘림 · 겹침 · 상태 · 에러). 조작 단계 `{ freeze }` · 함수형 `steps(prepared)` · 시나리오 `query`.
+- **tools/lesson_sim.mjs** (`npm run lesson-sim`): 실제 엔진 + 감독 AI + 실제 match.js 로 방침별 지표 표. 보고만 하고 수치는 바꾸지 않는다 (밸런스는 나중에 한 번에).
+
+```bash
+node tools/shot.mjs <출력폴더>                      # 경기 01~27 + og_* 전부 (76장)
+node tools/shot.mjs <출력폴더> --only og_lesson,og_lesson_   # 이름이 정확히 같으면 그것만 → 접두어도 함께 준다
+```
+
+### 20.5 테스트 (npm test 264)
+
+- 새 테스트: `cards`(카드 표 · 비용) · `lesson`(배틀 · 방침 · 66장 퍼즈) · `lessonRun`(15주 흐름 · 보상 · 상담 · 등록 팀) · `manager`(감독 AI 완주, 실제 경기) · `cardEffects`(66장 효과 표) · `lessonRules`(규칙 · 키 매핑) · `lessonLayout`(토큰 · 훈련 지점) · `lessonUi`(jsdom: 레슨 · 보상 · 상담 · 준비).
+- **ui.smoke 전체 걷기** (I1): 기존 걷기(시작 → 편성 방침 → 주 → 레슨 1장 → 친선전 경기 → 시나리오 주입 경기 01~27 → 도전 모드) 뒤에 — 새 런(역습형, seed `ui-full`) → **15주를 감독 AI 추천대로 앱 actions 로** (주 · 레슨 · 보상 · 상담 · 준비 · 경기 · 유물 · 루트, phase 가 바뀔 때마다 그 화면이 그려졌는지 · 에러 토스트 없음) → 결과 화면(훈련 횟수 없음) → [팀 등록] (policy · createdTurnIndex 14) → 시작 화면 등록 팀 → 도전 모드 팀 목록에 그 팀(기본 선택, 선수 7) → 그 팀으로 도전 경기 생성. 본편 키(`soccer.run` · `soccer.teams`)는 끝까지 그대로.
+- 옛 테스트(`rng · run · match · v05 · challenge · layout · lineup · orient · stage`)는 그대로 통과한다.
+
+### 20.6 남은 것 (2차 이후)
+
+- 이벤트(주간 · 시즌 시작 · 경계전 직전 · 루트 · 유대 60 서포트 · 레슨 깜짝 · 외출 이야기)는 1차에 없다. 유대 60 은 표시만 한다.
+- 밸런스: 시뮬 결과만 보고했고 수치는 조정하지 않았다 (계획 §10.1, `npm run lesson-sim`). 사용자에게 확인받을 결정: 계획 §7 D5 · D6 · D8 · D12 · D13 · D29 · D35 · D1.
+- 도전 모드 샘플 팀 · 등급 기준선은 옛 육성 기준 그대로다.
+- 대비 주 카드 미리보기는 `miniCard` 가 아니라 주 화면 안의 작은 카드(`.prep-mini`)다.

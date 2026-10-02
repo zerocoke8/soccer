@@ -1,9 +1,12 @@
 // tools/lesson_scenarios.mjs — 카드 레슨 런의 스크린샷 · 주입 상태 (LESSON_PROTO_PLAN §10.2). tools/scenarios.mjs 가 OUTGAME_SCENARIOS 에 붙인다.
 // 엔진(js/engine/lessonRun.js · manager.js · match.js)만으로 원하는 단계까지 감독 AI 로 걷는다 → 같은 seed · 방침이면 같은 상태.
-// U1: walkLesson + 임시 화면 시나리오 몇 개. U2: 주 선택 · 외출 · 미팅 · 경기 전 준비. U3: 레슨. U4: 보상 모달 · 상담. I1 이 §10.2 표 전부로 늘린다.
+// U1: walkLesson + 임시 화면 시나리오 몇 개. U2: 주 선택 · 외출 · 미팅 · 경기 전 준비. U3: 레슨. U4: 보상 모달 · 상담.
+// I1: 경기 시나리오 01~27 의 런(prepareLessonMatch → scenarios.mjs prepareRun), 등록 팀(lessonRegisteredTeam — og_start · og_challenge),
+//     이벤트(2차 라우팅 확인용 주입) · 유물 · 루트 · 결과.
 import * as lessonRun from "../js/engine/lessonRun.js";
 import * as manager from "../js/engine/manager.js";
 import * as match from "../js/engine/match.js";
+import { fireEvent } from "../js/engine/run.js"; // og_event 주입 전용 (1차 레슨 런에는 이벤트가 없다 — §7 D1)
 
 export { lessonRun, manager };
 
@@ -44,6 +47,54 @@ export function walkLesson(data, { seed = 1, policy, until, maxSteps = 3000 } = 
     manager.autoStep(state, data, { playMatch: (setup) => playMatch(data, setup) });
   }
   return null;
+}
+
+/**
+ * 경기 시나리오(01~27)용 런: 기본 편성 레슨 런을 감독 AI 로 걸어 원하는 종류의 경기 직전(phase "match")까지 (LESSON_PROTO_PLAN §10.2 prepareRun).
+ * - friendly: 친선전이 열린 첫 자유 주에서 친선전을 고른다 (감독 AI 의 선택과 상관없이)
+ * - goal: 감독 AI 그대로 첫 경계전까지 (그 사이 친선전 · 루트 친선전은 실제 match.js 로 치른다)
+ * @returns {object} 레슨 RunState (phase "match", pendingMatch.kind === kind)
+ */
+export function prepareLessonMatch(data, { runSeed = 1, kind = "friendly", maxSteps = 3000 } = {}) {
+  const state = defaultLessonRun(data, { seed: runSeed });
+  for (let steps = 0; steps < maxSteps; steps++) {
+    if (state.phase === "match" && state.pendingMatch?.kind === kind) return state;
+    if (state.phase === "finished") break;
+    if (kind === "friendly" && state.phase === "week" && state.weekOffer?.kind === "free" && state.weekOffer.actions.includes("friendly")) {
+      lessonRun.applyWeekAction(state, data, { type: "friendly" });
+      continue;
+    }
+    manager.autoStep(state, data, { playMatch: (setup) => playMatch(data, setup) });
+  }
+  throw new Error(`'${kind}' 경기에 도달하지 못했습니다 (레슨 런 seed ${runSeed}, phase ${state.phase})`);
+}
+
+/**
+ * 완주한 레슨 런 → 등록 팀 (app.js registerTeam 과 같은 모양 + policy, 등록 시각은 고정). og_start · og_challenge 의 등록 팀.
+ */
+export function lessonRegisteredTeam(data, seed, registeredAt, policy) {
+  const found = walkLesson(data, { seed, policy, until: (s) => s.phase === "finished" });
+  if (!found) throw new Error(`레슨 런 ${seed} 이 끝나지 않습니다`);
+  const { rating, registeredTeam: team } = lessonRun.finalizeRun(found.state, data);
+  return { ...team, grade: rating.cappedGrade ?? rating.grade ?? "-", score: rating.score ?? null, registeredAt };
+}
+
+/**
+ * 이벤트 모달 (2차 라우팅 확인용 주입): 1차에는 이벤트가 없다 (lesson.events.support = false). 자유 주 주 끝에 유대 60 서포트 이벤트가
+ * 났다고 치고 — 편성 코치의 선택지 2개 이상인 서포트 이벤트를 run.fireEvent 로 띄우고, queue 에 advanceWeek 를 남긴다 (주 끝 흐름과 같게).
+ */
+function eventInjectedState(data, runSeed) {
+  const found = walkLesson(data, { seed: runSeed, until: (s) => s.phase === "week" && s.weekOffer?.kind === "free" });
+  if (!found) return null;
+  const st = found.state;
+  const ids = new Set(st.supports.map((x) => x.id));
+  const ev = data.events.find((e) => e.trigger === "support" && ids.has(e.supportId) && (e.choices || []).length >= 2);
+  if (!ev) return null;
+  const sup = st.supports.find((x) => x.id === ev.supportId);
+  sup.bond = Math.max(sup.bond, Number(ev.bondAtLeast) || 0);
+  fireEvent(st, data, ev, ev.supportId);
+  st.queue = ["advanceWeek"];
+  return { state: st, steps: found.steps, eventId: ev.id };
 }
 
 /** 레슨 런 한 줄 요약 (shot.mjs 출력용) */
@@ -473,5 +524,42 @@ export const LESSON_OG_SCENARIOS = [
     steps: [{ drag: { from: '.prep-edit .lu-slot[data-slot="DF2"]', to: '.prep-edit .lu-slot[data-slot="MF1"]', release: true } }],
     ready: ".prep-screen .mode-chg",
     expect: { screen: "run", phase: "prep", modal: false },
+  },
+  // ---- 이벤트 · 유물 · 루트 · 결과 (레슨 런, I1) ----
+  {
+    name: "og_event",
+    title: "이벤트 모달 — 유대 60 서포트 이벤트 (2차 라우팅 확인용 주입, 배경 = 주 선택 화면 inert)",
+    outgame: true,
+    build: (data, { runSeed }) => {
+      const found = eventInjectedState(data, runSeed);
+      if (!found) throw new Error("[og_event] 이벤트를 주입할 상태를 찾지 못했습니다");
+      return { runState: found.state, steps: found.steps, preferred: true, summary: `${describeLessonRun(found.state)} (이벤트 ${found.eventId} 주입 — 1차에는 나오지 않음)` };
+    },
+    ready: "#modal-root .choice-btn",
+    expect: { screen: "run", phase: "event", modal: ".modal" },
+  },
+  {
+    name: "og_relic",
+    title: "유물 선택 모달 — 경계전 승리 뒤 (배경 = 주 선택 화면 inert)",
+    outgame: true,
+    build: (data, { runSeed }) => walkOrThrow("og_relic", data, { seed: runSeed, until: (s) => s.phase === "relic" }),
+    ready: "#modal-root .relic-card",
+    expect: { screen: "run", phase: "relic", modal: ".modal" },
+  },
+  {
+    name: "og_route",
+    title: "시즌 종료 — 경계전 결과 · 다음 시즌 루트 (온천 설명 = lesson.json routeOverrides)",
+    outgame: true,
+    build: (data, { runSeed }) => walkOrThrow("og_route", data, { seed: runSeed, until: (s) => s.phase === "route" }),
+    ready: ".route-card",
+    expect: { screen: "run", phase: "route", modal: false },
+  },
+  {
+    name: "og_result",
+    title: "런 결과 화면 — 15주를 감독 AI 로 완주한 레슨 런의 최종 평가 · 선수 · seed",
+    outgame: true,
+    build: (data, { runSeed }) => walkOrThrow("og_result", data, { seed: runSeed, until: (s) => s.phase === "finished" }),
+    ready: ".result-hero",
+    expect: { screen: "run", phase: "finished", modal: false },
   },
 ];

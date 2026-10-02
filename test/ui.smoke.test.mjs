@@ -1408,6 +1408,109 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
     ui.auto = false;
   }
 
+  // ---- 전체 걷기 (LESSON_PROTO_PLAN §12 I1): 새 런(역습형) → 15주를 감독 AI 추천대로 앱 actions 로 (화면을 그리며) → 결과 →
+  // [팀 등록] → 시작 화면 등록 팀 · 도전 모드 팀 목록에 레슨 팀 (policy 포함) → 그 팀으로 도전 경기를 만들 수 있다 ----
+  {
+    const data = S.store.data;
+    const cfg = data.config;
+    const M = S.manager;
+    const teamsBefore = JSON.parse(window.localStorage.getItem(KEYS.teams) || "[]");
+    ui.auto = false;
+    S.actions.startRun({
+      squad: cfg.defaultSquad.slots, formation: cfg.defaultSquad.formation, supportIds: cfg.defaultSupports, tactics: cfg.defaultTactics,
+      policy: "counter", seed: "ui-full",
+    });
+    assert.equal(S.store.run.policy, "counter");
+    // phase → 그 화면 (레슨 결과는 레슨 화면 위 모달, 이벤트 · 유물은 주 화면 위 모달)
+    const SCREEN = {
+      week: ".screen.og.week-screen", lesson: ".lesson-screen", reward: "#modal-root .reward-modal", consult: ".consult-screen",
+      prep: ".prep-screen", match: ".match-screen", relic: "#modal-root .relic-card", route: ".route-screen", event: "#modal-root .choice-btn",
+      finished: ".result-screen",
+    };
+    const seen = {};
+    let prev = null;
+    let steps = 0;
+    for (; steps < 4000 && S.store.run.phase !== "finished"; steps++) {
+      const st = S.store.run;
+      const phase = st.phase;
+      if (phase !== prev) {
+        assert.ok(SCREEN[phase] && doc.querySelector(SCREEN[phase]), `${phase} 화면 (시즌 ${st.season} ${st.turn}주)`);
+        assert.equal(doc.querySelectorAll("#toast-root .toast-error").length, 0, `에러 토스트 없음 (${phase}, 시즌 ${st.season} ${st.turn}주)`);
+        seen[phase] = (seen[phase] || 0) + 1;
+        prev = phase;
+      }
+      if (phase === "week") {
+        const { reason, ...a } = M.recommendWeek(st, data);
+        S.actions.weekAction(a);
+      } else if (phase === "lesson") {
+        // 레슨 화면 전용 호출 (저장만 — 실제 화면은 연출 뒤 render). 레슨이 끝나면 직접 render
+        const a = M.recommendCard(st, data);
+        const r = a.kind === "play" ? S.actions.lessonCall("playCard", { uid: a.uid, taps: a.taps })
+          : a.kind === "rest" ? S.actions.lessonCall("lessonRest", { playerId: a.playerId })
+            : S.actions.lessonCall("endLessonTurn");
+        assert.ok(r !== undefined, `레슨 호출 ${a.kind}`);
+        if (S.store.run.phase !== "lesson") S.render();
+      } else if (phase === "reward") {
+        S.actions.resolveReward(M.recommendReward(st, data));
+      } else if (phase === "consult") {
+        const a = M.recommendConsult(st, data);
+        if (a.op === "end") S.actions.endConsult();
+        else S.actions.consultAction(a);
+      } else if (phase === "prep") {
+        S.actions.confirmPrep(M.recommendPrep(st, data));
+      } else if (phase === "match") {
+        assert.equal(S.store.match?.seed, st.pendingMatch.seed, "경기 화면이 그 경기를 만들었다");
+        S.actions.finishMatch(playMatch(S.run.getMatchSetup(st, data)));
+      } else if (phase === "relic") {
+        S.actions.chooseRelic(st.pendingRelicChoices?.[0] ?? null);
+      } else if (phase === "route") {
+        S.actions.chooseRoute(st.pendingRoutes[(st.season - 1) % st.pendingRoutes.length]);
+      } else if (phase === "event") {
+        S.actions.resolveEvent(0);
+      } else {
+        assert.fail(`알 수 없는 phase ${phase}`);
+      }
+      assert.notEqual(S.store.run.phase, "flow", "내부 phase 가 저장되지 않는다");
+    }
+    const fin = S.store.run;
+    assert.equal(fin.phase, "finished", `15주 완주 (${steps} 단계)`);
+    assert.equal(fin.season, 3);
+    assert.equal(fin.record.goalMatches.length, 3, "경계전 3회");
+    assert.ok(fin.record.lessons.length >= 1 && fin.record.lessons.length <= 9, `레슨 ${fin.record.lessons.length}회 (최대 9)`);
+    for (const ph of ["week", "lesson", "reward", "prep", "match", "route"]) assert.ok(seen[ph] > 0, `거친 화면: ${ph}`);
+    assert.equal(JSON.parse(window.localStorage.getItem(KEYS.run)).phase, "finished", "끝난 런 저장");
+    // 결과 화면 → [팀 등록]
+    assert.ok(doc.querySelector(".result-screen .result-hero"), "결과 화면");
+    assert.ok(![...doc.querySelectorAll(".player-result .pr-who")].some((el) => el.textContent.includes("훈련")), "레슨 런 결과: 훈련 횟수 표시 없음");
+    const regBtn = [...doc.querySelectorAll(".result-actions button")].find((b) => /^팀 등록$/.test(b.textContent));
+    assert.ok(regBtn && !regBtn.disabled, "[팀 등록]");
+    regBtn.click();
+    const teams = JSON.parse(window.localStorage.getItem(KEYS.teams) || "[]");
+    assert.equal(teams.length, teamsBefore.length + 1, "등록 팀 +1");
+    const team = teams[0];
+    assert.deepEqual([team.seed, team.policy, team.createdTurnIndex, team.players.length], ["ui-full", "counter", 14, 7], "레슨 팀 등록 (policy · createdTurnIndex 14)");
+    assert.ok(team.grade && team.grade !== "-", `등급 ${team.grade}`);
+    assert.ok([...doc.querySelectorAll(".result-actions button")].some((b) => b.disabled && /팀 등록 완료/.test(b.textContent)), "등록 뒤 [팀 등록 완료]");
+    assert.equal(window.localStorage.getItem("soccer.teams") !== null && JSON.parse(window.localStorage.getItem("soccer.teams")).length, 1, "본편 등록 팀 저장은 그대로");
+    // 시작 화면 등록 팀 · 도전 모드 팀 목록
+    S.actions.resetToStart();
+    assert.ok([...doc.querySelectorAll(".start-teams .team-row")].some((el) => el.textContent.includes("ui-full")), "시작 화면 등록 팀에 레슨 팀");
+    S.store.challenge.teamId = null;
+    S.store.challenge.stage = null;
+    S.actions.openChallenge();
+    assert.equal(S.store.screen, "challenge");
+    const tid = S.challenge.teamIdOf(team);
+    const row = doc.querySelector(`.ch-team[data-team="${tid}"]`);
+    assert.ok(row && !row.classList.contains("sample"), "도전 모드 팀 목록에 레슨 팀");
+    assert.ok(row.classList.contains("sel"), "기본 선택 = 가장 최근 등록 팀");
+    assert.equal(doc.querySelectorAll(".ch-team-sum .ch-pl").length, 7, "고른 팀 선수 7명");
+    const chSetup = S.challenge.challengeSetup(team, 1, 1, data);
+    const chMs = S.match.createMatch({ data, seed: chSetup.seed, home: chSetup.home, away: chSetup.away, possessions: chSetup.possessions, kind: chSetup.kind });
+    assert.ok(chMs && chMs.home.players.length === 7, "레슨 팀으로 도전 경기를 만들 수 있다");
+    [...doc.querySelectorAll(".ch-head button")].find((b) => b.textContent === "처음으로").click();
+    assert.equal(S.store.screen, "start");
+  }
+
   assert.equal(doc.querySelectorAll("#toast-root .toast-error").length, 0, "에러 토스트 없음");
   assert.equal(window.localStorage.getItem("soccer.run"), MAIN_RUN, "본편 런 저장은 끝까지 그대로");
   assert.deepEqual(errors, []);

@@ -295,7 +295,7 @@
 .ls-side { grid-area: side; padding: 10px 12px; gap: 7px; }
 .ls-rows { display: flex; flex-direction: column; gap: 3px; }
 .ls-row {
-  display: grid; grid-template-columns: 22px minmax(0, 1fr) 62px 26px 32px; align-items: center; gap: 5px;
+  display: grid; grid-template-columns: 22px minmax(0, 1fr) 54px 26px 32px; align-items: center; gap: 5px;
   min-height: 38px; padding: 3px 6px; border-radius: 8px; border: 1px solid transparent; background: var(--panel-2);
   font: inherit; color: inherit; text-align: left; cursor: default;
 }
@@ -306,7 +306,7 @@
 .ls-row.target { box-shadow: inset 3px 0 0 #fff; }
 .ls-row.out { opacity: .62; }
 .ls-nm { display: flex; flex-direction: column; min-width: 0; line-height: 1.15; white-space: nowrap; overflow: hidden; }
-.ls-nm b { font-size: 13px; }
+.ls-nm b { font-size: 13px; overflow: hidden; text-overflow: ellipsis; }
 .ls-nm .tiny { font-size: 10px; }
 .ls-st { display: flex; align-items: center; gap: 4px; }
 .ls-st .bar { flex: 1; height: 5px; }
@@ -471,8 +471,10 @@ button.mini-card { cursor: pointer; }
 /* 작은 카드: 추천 (보상 무료 강화 · 상담 덱) */
 .mini-card { position: relative; }
 .mini-card.recommended { border-color: var(--accent); }
-.mc-rec { position: absolute; right: 4px; top: 3px; padding: 0 5px; border-radius: 6px; font-size: 9.5px; line-height: 14px; font-weight: 800; background: var(--accent); color: #041224; pointer-events: none; }
-.mini-card.recommended .mc-name { padding-right: 34px; }
+.mc-rec { position: absolute; right: 4px; bottom: 4px; padding: 0 5px; border-radius: 6px; font-size: 9.5px; line-height: 14px; font-weight: 800; background: var(--accent); color: #041224; pointer-events: none; }
+.mini-card.recommended .mc-desc { padding-right: 32px; } /* 추천 배지는 아래 줄(문구) 오른쪽 — 이름은 잘리지 않게 */
+.dense .mini-card .mc-rec { bottom: auto; top: -7px; } /* 문구 줄이 없는 촘촘한 그리드: 위 테두리에 걸친다 */
+.cs-deck-grid .mini-card.recommended .mc-desc { padding-right: 58px; } /* 상담 배지 "추천 강화" · "추천 삭제" */
 
 /* ================================================================== */
 /* 상담 (.consult-screen) — columns 300 | 1fr | 340 (U4, screens/consult.js) */

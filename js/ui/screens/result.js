@@ -97,7 +97,7 @@ export function renderResult(root, ctx) {
       h('div', { class: 'row pr-who' },
         avatar(p.portraitColor, p.name, 'md'),
         h('div', { class: 'grow col' },
-          h('div', { class: 'row' }, h('b', {}, p.name), h('span', { class: 'tiny muted' }, `${p.slot ?? ''} · 적성 ${p.aptitude ?? ''} · 훈련 ${p.trainedCount ?? 0}회`)),
+          h('div', { class: 'row' }, h('b', {}, p.name), h('span', { class: 'tiny muted' }, `${p.slot ?? ''} · 적성 ${p.aptitude ?? ''}${state.kind === 'lessonRun' ? '' : ` · 훈련 ${p.trainedCount ?? 0}회`}`)),
           h('div', { class: 'tiny muted ellipsis', title: [innate ? `고유 ${innate}` : null, learned.length ? `습득 ${learned.join(', ')}` : null].filter(Boolean).join(' · ') },
             [innate ? `고유 ${innate}` : null, learned.length ? `습득 ${learned.join(', ')}` : null].filter(Boolean).join(' · ') || '스킬 없음'))),
       h('div', { class: 'stat-grid' }, L.STATS.map((st) => {
