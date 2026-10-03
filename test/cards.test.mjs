@@ -441,6 +441,7 @@ test("§15.3 validateAttachData: 실제 데이터 통과 · 8명 능력 · 모�
   assert.deepEqual([A.enabled, A.count, A.rarityWeight, A.repeatWeight, A.ownCardWeight, A.overPct, A.bond], [true, { min: 4, max: 5 }, { SSR: 3, SR: 2, R: 1 }, 0.5, 3, 0.2, 5]);
   assert.deepEqual(A.cutinMs, { first: 900, repeat: 600 });
   for (const [id, a] of Object.entries(A.abilities)) assert.ok(a.name && a.text, id);
+  for (const [id, a] of Object.entries(A.abilities)) assert.ok(typeof a.line === "string" && a.line.length > 0 && Array.from(a.line).length <= 22, `${id}: 컷인 대사 (UI 전용, 22자 이하)`);
   const bad = (mutate, re) => {
     const d = clone(data);
     mutate(d.lesson.attach, d);
@@ -456,6 +457,7 @@ test("§15.3 validateAttachData: 실제 데이터 통과 · 8명 능력 · 모�
   bad((a) => { a.abilities.sp_wind_dancer.lb = [{}]; }, /lb/);
   bad((a) => { a.abilities.sp_wind_dancer.extra = 1; }, /알 수 없는 필드 'extra'/);
   bad((a) => { delete a.abilities.sp_wind_dancer.name; }, /name 가 없습니다/);
+  bad((a) => { a.abilities.sp_wind_dancer.line = ""; }, /line \(컷인 대사\)/);
   bad((a) => { a.count = { min: 4, max: 2 }; }, /count 가 잘못/);
   bad((a) => { a.rarityWeight.SSR = -1; }, /rarityWeight/);
   bad((a) => { a.enabled = "yes"; }, /enabled/);

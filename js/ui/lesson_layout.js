@@ -6,7 +6,7 @@
 //   tokenSpots(view)              경기장 선수 토큰 자리 = 엔진 뷰 positions (구역 대형). 벤치 · 결장은 null
 //   pointerToField(cx, cy, rect)  포인터(client px) → 필드 % { x, y, inside } (rect = .m-field getBoundingClientRect — 무대 scale 포함)
 //   circlePx(r, aspect, W, H)     원 반지름 r(u) → 그리기용 { rx, ry } px (화면에서 동그랗다)
-//   fxPlan(lastFx)                엔진 lastFx(§14.13) → 연출 단계 (카드 · 턴 끝 기본 훈련 · 벤치 회복 · 흩어지기 · 새 손패 · 레슨 끝)
+//   fxPlan(lastFx)                엔진 lastFx(§14.13 · §15.4) → 연출 단계 (코치 컷인 · 카드 · 턴 끝 기본 훈련 · 벤치 회복 · 흩어지기 · 새 손패 · 코치 붙기 · 레슨 끝)
 import { slotSpot } from './lineup.js';
 
 /** 레슨 화면 필드의 기준 크기 (논리 px — css/lesson.css 의 그리드에서 나온 값, jsdom 처럼 레이아웃이 없을 때 쓴다) */
@@ -90,10 +90,16 @@ export function circlePx(r, aspect, W = FIELD_PX.w, H = FIELD_PX.h) {
  *  - scatter = 새 턴 흩어지기 { id: zone } (없으면 null), draw = 새 손패 uid (없으면 null)
  *  - bench = 벤치 행동 [{ id, on }] (없으면 [])
  *  - end = 레슨 끝이면 { status, heal: { id: n } } (턴 끝 뒤 · 퍼펙트 체력 · 한나 회복, 없으면 null)
+ *  코치 지원 (§15.4 · §15.8):
+ *  - cutin = 붙은 카드를 냈으면 { supportId, uid, cardId, coach, name, text, repeat } (엔진이 lastFx 맨 앞에 둔다 — 카드 연출보다 먼저), 없으면 null
+ *  - play.bond = [{ supportId, n }] (컷인 유대), play.hints = [supportId] (컷인 힌트 성공), play.condition = 카드 단계 컨디션 변화 합
+ *  - attach = 새 턴 시작에 붙은 지원 { uid, supportId, upgrade } (새 손패 뒤), 없으면 null
  * @param {Array<object>} fx
  */
 export function fxPlan(fx) {
-  const play = { targets: [], cost: {}, gain: {}, fail: {}, heal: {}, buffs: {}, tw: 0 };
+  const play = { targets: [], cost: {}, gain: {}, fail: {}, heal: {}, buffs: {}, tw: 0, bond: [], hints: [], condition: 0 };
+  let cutin = null;
+  let attach = null;
   let turn = null;
   let end = null;
   let draw = null;
@@ -161,11 +167,28 @@ export function fxPlan(fx) {
       case 'end':
         endSeg().status = e.status;
         break;
+      case 'cutin':
+        if (!cutin) {
+          cutin = { supportId: e.supportId ?? null, uid: e.uid ?? null, cardId: e.cardId ?? null, coach: e.coach ?? null, name: e.name ?? '', text: e.text ?? '', repeat: num(e.repeat) };
+        }
+        break;
+      case 'attach':
+        attach = { uid: e.uid ?? null, supportId: e.supportId ?? null, upgrade: e.upgrade ?? null };
+        break;
+      case 'bond':
+        if (seg === 'play') play.bond.push({ supportId: e.supportId ?? null, n: num(e.n) });
+        break;
+      case 'hint':
+        if (seg === 'play') play.hints.push(e.supportId ?? null);
+        break;
+      case 'condition':
+        if (seg === 'play') play.condition += num(e.n);
+        break;
       default:
         break;
     }
   }
-  return { play, turn, scatter, draw, bench, end };
+  return { play, turn, scatter, draw, bench, end, cutin, attach };
 }
 
 /** 점수 연출: fxPlan 의 카드 단계만 반영한 점수 (턴 끝 기본 훈련 상승은 뒤에 더한다) */

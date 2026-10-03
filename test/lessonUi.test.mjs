@@ -5,6 +5,7 @@
 //  - 키보드: ← → 후보 (dropCandidates) · 숫자 = 구역 중심 · Enter = 내기 · Esc = 취소, 빈 자리 = 거절 토스트
 //  - 전체 카드 두 번 누르기 · 단일 카드 선수 위 클릭 · 회복 카드 명단 줄
 //  - 벤치: 명단 [벤치] → 벤치 칸 · 토큰 숨김 · 칸 누르기 = 복귀 · B 키 · 최대 2명 / [턴 끝] → 새 배치 · 벤치 비움 / 레슨 끝 → 보상 모달
+//  - 코치 지원 (§15.8): 붙은 카드 칩 · 코치 색 · 컷인 덮개 (누르기 · Esc · 시간 = 닫힘) · 짧은 판 · no-anim 안내 · 능력 알약
 //  - U4 보상: 클리어 카드 고르기 · 건너뛰기(TP) · 퍼펙트 무료 강화 그리드 · 실패 [계속]
 //  - U4 상담: 구매 · 강화(고른 카드는 다시 그려도 남음) · 고유 카드 삭제 확인 모달 · 스킬(배울 선수) · 오류 토스트 · 끝내기
 // 연출은 prefers-reduced-motion 으로 줄여(타이머 0ms) 빨리 끝낸다. 끌기는 jsdom 에 레이아웃이 없어 lesson_layout.pointerToField 단위 테스트
@@ -320,6 +321,106 @@ test("jsdom: 레슨 화면 (구역) — 골격 · 조준 · 키보드 · 벤치 
   assert.equal($$(".ls-bench-slot.filled").length, 0, "벤치 칸 비움");
   noErrorToast("턴 끝");
 
+  // ---------- 코치 지원 (§15.8, L37): 붙은 카드 = 코치 칩 · 코치 색 → 내면 컷인 덮개 (누르면 넘김) → 카드 연출 + 능력 알약 · 두 번째 = 짧은 판 · no-anim = 덮개 없이 안내 ----------
+  /** 손패 첫 장을 cardId 로 바꾸고 supportId 코치를 붙인 상태 (엔진 붙기는 rng — 장면을 고르려면 주입). cutins = 이번 레슨 앞선 컷인 수 */
+  const withAttach = (st, cardId, supportId, cutins = 0) => {
+    const { s, uid } = withHand(st, cardId, 0);
+    const Ls = s.lesson;
+    Ls.attach = Ls.attach || { turns: [], cur: null, count: {}, log: [], hints: [] };
+    Ls.attach.cur = { uid, supportId, turn: Ls.turn, upgrade: "plus" };
+    Ls.attach.log.push({ turn: Ls.turn, supportId, uid, cardId, played: false });
+    Ls.stats.cutins = cutins;
+    return { s, uid };
+  };
+  const harr = data.supports.find((x) => x.id === "sp_coach_harr");
+  const sage = data.supports.find((x) => x.id === "sp_elder_sage");
+  assert.ok(lesson1.supports.some((x) => x.id === harr.id) && lesson1.supports.some((x) => x.id === sage.id), "기본 편성에 하르나 · 오르넬라");
+  const att1 = withAttach(lesson1, "cd_basic", harr.id);
+  putRun(att1.s);
+  const attCard = cardOf(att1.uid);
+  assert.ok(attCard.classList.contains("attached") && attCard.classList.contains("co-shoot"), "붙은 카드: .attached + 코치 타입 색 (하르나 = 슈팅)");
+  assert.equal($$(".ls-hand .card-face.attached").length, 1, "붙은 카드는 1장");
+  assert.match(attCard.querySelector(".cf-meta .cf-coach").textContent, /하르나 지원/, "메타 줄 맨 앞 코치 칩");
+  assert.equal(attCard.querySelector(".cf-meta").firstElementChild, attCard.querySelector(".cf-coach"), "칩은 메타 줄 맨 앞 (겹친 손패에서도 보이는 왼쪽)");
+  assert.equal(attCard.querySelector(".cf-coach .avatar").textContent, "하", "코치 얼굴 = 짧은 이름 첫 글자");
+  assert.ok(attCard.querySelector(".cf-plus.att"), "지원 강화 \"+\" = 코치 색");
+  assert.match(attCard.title, /코치 하르나 지원 — 이번 턴만 강화 · 내면: 슈팅 구역 대상 \+50%/, "카드 title");
+  assert.match($(".ls-info .ls-att-line").textContent, /하르나 지원 → 기초 훈련\+/, "dock 지원 줄");
+  assert.match($(".ls-info .ls-att-sub").textContent, /내면 골문을 보는 눈 · 슈팅 구역 대상 \+50%/, "dock 지원 능력 줄");
+  assert.ok($(".lesson-screen").classList.contains("co-shoot"), "화면 코치 색 (조준 말풍선 · 연출)");
+  // no-anim (이 테스트는 움직임 줄이기): 덮개 없이 낸다 → 안내 칸 "하르나 지원 발동"
+  attCard.click();
+  attCard.click();
+  assert.equal(S.store.run.lesson.seq, att1.s.lesson.seq + 1, "붙은 카드 내기");
+  assert.equal(S.store.run.lesson.lastFx[0].t, "cutin", "엔진 컷인 fx");
+  assert.equal($$(".ls-cutin.on").length, 0, "no-anim: 컷인 덮개 없음");
+  await notBusy();
+  assert.match($(".ls-info .ls-cut-recap").textContent, /하르나 지원 발동/, "no-anim: 안내 칸에 지원 발동");
+  assert.match($(".ls-info").textContent, /골문을 보는 눈 — 슈팅 구역 대상 \+50%/);
+  assert.equal(S.store.run.lesson.stats.cutins, 1);
+  noErrorToast("코치 지원 no-anim");
+
+  // 연출 켬 (움직임 줄이기 끔): 컷인 덮개 → 누르면 넘김 → 카드 연출 (코치 색 고리) + 능력 알약
+  const mmReduce = g.matchMedia;
+  g.matchMedia = (q) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} });
+  try {
+    putRun(att1.s);
+    assert.ok(!$(".lesson-screen").classList.contains("no-anim"), "연출 켬");
+    cardOf(att1.uid).click();
+    cardOf(att1.uid).click();
+    assert.equal(S.store.run.lesson.seq, att1.s.lesson.seq + 1);
+    const cut = $(".ls-cutin.on");
+    assert.ok(cut && cut.classList.contains("co-shoot") && cut.classList.contains("first"), "컷인 덮개 (첫 번 · 코치 타입 색)");
+    assert.equal($(".ls-cutin .lc-txt b").textContent, "코치 하르나", "코치 이름");
+    assert.match($(".ls-cutin .lc-txt small").textContent, /코치 지원 · 슈팅/);
+    assert.equal($(".ls-cutin .lc-line").textContent, `“${data.lesson.attach.abilities[harr.id].line}”`, "코치 대사 (lesson.json line)");
+    assert.match($(".ls-cutin .lc-sub").textContent, /골문을 보는 눈\s*슈팅 구역 대상 \+50%/, "능력 이름 · 문구");
+    assert.equal($(".ls-cutin .lc-face").textContent, "하");
+    assert.match($(".ls-cutin .lc-card").textContent, /기초 훈련/, "낸 카드");
+    assert.ok($(".ls-cutin .lc-skip") && !$(".ls-cutin .lc.short"), "첫 컷인: 긴 판 + \"탭하여 넘기기\"");
+    assert.equal($(".ls-cutin").style.getPropertyValue("--t-cut"), `${data.lesson.attach.cutinMs.first}ms`, "길이 = cutinMs.first");
+    assert.ok(ui.busy, "컷인 동안 입력 막음 (busy)");
+    assert.match($(".ls-info .ls-cut-note").textContent, /하르나 지원 발동/, "안내 칸");
+    assert.equal($$(".tok.drilling").length, 0, "컷인이 먼저 — 카드 연출은 아직");
+    $(".ls-cutin").dispatchEvent(new window.Event("pointerdown", { bubbles: true, cancelable: true }));
+    assert.equal($$(".ls-cutin.on").length, 0, "누르면 바로 닫힘 (넘기기)");
+    assert.ok($$(".tok.drilling.att-drill").length > 0, "닫히면 카드 연출 — 훈련 고리 = 코치 색");
+    const abil = await until(() => $(".lesson-screen .ls-abil"), 2000);
+    assert.ok(abil, "능력 알약 (경기장)");
+    assert.match(abil.textContent, /골문을 보는 눈/);
+    assert.match(abil.textContent, /유대 \+5/, "유대 +5");
+    assert.equal(abil.querySelector(".la-face").textContent, "하");
+    await until(() => !ui.busy, 5000);
+    assert.ok(!ui.busy, "연출 끝");
+    assert.equal(S.store.run.supports.find((x) => x.id === harr.id).bond, att1.s.supports.find((x) => x.id === harr.id).bond + data.lesson.attach.bond, "하르나 유대 +5");
+    noErrorToast("컷인 넘기기");
+
+    // 두 번째 컷인 (repeat 1) = 짧은 판 · "탭하여 넘기기" 없음 · 저절로 닫힌다 (cutinMs.repeat)
+    const att2 = withAttach(lesson1, "cd_basic", sage.id, 1);
+    putRun(att2.s);
+    assert.ok(cardOf(att2.uid).classList.contains("co-pass"), "오르넬라 = 패스 색");
+    cardOf(att2.uid).click();
+    cardOf(att2.uid).click();
+    assert.ok($(".ls-cutin.on.short .lc.short"), "두 번째 컷인 = 짧은 판");
+    assert.equal($$(".ls-cutin .lc-skip").length, 0, "짧은 판: 안내 문구 없음");
+    assert.equal($(".ls-cutin").style.getPropertyValue("--t-cut"), `${data.lesson.attach.cutinMs.repeat}ms`, "길이 = cutinMs.repeat");
+    assert.equal($(".ls-cutin .lc-txt b").textContent, "현자 오르넬라");
+    await until(() => !$(".ls-cutin.on"), 2000);
+    assert.equal($$(".ls-cutin.on").length, 0, "저절로 닫힘");
+    await until(() => !ui.busy, 5000);
+    // Esc 로 넘기기
+    putRun(att2.s);
+    cardOf(att2.uid).click();
+    cardOf(att2.uid).click();
+    assert.ok($(".ls-cutin.on"));
+    key("Escape");
+    assert.equal($$(".ls-cutin.on").length, 0, "Esc = 넘기기");
+    await until(() => !ui.busy, 5000);
+    noErrorToast("짧은 컷인");
+  } finally {
+    g.matchMedia = mmReduce;
+  }
+
   // ---------- 레슨 끝 → reward phase: 레슨 화면 inert + 보상 모달 ----------
   const fin = withHand(lesson1, "cd_basic", 0);
   fin.s.lesson.score = fin.s.lesson.cap - 1; // 다음 상승으로 퍼펙트
@@ -360,6 +461,13 @@ test("jsdom: 레슨 화면 (구역) — 골격 · 조준 · 키보드 · 벤치 
   assert.ok($(".rw-score-n").textContent === String(rv.result.score) && $(".rw-score-t").textContent.includes(String(rv.result.target)), "점수 · 목표");
   assert.equal($$(".rw-players .rw-pl").length, 7, "선수 7 상승");
   assert.ok($(".rw-chip.tp").textContent.includes(`+${rv.result.tp}`), "TP 칩");
+  // 코치 지원 칩 (§15.8 ③): "코치 지원 N번" + 코치 얼굴, 컷인 힌트 = 얼굴 + "지원"
+  assert.equal($$(".rw-chip.coach-sup").length, rv.result.cutins.length ? 1 : 0, "코치 지원 칩 (\"지원 N번\") = 컷인이 있으면");
+  if (rv.result.cutins.length) {
+    assert.match($(".rw-chip.coach-sup").textContent, new RegExp(`지원 ${rv.result.cutins.length}번`));
+    assert.equal($$(".rw-chip.coach-sup .rw-face").length, new Set(rv.result.cutins.map((c) => c.supportId)).size, "코치 얼굴 = 컷인 코치");
+  }
+  assert.equal($$(".rw-chip.hint .rw-hint-src").length, rv.result.hints.filter((x) => x.src === "cutin").length, "컷인 힌트 = \"지원\" 표시");
   assert.equal($$(".rw-offer .card-face").length, rv.offer.length, "보상 카드 = offer");
   assert.ok($(".rw-skip").textContent.includes(`TP +${rv.skipTp}`), "건너뛰기 TP");
   assert.equal($$(".rw-deck").length, 0, "클리어 = 무료 강화 없음");

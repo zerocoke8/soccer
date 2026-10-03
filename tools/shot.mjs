@@ -327,6 +327,8 @@ async function runScenario(browser, baseUrl, sc, prepared, opts) {
     page.on("response", (r) => { if (r.status() >= 400) out.errors.push(`HTTP ${r.status()}: ${r.url().replace(baseUrl, "")}`); });
 
     await page.setViewport(vp);
+    // 움직임 줄이기 시나리오 (레슨 컷인 no-anim 안내 — LESSON_PROTO_PLAN §15.8): prefers-reduced-motion: reduce
+    if (sc.reducedMotion) await page.emulateMediaFeatures([{ name: "prefers-reduced-motion", value: "reduce" }]);
     await page.evaluateOnNewDocument(FREEZE_SCRIPT);
     const q = new URLSearchParams();
     if (sc.auto === false) q.set("auto", "0");
@@ -370,6 +372,7 @@ async function runScenario(browser, baseUrl, sc, prepared, opts) {
         ".skill-row .sk-nm", ".card-face .cf-name", ".card-face .cf-desc", ".card-face .cf-power", ".card-face .cf-target", ".card-face .cf-reason",
         ".mini-card .mc-name", ".rw-pl-nm", ".rw-pl-split", ".rw-pl-by", ".card-face .cf-cost", ".week-lesson .wl-focus", ".week-lesson .wl-target", ".week-lhead",
         ".policy-desc", ".ls-nm b", ".lesson-screen .tok-name",
+        ".ls-cutin .lc-txt b", ".ls-cutin .lc-sub", ".ls-cutin .lc-line", ".card-face .cf-coach", ".ls-info .ls-att-line", ".ls-info .ls-att-sub", ".ls-info .ls-cut-sub",
       ].join(", "))]
         .map((el) => {
           // 말줄임은 소수 픽셀만 넘쳐도 생긴다 → 정수 scrollWidth 대신 글자 Range 크기와 요소 크기(소수)를 비교
@@ -570,6 +573,12 @@ async function enterOutgame(page, sc, prepared, opts, out) {
       continue;
     }
     if (st.drag) { out.notes.push(await dragStep(page, st.drag)); continue; }
+    // CSS 애니메이션 멈추기 (연출 중간 프레임 — 타이머 고정은 CSS 애니메이션을 멈추지 못한다: 레슨 컷인 · 팝): { pauseAnim: true }
+    if (st.pauseAnim) {
+      const n = await page.evaluate(() => { const list = document.getAnimations ? document.getAnimations() : []; for (const a of list) a.pause(); return list.length; });
+      out.notes.push(`CSS 애니메이션 ${n}개 멈춤`);
+      continue;
+    }
     // 키 누르기 (레슨 조준 키보드 — ← → 후보 · 1~5 구역 · Enter · Esc): { key: "ArrowRight", times?: 2 }
     if (st.key) {
       for (let i = 0; i < (st.times ?? 1); i++) await page.keyboard.press(st.key);

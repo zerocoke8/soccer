@@ -101,19 +101,41 @@ export function renderRewardModal(ctx) {
 
   // ---------- 보상 칩 ----------
   const chip = (cls, ...kids) => h('span', { class: ['rw-chip', cls] }, ...kids);
-  const hintText = (r.hints || []).map((x) => `${x.name ?? x.skillId} Lv${x.level}`).join(' · ');
+  // 코치 지원 (§15.8 ③): 컷인 수 + 코치 얼굴, 컷인 힌트는 코치 얼굴 + "지원" (실패한 레슨도 컷인 힌트는 받는다)
+  const supportOf = (id) => (data.supports || []).find((x) => x.id === id) || null;
+  const shortOf = (name) => String(name || '').trim().split(/\s+/).pop(); // "코치 하르나" → "하르나" (얼굴 글자)
+  const hints = failed ? (r.hints || []).filter((x) => x.src === 'cutin') : (r.hints || []);
+  const hintItems = hints.map((x, i) => {
+    const sp = x.src === 'cutin' ? supportOf(x.supportId) : null;
+    return h('b', { class: sp ? 'rw-hint-cut' : '' }, i ? ' · ' : '', sp ? avatar(sp.portraitColor, shortOf(sp.name), 'xs', 'rw-face') : null,
+      `${x.name ?? x.skillId} Lv${x.level}`, sp ? h('span', { class: 'rw-hint-src' }, '지원') : null);
+  });
+  const cutList = Array.isArray(r.cutins) ? r.cutins : [];
+  const cutFaces = [...new Set(cutList.map((c) => c.supportId))].map((id) => supportOf(id)).filter(Boolean);
+  const cutChip = cutList.length
+    ? chip('coach-sup', '지원 ', h('b', {}, `${cutList.length}번`), h('span', { class: 'rw-faces' }, cutFaces.map((sp) => avatar(sp.portraitColor, shortOf(sp.name), 'xs', 'rw-face'))))
+    : null;
+  if (cutChip) cutChip.title = [`코치 지원 (컷인) ${cutList.length}번`, ...cutList.map((c) => `${c.turn}턴 ${c.name} — ${c.cardName ?? ''}`)].join('\n');
+  const hintChip = hintItems.length ? chip('hint', '힌트 ', ...hintItems) : null;
   const chips = failed
-    ? [chip('bad', '실패 — TP · 힌트 · 보상 카드 없음')]
+    ? [chip('bad', hintChip ? '실패 — TP · 보상 카드 없음' : '실패 — TP · 힌트 · 보상 카드 없음'), cutChip, hintChip]
     : [
       chip('tp', 'TP ', h('b', {}, signed(r.tp ?? 0))),
-      hintText ? chip('hint', '힌트 ', h('b', {}, hintText)) : null,
+      cutChip,
+      hintChip,
       r.sp ? chip('sp', 'SP ', h('b', {}, signed(r.sp)), h('span', { class: 'muted' }, ' (힌트 없음)')) : null,
       chip('tw', '팀워크 ', h('b', {}, signed(r.teamwork ?? 0)), r.twAccrued ? h('span', { class: 'muted' }, ` (레슨 중 +${r.twAccrued})`) : null),
       r.condition ? chip('cond', '컨디션 ', h('b', {}, signed(r.condition))) : null,
       r.prepBonus ? chip('prep', '경계전 컨디션 +1 (대비)') : null,
     ];
   if (failed && r.twAccrued) chips.push(chip('tw', '팀워크 ', h('b', {}, `+${r.twAccrued}`), h('span', { class: 'muted' }, ' (레슨 중)')));
-  for (const b of r.bond || []) if (b.gain) chips.push(chip('bond', `유대 ${b.name} `, h('b', {}, signed(b.gain)), h('span', { class: 'muted' }, ` → ${b.bond}`)));
+  // 유대 칩은 짧은 이름 ("유대 하르나 +10 → 45") — 코치 지원 칩이 늘어도 칩 줄이 한 줄에 들어가게 (전체 이름은 title)
+  for (const b of r.bond || []) {
+    if (!b.gain) continue;
+    const c = chip('bond', `유대 ${shortOf(b.name)} `, h('b', {}, signed(b.gain)), h('span', { class: 'muted' }, ` → ${b.bond}`));
+    c.title = `${b.name} 유대 ${signed(b.gain)} → ${b.bond}`;
+    chips.push(c);
+  }
   const chipRow = h('div', { class: 'rw-chips' }, chips);
 
   // ---------- 선수 7 ----------

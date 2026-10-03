@@ -647,9 +647,10 @@ function attachErrors(data, errors) {
     }
     for (const k of Object.keys(a)) {
       if (k === "lb") errors.push(`${w}: lb (돌파 단계별 능력) 는 아직 쓸 수 없습니다 (스키마 예약)`);
-      else if (!["name", "text", "needs", "mods", "effects"].includes(k)) errors.push(`${w}: 알 수 없는 필드 '${k}'`);
+      else if (!["name", "text", "line", "needs", "mods", "effects"].includes(k)) errors.push(`${w}: 알 수 없는 필드 '${k}'`);
     }
     for (const k of ["name", "text"]) if (typeof a[k] !== "string" || !a[k]) errors.push(`${w}: ${k} 가 없습니다`);
+    if (a.line !== undefined && (typeof a.line !== "string" || !a.line)) errors.push(`${w}: line (컷인 대사) 은 빈 문자열이 아닌 문자열이어야 합니다`);
     if (a.needs !== undefined && !ATTACH_NEEDS.includes(a.needs)) errors.push(`${w}: needs '${a.needs}' 이(가) 목록에 없습니다`);
     if (a.mods !== undefined) {
       checkMods(a.mods, w, errors);

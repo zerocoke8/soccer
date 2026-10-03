@@ -20,10 +20,14 @@
 // 연출: lastFx(lesson_layout.fxPlan) → 카드: 비용 → 대상이 제자리에서 훈련 동작(구역 색 고리) → "+N" 팝 → 버프 칩.
 //   턴 끝: 기본 훈련 "+N" 회색 팝이 전원 동시에 + 점수 막대 → 벤치 "+15" → 새 턴 흩어지기 (토큰이 새 자리로 450ms) → 새 손패.
 //   재생 중 busy (입력 무시). 레슨이 끝나면 재생 뒤 ctx.render() → 보상 모달. GEN (app.render 가 gen +1) → 옛 화면 타이머는 alive() 로 멈춘다.
-// 개발용 ?autolesson=1: 600ms 마다 감독 추천(manager.recommendCard: bench · play { at, playerId } · endTurn)을 그대로 낸다. inert: 마지막 상태만.
+// 코치 지원 (§15.8, L37): 붙은 카드 = 코치 칩 · 코치 타입 색 테두리 (cards.js), 끌기 유령에도 코치 얼굴. 그 카드를 내면 코치 컷인 (.ls-cutin —
+//   화면 전체 덮개 · 코치 타입 색 띠 · 얼굴 · 이름 · 대사 · 능력, 첫 번 attach.cutinMs.first · 다음부터 repeat 짧은 판, 탭 · Enter · Space · Esc = 넘기기)
+//   → 카드 연출 (대상 고리 = 코치 색, 능력 배율이 걸린 "+N ×1.5" 는 코치 색) + 경기장 가운데 능력 알약 (얼굴 · 능력 이름 · 결과 — 유대 · 힌트 · 컨디션).
+//   no-anim(움직임 줄이기)이면 덮개 없이 dock 안내 칸에 "하르나 지원 발동 — …". 새 턴에 붙으면 손패가 들어온 뒤 칩이 튀어나온다.
+// 개발용 ?autolesson=1: 600ms 마다 감독 추천(manager.recommendCard: bench · play { at, playerId } · endTurn)을 그대로 낸다 (컷인도 그대로 — 저절로 닫힌다). inert: 마지막 상태만.
 import { h, avatar, bar, openModal, toast } from '../dom.js';
 import * as L from '../labels.js';
-import { cardFace, miniCard } from '../cards.js';
+import { cardFace, miniCard, attachTitle } from '../cards.js';
 import { tokenSpot, pointerToField, circlePx, fxPlan, scoreAfterPlay, handStep, FIELD_PX, TOKEN_PX } from '../lesson_layout.js';
 import { stamCls } from '../hud.js';
 import { uniqueNote } from './reward.js';
@@ -32,6 +36,8 @@ import { uniqueNote } from './reward.js';
 export const LESSON_T = { act: 280, hold: 560, tick: 650, scatter: 450, turn: 260, end: 1000, auto: 600, aimShow: 320 };
 const CARD_W = 176;
 const DRAG_PX = 6;
+/** 코치 컷인 길이 (ms) — data.lesson.attach.cutinMs 가 없을 때 (§15.3: 첫 번 900 · 다음부터 600) */
+export const CUTIN_MS = { first: 900, repeat: 600 };
 /** 키 1~5 = 구역 (위 줄 왼 → 오, 아래 줄 왼 → 오 — 화면에서 읽는 순서) */
 export const ZONE_KEY_ORDER = ['defense', 'pass', 'shoot', 'physical', 'dribble'];
 
@@ -50,6 +56,8 @@ function autoLessonOn() {
   }
 }
 const pctText = (x) => `${Math.round((Number(x) || 0) * 100)}%`;
+/** 단어 잇기 (U+2060) — 카드 이름 뒤 "+" 만 다음 줄로 넘어가지 않게 */
+const WJ = String.fromCharCode(0x2060);
 const round1 = (x) => Math.round(x * 10) / 10;
 const px = (x) => `${round1(x)}px`;
 const initialOf = (name) => {
@@ -174,7 +182,11 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
   const dock = h('div', { class: 'ls-dock' }, piles, handEl, infoEl, btns);
 
   const ghost = h('div', { class: 'drag-ghost', 'aria-hidden': 'true' });
-  screen.append(hud, pitchWrap, side, dock, ghost);
+  // 코치 컷인 덮개 (§15.8 ②): 레슨 화면 전체 — 떠 있는 동안 경기장 · 손패 입력을 막고, 누르면 넘긴다
+  const cutLayer = h('div', { class: 'ls-cutin', role: 'status', 'aria-live': 'polite' });
+  cutLayer.addEventListener('pointerdown', (e) => { if (cutClose) { e.preventDefault?.(); e.stopPropagation?.(); cutClose(); } });
+  cutLayer.addEventListener('click', (e) => { e.stopPropagation?.(); if (cutClose) cutClose(); });
+  screen.append(hud, pitchWrap, side, dock, ghost, cutLayer);
 
   /* ------------------------------------------------------------------ */
   /* 상태 · 좌표                                                           */
@@ -192,6 +204,10 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
   let frameReq = false;
   let suppressClick = false;
   let benchFx = null;     // 방금 벤치에 들어간 선수 (칸 등장 연출)
+  let cutClose = null;    // 떠 있는 컷인을 닫는 함수 (탭 · 키 · 시간)
+  let cutNote = null;     // 컷인 연출 중 dock 안내 { color, name, short, ability, text } (no-anim 에서는 이 줄이 컷인 대신)
+  let attachNew = null;   // 새 턴에 막 붙은 카드 uid (칩 튀어나오기)
+  let cutRecap = null;    // no-anim: 방금 발동한 지원 (연출이 0ms 라 컷인 대신 다음 조작 전까지 안내 칸에 남긴다)
   let shown = { score: v.score, stamina: {} }; // 연출 중 보여 주는 값 (점수 · 체력 · 턴)
 
   function measure() {
@@ -207,6 +223,16 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     return id;
   }
   const setBusy = (b) => { ui.busy = b; screen.classList.toggle('busy', b); };
+  const CUT_MS = { ...CUTIN_MS, ...(data.lesson?.attach?.cutinMs || {}) };
+  /** 화면의 코치 색 (co-<타입> · --coach-face): 조준 말풍선 · 연출 고리 · 팝 · 능력 알약이 쓴다. 지원이 없으면 지운다 */
+  function setCoach(type, color) {
+    for (const z of ZONE_KEY_ORDER) screen.classList.remove(`co-${z}`);
+    if (type) screen.classList.add(`co-${type}`);
+    if (color) screen.style.setProperty('--coach-face', color);
+    else screen.style.removeProperty('--coach-face');
+  }
+  /** 컷인 대사 (lesson.json attach.abilities[id].line — UI 전용) */
+  const coachLine = (supportId) => data.lesson?.attach?.abilities?.[supportId]?.line || '';
   const playerOf = (id) => (v.players || []).find((p) => p.id === id);
   const staminaOf = (p) => shown.stamina[p.id] ?? Number(p.stamina) ?? 0;
   const handCard = (uid) => (uid ? (v.hand || []).find((c) => c.uid === uid) || null : null);
@@ -489,6 +515,7 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
       if (t) {
         bub = `+${t.gain}`; // 실패율은 원 꼬리표 · dock 안내 (말풍선은 이름표 자리 폭 그대로 짧게), 실패 후보 = 빨간 고리
         if (info.failer === p.id) tone = 'risk';
+        else if ((Number(t.attachMult) || 1) > 1) tone = 'att'; // 코치 지원 배율 (하르나 슈팅 구역 · 조이 목표 미만) = 코치 색
       } else if (info.healId === p.id) {
         const c = aimCard();
         const hn = healAmountOf(c);
@@ -623,7 +650,7 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     sideFoot.replaceChildren(
       h('div', { class: 'ls-foot-row' }, h('span', { class: 'muted' }, '팀워크'), h('b', {}, st().teamwork ?? 0),
         h('span', { class: 'tiny muted' }, `레슨 중 +${lsn.twAccrued ?? 0}/${twCap}`)),
-      h('div', { class: 'ls-foot-row' }, h('span', { class: 'muted' }, '방침'), h('b', {}, policy.name),
+      h('div', { class: 'ls-foot-row ls-cond' }, h('span', { class: 'muted' }, '방침'), h('b', {}, policy.name),
         h('span', { class: 'tiny muted ellipsis', title: policy.desc }, `컨디션 ${L.CONDITION_LABELS[st().condition] ?? st().condition}`)));
   }
   const healAimNow = () => { const c = aimCard(); return !!(c && c.heal && isLive() && !ui.busy); };
@@ -645,7 +672,13 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
       el.addEventListener('pointerdown', (e) => onCardPointerDown(e, c.uid));
       if (i > 0) el.style.marginLeft = `${round1(step - CARD_W)}px`;
       el.style.zIndex = String(c.uid === ui.aim?.uid ? 20 : i + 1);
-      if (deal) { el.classList.add('deal'); el.style.animationDelay = `${i * 70}ms`; }
+      const popNew = !!c.attach && attachNew === c.uid; // 새 턴에 막 붙은 카드: 손패가 들어온 뒤 260ms 에 칩이 튀어나오고 테두리가 한 번 빛난다
+      if (popNew) el.classList.add('att-new');
+      if (deal) {
+        el.classList.add('deal');
+        el.style.animationDelay = popNew ? `${i * 70}ms, ${i * 70 + 260}ms` : `${i * 70}ms`;
+      }
+      if (popNew) el.style.setProperty('--pop-d', `${(deal ? i * 70 : 0) + 260}ms`);
       return el;
     });
     handEl.replaceChildren(...els);
@@ -678,7 +711,11 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     const c = isLive() && !ui.busy ? aimCard() : null;
     const lines = [];
     if (ui.busy && !inert) {
-      lines.push(h('b', { class: 'ls-guide' }, '훈련 중…'));
+      if (cutNote) {
+        // 코치 지원 발동 (컷인 · 카드 연출 동안 — no-anim 에서는 컷인 덮개 대신 이 줄)
+        lines.push(h('b', { class: 'ls-guide ls-cut-note' }, avatar(cutNote.color, cutNote.short, 'xs'), ` ${cutNote.short} 지원 발동`));
+        lines.push(h('span', { class: 'small ls-cut-sub' }, h('b', {}, cutNote.ability), ` — ${cutNote.text}`));
+      } else lines.push(h('b', { class: 'ls-guide' }, '훈련 중…'));
     } else if (inert || !isLive()) {
       lines.push(h('b', { class: 'ls-guide' }, `레슨 ${L.LESSON_STATUS_LABELS[v.status] ?? v.status}`));
     } else if (ui.drag?.kind === 'tok') {
@@ -691,6 +728,18 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
       lines.push(h('span', { class: 'small muted' }, '누르면 조준 · 지친 선수는 벤치 칸으로 끌어 쉬게'));
       const baseSum = (v.players || []).reduce((a, p) => a + (Number(p.baseNext) || 0), 0);
       if (baseSum > 0) lines.push(h('span', { class: 'small' }, '턴 끝 기본 훈련 ', h('b', { class: 'good' }, `+${baseSum}`), h('span', { class: 'muted' }, ' 예상')));
+      if (cutRecap) {
+        lines.push(h('span', { class: 'small ls-att-line ls-cut-recap' }, avatar(cutRecap.color, cutRecap.short, 'xs'),
+          h('b', {}, ` ${cutRecap.short} 지원 발동`)));
+        lines.push(h('span', { class: 'small ls-cut-sub' }, h('b', {}, cutRecap.ability), ` — ${cutRecap.text}`));
+      }
+      if (v.attach) {
+        // 이번 턴 코치 지원: "[얼굴] 하르나 지원 → 인터벌 슈팅+" / "내면 골문을 보는 눈 · 슈팅 구역 대상 +50%"
+        const ac = handCard(v.attach.uid);
+        lines.push(h('span', { class: 'small ls-att-line', title: ac ? attachTitle(ac.attach, data) : '' },
+          avatar(v.attach.color, v.attach.short, 'xs'), h('b', {}, ` ${v.attach.short} 지원`), ` → ${ac?.name ?? ''}${ac?.plus ? '+' : ''}`));
+        lines.push(h('span', { class: 'tiny ls-att-sub' }, `내면 ${v.attach.ability?.name ?? ''} · ${v.attach.ability?.text ?? ''}`));
+      }
       if (rec) {
         const t = rec.kind === 'play' ? (handCard(rec.uid)?.name ?? '')
           : rec.kind === 'bench' ? `${playerOf(rec.playerId)?.name ?? ''} 벤치 (체력 ${playerOf(rec.playerId)?.stamina ?? ''})` : '턴 끝';
@@ -699,6 +748,10 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     } else {
       const dragging = ui.drag?.kind === 'card';
       lines.push(h('b', { class: 'ls-guide' }, c.name, c.plus ? '+' : '', h('span', { class: 'tiny muted ls-tk' }, ` · ${tkText(c)}`)));
+      if (c.attach && !(pv?.ok && pv.attach)) { // 자리를 고르기 전: 지원 줄 (고른 뒤에는 노트 맨 앞 "하르나 지원 · …" 가 대신한다)
+        lines.push(h('span', { class: 'small ls-att-line', title: attachTitle(c.attach, data) },
+          avatar(c.attach.color, c.attach.short, 'xs'), h('b', {}, ` ${c.attach.short} 지원:`), ` ${c.attach.abilityText ?? ''}`));
+      }
       const a = aimArgs();
       const hasPoint = !!(a && (a.at || a.playerId));
       if (pv?.ok && c.heal) {
@@ -730,7 +783,9 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
       } else if (pv?.reason) {
         lines.push(h('span', { class: 'small bad' }, pv.reason));
       }
-      if (pv?.ok && pv.notes?.length) lines.push(h('ul', { class: 'cf-notes' }, pv.notes.slice(0, 2).map((n) => h('li', {}, n))));
+      // 노트 (코치 지원 노트 "하르나 지원 · 슈팅 구역 ×1.5" 는 맨 앞 — 코치 색. 위 지원 줄과 같은 문구면 뺀다)
+      const notes = pv?.ok ? (pv.notes || []) : [];
+      if (notes.length) lines.push(h('ul', { class: 'cf-notes' }, notes.slice(0, 2).map((n, i) => h('li', { class: i === 0 && pv.attach && n === pv.attach.note ? 'att' : '' }, n))));
       if (!dragging && ui.aim && ui.aim.idx >= 0) {
         const list = candidates(c.uid);
         const cd = list[ui.aim.idx];
@@ -777,10 +832,14 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     renderAim();
   }
   /** 전체 갱신 (엔진 뷰 다시 읽기) — 연출이 끝난 뒤 · 조작이 바뀔 때 */
-  function refresh({ deal = false, flash = [] } = {}) {
+  function refresh({ deal = false, flash = [], attached = null } = {}) {
     if (!alive()) return;
     v = getView(true) || v;
     shown = { score: v.score, stamina: {} };
+    cutNote = null;
+    cutRecap = null;
+    attachNew = attached && v.attach?.uid === attached ? attached : null;
+    setCoach(v.attach?.coachType, v.attach?.color);
     candCache = null;
     rec = isLive() && manager ? safe(() => manager.recommendCard(st(), data)) : null;
     if (ui.aim && !(v.hand || []).some((c) => c.uid === ui.aim.uid && c.playable)) { ui.aim = null; hoverAt = null; }
@@ -796,6 +855,7 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     renderButtons();
     renderAim();
     benchFx = null;
+    attachNew = null;
     scheduleAuto();
   }
 
@@ -829,12 +889,19 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
   function playWith(args) {
     if (!isLive() || ui.busy || !args?.uid) return;
     const vPrev = v;
+    // 코치 지원 배율이 걸린 대상 (미리보기 — 순수, rng 없음): 연출에서 "+N ×1.5" 를 코치 색으로
+    const boost = {};
+    if (handCard(args.uid)?.attach) {
+      try {
+        for (const t of run.previewCard(st(), data, args)?.targets || []) if ((Number(t.attachMult) || 1) > 1) boost[t.id] = Number(t.attachMult);
+      } catch (_) { /* 미리보기 실패는 연출만 줄인다 */ }
+    }
     const r = actions.lessonCall('playCard', args);
     ui.aim = null;
     hoverAt = null;
     ui.drag = null;
     if (r === undefined) { refresh(); return; }
-    animate(vPrev, { kind: 'play', uid: args.uid });
+    animate(vPrev, { kind: 'play', uid: args.uid, boost });
   }
   function playAim() {
     if (!isLive() || ui.busy || !ui.aim) return;
@@ -924,12 +991,18 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     if (press.kind === 'card') {
       const c = handCard(press.uid);
       ui.drag = { kind: 'card', uid: press.uid, at: null, playerId: null, over: null };
-      ghost.className = ['drag-ghost', 'on', 'card-ghost', `fam-${c?.family ?? 'common'}`].join(' ');
-      ghost.replaceChildren(
+      const att = c?.attach || null;
+      ghost.className = ['drag-ghost', 'on', 'card-ghost', `fam-${c?.family ?? 'common'}`, att ? 'attached' : '', att?.coachType ? `co-${att.coachType}` : ''].filter(Boolean).join(' ');
+      if (att?.color) ghost.style.setProperty('--coach-face', att.color);
+      else ghost.style.removeProperty('--coach-face');
+      ghost.replaceChildren(...[
         h('span', { class: 'dg-band' }),
-        h('b', { class: 'dg-name' }, c?.name ?? '', c?.plus ? '+' : ''),
+        att ? h('span', { class: 'dg-coach', title: attachTitle(att, data) }, initialOf(att.short || att.name)) : null,
+        h('b', { class: 'dg-name' }, c?.name ?? '', c?.plus ? [WJ, h('span', { class: att?.upgrade === 'plus' ? 'dg-plus att' : 'dg-plus' }, '+')] : ''), // U+2060: "+" 만 다음 줄로 넘어가지 않게
         h('span', { class: ['dg-tk', c?.heal ? 'heal' : c?.targetKind, c?.size ? `sz-${c.size}` : ''] }, h('i'), tkText(c || {})),
-        c?.power != null ? h('span', { class: 'dg-pw' }, `1인 ${c.power}`) : h('span', { class: 'dg-pw heal' }, c?.heal ? `체력 +${healAmountOf(c) ?? ''}` : '효과'));
+        att ? h('span', { class: 'dg-att' }, `${att.short} 지원`) : null,
+        c?.power != null ? h('span', { class: 'dg-pw' }, `1인 ${c.power}`) : h('span', { class: 'dg-pw heal' }, c?.heal ? `체력 +${healAmountOf(c) ?? ''}` : '효과'),
+      ].filter(Boolean)); // 네이티브 replaceChildren 은 null 을 "null" 글자로 넣는다
     } else {
       const p = playerOf(press.id);
       ui.drag = { kind: 'tok', id: press.id, from: press.from, over: null };
@@ -1193,6 +1266,94 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     else sidePop(id, text, tone === 'bad' ? 'bad' : 'heal');
   }
 
+  /* ---- 코치 컷인 (§15.8 ②) ---- */
+  /** fxPlan.cutin + 내기 전 뷰(붙은 지원 · 손패 카드) → 컷인 그림 정보 */
+  function cutinInfo(fc, vPrev) {
+    const a = vPrev?.attach && vPrev.attach.supportId === fc.supportId ? vPrev.attach : null;
+    const sp = (data.supports || []).find((x) => x.id === fc.supportId) || null;
+    const coach = fc.coach || a?.name || sp?.name || '';
+    const parts = String(coach).trim().split(/\s+/);
+    return {
+      supportId: fc.supportId, coach, short: a?.short || parts[parts.length - 1] || coach,
+      color: a?.color || sp?.portraitColor || '#4b5563', coachType: a?.coachType || sp?.type || null,
+      ability: fc.name || a?.ability?.name || '', text: fc.text || a?.ability?.text || '', line: coachLine(fc.supportId),
+      repeat: Number(fc.repeat) || 0, card: (vPrev?.hand || []).find((c) => c.uid === fc.uid) || null,
+    };
+  }
+  /**
+   * 컷인 덮개를 띄우고 닫히면 next() — 첫 컷인(repeat 0) CUT_MS.first · 다음부터 .short CUT_MS.repeat.
+   * 넘기기: 덮개 누르기(pointerdown · click) · Enter · Space · Esc. no-anim 이면 덮개 없이 바로 next (dock 안내 칸이 cutNote 를 보인다).
+   */
+  function showCutin(cut, next) {
+    const short = cut.repeat > 0;
+    const dur = Number(short ? CUT_MS.repeat : CUT_MS.first) || 0;
+    if (reduced || dur <= 0) { next(); return; }
+    const typeLabel = cut.coachType ? (L.STAT_LABELS[cut.coachType] ?? '') : '';
+    const card = cut.card;
+    cutLayer.className = ['ls-cutin', 'on', short ? 'short' : 'first', cut.coachType ? `co-${cut.coachType}` : ''].filter(Boolean).join(' ');
+    cutLayer.style.setProperty('--t-cut', `${dur}ms`);
+    cutLayer.style.setProperty('--coach-face', cut.color);
+    cutLayer.setAttribute('aria-label', `${cut.coach} 지원: ${cut.text}`);
+    cutLayer.replaceChildren(
+      h('div', { class: 'lc-flash', 'aria-hidden': 'true' }),
+      h('div', { class: ['lc', short ? 'short' : ''] },
+        h('div', { class: 'lc-band' },
+          h('span', { class: 'lc-face', 'aria-hidden': 'true' }, initialOf(cut.short || cut.coach)),
+          h('div', { class: 'lc-txt' },
+            h('small', {}, `코치 지원${typeLabel ? ` · ${typeLabel}` : ''}`),
+            h('b', {}, cut.coach),
+            cut.line ? h('span', { class: 'lc-line' }, `“${cut.line}”`) : null,
+            h('span', { class: 'lc-sub' }, h('em', {}, cut.ability), h('span', {}, cut.text))),
+          card ? h('span', { class: ['lc-card', `fam-${card.family || 'common'}`], 'aria-hidden': 'true' },
+            h('i', { class: 'lc-card-band' }),
+            h('b', { class: 'lc-card-nm' }, card.name, card.plus ? WJ : null, card.plus ? h('span', { class: card.attach?.upgrade === 'plus' ? 'lc-plus att' : 'lc-plus' }, '+') : null),
+            card.power != null ? h('span', { class: 'lc-card-pw' }, `1인 ${card.power}`) : h('span', { class: 'lc-card-pw' }, '효과'),
+            h('span', { class: 'lc-card-tag' }, '지원')) : null)),
+      ...(short ? [] : [h('span', { class: 'lc-skip' }, '탭하여 넘기기')]));
+    let done = false;
+    let tid = null;
+    const onK = (e) => {
+      if (!alive()) { document.removeEventListener('keydown', onK, true); return; }
+      if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar' || e.key === 'Escape') {
+        e.preventDefault?.();
+        e.stopPropagation?.();
+        close();
+      }
+    };
+    const close = () => {
+      if (done) return;
+      done = true;
+      cutClose = null;
+      if (tid != null) clearTimeout(tid);
+      document.removeEventListener('keydown', onK, true);
+      cutLayer.className = 'ls-cutin';
+      cutLayer.replaceChildren();
+      if (alive()) next();
+    };
+    cutClose = close;
+    document.addEventListener('keydown', onK, true);
+    tid = setTimeout(() => {
+      if (alive()) close();
+      else document.removeEventListener('keydown', onK, true);
+    }, dur);
+  }
+  /** 능력 연출 (카드 "+N" 과 함께): 경기장 가운데 알약 — 코치 얼굴 · 능력 이름 · 효과 · 결과 (힌트 · 컨디션 · 유대), 컨디션이 오르면 옆 칸 컨디션 줄이 빛난다 */
+  function abilityFx(cut, plan) {
+    const bits = [];
+    if (plan.play.hints.includes(cut.supportId)) bits.push(['hint', '힌트 획득!']);
+    if (plan.play.condition > 0) bits.push(['cond', `컨디션 +${plan.play.condition}`]);
+    const bond = plan.play.bond.find((b) => b.supportId === cut.supportId);
+    if (bond?.n) bits.push(['bond', `유대 +${bond.n}`]);
+    const el = h('div', { class: ['ls-abil', cut.coachType ? `co-${cut.coachType}` : ''] },
+      h('span', { class: 'la-face', style: { background: cut.color } }, initialOf(cut.short || cut.coach)),
+      h('b', { class: 'la-name' }, cut.ability),
+      h('span', { class: 'la-text' }, cut.text),
+      bits.map(([k, t]) => h('span', { class: ['la-bit', k] }, t)));
+    popLayer.append(el);
+    setTimeout(() => el.remove(), reduced ? 900 : 1700);
+    if (plan.play.condition > 0) sideFoot.querySelector('.ls-cond')?.classList.add('flash');
+  }
+
   function animate(vPrev, act) {
     setBusy(true);
     pv = null;
@@ -1201,6 +1362,10 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     ui.shownSeq = L1?.seq ?? ui.shownSeq;
     const vNew = getView(true) || v;
     const ended = st().phase !== 'lesson' || vNew.status !== 'playing';
+    const cut = act.kind === 'play' && plan.cutin ? cutinInfo(plan.cutin, vPrev) : null;
+    const boost = act.boost || {};
+    cutNote = cut ? { color: cut.color, name: cut.coach, short: cut.short, ability: cut.ability, text: cut.text } : null;
+    if (cut) setCoach(cut.coachType, cut.color);
     // 보여 주는 값: 처음에는 이전 점수 · 체력 (카드 비용은 바로), 단계마다 바꾼다
     v = vPrev;
     shown = { score: vPrev.score, stamina: {}, turn: vPrev.turn };
@@ -1225,7 +1390,10 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     const stepA = () => {
       if (!targets.length) { stepB(); return; }
       screen.classList.add('drilling-on'); // 훈련하지 않는 선수는 옅게
-      for (const id of targets) tokEls.get(id)?.classList.add('drilling');
+      for (const id of targets) {
+        tokEls.get(id)?.classList.add('drilling');
+        if (cut) tokEls.get(id)?.classList.add('att-drill'); // 코치 지원 카드: 훈련 고리 = 코치 색
+      }
       later(stepB, LESSON_T.act);
     };
     const stepB = () => {
@@ -1236,6 +1404,7 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
         const g = plan.play.gain[id];
         const f = plan.play.fail[id];
         if (f) { popAt(id, f.injured ? `부상! −${f.n}` : `실패 −${f.n}`, 'bad'); any = true; }
+        else if (g && cut && boost[id] > 1) { popAt(id, `+${g.n} ×${round1(boost[id])}`, 'good', 'att'); any = true; } // 코치 능력 배율 = 코치 색
         else if (g) { popAt(id, g.sub && targets.length <= 2 ? `+${g.n}  (${L.STAT_SHORT[g.subStat] ?? '부'}+${g.sub})` : `+${g.n}`, 'good'); any = true; }
       }
       for (const [id, n] of Object.entries(plan.play.heal)) {
@@ -1249,11 +1418,12 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
       if (flash.length) renderChips(flash);
       renderTokens();
       renderSide();
-      later(stepC, targets.length ? LESSON_T.hold : any || flash.length ? 420 : 0);
+      if (cut) { abilityFx(cut, plan); any = true; }
+      later(stepC, targets.length ? LESSON_T.hold : any || flash.length ? (cut ? LESSON_T.hold : 420) : 0);
     };
     const stepC = () => {
       screen.classList.remove('drilling-on');
-      for (const id of targets) tokEls.get(id)?.classList.remove('drilling');
+      for (const id of targets) tokEls.get(id)?.classList.remove('drilling', 'att-drill');
       // 부상으로 경기장을 떠난 선수 · 퍼펙트 등은 새 뷰로 (턴 끝이 없으면 바로 마무리)
       if (plan.turn && plan.turn.turn != null) stepTurn();
       else stepEnd();
@@ -1299,9 +1469,12 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
         return;
       }
       setBusy(false);
-      refresh({ deal: !!plan.draw });
+      const recap = reduced && cutNote ? cutNote : null;
+      refresh({ deal: !!plan.draw, attached: plan.attach?.uid ?? null });
+      if (recap && alive()) { cutRecap = recap; renderInfo(); }
     };
-    stepA();
+    if (cut) showCutin(cut, stepA);
+    else stepA();
   }
 
   /* ------------------------------------------------------------------ */

@@ -208,6 +208,41 @@ function crowdState(name, data, runSeed, zoneList) {
   return { ...b, summary: `${b.summary} (구역 주입: ${zoneList.join(" · ")})` };
 }
 
+// ---- 코치 지원 · 컷인 시나리오 도우미 (§15.8, L37) ----
+/** 슈팅 구역에 선 경기장 선수 수 */
+const inZone = (s, z) => Object.entries(s.lesson.zones || {}).filter(([id, zz]) => zz === z && !s.lesson.bench.includes(id) && !s.lesson.out.includes(id)).length;
+/**
+ * 코치 지원이 붙은 레슨 (스크린샷용 주입): 조건(기본 2턴째 이후 · 낼 수 있음 · 그 코치 편성)을 만족하는 레슨에서 손패 첫 장을 cardId 로 바꾸고
+ * supportId 코치를 붙인다 (lesson.attach.cur — 엔진은 붙는 턴 · 카드를 rng 로 정하므로 장면을 고르려면 주입). 강화 전 카드라 upgrade = "plus".
+ * cutins = 이번 레슨 앞선 컷인 수 (1 이상 = 짧은 컷인). info = { uid, cardId, supportId, at, ids } (choose 로 고른 후보 점)
+ */
+function attachInject(name, data, runSeed, cardId, supportId, { cutins = 0, until, choose } = {}) {
+  const base = (s) => playingLesson(s) && s.lesson.turn >= 2 && s.lesson.playsLeft >= 1 && (s.supports || []).some((x) => x.id === supportId);
+  const b = walkOrThrow(name, data, { seed: runSeed, until: (s) => base(s) && (!until || until(s)) });
+  const st = b.runState;
+  const uid = withHandCard(st, cardId, 0);
+  const L = st.lesson;
+  const A = L.attach || (L.attach = { turns: [], cur: null, count: {}, log: [], hints: [] });
+  A.cur = { uid, supportId, turn: L.turn, upgrade: "plus" };
+  A.count[supportId] = (A.count[supportId] || 0) + 1;
+  A.log.push({ turn: L.turn, supportId, uid, cardId, played: false });
+  L.stats.attaches = (L.stats.attaches || 0) + 1;
+  L.stats.cutins = cutins;
+  const list = lessonRun.dropCandidates(st, data, { uid });
+  const cd = choose ? choose(list, st) : list[0];
+  return { ...b, info: { uid, cardId, supportId, at: cd?.at ? { x: cd.at.x, y: cd.at.y } : null, ids: cd?.ids || [] }, summary: `${b.summary} (손패 첫 장 = ${cardId} + ${supportId} 지원 주입, 앞선 컷인 ${cutins})` };
+}
+/** 하르나(슈팅 구역 ×1.5) + 인터벌 슈팅(중간 원): 슈팅 구역에 2명 이상 선 레슨, 원 = 슈팅 구역 중심 */
+const harnaShoot = (name, data, runSeed, opts = {}) => attachInject(name, data, runSeed, "cd_c_harr", "sp_coach_harr", {
+  ...opts, until: (s) => inZone(s, "shoot") >= 2,
+  choose: (list) => list.find((c) => c.kind === "zone" && c.zone === "shoot") || mostTargets(list),
+});
+/** 낸다: 카드 클릭(조준) → hover → 타이머 풀고 경기장 클릭 → wait ms → CSS 애니메이션 · 타이머 고정 (연출 중간 프레임) */
+const playMid = (prepared, ms) => [
+  { click: `.ls-hand .card-face[data-uid="${prepared.info.uid}"]` }, { hoverAt: { sel: FIELD, ...prepared.info.at } },
+  { freeze: false }, { clickAt: { sel: FIELD, ...prepared.info.at }, waitMs: 0 }, { wait: ms }, { pauseAnim: true }, { freeze: true },
+];
+
 // 아웃게임 시나리오 모양은 tools/scenarios.mjs 머리말 (og_*). 진입 = 시작 화면 [이어하기] (레슨 런 저장본)
 export const LESSON_OG_SCENARIOS = [
   {
@@ -536,6 +571,79 @@ export const LESSON_OG_SCENARIOS = [
     ready: ".lesson-screen .m-pop",
     expect: { screen: "run", phase: "lesson", modal: false },
   },
+  // ---- 코치 지원 · 컷인 (§15.8, L37) ----
+  {
+    // 손패에 코치가 붙은 카드: 코치 색 테두리 · 빛 · 줄무늬 띠 · 메타 줄 코치 칩 (얼굴 + "하르나 지원") · 코치 색 "+" · dock 지원 줄
+    name: "og_lesson_attach",
+    title: "레슨 — 코치 지원이 붙은 카드 (하르나 → 인터벌 슈팅+)",
+    outgame: true,
+    build: (data, { runSeed }) => harnaShoot("og_lesson_attach", data, runSeed),
+    ready: ".lesson-screen .card-face.attached .cf-coach",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 붙은 카드 조준 (슈팅 구역 중심): ×1.5 가 걸린 대상 "+N" = 코치 색 말풍선 · 노트 맨 앞 "하르나 지원 · 슈팅 구역 ×1.5"
+    name: "og_lesson_attach_aim",
+    title: "레슨 — 하르나 지원 카드 조준: 코치 색 +N · 지원 노트",
+    outgame: true,
+    build: (data, { runSeed }) => harnaShoot("og_lesson_attach_aim", data, runSeed),
+    steps: (prepared) => [{ click: `.ls-hand .card-face[data-uid="${prepared.info.uid}"]` }, { hoverAt: { sel: FIELD, ...prepared.info.at } }],
+    ready: ".lesson-screen .tok-name.bub.att",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 붙은 카드를 끄는 중 (손패 위, 누른 채): 유령 = 코치 색 테두리 · 코치 얼굴 · "하르나 지원"
+    name: "og_lesson_attach_drag",
+    title: "레슨 — 하르나 지원 카드 끄는 중 (유령에 코치 얼굴)",
+    outgame: true,
+    build: (data, { runSeed }) => harnaShoot("og_lesson_attach_drag", data, runSeed),
+    steps: (prepared) => [{ drag: { from: `.ls-hand .card-face[data-uid="${prepared.info.uid}"]`, to: ".lesson-screen .ls-info", steps: 8 } }],
+    ready: ".drag-ghost.card-ghost.attached .dg-coach",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 첫 컷인 중간 (0.9초 중 0.42초): 덮개 · 코치 타입 색 띠 · 얼굴 · 이름 · 대사 · 능력 · 낸 카드 · "탭하여 넘기기"
+    name: "og_lesson_cutin",
+    title: "레슨 — 코치 컷인 (첫 번, 중간 프레임): 하르나 · 골문을 보는 눈",
+    outgame: true,
+    build: (data, { runSeed }) => harnaShoot("og_lesson_cutin", data, runSeed),
+    steps: (prepared) => playMid(prepared, 420),
+    ready: ".ls-cutin.on .lc-band",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 컷인이 끝난 뒤 능력 연출: 슈팅 구역 대상 "+N ×1.5" (코치 색) · 훈련 고리 코치 색 · 경기장 가운데 능력 알약 (유대 +5)
+    name: "og_lesson_cutin_after",
+    title: "레슨 — 컷인 뒤 능력 연출: +N ×1.5 (코치 색) · 능력 알약",
+    outgame: true,
+    build: (data, { runSeed }) => harnaShoot("og_lesson_cutin_after", data, runSeed),
+    steps: (prepared) => playMid(prepared, 1480),
+    ready: ".lesson-screen .ls-abil",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 두 번째 컷인 (짧은 판 0.6초 중 0.25초): 오르넬라 → 2인 1조 드릴 (새 작은 원 카드) — 섬광 · 얼굴 튀기 · "탭하여 넘기기" 없음
+    name: "og_lesson_cutin_short",
+    title: "레슨 — 코치 컷인 (두 번째, 짧은 판): 오르넬라 · 2인 1조 드릴",
+    outgame: true,
+    build: (data, { runSeed }) => attachInject("og_lesson_cutin_short", data, runSeed, "cd_pair_drill", "sp_elder_sage", {
+      cutins: 1, choose: (list) => list.find((c) => c.ids.length === 2) || mostTargets(list),
+    }),
+    steps: (prepared) => playMid(prepared, 250),
+    ready: ".ls-cutin.on.short .lc-band",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 움직임 줄이기 (prefers-reduced-motion): 컷인 덮개 없이 dock 안내 칸에 "바르바라 지원 발동 — 다치지 않는 법 · 이 카드 실패 없음"
+    name: "og_lesson_cutin_noanim",
+    title: "레슨 — 움직임 줄이기: 컷인 대신 안내 칸 (바르바라 지원 발동)",
+    outgame: true,
+    reducedMotion: true,
+    build: (data, { runSeed }) => attachInject("og_lesson_cutin_noanim", data, runSeed, "cd_mf_drill", "sp_iron_captain", { choose: mostTargets }),
+    steps: (prepared) => [{ click: `.ls-hand .card-face[data-uid="${prepared.info.uid}"]` }, { clickAt: { sel: FIELD, ...prepared.info.at }, waitMs: 400 }],
+    ready: ".lesson-screen .ls-cut-recap",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
   {
     // 체력이 낮은 선수 2명 이상: 막대 · 숫자 빨강/주황, 토큰 왼쪽 위 실패율 경고
     name: "og_lesson_tired",
@@ -580,8 +688,11 @@ export const LESSON_OG_SCENARIOS = [
     title: "레슨 — 턴 끝 연출: 기본 훈련 +N (분위기 몫 포함) · 턴 배너",
     outgame: true,
     build: (data, { runSeed }) => {
-      const rangeCard = (s) => lessonHand(data, s).find((c) => isAllCard(c) && c.playable);
-      const found = walkLesson(data, { seed: runSeed, policy: "team", until: (s) => playingLesson(s) && s.lesson.buffs.mood > 0 && s.lesson.playsLeft === 1 && !!rangeCard(s) });
+      // 코치 지원이 붙은 카드는 빼고 (컷인이 먼저라 1.25초 지점이 달라진다). 붙기 rng (§15) 로 seed 1 에서 못 찾으면 seed 를 바꿔 찾는다
+      const rangeCard = (s) => lessonHand(data, s).find((c) => isAllCard(c) && c.playable && !c.attach);
+      const cond = (s) => playingLesson(s) && s.lesson.buffs.mood > 0 && s.lesson.playsLeft === 1 && !!rangeCard(s);
+      let found = null;
+      for (let k = 0; k < 30 && !found; k++) found = walkLesson(data, { seed: k ? `${runSeed}-turnend-${k}` : runSeed, policy: "team", until: cond });
       if (!found) throw new Error("[og_lesson_turnend] 상태를 찾지 못했습니다");
       return { runState: found.state, steps: found.steps, info: { cardId: rangeCard(found.state).cardId }, preferred: true, summary: describeLessonRun(found.state) };
     },
@@ -598,7 +709,7 @@ export const LESSON_OG_SCENARIOS = [
     title: "레슨 — 퍼펙트 배너 (레슨 끝 연출, 보상 모달 직전)",
     outgame: true,
     build: (data, { runSeed }) => {
-      const rangeCard = (s) => lessonHand(data, s).find((c) => isAllCard(c) && c.playable);
+      const rangeCard = (s) => lessonHand(data, s).find((c) => isAllCard(c) && c.playable && !c.attach); // 코치 지원 카드면 컷인이 먼저라 1.3초 지점이 달라진다
       const found = walkLesson(data, { seed: runSeed, until: (s) => playingLesson(s) && s.lesson.turn >= 3 && !!rangeCard(s) });
       if (!found) throw new Error("[og_lesson_end] 상태를 찾지 못했습니다");
       found.state.lesson.score = found.state.lesson.cap - 1;

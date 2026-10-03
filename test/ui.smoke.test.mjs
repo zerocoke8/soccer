@@ -1513,6 +1513,8 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
     assert.equal(fin.record.goalMatches.length, 3, "경계전 3회");
     assert.ok(fin.record.lessons.length >= 1 && fin.record.lessons.length <= 9, `레슨 ${fin.record.lessons.length}회 (최대 9)`);
     for (const ph of ["week", "lesson", "reward", "prep", "match", "route"]) assert.ok(seen[ph] > 0, `거친 화면: ${ph}`);
+    const cutinsRun = fin.record.lessons.reduce((a, l) => a + (Number(l.cutins) || 0), 0);
+    assert.ok(cutinsRun >= 1, `완주 중 코치 컷인 ${cutinsRun}번 (§15.9)`);
     assert.equal(JSON.parse(window.localStorage.getItem(KEYS.run)).phase, "finished", "끝난 런 저장");
     // 결과 화면 → [팀 등록]
     assert.ok(doc.querySelector(".result-screen .result-hero"), "결과 화면");

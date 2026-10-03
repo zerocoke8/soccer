@@ -5,11 +5,13 @@
 //   miniCard(view, opts) → .mini-card (덱 그리드 · 대비 카드 미리보기용 작은 한 줄 카드)
 //
 // view 는 두 모양을 받는다:
-//   - 레슨 손패 (lesson.getLessonView hand[]): { uid, cardId, name, family, plus, bond80, targetKind, size, radius, onlyZones, heal, playable, deadReason, power, cost, exhaust, desc }
+//   - 레슨 손패 (lesson.getLessonView hand[]): { uid, cardId, name, family, plus, bond80, targetKind, size, radius, onlyZones, heal, playable, deadReason, power, cost, exhaust, desc, attach }
+//     attach (코치 지원 §15.5 · §15.8) = { supportId, name, short, color, coachType, abilityName, abilityText, upgrade } | null —
+//     붙은 카드: .attached + co-<코치 타입> (테두리 · 빛 · 띠 = 코치 타입 색), 메타 줄 맨 앞 코치 칩 (얼굴 + "하르나 지원"), 지원 강화 "+" 는 코치 색
 //   - 보상 · 상담 · 덱 (lessonRun 카드 뷰): { uid, cardId, name, family, plus, bond80, targetKind, target, power, costRate, exhaust, desc, ownerCharId, coachType, … }
 // opts: { data, players?, recommended?, selected?, dim?, reason?, tag?, onClick?, title?, el? ('button'|'div') }
 //   data = 데이터 (cards.json 에서 원 크기 · 구역 제한 · 기본 위력 · 주인을 읽는다), players = 선수 목록 (주인 이름 · 색 — 없으면 data.characters)
-import { h } from './dom.js';
+import { h, avatar } from './dom.js';
 import * as L from './labels.js';
 
 function cardDefOf(data, cardId) {
@@ -123,6 +125,14 @@ export function effectDesc(desc) {
   return m[1].replace(/^,\s*/, '').trim();
 }
 
+/** 코치 지원 문구 (카드 title · 칩 title): "코치 하르나 지원 — 이번 턴만 강화 · 내면: 슈팅 구역 대상 +50%" */
+export function attachTitle(att, data) {
+  if (!att) return '';
+  const pct = Math.round((Number(data?.lesson?.attach?.overPct) || 0.2) * 100);
+  const up = att.upgrade === 'plus' ? '이번 턴만 강화' : att.upgrade === 'pct' ? `이번 턴만 위력 +${pct}%` : '이번 턴';
+  return `${att.name} 지원 — ${up} · 내면: ${att.abilityText ?? ''}`;
+}
+
 /**
  * 카드 앞면 (고정 176×204 — css/lesson.css .card-face). 낼 수 없으면 .dim + 이유 띠.
  * @param {object} view 카드 뷰
@@ -147,11 +157,13 @@ export function cardFace(view, opts = {}) {
   const desc = effectDesc(fullDesc);
   const uniqueColor = family === 'unique' ? (players || []).find((p) => p.charId === ownerCharId)?.portraitColor : null;
   const tagName = opts.el ?? (onClick ? 'button' : 'div');
+  const att = view.attach || null;
+  const attPct = Math.round((Number(data?.lesson?.attach?.overPct) || 0.2) * 100);
   const attrs = {
     class: ['card-face', `fam-${family}`, view.plus ? 'plus' : '', view.bond80 ? 'bond80' : '', dim ? 'dim' : '', selected ? 'selected' : '',
-      recommended ? 'recommended' : '', t.kind ? `tk-${t.kind}` : ''],
-    dataset: { uid: view.uid ?? '', card: view.cardId ?? '' },
-    title: title ?? [`${view.name}${view.plus ? '+' : ''}`, fullDesc, reason ? `낼 수 없음: ${reason}` : ''].filter(Boolean).join('\n'),
+      recommended ? 'recommended' : '', t.kind ? `tk-${t.kind}` : '', att ? 'attached' : '', att?.coachType ? `co-${att.coachType}` : ''],
+    dataset: { uid: view.uid ?? '', card: view.cardId ?? '', coach: att?.supportId ?? '' },
+    title: title ?? [att ? attachTitle(att, data) : '', `${view.name}${view.plus ? '+' : ''}`, fullDesc, reason ? `낼 수 없음: ${reason}` : ''].filter(Boolean).join('\n'),
   };
   if (tagName === 'button') {
     attrs.type = 'button';
@@ -162,20 +174,23 @@ export function cardFace(view, opts = {}) {
   const ticon = t.kind && t.kind !== 'none' ? h('i', { class: ['cf-ticon', t.heal ? 'heal' : t.kind, t.size ? `sz-${t.size}` : ''], 'aria-hidden': 'true' }) : null;
   const el = h(tagName, attrs,
     h('span', { class: 'cf-band', 'aria-hidden': 'true' }),
-    h('span', { class: 'cf-name' }, view.name ?? view.cardId, view.plus ? h('b', { class: 'cf-plus' }, '+') : null),
+    h('span', { class: 'cf-name' }, view.name ?? view.cardId, view.plus ? h('b', { class: ['cf-plus', att?.upgrade === 'plus' ? 'att' : ''] }, '+') : null),
     h('span', { class: 'cf-meta' },
+      att ? h('span', { class: 'cf-coach', title: attachTitle(att, data) }, avatar(att.color, att.short || att.name, 'xs', 'cf-coach-face'), h('b', {}, `${att.short} 지원`)) : null,
       h('span', { class: 'cf-fam' }, famLabel),
       view.bond80 ? h('span', { class: 'cf-bond' }, '유대80') : null,
       view.exhaust ? h('span', { class: 'cf-ex', title: '낸 뒤 이번 레슨에서 빠진다' }, '1회') : null),
     h('span', { class: ['cf-target', t.kind ? `tk-${t.kind}` : ''] }, ticon, targetText(view, def)),
     h('span', { class: ['cf-power', hasPower ? '' : 'muted'] }, powerLine,
-      hasPower && t.kind === 'owner' ? h('span', { class: 'cf-pmult', title: '주인이 자기 포지션 주 스탯 구역에 서 있으면' }, `주 스탯 구역 ${L.multText(uniqueMainMult(data))}`) : null),
+      hasPower && att?.upgrade === 'pct' ? h('span', { class: 'cf-pmult att', title: '코치 지원 — 이미 강화된 카드라 이번 턴 위력 +' + attPct + '%' }, `지원 +${attPct}%`) : null,
+      hasPower && t.kind === 'owner' && att?.upgrade !== 'pct' ? h('span', { class: 'cf-pmult', title: '주인이 자기 포지션 주 스탯 구역에 서 있으면' }, `주 스탯 구역 ${L.multText(uniqueMainMult(data))}`) : null),
     cost ? h('span', { class: ['cf-cost', /소모 없음/.test(cost) ? 'none' : ''] }, cost) : null,
     h('span', { class: 'cf-desc' }, desc),
     recommended ? h('span', { class: 'cf-rec' }, '추천') : null,
     tag ? h('span', { class: 'cf-tag' }, tag) : null,
     reason ? h('span', { class: 'cf-reason' }, reason) : null);
   if (uniqueColor) el.style.setProperty('--fam', uniqueColor); // 고유 카드 띠 = 주인 초상 색
+  if (att?.color) el.style.setProperty('--coach-face', att.color);
   return el;
 }
 

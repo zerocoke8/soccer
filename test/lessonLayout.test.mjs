@@ -214,6 +214,78 @@ test("fxPlan: 실제 엔진 lastFx — 전체 카드(경기장 전원) → 턴 �
   }
 });
 
+test("fxPlan: 코치 지원 합성 lastFx — 컷인(맨 앞) · 컷인 유대 · 힌트 · 컨디션 · 새 턴 붙기 (§15.4 · §15.8)", () => {
+  const fx = [
+    { t: "cutin", supportId: "sp_elder_sage", uid: "k3", cardId: "cd_one_two", coach: "현자 오르넬라", name: "빈 공간의 지혜", text: "팀워크 +3 · 50%로 힌트", repeat: 1 },
+    { t: "cost", id: "p1", n: 8 }, { t: "gain", id: "p1", stat: "pass", n: 20, sub: 6, subStat: "dribble" },
+    { t: "tw", n: 3 }, { t: "hint", supportId: "sp_elder_sage", src: "cutin" }, { t: "condition", n: 1, src: "cutin" },
+    { t: "bond", supportId: "sp_elder_sage", n: 5 },
+    { t: "base", id: "p1", stat: "pass", n: 4 }, { t: "turnEnd", turn: 2 }, { t: "scatter", zones: { p1: "pass" } }, { t: "draw", uids: ["k5", "k6", "k7"] },
+    { t: "attach", uid: "k6", supportId: "sp_coach_harr", upgrade: "plus" },
+  ];
+  const p = fxPlan(fx);
+  assert.deepEqual(p.cutin, { supportId: "sp_elder_sage", uid: "k3", cardId: "cd_one_two", coach: "현자 오르넬라", name: "빈 공간의 지혜", text: "팀워크 +3 · 50%로 힌트", repeat: 1 });
+  assert.deepEqual(p.play.targets, ["p1"], "컷인 뒤 카드 단계 그대로");
+  assert.deepEqual(p.play.bond, [{ supportId: "sp_elder_sage", n: 5 }]);
+  assert.deepEqual(p.play.hints, ["sp_elder_sage"]);
+  assert.equal(p.play.condition, 1);
+  assert.equal(p.play.tw, 3);
+  assert.deepEqual(p.turn.base, { p1: 4 });
+  assert.deepEqual(p.draw, ["k5", "k6", "k7"]);
+  assert.deepEqual(p.attach, { uid: "k6", supportId: "sp_coach_harr", upgrade: "plus" }, "새 턴 붙기 = 새 손패 뒤");
+  const none = fxPlan([{ t: "cost", id: "p1", n: 3 }, { t: "condition", n: 1 }]);
+  assert.equal(none.cutin, null);
+  assert.equal(none.attach, null);
+  assert.deepEqual(none.play.bond, []);
+  assert.deepEqual(none.play.hints, []);
+  assert.equal(none.play.condition, 1, "카드 effects 의 컨디션도 카드 단계");
+});
+
+test("fxPlan: 실제 엔진 — 새 턴 붙기 attach = 뷰 attach, 붙은 카드를 내면 cutin 이 lastFx 맨 앞 · 유대 +5 (첫 컷인 repeat 0)", () => {
+  const data = loadData();
+  const cfg = data.config;
+  let st = null;
+  let v = null;
+  for (let k = 0; k < 30 && !st; k++) {
+    const base = lessonRun.createRun({
+      data, seed: `layout-att-${k}`, squad: cfg.defaultSquad.slots, formation: cfg.defaultSquad.formation,
+      supportIds: cfg.defaultSupports, tactics: cfg.defaultTactics, policy: "team",
+    });
+    const s = clone(base);
+    lessonRun.applyWeekAction(s, data, { type: "lesson", zone: "pass" });
+    for (let t = 0; t < 6 && s.phase === "lesson" && s.lesson.status === "playing"; t++) {
+      const vv = lessonRun.getLessonView(s, data);
+      const c = vv.attach && vv.hand.find((x) => x.uid === vv.attach.uid);
+      if (c && c.playable && (vv.cutins || 0) === 0 && fxPlan(vv.lastFx).attach) { st = s; v = vv; break; }
+      lessonRun.endLessonTurn(s, data);
+    }
+  }
+  assert.ok(st, "붙은 카드가 있는 새 턴");
+  const p0 = fxPlan(v.lastFx);
+  assert.deepEqual(p0.attach, { uid: v.attach.uid, supportId: v.attach.supportId, upgrade: v.attach.upgrade }, "fxPlan.attach = 뷰 attach");
+  assert.deepEqual(p0.draw, v.hand.map((c) => c.uid), "붙기는 새 손패 뒤");
+  const card = v.hand.find((c) => c.uid === v.attach.uid);
+  assert.ok(card.attach && card.attach.supportId === v.attach.supportId, "손패 카드 뷰에도 attach");
+  const args = { uid: card.uid };
+  if (card.targetKind === "circle" || card.targetKind === "single") {
+    const cd = lessonRun.dropCandidates(st, data, { uid: card.uid })[0];
+    if (card.heal) args.playerId = cd.playerId;
+    else args.at = cd.at;
+  }
+  const bondBefore = st.supports.find((x) => x.id === v.attach.supportId).bond;
+  lessonRun.playCard(st, data, args);
+  const lf = lessonRun.getLessonView(st, data).lastFx;
+  assert.equal(lf[0].t, "cutin", "cutin = lastFx 맨 앞");
+  const p = fxPlan(lf);
+  assert.equal(p.cutin.supportId, v.attach.supportId);
+  assert.equal(p.cutin.uid, card.uid);
+  assert.equal(p.cutin.repeat, 0, "이번 레슨 첫 컷인");
+  assert.equal(p.cutin.name, data.lesson.attach.abilities[v.attach.supportId].name, "능력 이름");
+  const bondAfter = st.supports.find((x) => x.id === v.attach.supportId).bond;
+  const b = p.play.bond.find((x) => x.supportId === v.attach.supportId);
+  if (bondAfter !== bondBefore) assert.ok(b && b.n > 0, "유대 fx");
+});
+
 // 플레이 점검 (2026-10-02) · §14.16: 보상 · 상담 카드 앞면의 비용 = 엔진 1인 비용 (cards.staminaCost — 원 · 전체도 1인당, 인원 계산 없음)
 test("cards.js estimateCost/costText: 보상 · 상담 카드 비용 = 엔진 1인 비용 (기본 위력, 강화판 · 유대 80 은 비용 그대로, 고유 = 주 스탯 구역 ×1.5 범위)", async () => {
   const { estimateCost, costText, targetText, powerText, effectDesc } = await import("../js/ui/cards.js");

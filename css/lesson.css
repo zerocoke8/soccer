@@ -730,3 +730,177 @@ button.mini-card { cursor: pointer; }
 .prep-edit .meeting-board .lu-pitch { flex: 1 1 auto; height: auto; min-height: 0; }
 .prep-edit .meeting-tactics .field > .select { min-height: 34px; padding: 4px 10px; }
 .prep-go { min-width: 220px; }
+
+/* ================================================================== */
+/* 코치 지원 · 컷인 (§15.8, L37) — 붙은 카드 · 끌기 유령 · 컷인 덮개 · 능력 연출   */
+/*   코치 타입 색: --coach = 밝은 색 (어두운 판 위 테두리 · 빛 · 글자), --coach-d = 짙은 색 (컷인 띠 · 알약 바탕 — 흰 글자),   */
+/*   --coach-a = 빛 (반투명), --coach-t = 옅은 바탕. 얼굴 = --coach-face (코치 초상 색)                                     */
+/* ================================================================== */
+.co-shoot { --coach: #ff9466; --coach-d: #c94a17; --coach-a: rgba(255, 148, 102, .55); --coach-t: rgba(255, 148, 102, .16); }
+.co-dribble { --coach: #c6ea64; --coach-d: #5a8f14; --coach-a: rgba(198, 234, 100, .5); --coach-t: rgba(198, 234, 100, .14); }
+.co-pass { --coach: #63d8ec; --coach-d: #13819b; --coach-a: rgba(99, 216, 236, .5); --coach-t: rgba(99, 216, 236, .15); }
+.co-defense { --coach: #8fb0ff; --coach-d: #2f5bc9; --coach-a: rgba(143, 176, 255, .55); --coach-t: rgba(143, 176, 255, .16); }
+.co-physical { --coach: #c79bff; --coach-d: #7442c9; --coach-a: rgba(199, 155, 255, .55); --coach-t: rgba(199, 155, 255, .16); }
+
+/* ---- 붙은 카드 (cards.js .attached): 코치 색 테두리 + 빛 · 사선 줄무늬 띠(흐름) · 위쪽 옅은 코치 색 · 지나가는 반짝임 ---- */
+.card-face.attached {
+  border-color: var(--coach, var(--gold));
+  background: linear-gradient(180deg, var(--coach-t, rgba(255, 255, 255, .08)), rgba(0, 0, 0, 0) 38%), linear-gradient(180deg, var(--panel-3), var(--panel-2) 42%);
+  box-shadow: 0 0 0 1px var(--coach), 0 0 16px var(--coach-a), 0 4px 12px rgba(0, 0, 0, .35);
+}
+.card-face.attached.recommended { box-shadow: 0 0 0 1px var(--coach), 0 0 0 3px var(--accent), 0 0 18px var(--coach-a), 0 4px 12px rgba(0, 0, 0, .35); }
+.card-face.attached.selected, button.card-face.attached.selected:hover:not(:disabled) { border-color: var(--gold); box-shadow: 0 0 0 2px var(--gold), 0 0 20px var(--coach-a), 0 12px 24px rgba(0, 0, 0, .55); }
+button.card-face.attached:hover:not(:disabled) { border-color: var(--coach); }
+.card-face.attached .cf-band {
+  height: 7px; background: repeating-linear-gradient(135deg, var(--coach) 0 6px, var(--coach-d) 6px 12px);
+  background-size: 17px 7px; animation: att-band 1.1s linear infinite;
+}
+@keyframes att-band { to { background-position: 17px 0; } }
+.card-face.attached::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none; border-radius: inherit;
+  background: linear-gradient(115deg, rgba(255, 255, 255, 0) 42%, rgba(255, 255, 255, .13) 50%, rgba(255, 255, 255, 0) 58%);
+  background-size: 300% 100%; background-position: 120% 0; animation: att-sheen 3.2s ease-in-out infinite;
+}
+@keyframes att-sheen { 0%, 55% { background-position: 120% 0; } 100% { background-position: -40% 0; } }
+.card-face.attached.dim::after { display: none; }
+/* 코치 칩 (메타 줄 맨 앞 — 겹친 손패에서도 카드 왼쪽은 늘 보인다) */
+.cf-coach {
+  flex: none; display: inline-flex; align-items: center; gap: 3px; height: 16px; padding: 0 6px 0 1px; border-radius: 999px;
+  background: var(--coach-t); box-shadow: inset 0 0 0 1px var(--coach-a); color: var(--coach); font-weight: 800;
+}
+.cf-coach b { font-size: 10.5px; line-height: 15px; }
+.cf-coach .avatar { width: 14px; height: 14px; font-size: 8.5px; border: 0; box-shadow: 0 0 0 1px var(--coach); }
+.cf-plus.att { color: var(--coach); text-shadow: 0 0 6px var(--coach-a); }
+.cf-pmult.att { color: var(--coach); }
+/* 새 턴에 막 붙었다: 손패가 들어온 뒤(--pop-d) 칩이 튀어나오고 테두리가 한 번 빛난다 */
+.card-face.att-new { animation: att-flash 1s ease-out both; animation-delay: var(--pop-d, 260ms); }
+.card-face.att-new.deal { animation: deal-in .3s ease-out both, att-flash 1s ease-out both; }
+.card-face.att-new .cf-coach { animation: coach-pop .34s cubic-bezier(.3, 1.7, .5, 1) both; animation-delay: var(--pop-d, 260ms); }
+@keyframes coach-pop { 0% { transform: scale(.4); opacity: 0; } 60% { transform: scale(1.15); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
+@keyframes att-flash {
+  0% { box-shadow: 0 0 0 1px var(--coach), 0 0 0 0 var(--coach-a), 0 4px 12px rgba(0, 0, 0, .35); }
+  25% { box-shadow: 0 0 0 3px var(--coach), 0 0 34px 6px var(--coach-a), 0 4px 12px rgba(0, 0, 0, .35); }
+  100% { box-shadow: 0 0 0 1px var(--coach), 0 0 16px var(--coach-a), 0 4px 12px rgba(0, 0, 0, .35); }
+}
+/* 끌기 유령: 코치 색 테두리 + 오른쪽 위 코치 얼굴 + "하르나 지원" */
+.drag-ghost.card-ghost.attached { border-color: var(--coach); box-shadow: 0 0 0 1px var(--coach), 0 0 20px var(--coach-a), 0 10px 24px rgba(0, 0, 0, .6); }
+.drag-ghost.card-ghost.attached .dg-band { background: repeating-linear-gradient(135deg, var(--coach) 0 5px, var(--coach-d) 5px 10px); }
+.drag-ghost.card-ghost.attached { width: 104px; height: 116px; margin: -58px 0 0 -52px; }
+.drag-ghost.card-ghost.attached > * { flex: none; }
+.drag-ghost.card-ghost.attached .dg-name { padding-right: 20px; }
+.dg-coach {
+  position: absolute; right: 5px; top: 10px; display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%;
+  background: var(--coach-face, #4b5563); box-shadow: 0 0 0 2px var(--coach); font-size: 11px; font-weight: 900; color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, .7);
+}
+.dg-plus.att { color: var(--coach); }
+.dg-att { font-size: 10px; line-height: 13px; font-weight: 800; color: var(--coach); white-space: nowrap; }
+/* 조준 중: 코치 배율이 걸린 대상 "+N" = 코치 색 말풍선 · 지원 노트 · dock 지원 줄 */
+.lesson-screen .tok-name.bub.att { background: var(--coach, #fff); color: #111; box-shadow: 0 0 0 1px rgba(0, 0, 0, .3), 0 0 10px var(--coach-a), 0 2px 6px rgba(0, 0, 0, .5); }
+.cf-notes li.att { color: var(--coach, var(--accent-2)); font-weight: 700; }
+.ls-att-line { display: block; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 22px; }
+.ls-att-line .avatar, .ls-cut-note .avatar { width: 18px; height: 18px; font-size: 10px; vertical-align: -4px; border: 0; box-shadow: 0 0 0 1.5px var(--coach, #fff); }
+.ls-att-line b { color: var(--coach, var(--accent-2)); }
+.ls-att-sub { display: block; min-width: 0; margin-top: -4px; padding-left: 22px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
+.ls-cut-note { color: var(--coach, var(--gold)); }
+.ls-cut-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ls-cut-sub b { color: var(--coach, var(--gold)); }
+
+/* ---- 컷인 덮개 (.ls-cutin — 레슨 화면 전체, 경기 필살기 컷인 .m-cutin 의 레슨판): 띠는 경기장 세로 가운데, 화면 폭 전체 ---- */
+.ls-cutin { position: absolute; inset: 0; z-index: 80; display: none; overflow: hidden; pointer-events: none; }
+.ls-cutin.on { display: block; pointer-events: auto; cursor: pointer; animation: lc-dim var(--t-cut, 900ms) ease-out forwards; }
+@keyframes lc-dim { 0% { background: rgba(4, 6, 12, 0); } 10%, 84% { background: rgba(4, 6, 12, .58); } 100% { background: rgba(4, 6, 12, .1); } }
+.lc-flash {
+  position: absolute; inset: 0; pointer-events: none; opacity: 0;
+  background: radial-gradient(ellipse 60% 38% at 50% 39%, rgba(255, 255, 255, .5), rgba(255, 255, 255, 0) 70%);
+  animation: lc-flash var(--t-cut, 900ms) ease-out forwards;
+}
+@keyframes lc-flash { 0% { opacity: 0; } 9% { opacity: 1; } 30% { opacity: 0; } 100% { opacity: 0; } }
+.ls-cutin.short .lc-flash { display: none; }
+.lc { position: absolute; left: 0; right: 0; top: 200px; animation: lc-life var(--t-cut, 900ms) cubic-bezier(.2, .8, .3, 1) forwards; }
+@keyframes lc-life { 0% { opacity: 0; transform: translateX(-90px); } 12% { opacity: 1; transform: translateX(0); } 82% { opacity: 1; transform: translateX(8px); } 100% { opacity: 0; transform: translateX(60px); } }
+.lc-band {
+  position: relative; display: flex; align-items: center; justify-content: center; gap: 26px; height: 164px; padding: 0 40px;
+  transform: skewY(-4deg);
+  background: linear-gradient(100deg, rgba(0, 0, 0, 0) 0, var(--coach-d) 9%, var(--coach-d) 91%, rgba(0, 0, 0, 0) 100%);
+  border-top: 3px solid var(--coach); border-bottom: 3px solid var(--coach);
+  border-image: linear-gradient(90deg, rgba(0, 0, 0, 0), var(--coach) 14%, var(--coach) 86%, rgba(0, 0, 0, 0)) 1;
+  box-shadow: 0 0 44px rgba(0, 0, 0, .55);
+}
+/* 속도선 (띠 안을 오른쪽으로 흐른다) · 위 밝게 아래 어둡게 */
+.lc-band::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .9;
+  background: repeating-linear-gradient(90deg, rgba(255, 255, 255, 0) 0 70px, rgba(255, 255, 255, .13) 70px 73px, rgba(255, 255, 255, 0) 73px 118px, rgba(255, 255, 255, .07) 118px 120px);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent); mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+  animation: lc-speed var(--t-cut, 900ms) linear forwards;
+}
+@keyframes lc-speed { from { background-position: 0 0; } to { background-position: 240px 0; } }
+.lc-band::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(180deg, rgba(255, 255, 255, .2), rgba(255, 255, 255, 0) 45%, rgba(0, 0, 0, .3)); }
+.lc-face {
+  position: relative; z-index: 1; flex: none; display: flex; align-items: center; justify-content: center; width: 108px; height: 108px; border-radius: 50%;
+  background: var(--coach-face, #4b5563); font-size: 52px; font-weight: 900; color: #fff; text-shadow: 0 2px 4px rgba(0, 0, 0, .7);
+  box-shadow: 0 0 0 4px #fff, 0 0 0 8px var(--coach), 0 0 34px rgba(255, 255, 255, .55);
+  transform: skewY(4deg); animation: lc-face var(--t-cut, 900ms) ease-out both;
+}
+@keyframes lc-face { 0% { transform: skewY(4deg) scale(.4); } 20% { transform: skewY(4deg) scale(1.14); } 30%, 100% { transform: skewY(4deg) scale(1); } }
+.lc-txt { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; min-width: 0; max-width: 520px; transform: skewY(4deg); }
+.lc-txt small { font-size: 13px; font-weight: 800; letter-spacing: .06em; color: rgba(255, 255, 255, .92); text-shadow: 0 1px 2px rgba(0, 0, 0, .6); white-space: nowrap; }
+.lc-txt b { font-size: 34px; line-height: 1.1; font-weight: 900; color: #fff; letter-spacing: .03em; white-space: nowrap; text-shadow: 0 2px 0 rgba(0, 0, 0, .45), 0 0 16px rgba(255, 255, 255, .45); }
+.lc-line { font-size: 17px; line-height: 23px; font-weight: 800; color: #fff; white-space: nowrap; text-shadow: 0 1px 3px rgba(0, 0, 0, .7); animation: lc-in var(--t-cut, 900ms) ease-out both; }
+.lc-sub {
+  display: inline-flex; align-items: baseline; gap: 7px; margin-top: 3px; padding: 2px 11px 3px; border-radius: 999px; white-space: nowrap;
+  background: rgba(0, 0, 0, .38); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .25); font-size: 13.5px; line-height: 19px; font-weight: 800; color: #fff;
+}
+.lc-sub em { font-style: normal; color: var(--coach); }
+@keyframes lc-in { 0%, 10% { opacity: 0; transform: translateX(-14px); } 24%, 100% { opacity: 1; transform: none; } }
+/* 낸 카드 (띠 오른쪽, 살짝 기울어짐) */
+.lc-card {
+  position: relative; z-index: 1; flex: none; display: flex; flex-direction: column; gap: 4px; width: 112px; height: 122px; padding: 12px 8px 8px; overflow: hidden;
+  border-radius: 10px; background: linear-gradient(180deg, var(--panel-3), var(--panel-2)); border: 2px solid var(--coach);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, .85), 0 0 22px var(--coach-a), 0 10px 24px rgba(0, 0, 0, .5);
+  transform: skewY(4deg) rotate(6deg); animation: lc-card var(--t-cut, 900ms) cubic-bezier(.2, .9, .3, 1.2) both;
+}
+@keyframes lc-card { 0% { opacity: 0; transform: skewY(4deg) rotate(18deg) translate(40px, 20px) scale(.7); } 22%, 100% { opacity: 1; transform: skewY(4deg) rotate(6deg); } }
+.lc-card-band { position: absolute; left: 0; right: 0; top: 0; height: 6px; background: repeating-linear-gradient(135deg, var(--coach) 0 5px, var(--coach-d) 5px 10px); }
+.lc-card-nm { font-size: 13px; line-height: 1.2; font-weight: 800; color: var(--text); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; word-break: keep-all; }
+.lc-plus { margin-left: 1px; color: var(--gold); }
+.lc-plus.att { color: var(--coach); }
+.lc-card-pw { margin-top: auto; font-size: 13px; font-weight: 900; color: var(--good); white-space: nowrap; }
+.lc-card-tag { align-self: flex-start; padding: 0 6px; border-radius: 6px; font-size: 10px; line-height: 15px; font-weight: 800; background: var(--coach); color: #111; }
+.lc-skip {
+  position: absolute; left: 50%; top: 398px; transform: translateX(-50%); padding: 2px 12px; border-radius: 999px; white-space: nowrap;
+  background: rgba(0, 0, 0, .5); font-size: 12px; line-height: 18px; color: rgba(255, 255, 255, .8); animation: lc-in var(--t-cut, 900ms) ease-out both;
+}
+/* 다음부터 (짧은 판): 얼굴 튀기 · 섬광 · 카드 날아오기 없이 띠만 */
+.lc.short .lc-face, .lc.short .lc-card, .lc.short .lc-line { animation: none; }
+.lc.short .lc-band { height: 150px; }
+
+/* ---- 능력 연출: 대상 훈련 고리 = 코치 색 · 배율 걸린 "+N ×1.5" · 경기장 가운데 알약 ---- */
+.lesson-screen .tok.att-drill .tok-ring { border-color: var(--coach, var(--gold)); box-shadow: 0 0 14px var(--coach-a); }
+.ls-pop.att > span { padding: 2px 7px; color: #111; background: var(--coach, #fff); border-color: #fff; box-shadow: 0 0 12px var(--coach-a); font-size: 14px; font-weight: 900; }
+.ls-abil {
+  position: absolute; left: 50%; top: 51%; z-index: 8; display: flex; align-items: center; gap: 8px; max-width: 92%; padding: 4px 14px 4px 4px; border-radius: 999px; white-space: nowrap;
+  background: var(--coach-d, #333); border: 2px solid var(--coach, #fff); box-shadow: 0 0 22px var(--coach-a), 0 6px 18px rgba(0, 0, 0, .5);
+  font-size: 13px; line-height: 18px; color: #fff; pointer-events: none;
+  transform: translate(-50%, -50%); animation: abil-life 1.7s ease-out forwards;
+}
+@keyframes abil-life { 0% { opacity: 0; transform: translate(-50%, -50%) scale(.6); } 12% { opacity: 1; transform: translate(-50%, -50%) scale(1.08); } 20% { transform: translate(-50%, -50%) scale(1); } 80% { opacity: 1; transform: translate(-50%, -50%); } 100% { opacity: 0; transform: translate(-50%, -80%); } }
+.la-face { flex: none; display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; font-size: 14px; font-weight: 900; text-shadow: 0 1px 2px rgba(0, 0, 0, .7); box-shadow: 0 0 0 2px #fff; }
+.la-name { font-size: 14px; font-weight: 900; }
+.la-text { color: rgba(255, 255, 255, .88); font-weight: 700; }
+.la-bit { padding: 0 8px; border-radius: 999px; font-size: 12px; font-weight: 900; background: rgba(0, 0, 0, .35); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .3); }
+.la-bit.hint { color: #e4c8ff; }
+.la-bit.cond { color: #9ff5c2; }
+.la-bit.bond { color: #bfe0ff; }
+.ls-foot-row.flash { animation: chip-flash 1.1s ease-out; border-radius: 6px; }
+
+/* ---- 보상 모달: 코치 지원 칩 · 컷인 힌트 ---- */
+.rw-chip.coach-sup b { color: var(--accent-2); }
+.rw-faces { display: inline-flex; gap: 2px; margin-left: 5px; vertical-align: -3px; margin-block: -3px; }
+.rw-face.avatar { width: 16px; height: 16px; font-size: 9px; border: 0; margin-block: -3px; }
+.rw-hint-cut .rw-face { margin-right: 3px; vertical-align: -3px; }
+.rw-hint-src { margin-left: 3px; padding: 0 5px; border-radius: 6px; font-size: 10px; font-weight: 800; background: rgba(167, 139, 250, .2); color: var(--purple); }
+
+@media (prefers-reduced-motion: reduce) {
+  .card-face.attached .cf-band, .card-face.attached::after, .card-face.att-new, .card-face.att-new .cf-coach, .ls-abil { animation: none !important; }
+}
+.lesson-screen.no-anim .card-face.attached .cf-band, .lesson-screen.no-anim .card-face.attached::after, .lesson-screen.no-anim .card-face.att-new .cf-coach { animation: none !important; }

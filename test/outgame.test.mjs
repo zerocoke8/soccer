@@ -48,7 +48,7 @@ test("아웃게임 CSS: vw/vh/dvh 단위 · 창 크기 media query 없음, 옛 4
   }
   // 카드 레슨 화면 (LESSON_PROTO_PLAN §9.2): lesson.css 는 match.css 다음에 링크
   const lesson = fs.readFileSync(path.join(ROOT, "css/lesson.css"), "utf8");
-  for (const sel of [".week-screen", ".lesson-screen", ".card-face", ".reward-modal", ".consult-screen", ".prep-screen", ".policy-row", '.stage[data-mode="lesson"] #toast-root']) {
+  for (const sel of [".week-screen", ".lesson-screen", ".card-face", ".reward-modal", ".consult-screen", ".prep-screen", ".policy-row", '.stage[data-mode="lesson"] #toast-root', ".ls-cutin", ".card-face.attached", ".cf-coach"]) {
     assert.ok(lesson.includes(sel), `lesson.css 에 ${sel}`);
   }
   for (const sel of [".meeting-cols", ".topbar", ".roster"]) assert.ok(og.includes(sel), `outgame.css 에 ${sel}`);

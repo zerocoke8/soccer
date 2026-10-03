@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// tools/lesson_play.mjs — 레슨판 실제 브라우저 한 판 점검 (LESSON_PROTO_PLAN §14.19 ZI). npm test 에는 넣지 않는다.
+// tools/lesson_play.mjs — 레슨판 실제 브라우저 한 판 점검 (LESSON_PROTO_PLAN §14.19 ZI · §15.8 코치 컷인 넘기기). npm test 에는 넣지 않는다.
 //
 //   node tools/lesson_play.mjs <outDir> [--seed S] [--policy team] [--until season|lesson|run] [--lessons N]
 //                              [--width 1280 --height 720] [--mobile] [--touch-only] [--max-min 25]
@@ -155,6 +155,7 @@ async function main() {
     let wayI = 0;
     let lessonsDone = 0;
     let touchShotDone = false;
+    let cutN = 0; // 본 코치 컷인 수 (§15.8 — 3번 중 2번은 탭 · 클릭으로 넘기고, 1번은 저절로 닫힐 때까지 본다)
     const lessonIdle = () => page.waitForFunction(() => {
       const s = window.__soccer.store;
       if (s.run?.phase !== "lesson") return true;
@@ -176,7 +177,7 @@ async function main() {
         const v = run.getLessonView(st, store.data);
         const card = rec.kind === "play" ? v.hand.find((c) => c.uid === rec.uid) : null;
         const pv = rec.kind === "play" ? run.previewCard(st, store.data, { uid: rec.uid, at: rec.at, playerId: rec.playerId }) : null;
-        return { rec, card: card ? { uid: card.uid, name: card.name, targetKind: card.targetKind, heal: !!card.heal, size: card.size ?? null } : null, pvIds: pv ? (pv.targets || []).map((t) => t.id).sort() : null, healId: pv?.healId ?? null };
+        return { rec, card: card ? { uid: card.uid, name: card.name, targetKind: card.targetKind, heal: !!card.heal, size: card.size ?? null, attached: !!card.attach } : null, pvIds: pv ? (pv.targets || []).map((t) => t.id).sort() : null, healId: pv?.healId ?? null };
       });
       const before = await lessonSnap();
       const { rec, card } = info;
@@ -307,6 +308,28 @@ async function main() {
         }, rec);
         report.fallbacks.push(label);
         return;
+      }
+      if (rec.kind === "play" && card?.attached) {
+        // 코치 지원 카드를 냈다 → 컷인 덮개 (§15.8 ②): 탭 · 클릭 = 넘기기 (덮개 아래 dock 을 눌러도 연출 중이라 아무 일 없어야 한다)
+        const shown = await page.waitForSelector(".lesson-screen .ls-cutin.on", { timeout: 1500 }).then(() => true, () => false);
+        if (!shown) report.fails.push(`컷인이 뜨지 않음 (${card.name})`);
+        else {
+          cutN++;
+          if (cutN === 1) await snap("lesson_cutin");
+          if (cutN % 3 !== 0) {
+            const how = way.startsWith("touch") ? "touch" : "mouse";
+            const b = await boxOf(".lesson-screen .ls-cutin.on");
+            const p = { x: b.x + b.width / 2, y: b.y + b.height * 0.85 };
+            if (how === "touch") await tapAt(p); else await mouseClickAt(p);
+            const closed = await page.waitForFunction(() => !document.querySelector(".lesson-screen .ls-cutin.on"), { timeout: 400, polling: 20 }).then(() => true, () => false);
+            if (!closed) report.fails.push(`컷인을 ${how === "touch" ? "탭" : "클릭"}으로 넘기지 못함 (${card.name})`);
+            count(`컷인 넘기기 (${how === "touch" ? "탭" : "클릭"})`);
+          } else {
+            const closed = await page.waitForFunction(() => !document.querySelector(".lesson-screen .ls-cutin.on"), { timeout: 2500, polling: 50 }).then(() => true, () => false);
+            if (!closed) report.fails.push(`컷인이 저절로 닫히지 않음 (${card.name})`);
+            count("컷인 끝까지 보기");
+          }
+        }
       }
       if (rec.kind === "play" && card && !card.heal && card.targetKind !== "none") {
         // 실제 대상 = lastFx 의 gain · fail (카드 몫). 자리를 고르는 카드는 놓기 직전 화면에 보인 대상과, 나머지는 추천 미리보기와 비교

@@ -82,14 +82,14 @@
     "bond": 5,
     "cutinMs": { "first": 900, "repeat": 600 },
     "abilities": {
-      "sp_coach_harr": { "name": "골문을 보는 눈", "text": "슈팅 구역 대상 +50%", "needs": "power", "mods": { "lessonMult": { "stats": ["shoot"], "mult": 1.5 } } },
-      "sp_wind_dancer": { "name": "바람의 스텝", "text": "다음 턴 손패 +1", "effects": [{ "type": "drawNext", "n": 1 }] },
-      "sp_elder_sage": { "name": "빈 공간의 지혜", "text": "팀워크 +3 · 50%로 힌트", "effects": [{ "type": "teamwork", "n": 3 }, { "type": "hint", "chance": 0.5 }] },
-      "sp_iron_captain": { "name": "다치지 않는 법", "text": "이 카드 실패 없음", "needs": "fail", "mods": { "noFail": true } },
-      "sp_mountain_monk": { "name": "산사의 호흡", "text": "대상 전원 체력 +10", "needs": "power", "effects": [{ "type": "heal", "to": "targets", "n": 10 }] },
-      "sp_bard_lumi": { "name": "응원의 노래", "text": "25%로 컨디션 +1", "effects": [{ "type": "condition", "n": 1, "chance": 0.25 }] },
-      "sp_street_striker": { "name": "뒷골목 근성", "text": "점수가 목표 미만이면 +50%", "needs": "power", "mods": { "underdog": 0.5 } },
-      "sp_river_scholar": { "name": "기록의 수식", "text": "다음 카드 위력 +30%", "effects": [{ "type": "nextPct", "pct": 0.3 }] }
+      "sp_coach_harr": { "name": "골문을 보는 눈", "text": "슈팅 구역 대상 +50%", "line": "슛은 눈으로 차는 거야. 골문부터 봐!", "needs": "power", "mods": { "lessonMult": { "stats": ["shoot"], "mult": 1.5 } } },
+      "sp_wind_dancer": { "name": "바람의 스텝", "text": "다음 턴 손패 +1", "line": "스텝 하나 더! 리듬을 타 봐!", "effects": [{ "type": "drawNext", "n": 1 }] },
+      "sp_elder_sage": { "name": "빈 공간의 지혜", "text": "팀워크 +3 · 50%로 힌트", "line": "공보다 빈 공간을 먼저 보렴.", "effects": [{ "type": "teamwork", "n": 3 }, { "type": "hint", "chance": 0.5 }] },
+      "sp_iron_captain": { "name": "다치지 않는 법", "text": "이 카드 실패 없음", "line": "겁내지 마. 다치지 않게 봐 줄게.", "needs": "fail", "mods": { "noFail": true } },
+      "sp_mountain_monk": { "name": "산사의 호흡", "text": "대상 전원 체력 +10", "line": "숨부터 고르자. 몸은 따라온다.", "needs": "power", "effects": [{ "type": "heal", "to": "targets", "n": 10 }] },
+      "sp_bard_lumi": { "name": "응원의 노래", "text": "25%로 컨디션 +1", "line": "♪ 이 장면, 노래로 남겨 줄게!", "effects": [{ "type": "condition", "n": 1, "chance": 0.25 }] },
+      "sp_street_striker": { "name": "뒷골목 근성", "text": "점수가 목표 미만이면 +50%", "line": "지고 있을 때가 제일 재밌지!", "needs": "power", "mods": { "underdog": 0.5 } },
+      "sp_river_scholar": { "name": "기록의 수식", "text": "다음 카드 위력 +30%", "line": "방금 거 기록했어. 다음은 더 좋아.", "effects": [{ "type": "nextPct", "pct": 0.3 }] }
     }
   }
 }
