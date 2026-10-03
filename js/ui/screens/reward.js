@@ -208,7 +208,7 @@ export function renderRewardModal(ctx) {
           sel.upgradeUid
             ? h('span', { class: 'rw-up-line', title: deckUpgradeLine(sel.upgradeUid) }, h('b', {}, `${selName}+`), ` — 강화 후: ${deckUpgradeLine(sel.upgradeUid)}`)
             : h('span', { class: 'tiny warn' }, '고르지 않으면 이 기회는 사라집니다')),
-        h('div', { class: ['rw-deck', deck.length > 24 ? 'dense' : ''] }, deck.map((d) => {
+        h('div', { class: ['rw-deck', deck.length > 16 ? 'dense' : ''] }, deck.map((d) => {
           const can = upgradable.has(d.uid) && d.uid !== taken;
           const el = miniCard(d, {
             data,

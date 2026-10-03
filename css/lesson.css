@@ -611,7 +611,9 @@ button.mini-card { cursor: pointer; }
 }
 .rw-explain > b { font-size: 15px; }
 .rw-deck { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 6px; }
+.rw-deck.dense { gap: 5px; } /* 8칸 2줄(16장)을 넘으면 문구 줄을 접고 낮춘다 — 4줄(32장)까지 [확인]이 화면 안 (ZI 브라우저 점검) */
 .rw-deck.dense .mc-desc { display: none; }
+.rw-deck.dense .mini-card { padding-top: 3px; padding-bottom: 4px; }
 .rw-up-line { min-width: 0; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rw-up-line b { color: var(--gold); }
 .rw-foot { align-items: center; gap: 14px; padding-top: 4px; }

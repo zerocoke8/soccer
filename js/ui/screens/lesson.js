@@ -1055,15 +1055,23 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     hoverAt = null;
     if (alive() && !ui.drag) renderLive();
   });
+  // 놓을 자리 = 경기장 pointerup 좌표 (ZI 브라우저 점검): click 좌표는 정수 px 로 반올림되고(hover 미리보기는 소수 px —
+  // 원 테두리의 선수가 미리보기와 달라질 수 있다), 터치 탭이면 브라우저 터치 보정이 토큰 쪽으로 몇 px 당긴다
+  let lastUp = null;
+  field.addEventListener('pointerup', (e) => {
+    lastUp = { x: e.clientX, y: e.clientY, t: e.timeStamp };
+  });
   field.addEventListener('click', (e) => {
     if (suppressClick || !isLive() || ui.busy || ui.drag || !ui.aim) return;
     const c = handCard(ui.aim.uid);
     if (!c) return;
     if (!pointCard(c)) { playAim(); return; } // 전체 · 주인 · 없음: 경기장 아무 데나
-    const fp = pointerToField(e.clientX, e.clientY, field.getBoundingClientRect());
+    const touch = e.pointerType === 'touch' || e.pointerType === 'pen';
+    const raw = lastUp && Math.abs(e.timeStamp - lastUp.t) < 1000 && Math.hypot(lastUp.x - e.clientX, lastUp.y - e.clientY) < 16 ? lastUp : { x: e.clientX, y: e.clientY };
+    lastUp = null;
+    const fp = pointerToField(raw.x, raw.y, field.getBoundingClientRect());
     if (!fp) return;
     const at = { x: fp.x, y: fp.y };
-    const touch = e.pointerType === 'touch' || e.pointerType === 'pen';
     if (touch && !(ui.aim.at && distU(ui.aim.at, at) <= Z.pickR + 1)) {
       // 터치: 탭 1번 = 그 자리에 놓기, 같은 자리 한 번 더 · [내기] = 내기
       ui.aim.at = at;

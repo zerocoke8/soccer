@@ -2084,20 +2084,29 @@ node tools/challenge_sim.mjs --write-sample [--sample-seed challenge-sample-7] [
 
 ## 20. v0.6-lesson 1차 — 카드 레슨 시험판 (브랜치 `outgame-lesson`, 2026-10-02)
 
-육성(훈련 칸 · 서포트 배치 · 호출권)을 **카드 레슨 배틀 + 15주 주 선택**으로 바꾼 시험판이다. 경기 · 도전 모드 · 평가 · 팀 등록은 그대로다. 구현 계획 전문과 구현 중 바뀐 것은 [LESSON_PROTO_PLAN.md](LESSON_PROTO_PLAN.md) (§13), 규칙은 [OUTGAME_LESSON_draft.md](OUTGAME_LESSON_draft.md) · [OUTGAME_CARDS_draft.md](OUTGAME_CARDS_draft.md). 이 절은 그 계약의 요약이다.
+육성(훈련 칸 · 서포트 배치 · 호출권)을 **카드 레슨 배틀 + 15주 주 선택**으로 바꾼 시험판이다. 경기 · 도전 모드 · 평가 · 팀 등록은 그대로다. 구현 계획 전문과 구현 중 바뀐 것은 [LESSON_PROTO_PLAN.md](LESSON_PROTO_PLAN.md) (§13 · 구역 방식 §14 · §14.21), 규칙은 [OUTGAME_LESSON_draft.md](OUTGAME_LESSON_draft.md) (L1~L36) · [OUTGAME_CARDS_draft.md](OUTGAME_CARDS_draft.md). 이 절은 그 계약의 요약이다.
+
+**구역 방식 (L32~L36, 2026-10-04 — 계획 §14).** 레슨은 **훈련 구역 5곳**(경기장 위 수비 · 패스 · 슈팅 / 아래 피지컬 · 드리블) 위에서 한다.
+- 레슨 주에는 종목 대신 **중점 구역** 1곳을 고른다 (서 있을 가중치 ×2 · 그 구역 상승 ×1.5, 특별 표시 구역이면 ×2.0 · 목표 ×1.15 · 상한 ×1.2) [가정].
+- 매 턴 시작에 7명이 포지션 가중치(`lesson.json zones.weights` — config `slotWeights` 사본, GK 만 DF 와 같게 [가정 Q1-a])로 구역에 **흩어진다**. 오르는 스탯 = 그 선수가 **서 있는 구역**.
+- 카드는 **끌어다 놓는다**: 단일(선수 위) · 원(작은 4.2u / 중간 9u / 큰 17u — 놓은 자리의 원 안 전원) · 전체 · 주인(고유). 위력 · 비용은 1인당, 실패 판정은 카드 1장에 1번.
+- **기본 훈련**: 매 턴 끝 경기장 선수 모두 3.2 × 구역 성장률 × 배율 (체력 −1, 레슨 성장의 약 3분의 1). 자율 훈련 · [쉬기] 는 없어졌다.
+- **벤치**: 지친 선수를 벤치 칸으로 끌면 그 턴 대상 · 기본 훈련에서 빠지고 턴 끝 체력 +15 (한 턴 최대 2명).
+- 레슨 점수 = 7명의 구역 스탯 상승 전부 (기본 + 카드, 실패 −5). 목표 / 퍼펙트 430/520 · 510/620 · 600/730.
 
 ### 20.1 주소 · 저장 분리
 
 - **플레이**: `https://zerocoke8.github.io/soccer/lesson/` (본편 `/soccer/` 와 같은 origin). 배포는 main 의 `pages.yml` 이 `outgame-lesson` 브랜치를 `_site/lesson/` 으로 함께 올린다 (계획 §2.3 — D 슬라이스).
 - **저장 키**: `js/ui/store.js` `STORAGE_PREFIX = 'soccer-lesson.'` → `KEYS.run · match · teams · challenge · challengeMatch` (+ `soccer-lesson.orient` 등). 본편 키(`soccer.*`)는 읽지도 쓰지도 옮기지도 않는다 — 그래서 레슨판 도전 모드는 처음에 샘플 팀만 보인다. 앱 · 도구 코드에 `'soccer.'` 문자열이 없어야 한다 (outgame.test 검사). 시작 화면 배지 "카드 레슨 시험판 — 본편과 저장이 따로입니다", `<title>` "경계전 클럽 — 카드 레슨 시험판".
-- **저장본 검사**: `loadRun` · `continueRun` 은 `kind === "lessonRun" && version === 1 && typeof phase === "string"` 인 저장본만 연다 (`lessonRun.isLessonRun`, store.js 사본 `isLessonRunSave`). 옛 run.js 저장본은 "저장 없음".
+- **저장본 검사**: `loadRun` · `continueRun` 은 `kind === "lessonRun" && version ∈ {1, 2} && typeof phase === "string"` 인 저장본만 연다 (`lessonRun.isLessonRunSave`, store.js 사본 `LESSON_RUN_SAVE_VERSIONS` · `isLessonRunSave`). 구역 방식 저장은 version 2 — v1 은 `migrateLessonRun` 으로 옮기고, **레슨 중** v1 은 옮길 수 없어 지우고 토스트 "구역 방식으로 바뀌어 진행 중인 레슨은 이어 할 수 없습니다". 옛 run.js 저장본은 "저장 없음".
 
 ### 20.2 엔진 (순수 · 결정적, DOM 없음)
 
 | 모듈 | 내용 |
 |---|---|
-| `js/engine/cards.js` | 카드 66장 정의 해석(`resolveCardDef` — base → 유대 80 → 강화판), 대상 · 탭 검증, `mainStatsOf(pos)`, 비용, 데이터 검증 |
-| `js/engine/lesson.js` | 레슨 카드 배틀 (`startLesson · playCard · lessonRest · endLessonTurn · getLessonView · previewCard · lessonResult`), 방침 버프 5종, `seq` · `lastFx` (연출 목록) |
+| `js/engine/zones.js` | 구역 기하 (순수): `ZONE_IDS` · 대형 위치 `huddleOffsets · zonePositions` · 거리 `distU`(u = 필드 폭 1%, 세로는 × aspect 0.405) · `inCircle · nearestWithin · clampPoint · areNeighbors · zoneWeight` · 키보드 · 감독 AI 후보 점 `candidatePoints` |
+| `js/engine/cards.js` | 카드 66장 정의 해석(`resolveCardDef` — base → 유대 80 → 강화판), 대상 모델(kind single · circle · all · owner · none, size, onlyZones) · `targetsFor(state, def, { at, playerId }, data)` · `deadReason`, `mainStatsOf(pos)`, 1인 비용 `costBase · staminaCost`, 데이터 검증 (cards.json version 2) |
+| `js/engine/lesson.js` | 레슨 카드 배틀 (`startLesson · playCard({ uid, at, playerId }) · benchPlayer · endLessonTurn · getLessonView · previewCard · dropCandidates · lessonResult`), 흩어지기 `scatterZones`(rng) · 기본 훈련 · 벤치, 방침 버프 5종(구역 기준), `seq` · `lastFx` (연출 목록 — scatter · base · bench 포함) |
 | `js/engine/lessonRun.js` | 15주 상태 머신 = 앱의 `ctx.run`. 주 행동 · 레슨 뒤 보상 · 상담 · 경기 전 준비 · 경기 · 유물 · 루트 · 평가. run.js 의 경기 · 평가 함수를 그대로 다시 내보낸다 |
 | `js/engine/manager.js` | 감독 AI (rng 없음): `recommendWeek · recommendCard · recommendReward · recommendConsult · recommendPrep · autoStep` |
 | 데이터 | `data/cards.json`(66장) · `data/lesson.json`(주 · 레슨 · 보상 · 상담 수치) · `data/policies.json`(방침 5) |
@@ -2111,15 +2120,15 @@ node tools/challenge_sim.mjs --write-sample [--sample-seed challenge-sample-7] [
 
 | phase | 화면 |
 |---|---|
-| `week` | `screens/week.js` — 레슨 주(종목 5 + 휴식) · 자유 주(행동 3 + 휴식, 보장 배지) · 대비 주(대비 카드 2장), 추천 배지, 외출 모달, 전술 미팅 모달(`js/ui/meeting.js` `meetingEditor`) |
-| `lesson` | `screens/lesson.js` (stage mode `lesson`) — 화면을 유지하는 DOM + 연출 루프(GEN · alive), 카드 앞면 `js/ui/cards.js`, 토큰 · 훈련 지점 `js/ui/lesson_layout.js`, 개발용 `?autolesson=1` |
+| `week` | `screens/week.js` — 레슨 주(중점 구역 5 + 휴식 — 예상 인원 · 고유 ×1.5 얼굴) · 자유 주(행동 3 + 휴식, 보장 배지) · 대비 주(대비 카드 2장 + 중점 구역 5), 추천 배지, 외출 모달, 전술 미팅 모달(`js/ui/meeting.js` `meetingEditor`) |
+| `lesson` | `screens/lesson.js` (stage mode `lesson`) — 화면을 유지하는 DOM + 연출 루프(GEN · alive). 구역 바닥 · 라벨 칩, 토큰 = 뷰 positions(대형), 카드 끌기(Pointer Events — 마우스 · 터치 같은 코드, 프레임마다 `previewCard`) · 조준 모드(클릭 · 터치 탭 · 키보드 ← → / 1~5 / Enter / Esc) · 벤치 칸, 카드 앞면 `js/ui/cards.js`, 좌표 · 원 · 연출 계획 `js/ui/lesson_layout.js`(`pointerToField · circlePx · tokenSpots · fxPlan`), 개발용 `?autolesson=1` |
 | `reward` | 레슨 화면(inert) + `screens/reward.js` 보상 모달 (클리어 · 퍼펙트 · 실패) |
 | `consult` | `screens/consult.js` (진열 · 덱 · 스킬 3단, 행동마다 엔진 호출 + 저장) |
 | `prep` | `screens/prep.js` (상대 패널 + `meetingEditor`, [경기 시작]) |
 | `event` · `relic` | 주 화면(inert) 위 모달 — event 는 1차에 나오지 않는다 |
 | `match` · `route` · `finished` | 그대로 (경기 화면 · 루트 · 결과) |
 
-- 레슨 화면 호출은 `actions.lessonCall(fn, args)` (저장만, render 없음 — 화면이 연출을 이어 그린다). 나머지는 `weekAction · resolveReward · consultAction · endConsult · confirmPrep` + 기존 `finishMatch · chooseRelic · chooseRoute · registerTeam`.
+- 레슨 화면 호출은 `actions.lessonCall(fn, args)` (저장만, render 없음 — 화면이 연출을 이어 그린다). 화면 상태 `store.lessonUi = { aim, drag, shownSeq, busy, timer, gen }` — 판정(원 안 · 가장 가까운 선수)은 늘 엔진이 필드 좌표로 한다. 터치 탭의 원 자리는 click 이 아니라 `pointerup` 좌표다 (브라우저 터치 보정이 click 을 토큰 쪽으로 몇 px 당긴다). 나머지는 `weekAction · resolveReward · consultAction · endConsult · confirmPrep` + 기존 `finishMatch · chooseRelic · chooseRoute · registerTeam`.
 - 추천은 배지만 붙인다 (자동 진행 버튼 없음). 결과 화면은 레슨 런이면 선수 줄의 "훈련 N회" 를 뺀다 (레슨 런에는 훈련 횟수가 없다).
 - CSS: `css/lesson.css` (주 · 레슨 · 보상 · 상담 · 준비 · 편성 방침 패널), `match.css` 다음에 링크.
 
@@ -2127,24 +2136,29 @@ node tools/challenge_sim.mjs --write-sample [--sample-seed challenge-sample-7] [
 
 - **tools/lesson_scenarios.mjs**: `walkLesson(data, { seed, policy, until })` (감독 AI 로 걷다가 조건을 만족하는 첫 상태), `prepareLessonMatch(data, { runSeed, kind })` (기본 편성 레슨 런 → 친선전이 열린 첫 자유 주의 친선전 / 첫 경계전 직전), `lessonRegisteredTeam(data, seed, registeredAt, policy)` (완주 → 등록 팀), `perfectRewardState`, 그리고 레슨판 og_* 시나리오 (`LESSON_OG_SCENARIOS`).
 - **tools/scenarios.mjs**: `run` = lessonRun.js, `prepareRun` = `prepareLessonMatch` (경기 시나리오 01~27 도 레슨 런의 경기에서 찾는다 — 옛 run.js 는 더 쓰지 않는다). 시나리오에 `maxSeeds`(기본 400) · `allowInnerScroll`(의도한 안쪽 스크롤) 를 둘 수 있다. `27_df_block_cutin` 은 레슨 런 팀에서 실루엔 게이지가 함께 차 합체기가 되므로 바람의 실을 빼고(`adjustSetup`) 1000 seed 안에서 찾는다.
-- **og_\* (레슨판)**: `og_start`(등록 팀 2 = 감독 AI 로 완주한 레슨 런, 역습형 · 팀형) · `og_setup*` · `og_challenge*` · `og_week_lesson / _free / _prep / _hotspring` · `og_outing` · `og_meeting / _drag` · `og_lesson` + `_pick _aim _pair _mid _tired _rest _injury _fail _turnend _end _hand4 _auto` + 방침 5 (`_ace _team _counter _press _poss`) · `og_reward_clear / _pick / _perfect / _fail` · `og_consult / _pick / _full / _delete` · `og_prep / _swap` · `og_event`(2차 라우팅 확인용 주입 — 유대 60 서포트 이벤트) · `og_relic` · `og_route`(온천 설명 = `lesson.json routeOverrides`) · `og_result`.
-- **tools/shot.mjs**: 잘린 글자 검사 = 스킬 묶음 이름 · 카드 앞면(`.cf-name · .cf-desc · .cf-power · .cf-target · .cf-reason`) · 작은 카드 이름(`.mc-name`) · 보상 선수 이름 · 방침 설명 · 레슨 명단 이름(`.ls-nm b`) · 레슨 토큰 이름. HUD 겹침 = 떠 있는 토스트가 레슨 점수 막대 · 턴 점을 가리는가. 요약 끝 줄에 검사에 걸린 시나리오 이름(페이지 · 로그 아닌 안쪽 스크롤 · 잘림 · 겹침 · 상태 · 에러). 조작 단계 `{ freeze }` · 함수형 `steps(prepared)` · 시나리오 `query`.
+- **og_\* (레슨판)**: `og_start`(등록 팀 2 = 감독 AI 로 완주한 레슨 런, 역습형 · 팀형) · `og_setup*` · `og_challenge*` · `og_week_lesson / _free / _prep / _hotspring` · `og_outing` · `og_meeting / _drag` · `og_lesson` + 조준 `_aim_pick _aim_single _aim(큰 원) _small(작은 원) _keys` · 끌기 `_drag _drag_ghost _drag_bad _drag_single _drag_heal _drag_bench` · 놓기 `_drop _drop_bench _play` · 터치 `_touch(탭 → 원 놓기) _touch_drag` · 벤치 `_bench` · 턴 끝 `_base _scatter _turnend` · 대형 `_crowd(6+1) _crowd7 _crowd_aim` · `_mid _tired _injury _fail _end _hand4 _auto` + 방침 5 (`_ace _team _counter _press _poss`) · `og_reward_clear / _pick / _perfect / _fail` · `og_consult / _pick / _full / _delete` · `og_prep / _swap` · `og_event`(2차 라우팅 확인용 주입 — 유대 60 서포트 이벤트) · `og_relic` · `og_route`(온천 설명 = `lesson.json routeOverrides`) · `og_result`. 구역 배치는 `zones` 주입(`crowdState`), 손패 카드는 `withHandCard` 주입.
+- **tools/shot.mjs**: 잘린 글자 검사 = 스킬 묶음 이름 · 카드 앞면(`.cf-name · .cf-desc · .cf-power · .cf-target · .cf-cost · .cf-reason`) · 작은 카드 이름(`.mc-name`) · 보상 선수 칩 · 주 화면 중점 구역 카드 · 방침 설명 · 레슨 명단 이름(`.ls-nm b`) · 레슨 토큰 이름. 겹침 = 떠 있는 토스트 ↔ 레슨 점수 막대 · 턴 점, 레슨 경기장의 이름표 ↔ 이름표 · 다른 얼굴, 구역 라벨 칩 ↔ 얼굴 · 이름표 · 실패율 표 · 원 꼬리표, 원 꼬리표가 경기장 밖, **원 판정**(그린 원 안에 얼굴 중심이 있는 토큰 = 엔진 미리보기 대상 `.target`, 테두리 ±3px 제외). 요약 끝 줄에 검사에 걸린 시나리오 이름(페이지 · 로그 아닌 안쪽 스크롤 · 잘림 · 겹침 · 상태 · 에러). 조작 단계 `{ freeze }` · `{ click | text }` · `{ drag: { from, to, at?, release?, touch? } }` · `{ hoverAt | clickAt | tapAt: { sel, x, y } }` · `{ tap }` · `{ key, times }` · 함수형 `steps(prepared)` · 시나리오 `query` · `viewport`(터치는 `hasTouch`).
+- **tools/lesson_play.mjs** (ZI 브라우저 한 판 점검): 헤드리스 Chrome 에서 시작 → 편성 → 런을 **실제 입력**으로 진행한다. 레슨은 감독 AI 추천을 마우스 끌기 · 터치 끌기 · 터치 탭(카드 → 자리 → 한 번 더) · 마우스 클릭 · 키보드로 돌아가며 내고(벤치 = 토큰 끌기 / [벤치], 회복 = 명단 줄), 행동마다 엔진이 바뀌었는지 · 실제 대상(lastFx)이 놓기 직전 화면의 대상(흰 고리)과 같은지 확인한다. 주 · 보상 · 상담 · 준비 · 경기(⏭ → 확인) · 유물 · 루트도 화면 버튼으로. `--until season|lesson|run` · `--mobile --touch-only --width 915 --height 412`(터치 전용 작은 화면). 화면마다 PNG, 에러 토스트 · 페이지 에러 · 스크롤을 센다.
 - **tools/lesson_sim.mjs** (`npm run lesson-sim`): 실제 엔진 + 감독 AI + 실제 match.js 로 방침별 지표 표. 보고만 하고 수치는 바꾸지 않는다 (밸런스는 나중에 한 번에).
 
 ```bash
 node tools/shot.mjs <출력폴더>                      # 경기 01~27 + og_* 전부 (76장)
 node tools/shot.mjs <출력폴더> --only og_lesson,og_lesson_   # 이름이 정확히 같으면 그것만 → 접두어도 함께 준다
+node tools/lesson_play.mjs <출력폴더>                 # 실제 입력(마우스 · 터치 · 키보드)으로 시즌 1 (레슨 3 · 경계전 · 루트)
+node tools/lesson_play.mjs <출력폴더> --until run --policy counter --seed play-2       # 15주 완주
+node tools/lesson_play.mjs <출력폴더> --mobile --touch-only --width 915 --height 412  # 터치 전용 작은 가로 화면
 ```
 
-### 20.5 테스트 (npm test 264)
+### 20.5 테스트 (npm test 283)
 
-- 새 테스트: `cards`(카드 표 · 비용) · `lesson`(배틀 · 방침 · 66장 퍼즈) · `lessonRun`(15주 흐름 · 보상 · 상담 · 등록 팀) · `manager`(감독 AI 완주, 실제 경기) · `cardEffects`(66장 효과 표) · `lessonRules`(규칙 · 키 매핑) · `lessonLayout`(토큰 · 훈련 지점) · `lessonUi`(jsdom: 레슨 · 보상 · 상담 · 준비).
+- 새 테스트: `zones`(대형 · 거리 · 원 크기 약속 · 후보 점) · `cards`(카드 표 · 대상 모델 · 1인 비용) · `lesson`(흩어지기 · 기본 훈련 · 벤치 · 대상 판정 · 방침 · 66장 퍼즈) · `lessonRun`(15주 흐름 · 보상 · 상담 · 등록 팀 · 저장 v1 → v2) · `manager`(감독 AI 완주, 실제 경기, 추천이 늘 유효한 행동) · `cardEffects`(66장 효과 표, 구역 고정 픽스처) · `lessonRules`(규칙 · 키 매핑) · `lessonLayout`(`pointerToField · circlePx · tokenSpots · fxPlan`) · `lessonUi`(jsdom: 조준 → 경기장 클릭 · 키보드 후보 · 벤치 · 턴 끝 재배치 · 보상 · 상담 · 준비). 끌기 · 터치는 jsdom 에 레이아웃이 없어 shot 시나리오(`_drag* _drop* _touch*`)와 `tools/lesson_play.mjs` 로 본다.
 - **ui.smoke 전체 걷기** (I1): 기존 걷기(시작 → 편성 방침 → 주 → 레슨 1장 → 친선전 경기 → 시나리오 주입 경기 01~27 → 도전 모드) 뒤에 — 새 런(역습형, seed `ui-full`) → **15주를 감독 AI 추천대로 앱 actions 로** (주 · 레슨 · 보상 · 상담 · 준비 · 경기 · 유물 · 루트, phase 가 바뀔 때마다 그 화면이 그려졌는지 · 에러 토스트 없음) → 결과 화면(훈련 횟수 없음) → [팀 등록] (policy · createdTurnIndex 14) → 시작 화면 등록 팀 → 도전 모드 팀 목록에 그 팀(기본 선택, 선수 7) → 그 팀으로 도전 경기 생성. 본편 키(`soccer.run` · `soccer.teams`)는 끝까지 그대로.
 - 옛 테스트(`rng · run · match · v05 · challenge · layout · lineup · orient · stage`)는 그대로 통과한다.
 
 ### 20.6 남은 것 (2차 이후)
 
 - 이벤트(주간 · 시즌 시작 · 경계전 직전 · 루트 · 유대 60 서포트 · 레슨 깜짝 · 외출 이야기)는 1차에 없다. 유대 60 은 표시만 한다.
-- 밸런스: 시뮬 결과만 보고했고 수치는 조정하지 않았다 (계획 §10.1, `npm run lesson-sim`). 사용자에게 확인받을 결정: 계획 §7 D5 · D6 · D8 · D12 · D13 · D29 · D35 · D1.
+- 밸런스: 시뮬 결과만 보고했고 수치는 조정하지 않았다 (계획 §10.1 · §14.18, `npm run lesson-sim`). 사용자에게 확인받을 결정: 계획 §7 D5 · D6 · D8 · D12 · D13 · D29 · D35 · D1, 구역 방식 §14.20 [가정] 1~9 · Q1~Q5 (Q1 고르게 크기 — GK 가중치 사본 · 감독 AI 덜 큰 선수 보너스를 기본값으로 넣었다, §14.21).
+- 큰 원(17u)이 22.7u 이웃 두 구역의 4명 무리 둘을 다 잡는 여유는 0.15u(약 1.5px)라 손 · 터치로는 가장자리 1명이 자주 빠진다 (화면 미리보기는 늘 실제와 같다 — §14.21 ZI).
 - 도전 모드 샘플 팀 · 등급 기준선은 옛 육성 기준 그대로다.
 - 대비 주 카드 미리보기는 `miniCard` 가 아니라 주 화면 안의 작은 카드(`.prep-mini`)다.

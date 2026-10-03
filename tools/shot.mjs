@@ -8,7 +8,7 @@
 // 2) Node 에서 엔진(js/engine/lessonRun.js · manager.js · match.js)으로 시나리오 상황의 run/match 상태를 찾는다 (tools/scenarios.mjs · lesson_scenarios.mjs).
 // 3) puppeteer-core + 로컬 Chrome/Edge 로 페이지를 열고 localStorage(KEYS.run / KEYS.match / KEYS.teams + 시나리오 storage — js/ui/store.js)에 주입 →
 //    reload → 경기 · 저장된 런이면 시작 화면 "이어하기" 클릭 → (아웃게임) 조작 steps(클릭 · 드래그) → 뷰포트 캡처 (페이지는 스크롤하지 않는다).
-// 4) 시나리오마다 파일 경로, 스테이지 배율, 페이지 · 안쪽 스크롤, 잘린 글자(카드 문구 등) · HUD 겹침, 캡처 시점 상태 확인,
+// 4) 시나리오마다 파일 경로, 스테이지 배율, 페이지 · 안쪽 스크롤, 잘린 글자(카드 문구 등) · HUD · 레슨 경기장 겹침 · 원 판정(그린 원 ↔ 엔진 대상), 캡처 시점 상태 확인,
 //    pageerror/console.error 를 출력. 마지막 요약 줄에 검사에 걸린 시나리오 이름.
 //
 // 화면은 고정 스테이지(논리 1280×720, js/ui/stage.js)라 기본 뷰포트 1280×720 DPR 1 (데스크톱, 터치 없음) = 스테이지 1배.
@@ -409,13 +409,35 @@ async function runScenario(browser, baseUrl, sc, prepared, opts) {
       }
       for (const c of document.querySelectorAll(".lesson-screen .zone-chip")) if (vis(c)) parts.push({ tok: null, kind: `구역 라벨 ${(c.textContent || "").trim().slice(0, 8)}`, r: rectOf(c), chip: true });
       const tag = document.querySelector(".lesson-screen .aim-tag.on");
-      if (tag && vis(tag)) parts.push({ tok: null, kind: "원 꼬리표", r: rectOf(tag), tag: true });
-      for (let i = 0; i < parts.length; i++) for (let j = i + 1; j < parts.length; j++) {
+      if (tag && vis(tag)) parts.push({ tok: null, kind: "원 꼬리표", r: rectOf(tag), tag: true });      for (let i = 0; i < parts.length; i++) for (let j = i + 1; j < parts.length; j++) {
         const a = parts[i], b = parts[j];
         if ((a.tag || b.tag) && !(a.chip || b.chip)) continue; // 꼬리표는 구역 라벨과만 (선수 위는 조준 중 잠깐)
         if (a.tok && a.tok === b.tok) continue; // 같은 토큰 안 (얼굴 ↔ 자기 이름표)
         if (a.kind === "얼굴" && b.kind === "얼굴") continue; // 얼굴끼리는 대형 간격(§14.2)이 보장
         if (cut(a.r, b.r) > 4) overlaps.push(`레슨 ${a.tok ? nameOf(a.tok) + " " : ""}${a.kind} ↔ ${b.tok ? nameOf(b.tok) + " " : ""}${b.kind}`);
+      }
+      // 꼬리표가 경기장 밖으로 나가는가 (경기장 overflow 에 잘린다)
+      const fieldEl = document.querySelector(".lesson-screen .m-field");
+      if (tag && vis(tag) && fieldEl) {
+        const fr = rectOf(fieldEl), tr = rectOf(tag);
+        if (tr.left < fr.left - 1 || tr.top < fr.top - 1 || tr.right > fr.right + 1 || tr.bottom > fr.bottom + 1) overlaps.push(`레슨 원 꼬리표가 경기장 밖 "${(tag.textContent || "").trim()}"`);
+      }
+      // 원 판정 (LESSON_PROTO_PLAN §14.2 · ZI): 그린 원(.aim-circle — 타원 박스) 안에 얼굴 중심이 있는 토큰 = 엔진 미리보기 대상(.target).
+      // 테두리 ±3px 안의 토큰은 건너뛴다 (반올림 · 테두리 두께)
+      const circ = document.querySelector(".lesson-screen .aim-circle.on");
+      if (circ && vis(circ)) {
+        const cr = rectOf(circ);
+        const ex = cr.left + cr.width / 2, ey = cr.top + cr.height / 2, rx = cr.width / 2, ry = cr.height / 2;
+        for (const t of toks) {
+          const face = t.querySelector(".tok-face");
+          if (!face || rx <= 0 || ry <= 0) continue;
+          const fr = rectOf(face);
+          const d = Math.hypot((fr.left + fr.width / 2 - ex) / rx, (fr.top + fr.height / 2 - ey) / ry);
+          if (Math.abs(d - 1) * Math.min(rx, ry) < 3) continue;
+          const inside = d < 1;
+          const target = t.classList.contains("target");
+          if (inside !== target) overlaps.push(`원 판정 ${t.dataset.id} ${nameOf(t)}: 그림 ${inside ? "안" : "밖"} · 대상 ${target ? "예" : "아니오"}`);
+        }
       }
       // 고정 스테이지: 배율 · 위치 (js/ui/stage.js), 스테이지 밖으로 넘친 가로 폭 (#app 논리 px)
       const stageEl = document.getElementById("stage");
@@ -555,6 +577,16 @@ async function enterOutgame(page, sc, prepared, opts, out) {
       await delay(st.waitMs ?? 150);
       continue;
     }
+    // 터치 탭 (시나리오 viewport.hasTouch — 실제 터치 이벤트 → pointerType "touch"): { tap: sel } · { tapAt: { sel, x, y } }
+    if (st.tap || st.tapAt) {
+      const t = st.tapAt || { sel: st.tap, x: 50, y: 50 };
+      const pt = await pointIn(page, t);
+      if (!pt) { out.notes.push(`'${t.sel}' 을 찾지 못함`); continue; }
+      await page.touchscreen.tap(pt.x, pt.y);
+      out.notes.push(`탭 ${t.sel}${st.tapAt ? ` (${t.x}%, ${t.y}%)` : ""} → (${Math.round(pt.x)}, ${Math.round(pt.y)})`);
+      await delay(st.waitMs ?? 200);
+      continue;
+    }
     // 요소 안의 한 점(요소 박스 %)으로 마우스 이동 / 클릭 — 레슨 경기장 조준 (§14.16): { hoverAt | clickAt: { sel, x, y } }
     if (st.hoverAt || st.clickAt) {
       const t = st.hoverAt || st.clickAt;
@@ -596,7 +628,8 @@ async function enterOutgame(page, sc, prepared, opts, out) {
  * 드래그 단계 (라인업 보드 js/ui/lineup.js): from 요소 가운데에서 누르고 → to 요소 가운데로 여러 번 나눠 움직이고 →
  * release 면 놓는다, 아니면 누른 채로 두어 끄는 중 화면(초록/빨강 자리 · 고스트)을 캡처한다.
  * 좌표는 puppeteer boundingBox(화면 px — 스테이지 배율을 거친 값) 그대로라 --width/--height 를 바꿔도 같은 곳에 놓인다.
- * @param {{ from: string, to: string, release?: boolean, steps?: number, waitMs?: number }} d
+ * touch 면 손가락(touchscreen — 시나리오 viewport.hasTouch)으로 끈다.
+ * @param {{ from: string, to: string, at?: { x, y }, release?: boolean, steps?: number, waitMs?: number, touch?: boolean }} d
  */
 async function dragStep(page, d) {
   const boxOf = async (sel) => {
@@ -614,13 +647,23 @@ async function dragStep(page, d) {
   // at = to 요소 박스 안의 점 (%) — 레슨 경기장의 필드 좌표에 놓기
   const bx = d.at ? b.x + (b.width * d.at.x) / 100 : b.x + b.width / 2;
   const by = d.at ? b.y + (b.height * d.at.y) / 100 : b.y + b.height / 2;
-  await page.mouse.move(ax, ay);
-  await page.mouse.down();
-  await page.mouse.move(ax + 4, ay + 4, { steps: 2 }); // 문턱(6px) 전: 아직 탭
-  await page.mouse.move(bx, by, { steps: d.steps ?? 12 });
-  if (d.release) await page.mouse.up();
+  const n = d.steps ?? 12;
+  if (d.touch) {
+    await page.touchscreen.touchStart(ax, ay);
+    for (let i = 1; i <= n; i++) {
+      await page.touchscreen.touchMove(ax + ((bx - ax) * i) / n, ay + ((by - ay) * i) / n);
+      await delay(16);
+    }
+    if (d.release) await page.touchscreen.touchEnd();
+  } else {
+    await page.mouse.move(ax, ay);
+    await page.mouse.down();
+    await page.mouse.move(ax + 4, ay + 4, { steps: 2 }); // 문턱(6px) 전: 아직 탭
+    await page.mouse.move(bx, by, { steps: n });
+    if (d.release) await page.mouse.up();
+  }
   await delay(d.waitMs ?? 150);
-  return `드래그 ${d.from} → ${d.to} (${Math.round(ax)},${Math.round(ay)} → ${Math.round(bx)},${Math.round(by)})${d.release ? " 놓음" : " — 누른 채 캡처"}`;
+  return `${d.touch ? "터치 " : ""}드래그 ${d.from} → ${d.to} (${Math.round(ax)},${Math.round(ay)} → ${Math.round(bx)},${Math.round(by)})${d.release ? " 놓음" : " — 누른 채 캡처"}`;
 }
 
 /** 요소 박스 안의 점 (x · y = 박스 %) → 화면 px. 요소가 없으면 null */

@@ -114,7 +114,8 @@ function walkOrThrow(name, data, opts) {
 // ---- 레슨 화면 (U3) 시나리오 도우미 ----
 const playingLesson = (s) => s.phase === "lesson" && s.lesson?.status === "playing";
 const lessonHand = (data, s) => lessonRun.getLessonView(s, data).hand;
-const RANGE = ["all", "line", "attack", "defense"];
+/** 전체 카드 (경기장 전원 — 자리를 고르지 않는다) */
+const isAllCard = (c) => c.targetKind === "all";
 
 /**
  * 손패 카드 하나를 다른 카드로 바꾼 레슨 상태 (스크린샷용 주입 — 짝 카드처럼 걸어서는 늦게 나오는 카드).
@@ -128,37 +129,37 @@ function withHandCard(state, cardId, at = 0) {
 }
 
 /**
- * 레슨 중 부상 직후 (결정적 찾기): 시즌 1 레슨 2턴째, 손패의 범위 카드를 출전 선수 체력 30(실패율 25%)에서 낸다 —
+ * 레슨 중 부상 직후 (결정적 찾기): 시즌 1 레슨 2턴째, 손패의 전체 카드를 출전 선수 체력 30(실패율 25%)에서 낸다 —
  * rng 상태를 바꿔 가며 실패 + 부상이 나오고 레슨이 계속되는 첫 경우. 걸어서는 감독 AI 가 체력을 아껴 부상이 거의 없다.
  */
 function injuredLessonState(data, runSeed) {
   // 마지막 턴은 빼고 (구역 방식: 카드를 내 남은 사용이 0 이면 턴이 끝나 마지막 턴이면 레슨이 끝난다)
-  const found = walkLesson(data, { seed: runSeed, until: (s) => playingLesson(s) && s.lesson.turn >= 2 && s.lesson.turn < s.lesson.turns && lessonHand(data, s).some((c) => RANGE.includes(c.targetKind) && c.playable) });
+  const found = walkLesson(data, { seed: runSeed, until: (s) => playingLesson(s) && s.lesson.turn >= 2 && s.lesson.turn < s.lesson.turns && lessonHand(data, s).some((c) => isAllCard(c) && c.playable) });
   if (!found) return null;
   const base = found.state;
-  const card = lessonHand(data, base).find((c) => RANGE.includes(c.targetKind) && c.playable);
+  const card = lessonHand(data, base).find((c) => isAllCard(c) && c.playable);
   for (let k = 0; k < 400; k++) {
     const st = JSON.parse(JSON.stringify(base));
     st.rngState = (base.rngState + k * 2654435761) >>> 0;
     for (const p of st.players) if (!(p.injuredTurns > 0)) p.stamina = Math.min(p.stamina, 30);
     const before = JSON.parse(JSON.stringify(st));
-    lessonRun.playCard(st, data, { uid: card.uid, taps: [] });
+    lessonRun.playCard(st, data, { uid: card.uid });
     if (playingLesson(st) && st.lesson.out.some((id) => !st.lesson.outAtStart.includes(id))) return { state: st, before, cardId: card.cardId, steps: found.steps + 1 };
   }
   return null;
 }
 
 /**
- * 퍼펙트 보상 (결정적): 3턴째 이후 범위 카드가 있는 레슨에서 점수를 퍼펙트 − 1 로 두고 그 카드를 엔진에서 낸다 → phase reward (퍼펙트 · 보상 후보 있음).
+ * 퍼펙트 보상 (결정적): 3턴째 이후 전체 카드가 있는 레슨에서 점수를 퍼펙트 − 1 로 두고 그 카드를 엔진에서 낸다 → phase reward (퍼펙트 · 보상 후보 있음).
  * 걸어서는 퍼펙트가 드물다.
  */
 export function perfectRewardState(data, runSeed) {
-  const rangeCard = (s) => lessonHand(data, s).find((c) => RANGE.includes(c.targetKind) && c.playable);
+  const rangeCard = (s) => lessonHand(data, s).find((c) => isAllCard(c) && c.playable);
   const found = walkLesson(data, { seed: runSeed, until: (s) => playingLesson(s) && s.lesson.turn >= 3 && !!rangeCard(s) && s.season >= 1 && s.turnIndex >= 2 });
   if (!found) return null;
   const st = found.state;
   st.lesson.score = st.lesson.cap - 1;
-  lessonRun.playCard(st, data, { uid: rangeCard(st).uid, taps: [] });
+  lessonRun.playCard(st, data, { uid: rangeCard(st).uid });
   if (st.phase !== "reward" || st.pendingReward?.result?.status !== "perfect") return null;
   return { state: st, steps: found.steps + 1 };
 }
@@ -469,6 +470,28 @@ export const LESSON_OG_SCENARIOS = [
     expect: { screen: "run", phase: "lesson", modal: false },
   },
   {
+    // 터치 (hasTouch 뷰포트, 실제 터치 탭): 중간 원 카드 탭 → 경기장 구역 가운데 탭 = 원을 그 자리에 놓기 (아직 내지 않음 — 같은 자리 한 번 더 · [내기])
+    name: "og_lesson_touch",
+    title: "레슨 — 터치: 카드 탭 → 경기장 탭 = 원 놓기 (한 번 더 탭하면 낸다)",
+    outgame: true,
+    viewport: { width: 1280, height: 720, deviceScaleFactor: 1, isMobile: false, hasTouch: true },
+    build: (data, { runSeed }) => injectCard("og_lesson_touch", data, runSeed, "cd_mf_drill", { choose: mostTargets }),
+    steps: (prepared) => [{ tap: `.ls-hand .card-face[data-uid="${prepared.info.uid}"]` }, { tapAt: { sel: FIELD, ...prepared.info.at } }],
+    ready: ".lesson-screen.aiming .aim-circle.on.ok",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 터치 끌기 중 (누른 채): 큰 원 카드를 손가락으로 경기장에 — 원 · 대상 강조 (터치 포인터 → 같은 끌기 코드)
+    name: "og_lesson_touch_drag",
+    title: "레슨 — 터치로 카드 끄는 중 (큰 원, 누른 채)",
+    outgame: true,
+    viewport: { width: 1280, height: 720, deviceScaleFactor: 1, isMobile: false, hasTouch: true },
+    build: (data, { runSeed }) => injectCard("og_lesson_touch_drag", data, runSeed, "cd_attack_build", { choose: mostTargets }),
+    steps: (prepared) => [{ drag: { from: `.ls-hand .card-face[data-uid="${prepared.info.uid}"]`, to: FIELD, at: prepared.info.at, steps: 14, touch: true } }],
+    ready: ".lesson-screen.dragging .aim-circle.on.ok",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
     // 한 구역에 6명 (위 줄 패스 구역) + 1명: 짧은 이름표 · 바깥쪽 자리 · 라벨 겹침 없음 (zones 주입)
     name: "og_lesson_crowd",
     title: "레슨 — 한 구역에 6명 (패스) + 1명: 대형 · 짧은 이름표",
@@ -501,15 +524,14 @@ export const LESSON_OG_SCENARIOS = [
     expect: { screen: "run", phase: "lesson", modal: false },
   },
   {
-    // 범위 카드(기초 훈련 — 전원)를 낸 직후: 대상이 훈련장으로 달려가 "+N" 팝 (타이머를 잠깐 풀었다가 다시 고정)
+    // 전체 카드(기초 훈련)를 낸 직후: 경기장 7명이 제자리에서 훈련 동작 · "+N" 팝 (타이머를 풀고 [내기] → 430ms 뒤 다시 고정)
     name: "og_lesson_mid",
-    title: "레슨 — 기초 훈련을 낸 직후: 7명이 훈련장으로 우르르 · +N 팝",
+    title: "레슨 — 기초 훈련(전체)을 낸 직후: 7명 제자리 훈련 · +N 팝",
     outgame: true,
     build: (data, { runSeed }) => walkOrThrow("og_lesson_mid", data, { seed: runSeed, until: (s) => playingLesson(s) && lessonHand(data, s).some((c) => c.cardId === "cd_basic" && c.playable) }),
     steps: [
       { click: '.ls-hand .card-face[data-card="cd_basic"]' },
-      { click: '.ls-btns .ls-play' , waitMs: 0 },
-      { freeze: false }, { wait: 430 }, { freeze: true },
+      { freeze: false }, { click: ".ls-btns .ls-play", waitMs: 0 }, { wait: 430 }, { freeze: true },
     ],
     ready: ".lesson-screen .m-pop",
     expect: { screen: "run", phase: "lesson", modal: false },
@@ -530,7 +552,7 @@ export const LESSON_OG_SCENARIOS = [
     build: (data, { runSeed }) => {
       const found = injuredLessonState(data, runSeed);
       if (!found) throw new Error("[og_lesson_injury] 부상 상태를 찾지 못했습니다");
-      return { runState: found.state, steps: found.steps, preferred: true, summary: `${describeLessonRun(found.state)} (체력 30 으로 낮춰 범위 카드 — 부상 찾기)` };
+      return { runState: found.state, steps: found.steps, preferred: true, summary: `${describeLessonRun(found.state)} (체력 30 으로 낮춰 전체 카드 — 부상 찾기)` };
     },
     ready: ".lesson-screen .ls-row.out",
     expect: { screen: "run", phase: "lesson", modal: false },
@@ -546,8 +568,8 @@ export const LESSON_OG_SCENARIOS = [
       return { runState: found.before, steps: found.steps - 1, info: { cardId: found.cardId }, preferred: true, summary: `${describeLessonRun(found.before)} (다음 카드 = 실패 · 부상)` };
     },
     steps: (prepared) => [
-      { click: `.ls-hand .card-face[data-card="${prepared.info.cardId}"]` }, { click: ".ls-btns .ls-play", waitMs: 0 },
-      { freeze: false }, { wait: 430 }, { freeze: true },
+      { click: `.ls-hand .card-face[data-card="${prepared.info.cardId}"]` },
+      { freeze: false }, { click: ".ls-btns .ls-play", waitMs: 0 }, { wait: 430 }, { freeze: true },
     ],
     ready: ".lesson-screen .ls-hand .card-face",
     expect: { screen: "run", phase: "lesson", modal: false },
@@ -558,33 +580,33 @@ export const LESSON_OG_SCENARIOS = [
     title: "레슨 — 턴 끝 연출: 기본 훈련 +N (분위기 몫 포함) · 턴 배너",
     outgame: true,
     build: (data, { runSeed }) => {
-      const rangeCard = (s) => lessonHand(data, s).find((c) => RANGE.includes(c.targetKind) && c.playable);
+      const rangeCard = (s) => lessonHand(data, s).find((c) => isAllCard(c) && c.playable);
       const found = walkLesson(data, { seed: runSeed, policy: "team", until: (s) => playingLesson(s) && s.lesson.buffs.mood > 0 && s.lesson.playsLeft === 1 && !!rangeCard(s) });
       if (!found) throw new Error("[og_lesson_turnend] 상태를 찾지 못했습니다");
       return { runState: found.state, steps: found.steps, info: { cardId: rangeCard(found.state).cardId }, preferred: true, summary: describeLessonRun(found.state) };
     },
     steps: (prepared) => [
-      { click: `.ls-hand .card-face[data-card="${prepared.info.cardId}"]` }, { click: ".ls-btns .ls-play", waitMs: 0 },
-      { freeze: false }, { wait: 1250 }, { freeze: true },
+      { click: `.ls-hand .card-face[data-card="${prepared.info.cardId}"]` },
+      { freeze: false }, { click: ".ls-btns .ls-play", waitMs: 0 }, { wait: 1250 }, { freeze: true },
     ],
     ready: ".lesson-screen .ls-pop.base",
     expect: { screen: "run", phase: "lesson", modal: false },
   },
   {
-    // 점수를 퍼펙트 1 전으로 주입하고 범위 카드: 레슨 끝 배너 "퍼펙트!" (보상 모달 전)
+    // 점수를 퍼펙트 1 전으로 주입하고 전체 카드: 레슨 끝 배너 "퍼펙트!" (보상 모달 전)
     name: "og_lesson_end",
     title: "레슨 — 퍼펙트 배너 (레슨 끝 연출, 보상 모달 직전)",
     outgame: true,
     build: (data, { runSeed }) => {
-      const rangeCard = (s) => lessonHand(data, s).find((c) => RANGE.includes(c.targetKind) && c.playable);
+      const rangeCard = (s) => lessonHand(data, s).find((c) => isAllCard(c) && c.playable);
       const found = walkLesson(data, { seed: runSeed, until: (s) => playingLesson(s) && s.lesson.turn >= 3 && !!rangeCard(s) });
       if (!found) throw new Error("[og_lesson_end] 상태를 찾지 못했습니다");
       found.state.lesson.score = found.state.lesson.cap - 1;
       return { runState: found.state, steps: found.steps, info: { cardId: rangeCard(found.state).cardId }, preferred: true, summary: `${describeLessonRun(found.state)} (점수 = 퍼펙트 − 1 주입)` };
     },
     steps: (prepared) => [
-      { click: `.ls-hand .card-face[data-card="${prepared.info.cardId}"]` }, { click: ".ls-btns .ls-play", waitMs: 0 },
-      { freeze: false }, { wait: 1300 }, { freeze: true },
+      { click: `.ls-hand .card-face[data-card="${prepared.info.cardId}"]` },
+      { freeze: false }, { click: ".ls-btns .ls-play", waitMs: 0 }, { wait: 1300 }, { freeze: true },
     ],
     ready: ".lesson-screen .ls-pop.big",
     expect: { screen: "run", phase: "reward", modal: false },
@@ -647,12 +669,29 @@ export const LESSON_OG_SCENARIOS = [
     build: (data, { runSeed }) => {
       const found = perfectRewardState(data, runSeed);
       if (!found) throw new Error("[og_reward_perfect] 상태를 찾지 못했습니다");
-      return { runState: found.state, steps: found.steps, preferred: true, summary: `${describeLessonRun(found.state)} (점수 = 퍼펙트 − 1 주입 후 범위 카드)` };
+      return { runState: found.state, steps: found.steps, preferred: true, summary: `${describeLessonRun(found.state)} (점수 = 퍼펙트 − 1 주입 후 전체 카드)` };
     },
     steps: [{ click: "#modal-root .rw-offer .card-face" }, { click: "#modal-root .rw-deck .mini-card.recommended" }],
     ready: "#modal-root .reward-modal .rw-deck .mini-card.selected",
     expect: { screen: "run", phase: "reward", modal: ".reward-modal" },
   },
+  // 퍼펙트 + 덱이 큰 경우 (덱 주입 — ZI 브라우저 점검에서 시즌 3 덱 18장이 [확인]을 화면 밖으로 밀어냈다): 16장(2줄) · 18장 · 24장(3줄 촘촘) · 32장(4줄)
+  ...[16, 18, 24, 32].map((n) => ({
+    name: `og_reward_perfect_${n}`,
+    title: `레슨 결과 — 퍼펙트 · 덱 ${n}장: 무료 강화 그리드가 [확인]을 밀어내지 않는가`,
+    outgame: true,
+    build: (data, { runSeed }) => {
+      const found = perfectRewardState(data, runSeed);
+      if (!found) throw new Error(`[og_reward_perfect_${n}] 상태를 찾지 못했습니다`);
+      const st = found.state;
+      const extra = ["cd_fw_drill", "cd_mf_drill", "cd_df_drill", "cd_gk_session", "cd_attack_build", "cd_defense_org", "cd_one_two", "cd_one_on_one", "cd_tactics_board", "cd_icing"];
+      while (st.deck.length < n) { st.deck.push({ uid: `k${st.nextUid}`, cardId: extra[st.deck.length % extra.length], plus: st.deck.length % 4 === 0 }); st.nextUid += 1; }
+      return { runState: st, steps: found.steps, preferred: true, summary: `${describeLessonRun(st)} (퍼펙트 주입 · 덱 ${n}장 주입)` };
+    },
+    steps: [{ click: "#modal-root .rw-offer .card-face" }, { click: "#modal-root .rw-deck .mini-card.recommended" }],
+    ready: "#modal-root .reward-modal .rw-deck .mini-card.selected",
+    expect: { screen: "run", phase: "reward", modal: ".reward-modal" },
+  })),
   {
     name: "og_reward_fail",
     title: "레슨 결과 — 실패: 결과 머리 + 보상 없음 + [계속]",
