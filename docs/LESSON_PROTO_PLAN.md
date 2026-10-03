@@ -3,6 +3,7 @@
 > 상태: 구현 계획 · 2026-10-02 · 브랜치 `outgame-lesson` (시작 시점 `main` = `fa1e4ec`과 같음)
 > 기준 문서: [OUTGAME_LESSON_draft.md](OUTGAME_LESSON_draft.md) (L1~L31) · [OUTGAME_CARDS_draft.md](OUTGAME_CARDS_draft.md) (66장) · [ARCHITECTURE.md](ARCHITECTURE.md)
 > 사용자 결정 (2026-10-02): **A** 별도 브랜치에서 만들고 다른 주소(`/soccer/lesson/`)에 올린다 · 두 번에 나눠 1차 먼저. **C** 콘텐츠 결정은 추천대로 (L31).
+> **2026-10-04 구역 방식 개편 (L32~L36)**: [§14](#14-구역-방식-개편-l32l36)가 §4 · §5 · §6.3 · §9 · §10 · §12의 해당 부분(대상 지정 · 종목 · 쉬기 · 자율 훈련 · 수치)을 대신한다.
 > 표기: **[구현 결정]** = 기획서에 없거나 서로 다른 것을 이 계획이 정한 값. 프로토타입을 해 본 뒤 바꿀 수 있다. 수치는 모두 출발점이다. 밸런스는 조정하지 않고, 시뮬 결과만 보고한다.
 
 ---
@@ -1408,3 +1409,734 @@ git diff --stat main -- js/engine/match.js js/engine/ai.js js/engine/skills.js j
 - I1: 결과 화면(§3.4 에서는 손대지 않는 파일)의 선수 줄 "훈련 N회" 는 레슨 런에 훈련 횟수가 없어 늘 0 이라 레슨 런(`state.kind === "lessonRun"`)이면 뺐다 (옛 런 표시는 그대로).
 - I1: ui.smoke 전체 걷기는 `manager.autoStep` 대신 감독 AI 추천을 **앱 actions** 로 보낸다 (weekAction · lessonCall · resolveReward · consultAction/endConsult · confirmPrep · finishMatch · chooseRelic · chooseRoute) — phase 가 바뀔 때마다 그 화면이 그려졌는지 확인. 경기는 경기 화면이 만든 경기(같은 seed)를 쓰지 않고 같은 셋업으로 실제 match.js `simulateAuto` 결과를 `finishMatch` 에 넘긴다. 레슨이 끝나면(연출 대신) 직접 `render()`.
 - 플레이 점검(브라우저 한 판, `/soccer/lesson/` 경로로 서빙): 보상 · 상담 · 덱 카드 앞면의 비용 "체력 −위력×0.6" → 선수 배치로 센 실제 1인 비용(`js/ui/cards.js estimateCost` = 엔진 `staminaCost`와 같은 값, 강화 전 기본 위력 · 범위 인원, lessonLayout.test 확인)과 범위 카드 "합계 N → 1인 n". 고유 카드 강화 모드에서 위력 줄과 같은 문구("주인 53")는 한 번만. 레슨 더미 보기의 고유 카드 둘째 줄 = "○○ 고유 카드". 카드를 고르기 전 [내기]는 회색. 외출 모달은 전원 체력 100 · 컨디션 최고면 "효과가 없습니다"를 띄운다. 상담 스킬 로그 "○○ 이(가) … 습득" → "○○ — '…' 습득" (로그 문구만).
+
+---
+
+## 14. 구역 방식 개편 (L32~L36)
+
+> 상태: 구현 계획 · 2026-10-04 · 브랜치 `outgame-lesson`. 기준: [OUTGAME_LESSON_draft.md](OUTGAME_LESSON_draft.md) L32~L36 (사용자 결정 2026-10-04: 구역 5곳 · 서 있는 구역 기준 · 원은 자유 배치 · 벤치로 끌어내기 · 짝 카드는 작은 원 · 기본 훈련 약 3분의 1).
+> 수치 근거: 구역 모델 보정 시뮬 (스크래치패드 `zone_sim.mjs`, 2-2-2 방침 5개 × 400런 — §14.18). 밸런스 조정이 아니라 **출발점**이다.
+> 표기: **[가정]** = 기획자가 아직 정하지 않아 기본값을 쓴 것 (기획자 확인 대상). **[구현 결정]** = 이 계획이 정한 구현 세부. 둘 다 §14.20에 모았다.
+> 이 절은 §4 · §5 · §6.3 · §9 · §10 · §12의 해당 부분을 **대신한다**. 여기 적지 않은 것(주 흐름 · 보상 · 상담 · 경기 · 저장 키 · 배포)은 앞 절 그대로다.
+
+### 14.0 한눈에
+
+| 바뀌는 것 | 예전 (L5 · L7 · L13 · L14 · L15 · 자율 훈련) | 구역 방식 |
+|---|---|---|
+| 무엇이 오르나 | 레슨 종목 하나 (L7) | 선수가 **서 있는 구역**의 스탯 (L33) |
+| 레슨 주에 고르는 것 | 종목 | **중점 구역** 1곳 (서 있을 확률 ×2 · 상승 ×1.5) [가정] |
+| 선수 자리 | 배치 자리에 고정 | **매 턴 시작**에 포지션 가중치로 5구역에 흩어진다 (L32) |
+| 카드 없이 크는 것 | 레슨 끝 자율 훈련 (대상이 안 된 선수 × 0.35) | **기본 훈련**: 매 턴 끝 구역에 선 모두가 조금씩 (L34) |
+| 대상 지정 | 범위(라인 · 공격진 · 수비진 · 전원) · 지명 탭 · 짝 탭 · 고유 | **끌어다 놓기**: 단일 · 원(작은 · 중간 · 큰) · 전체 · 주인 (L35) |
+| 범위 위력 | 카드 합계 ÷ 대상 수 | **1인 위력** — 원 안 인원이 많을수록 합계가 커진다 [가정] |
+| 쉬기 | 턴 전체를 쓰는 [쉬기] (1명 +20, 나머지 +5) | 지친 선수를 **벤치로 끌어낸다** — 그 선수만 쉬고 턴 끝 +15 (L36) |
+| 고유 카드 | 두 모드 (L13) | 주인 1명 단일 · 주인이 자기 주 스탯 구역에 서 있으면 ×1.5 · 캐릭터 효과는 늘 [가정] |
+| 레슨 점수 | 종목 스탯 순증가 | 7명의 **구역 스탯 상승 전부** (기본 훈련 + 카드, 실패 −5 포함) [가정] |
+
+바뀌지 않는 것: 손패 3장 · 1장 내기 · 추가 사용 · 다음 턴 손패, 체력 비용 · 실패율 표 · 카드 1장에 실패 판정 1번(L16) · 부상 · 결장, 방침 5개와 버프 이름, 코치 · 유대 · 힌트 · 보상 · 상담 · TP/SP, 15주 흐름, 경기 쪽 파일 전부(§0).
+
+### 14.1 핵심 수치 (보정 시뮬 → 데이터 키)
+
+| 손잡이 (시뮬 env) | 값 | 데이터 키 (`data/lesson.json`) | 뜻 |
+|---|---|---|---|
+| BASE | 3.2 | `lesson.base.gain` | 기본 훈련 1인 1턴 = 3.2 × 그 구역 성장률 × 구역 배율 × 컨디션 × (1 + 훈련 효율) |
+| BC | 1 | `lesson.base.stamina` | 기본 훈련 체력 1인 1턴 |
+| GS 0.32 | **0.64** | `lesson.cardGainScale` | 시뮬 GS는 "처음 위력"(문서 위력 × 2) 기준. 문서 위력 기준으로는 카드 상승 ×0.64 (지금 엔진 = ×1) |
+| CR / UCR 0.30 / 0.20 | 0.6 / 0.4 | `lesson.costRate` · `lesson.unique.costRate` | 지금과 같다. 비용 = 1인 위력 × 비용률 — 배율을 곱하기 **전** 위력 기준이라 체력 비용 절대값은 그대로 |
+| RS · RM · RL · RA | 1.0 · 0.45 · 0.35 · 0.17 | (카드 데이터에 반영) | 1인 위력 = 짝 위력 × 1.0 / 예전 1라인 합계 × 0.45 / 2라인 합계 × 0.35 / 전 라인 합계 × 0.17 (§14.9) |
+| BR | 15 | `lesson.bench.recover` | 벤치 회복, 턴 끝 |
+| BT | 25 | (감독 AI 상수) | 체력 25 미만이면 벤치 후보 |
+| 중점 구역 | ×1.5 · 특별 ×2.0 · 서 있을 가중치 ×2 | `lesson.focus` | §14.10 |
+| 분위기 | 1스택 = 기본 훈련 +0.96 | `buffs.moodK` 1.5 × `cardGainScale` | 시뮬 코드 그대로 (`moodK 3 × GS 0.32`). 보정 보고문의 "+1.5"는 GS 0.5 기준 표기이고, 지표는 0.96으로 나왔다 [구현 결정] |
+| 고유 카드 | 35 (강화 44), 주 스탯 구역 ×1.5 | 카드 `power` · `lesson.unique.mainMult` | 시뮬 70 × GS → 문서 단위 35 |
+| 목표 · 상한 | 430/520 · 510/620 · 600/730 | `lesson.targets` | 시즌 1 · 2 · 3 (§14.12) |
+| 특별 | 목표 ×1.15 · 상한 ×1.2 | `lesson.special` | 보정 권고 (×1.3이면 특별 목표가 특별 p30보다 높아진다) [가정] |
+
+보정 결과 요약 (2-2-2, 방침 5개 범위): 런당 성장 6,333~6,859 · 기본 비중 33.4~35.4% · 부상 1.16~1.42 · 실패 2.28~2.81 · 벤치 3.3~7.7회/런 · 주 휴식 2.9~3.6 · 팀워크 에이스형 72, 나머지 96~108. 기준 6개 중 **(3) 고르게 크기만 미달** (가장 덜 큰 선수 / 가장 많이 큰 선수 주 스탯 0.54~0.56, 기준 0.60) — 원인과 기획자가 정할 것은 §14.20.
+
+### 14.2 경기장 구역 배치
+
+**좌표계.** 레슨 화면의 필드 좌표를 그대로 쓴다 (`lesson_layout.js` · `tokenSpot`과 같다). `x` = 가로 % (우리 골 0 → 상대 골 100), `y` = 세로 % (위 터치라인 0 → 아래 100), 필드 요소 안 픽셀 = `(x/100·W, y/100·H)`.
+- `layout.js`와의 관계: 레슨 좌표 `(x, y)`는 경기 필드 좌표 `(x_f = y, y_f = x)`를 `fieldToScreen(x_f, y_f, W, H, "land")`로 그린 점과 같다 (`sx = y_f/100·W = x/100·W`, `sy = x_f/100·H = y/100·H`). 역변환은 `screenToField`와 같다. 그래서 구역 중심의 경기 구역 의미도 맞는다 — 수비 x 20 = 우리 진영(16~40), 패스 x 50 = 중원(40~60), 슈팅 x 80 = 상대 진영 끝(60~84, 박스 바로 앞).
+- **거리 단위 u** = 필드 폭의 1%. 세로 % 차이는 `aspect`(= H/W = 392/968 = 0.405)를 곱해 u로 바꾼다: `distU(a, b) = hypot(a.x − b.x, (a.y − b.y) × aspect)`. 원은 화면에서 동그랗다 (`rx = r·W/100`, `ry = (r/aspect)·H/100` — 측정한 W · H로 그리면 화면 비율이 조금 달라도 엔진 판정과 같은 모양).
+- `aspect`는 데이터 상수다 (엔진은 DOM을 모른다). 무대가 통째로 늘고 줄기 때문에(stage scale) 1280×720 비율에서는 늘 0.405다.
+
+**구역 중심과 반지름** (`lesson.json zones`, 모두 [구현 결정] — 보정 시뮬의 "위 [수비][패스][슈팅] / 아래 [피지컬][드리블]"를 경기장 의미에 맞게 놓은 것)
+
+| 구역 | 중심 (x, y %) | 픽셀 (968×392) | 이웃 (중심 거리 u) |
+|---|---|---|---|
+| 수비 `defense` | (20, 30) | (194, 118) | 피지컬 22.7 · 패스 30 |
+| 패스 `pass` | (50, 30) | (484, 118) | 피지컬 22.7 · 드리블 22.7 · 수비 30 · 슈팅 30 |
+| 슈팅 `shoot` | (80, 30) | (774, 118) | 드리블 22.7 · 패스 30 |
+| 피지컬 `physical` | (35, 72) | (339, 282) | 수비 22.7 · 패스 22.7 · 드리블 30 |
+| 드리블 `dribble` | (65, 72) | (629, 282) | 패스 22.7 · 슈팅 22.7 · 피지컬 30 |
+
+- 패스 구역이 가운데 허브다 (4곳과 이웃) — 점유형의 "패스 구역을 거친다"와 맞는다. 시뮬의 이웃 6쌍에 패스–피지컬 1쌍이 더해졌다.
+- 수비–드리블 · 슈팅–피지컬 · 수비–슈팅은 48~60u라 큰 원 하나로 잡을 수 없다.
+
+**모여 서기 (huddle).** 한 구역에 n명이 서면 중심 둘레 반지름 R의 원형 대형이다. 순서는 슬롯 순서.
+
+```
+R = zones.huddle[min(n, 5) − 1]          // [0, 3.5, 4.5, 5.5, 6.5] u
+n = 1 → (0, 0)
+n = 2 → i = 0 왼쪽 (−R, 0), i = 1 오른쪽 (+R, 0)
+n ≥ 3 → 각 = −90° + 360°·i/n (위에서 시계 방향), (R·cos, R·sin)
+위치 = { x: c.x + dx, y: c.y + dy / aspect }   (소수 1자리 반올림)
+```
+
+- 이웃 토큰 간격은 n = 2 · 3 · 4 · 5 · 7에서 68 · 75 · 75 · 74 · 55px로 토큰(40px)이 겹치지 않는다. 위 줄 대형의 위끝은 y 14%(55px), 아래 줄 대형의 아래끝은 y 88%(345px)라 이름표까지 필드 안에 든다.
+
+**원 크기** (`zones.radius`, u) [가정 — 브리프의 "작은 ≈ 2명 · 중간 ≈ 한 구역 · 큰 ≈ 이웃 두 구역"을 이 배치에 맞춘 값]
+
+| 크기 | r (u / px) | 이렇게 놓으면 |
+|---|---|---|
+| 작은 원 `small` | 4.2 / 41 | 같은 구역의 이웃한 두 명 사이 → 2명. 한 명 위 → 1명. 구역 중심 → 0명 (3명 이상 대형). 다른 구역에는 닿지 않는다 |
+| 중간 원 `medium` | 9 / 87 | 구역 중심 → 그 구역 전원 (대형 R ≤ 6.5). 이웃 구역 선수는 16.2u 이상 떨어져 있어 들어오지 않는다. 두 무리 사이에 놓으면 양쪽 가장자리 선수를 1명씩 잡을 수 있다 (무리 사이 최소 9.7u) |
+| 큰 원 `large` | 17 / 165 | 22.7u 이웃 두 구역의 가운데 → 두 무리 거의 전원, 세 번째 구역은 24u 밖이라 들어오지 않는다. 30u 이웃 쌍은 가까운 쪽 선수만 |
+| 전체 `all` | — | 어디에 놓아도 경기장(벤치 · 결장 제외) 전원 |
+
+- 판정: 선수 토큰 **중심**이 `distU(위치, 놓은 점) ≤ r`이면 원 안이다 (경계 포함, 오차 1e-9). 원 그림의 테두리와 같은 선이다.
+- 자유 배치(사용자 결정 3) — 구역에 붙이지 않는다. 놓은 점은 필드 안 `[0,100]²`로 자른다.
+- 단일 카드: 놓은 점에서 `zones.pickR` = 3u(29px — 토큰 반지름 20px + 여유) 안의 **가장 가까운** 대상 후보 선수. 같으면 슬롯 순서.
+- 사람이 원을 잘 놓으면(예: 패스 · 피지컬 · 드리블 세 중심의 무게중심에 큰 원) 세 구역에서 몇 명씩 잡을 수 있다. 시뮬은 "이웃 두 구역 전원"으로 근사했다 → 사람 상한은 프로토타입에서 본다 [검증].
+
+### 14.3 턴 흐름
+
+```
+레슨 시작  중점 구역 · 특별 · 목표 · 상한 → 결장 · 고유 카드 제외 · 대비 카드 → 섞기 → 턴 시작
+턴 시작    ① 벤치 비우기 ② 흩어지기 (rng) ③ 3 + drawNext장 뽑기 (rng) ④ 죽은 카드 다시 뽑기 (rng) ⑤ playsLeft = 1
+행동       아무 순서로: 카드 끌어다 놓기 (playCard) · 벤치로 / 벤치에서 (benchPlayer) · [턴 끝]
+턴 끝      ① 기본 훈련 (분위기 몫 포함) ② 벤치 회복 +15 ③ 분위기 감소 ④ 퍼펙트 판정 ⑤ 손패 버리기 ⑥ 마지막 턴이면 레슨 끝, 아니면 턴 시작
+레슨 끝    한나 endHeal → 결과 판정 (퍼펙트 체력 보너스) — 자율 훈련 없음
+```
+
+**흩어지기 (`scatterZones`, 엔진 lesson.js, rng 사용)**
+
+```
+lesson.bench = []
+lesson.zones = {}
+for p of state.players (슬롯 순서):
+  if p가 out이면 건너뛴다 (경기장에 없음)
+  pos = p의 배치 포지션 (GK | DF | MF | FW — 슬롯에서)
+  w(z) = config.training.slotWeights[pos][z] × (z == lesson.zone ? lesson.focus.weight : 1)    // weight 2
+  lesson.zones[p.id] = rng.weighted(ZONE_IDS, w)     // ZONE_IDS = STATS 순서 [shoot, dribble, pass, defense, physical]
+```
+
+- 선수 1명당 `rng.next()` 1번이다. 같은 rngState면 같은 배치다.
+- 결과는 `lesson.zones`에 저장한다. 위치(huddle)는 저장하지 않고 `zones`에서 매번 계산한다 (`zones.js` — 순수).
+- 가중치는 `config.json training.slotWeights`를 그대로 읽는다 (config는 바꾸지 않는다, §3.4). GK 가중치 조정 여부는 기획자 결정 (§14.20 Q1).
+- **죽은 카드** (턴 시작에만 버리고 다시 뽑음, 예전 D45와 같은 상한): 대상 후보가 0명인 대상 카드 — 경기장 선수가 0명(모두 결장), `onlyZones` 단일(마무리 일격)인데 슈팅 · 드리블 · 패스 구역에 아무도 없음. 원 카드는 경기장에 1명이라도 있으면 죽지 않는다. 주인 카드는 주인이 결장이면 이미 `removed`다.
+- 행동 중에 낼 수 없게 된 카드(주인을 벤치로 보냄, 마무리 일격 후보를 모두 벤치로 보냄)는 버리지 않고 손패에 남아 `playable: false`다.
+- [턴 끝]은 카드를 내지 않아도 누를 수 있다 [구현 결정] — 기본 훈련이 늘 있으므로 "이번 턴은 그냥 넘긴다"가 정당한 선택이다 (예전 D15의 "1장 이상 낸 뒤에만" 폐지). 남은 추가 사용은 버린다.
+
+### 14.4 기본 훈련 (L34)
+
+턴 끝 ①. 경기장에 선 선수(결장 아님 · 벤치 아님)마다:
+
+```
+unit = base.gain + mood × buffs.moodK × cardGainScale            // 3.2 + 0.96 × 분위기
+g    = round(unit × growth[zone] × zoneMult(zone) × condition.trainingMult[condition] × (1 + Σ trainingEfficiency))
+zoneMult(z) = z == lesson.zone ? (lesson.special ? focus.specialMult : focus.mult) : 1     // 2.0 / 1.5 / 1
+stats[zone] += g (1000에서 멈춤),  score += 실제 오른 양,  stamina −= base.stamina (0에서 멈춤)
+```
+
+- 부 스탯은 없다. 대상 횟수(`targeted`)에 세지 않는다. 실패 · 부상 판정이 없다 (L34).
+- 분위기 몫은 기본 훈련에 얹는다 — 예전 "분위기 틱"을 대신한다. 결과 화면 · 시뮬에서는 분위기 몫을 카드 쪽으로 센다 (`baseGains`에는 `round(g × base.gain / unit)`, 나머지는 `moodGains`).
+- 컨디션 · 훈련 효율을 곱하는 것은 [구현 결정] (카드 상승과 같게. 시뮬은 둘 다 1로 봤다).
+- 연출: `{ t: "base", id, stat, n }`, 체력 `{ t: "cost", id, n: 1, src: "base" }`.
+
+### 14.5 벤치 (L36)
+
+`benchPlayer(state, data, { playerId, on })` — rng를 쓰지 않는다. seq +1, `lastFx = [{ t: "bench", id, on }]`.
+
+| 규칙 | 값 |
+|---|---|
+| 언제 | 레슨 진행 중, 그 턴의 아무 때 (카드를 낸 뒤에도) [구현 결정] |
+| 누구 | 결장이 아닌 선수. 이미 벤치면 `on: true`는 오류 |
+| 최대 | 한 턴에 `bench.max` = 2명 [가정 — 시뮬 감독 AI의 한도. 7명을 모두 벤치에 두면 턴당 체력 +105라 한도를 둔다] |
+| 효과 | 이번 턴 기본 훈련 없음 · 카드 대상이 될 수 없음(원 · 전체 · 단일 · 주인 모두) · 턴 끝 ② 체력 +`bench.recover`(15) |
+| 되돌리기 | `on: false` → 이번 턴 자기 구역(`zones[id]`, 바뀌지 않음)으로 돌아간다. 턴 끝 전이면 언제든 |
+| 다음 턴 | 턴 시작 ①에서 벤치를 비우고 ②에서 다시 흩어진다 |
+| 회복 카드 | 쿨다운 · 아이싱 · 숨 고르기(단일 회복)는 벤치 · 결장 선수에게도 낼 수 있다 [구현 결정 — 예전 D14와 같게, 훈련이 아니므로] |
+| 방침 | 벤치는 방침 버프를 바꾸지 않는다. 예전 "쉬기 → 압박 0 · 내린 단계당 +4"와 "쉬기 턴 분위기 −2"는 없어진다 [가정 — 시뮬과 같음]. 압박을 내리는 길은 라인 내리기 카드뿐 |
+
+- 체력 회복은 벤치 · 주 휴식 · 회복 카드 · 퍼펙트 · 외출이다. 시뮬에서 주 휴식이 런당 약 1번 늘었다 (기본 훈련 체력 1 때문, §14.18).
+
+### 14.6 대상 모델 · 판정
+
+| `target.kind` | 놓는 법 | 대상 T | 인자 |
+|---|---|---|---|
+| `single` | 선수 위에 | 놓은 점에서 pickR 안 가장 가까운 후보 1명. 후보 = 경기장 선수(벤치 · 결장 제외), `onlyZones`가 있으면 그 구역에 선 선수만 | `{ at }` 또는 `{ playerId }` |
+| `single` + 위력 없음 (회복) | 선수 위 · 벤치 칸 · 명단 줄 위에 | 결장 포함 7명 중 1명 (회복만) | `{ at }` 또는 `{ playerId }` |
+| `circle` (`size`: small · medium · large) | 원하는 자리에 | 원 안의 경기장 선수 전원 (§14.2 판정). 0명이면 낼 수 없다 ("원 안에 선수가 없습니다") | `{ at }` 필수 |
+| `all` | 경기장 아무 데나 | 경기장 선수 전원 | 없음 |
+| `owner` | 경기장 아무 데나 (주인 토큰이 빛난다) | 주인 1명. 주인이 벤치 · 결장이면 낼 수 없다 | 없음 |
+| `none` | 경기장 아무 데나 | ∅ (효과만) | 없음 |
+
+- **엔진이 대상을 정한다.** UI는 놓은 점(필드 %)을 `at: { x, y }`로 넘길 뿐이고, 미리보기도 엔진 `previewCard`를 불러 받는다. 그래서 화면 강조 = 실제 대상이다.
+- `playerId`는 키보드 · 클릭 대체 조작과 벤치 칸 · 명단 줄에 놓을 때 쓴다. 검증은 같다 (그 선수가 후보가 아니면 오류).
+- 탭(`taps`) 인자와 `pair` · `line` · `attack` · `defense` · `tap` 종류, 울리카 파트너는 없어진다.
+- 순수 기하 함수는 새 모듈 **`js/engine/zones.js`**에 둔다 (DOM · rng 없음):
+  - `ZONE_IDS`
+  - `huddleOffsets(n, cfg)`
+  - `zonePositions(lesson, players, cfg)` → `{ id: {x, y} }` (경기장 선수만)
+  - `distU(a, b, aspect)`
+  - `inCircle(positions, at, r, aspect)` → id[] (슬롯 순서)
+  - `nearestWithin(positions, at, r, aspect, ids)`
+  - `candidatePoints(positions, cfg)` (§14.14)
+- `cards.js`의 `targetsFor(state, def, args)`가 이 함수들로 T를 계산하고 틀리면 throw한다. `tapCandidates` · `validateTaps` · `isPairCard` · `cardMode` · `effectiveKind`는 지운다.
+
+### 14.7 `playCard` 처리 순서 (§5.3.1을 대신함)
+
+`playCard(state, data, { uid, at, playerId })`
+
+1. **검증.** §5.3.1과 같고, 인자는 §14.6.
+2. **대상 T** — §14.6. 실패자를 포함한 T의 각 선수 i는 자기 구역 `z_i = lesson.zones[i]`를 가진다 (회복 단일은 구역이 없어도 된다).
+3. **1인 위력 p_i** (소수 유지)
+   - 위력 카드 (단일 · 원 · 전체): `power + perMood × mood + perPress × press` — `power` · `perMood` · `perPress`는 모두 **1인** 값이다 (§14.8)
+   - 고유: 카드 `power` 35 (강화판 44) × (`z_owner ∈ mainStatsOf(주인 배치 포지션)` ? `unique.mainMult` 1.5 : 1)
+   - 단일 · 주인이면 `+ routine`
+   - 모든 대상에 `+ focus × focusPer(6) × (focusX2 ? 2 : 1) / |T|` (예전과 같다)
+4. **비용 c_i** = `roundCost(costBase_i × costRate × pressCostMult)`
+   - `costBase_i` = 강화 전 기본 카드의 1인 위력 (+ perMood · perPress 몫, 고유는 ×1.5가 걸린 값 — 52.5 → 21, 35 → 14)
+   - `nextCostZero`면 0이다
+   - 원 · 전체 카드도 **1인당** 비용이라 포메이션 · 인원과 무관하다
+5. **실패율 f** — 예전과 같다 (T 중 비용 내기 전 체력이 가장 위험한 선수, L16).
+6. **배율 M_i** (대상마다)
+
+   ```
+   M_i = condition.trainingMult[condition] × (hojo > 0 ? 1.5 : 1) × (1 + Σ trainingEfficiency)
+       × zoneMult(z_i)                                     // 중점 1.5 · 특별 중점 2.0
+       × (코치 카드 && coach.type == z_i ? 1.3 : 1)          // 대상이 코치 타입 구역에 서 있을 때만
+       × (lessonMult && z_i ∈ lessonMult.stats ? mult : 1)   // 대비 카드 1.5
+       × (lastTurnX2 && 마지막 N턴 ? 2 : 1) × (underdog && score < target ? 1.5 : 1)
+       × (1 + nextPct + (작은 원 카드 ? nextPairPct : 0))
+       × 방침 배율 (§14.11)
+       × cardGainScale (0.64)
+   ```
+
+   - 예전 `(1 + 0.5·special)`는 `zoneMult`로 바뀌었다.
+   - "짝 카드" 판정은 "작은 원 카드"(`target.size == "small"`)로 바뀐다.
+7. **비용 지불 · 실패 판정** — 예전 8~9와 같다.
+8. **상승** (실패자가 아닌 i)
+   - `g_i = round(p_i × growth[z_i] × M_i)` → `stats[z_i]` (1000에서 멈춤)
+   - 실제 오른 양을 `score` · `cardGains[i]`에 더한다
+   - 부 스탯: `subStatMap[z_i] += round(g_i × 0.36 × growth[sub])` (점수 밖)
+   - 실패자: `stats[z_i] −5` (실제로 준 양을 점수에서 뺀다), 50%로 부상 → `out`에 넣고 `zones` · `bench`에서 빼고 고유 카드 제외 (예전과 같다)
+9. **팀워크 (L10)**: |T| ≥ 2면 +(성공 인원 − 1), 레슨당 `lessonCap` 8까지. 예전 짝 +2 규칙은 지운다 [구현 결정 — 시뮬과 같다. 작은 원 2명 = +1, 원투 패스 · 패스 앤 무브 · 삼각형 패스의 카드 효과 팀워크 +2는 그대로].
+10. **일회성 버프 소비** — 예전 12와 같다 (`nextPairPct`는 작은 원 카드일 때).
+11. **방침 패시브** — §14.11.
+12. **카드 effects** — 예전 14와 같다. 위치 규칙:
+    - `heal defense` = GK · DF **배치 포지션** 선수 (결장 아님 — 벤치 포함)
+    - `heal all` = 결장이 아닌 7명 (벤치 포함)
+    - `heal mostTired` = 결장이 아닌 선수 중 체력 최저
+    - `heal owner` = 주인
+    - `heal tap` → `heal target` (그 단일 회복 대상)
+    - [가정 — 시뮬과 같음: 회복은 대상 지정이 아니라 캐릭터 · 효과로 본다]
+13. **기록 · 퍼펙트 · 사용 횟수** — 예전 15~17과 같다.
+
+### 14.8 카드 데이터 스키마 변경 (`data/cards.json` version 2)
+
+```jsonc
+{ "version": 2, "cards": [ {
+  "id": "cd_fw_drill", "name": "FW 라인 드릴",            // 이름은 이번에 바꾸지 않는다 (§14.20 Q4)
+  "target": { "kind": "circle", "size": "medium" },
+  //   kind: single(+onlyZones?: [zone]) | circle(+size: small|medium|large) | all | owner | none
+  "power": 18,                                            // 늘 1인 위력. 위력 없는 카드(회복 단일 · none)는 null
+  "costRate": 0.6, "mods": { }, "effects": [ ], "exhaust": false,
+  "plus": { "power": 23 },                                // 강화판 1인 위력 (명시)
+  "desc": "…", "descPlus": "…",
+  "ownerCharId": "ch_…",                                  // unique만. support 필드는 없어지고, 예전 지원 효과가 effects로 온다
+  "coach": { "supportId": "sp_…", "type": "shoot" }, "bond80": { "power": 18, … }, "prepFor": "dribble"
+} ] }
+```
+
+- `TARGET_KINDS = ["single", "circle", "all", "owner", "none"]`, `CIRCLE_SIZES = ["small", "medium", "large"]`, `onlyZones ⊂ ZONE_IDS`. 닫힌 목록이다 (`validateCardsData`).
+- `RANGE_KINDS` · `PER_PLAYER_KINDS`와 "합계 ÷ 인원" 계산은 지운다. `costBase(def, { mood, press })`는 1인 값이다.
+- `mods.perMood` · `mods.perPress`는 1인 값이다 (라인 연동 0.9, 총공세 1.7).
+- 고유 카드: `power` 35, `plus.power` 44, `costRate` 0.4, `effects` = 예전 `support.effects`, `plus.effects` = 예전 `plus.support.effects`. 예전 강화 모드 전용 효과(아델린 팀워크 +2, 실루엔 +20%, 울리카 파트너 · 팀워크 +1)는 지운다. `target.partner`도 없다.
+- `PLUS_FIELDS` = power · effects · mods. `BOND80_FIELDS`는 그대로다.
+- `heal.to`의 닫힌 목록: `target` · `all` · `defense` · `mostTired` · `owner` (`tap` → `target`).
+- `data/lesson.json`도 version 2다 (§14.13).
+
+### 14.9 66장 변환표
+
+규칙: 예전 대상 `pair` → 작은 원 (짝 1인 위력 × 1.0), `line`(1라인) → 중간 원 (합계 × 0.45), `attack` · `defense`(2라인) → 큰 원 (합계 × 0.35), `all` → 전체 (합계 × 0.17), `single` · `tap` → 단일, `owner` → 주인 (§14.10).
+- 1인 위력은 정수로 반올림했다. 시뮬 계수와 최대 ±5% 차이가 난다 (원 팀 4.76 → 5 등).
+- 범위에서 바뀐 카드의 강화판 = `round(1인 × 1.25)`. 단일 카드의 강화판 · 유대 80판은 예전 값 그대로다.
+- 비용 = 강화 전 1인 위력 × 비용률 (단일 0.6, 1:1 특훈 0.66, 고유 0.4). 1인당이라 포메이션과 무관하다.
+- 상승 ≈ 1인 위력 × 0.64 × 성장률 × 배율이다 (성장률 1.0 · 컨디션 보통 · 중점 아님이면 위력 × 0.64).
+- 강화판 · 유대 80판의 **효과** 변화는 §4.4 그대로다 (예: 하르나 유대 80 = 마지막 2턴, 한나 유대 80 = endHeal 10).
+
+| id | 예전 대상 · 위력 | 새 대상 | 1인 위력 (+강화) | 비용 (1인) | mods · effects (유지) |
+|---|---|---|---|---|---|
+| `cd_basic` | all 35 | all | 6 (+8) | 4 | — |
+| `cd_coaching` | single 35 | single | 35 (+44) | 21 | — |
+| `cd_cooldown` | tap | single (회복) | — | — | heal target 20, extraPlay 1 |
+| `cd_fw_drill` | line FW 40 | circle medium | 18 (+23) | 11 | — |
+| `cd_mf_drill` | line MF 40 | circle medium | 18 (+23) | 11 | — |
+| `cd_df_drill` | line DF 40 | circle medium | 18 (+23) | 11 | — |
+| `cd_gk_session` | line GK 38 | circle medium | 17 (+21) | 10 | — |
+| `cd_attack_build` | attack 43 | circle large | 15 (+19) | 9 | — |
+| `cd_defense_org` | defense 43 | circle large | 15 (+19) | 9 | — |
+| `cd_one_two` | pair 20 | circle small | 20 (+25) | 12 | teamwork 2 |
+| `cd_one_on_one` | single 48 | single | 48 (+60) | 32 | costRate 0.66 |
+| `cd_tactics_board` | none | none | — | — | drawNext 1, extraPlay 1 |
+| `cd_icing` | tap | single (회복) | — | — | heal target 30 |
+| `cd_hojo_up` | none | none | — | — | hojo 3 |
+| `cd_focus_routine` | none | none | — | — | focus 2 |
+| `cd_ace_training` | single 30 | single | 30 (+38) | 18 | focusX2 |
+| `cd_one_point` | single 25 | single | 25 (+31) | 15 | focus 1 |
+| `cd_immerse` | none | none | — | — | hojo 2, focus 1 |
+| `cd_break_limit` | single 65 | single | 65 (+81) | 39 | failPlus 0.1 |
+| `cd_routine` | none | none | — | — | routine 8 (단일 · 주인 카드 1인 +8) |
+| `cd_breath` | tap | single (회복) | — | — | heal target 25, focus 1 |
+| `cd_high_five` | none | none | — | — | mood 3 |
+| `cd_set_piece` | attack 30 | circle large | 11 (+14) | 7 | mood 2 (success) |
+| `cd_pass_move` | pair 15 | circle small | 15 (+19) | 9 | mood 1 (success), teamwork 2 |
+| `cd_one_team` | all 28 | all | 5 (+6) | 3 | mood 2 (success) |
+| `cd_chant` | none | none | — | — | mood 2, heal all 5 |
+| `cd_mood_maker` | none, exhaust | none | — | — | moodX2 |
+| `cd_breath_together` | none | none | — | — | noDecay 3 |
+| `cd_link_line` | defense 35 | circle large | 12 (+15) | 7~ | perMood 0.9 (1인, 분위기 1당) |
+| `cd_line_up` | defense 32 | circle large | 11 (+14) | 7 | stealBuild 2 |
+| `cd_recover` | none | none | — | — | steal 1, heal defense 12 (GK · DF 포지션) |
+| `cd_long_ball` | none | none | — | — | steal 1, extraPlay 1 |
+| `cd_counter_sprint` | attack 36 | circle large | 13 (+16) | 8 | stealPer 0.4 |
+| `cd_finisher` | single only MF · FW 30 | single `onlyZones` [shoot, dribble, pass] | 30 (+38) | 18 | stealPer 0.45 |
+| `cd_all_counter` | all 30 | all | 5 (+6) | 3 | teamwork 2 (consume) |
+| `cd_front_press` | attack 34 | circle large | 12 (+15) | 7 | press 1 |
+| `cd_full_press` | none | none | — | — | press 2, extraPlay 1 |
+| `cd_six_sec` | single 28 | single | 28 (+35) | 17 | press 1, noPressCost atLeast2 |
+| `cd_drop_line` | none | none | — | — | pressDrop 6, nextNoFail |
+| `cd_all_out` | all 30 | all | 5 (+6) | 3~ | perPress 1.7 (1인, 단계 1당) |
+| `cd_gegen` | attack 40 | circle large | 14 (+18) | 8 | noPressCost always |
+| `cd_triangle` | pair 18 | circle small | 18 (+23) | 11 | poss 2 (success), teamwork 2 |
+| `cd_mid_control` | line MF 34 | circle medium | 15 (+19) | 9 | poss 2 (success) |
+| `cd_circulate` | none | none | — | — | poss 3, heal mostTired 15 |
+| `cd_tempo` | none | none | — | — | possGuard 1, drawNext 1 |
+| `cd_dominate` | attack 32 | circle large | 11 (+14) | 7 | possX2 |
+| `cd_back_build` | defense 34 | circle large | 12 (+15) | 7 | possKeep (패스 구역 대상이 없어도 점유 유지) |
+| `cd_u_neria` | owner 53 / 지원 | owner | 35 (+44), 주 스탯 구역이면 ×1.5 = 52.5 (+66) | 14 / 21 | nextNoFail, heal owner 15 (+: 25) |
+| `cd_u_dorbina` | owner 53 / 지원 | owner | 〃 | 14 / 21 | heal defense 10 (+: 15) |
+| `cd_u_adeline` | owner 53 / 지원 | owner | 〃 | 14 / 21 | teamwork 3, heal all 3 (+: 4 · 5) |
+| `cd_u_silluen` | owner 53 / 지원 | owner | 〃 | 14 / 21 | nextPct 0.4 (+: 0.55) |
+| `cd_u_taria` | owner 53 / 지원 | owner | 〃 | 14 / 21 | drawNext 1 (+: 2) |
+| `cd_u_ulrika` | owner + partner 53 / 지원 | owner | 〃 | 14 / 21 | nextPairPct 0.5 (다음 작은 원, +: 0.75), teamwork 1 |
+| `cd_u_greta` | owner 53 / 지원 | owner | 〃 | 14 / 21 | nextCostZero (+: + heal owner 10) |
+| `cd_u_mirka` | owner 53 / 지원 | owner | 〃 | 14 / 21 | extraPlay 1, heal owner −5 (+: −5 없음) |
+| `cd_c_harr` | line FW 40 | circle medium | 18 (+23) | 11 | lastTurnX2 1 (유대80: 2) |
+| `cd_c_celia` | pair 20 | circle small | 20 (+25) · 유대80 24 (+30) | 12 | drawNext 1 |
+| `cd_c_ornella` | attack 43 | circle large | 15 (+19) · 유대80 18 (+23) | 9 | teamwork 2 (유대80: 3) |
+| `cd_c_barbara` | defense 43 | circle large | 15 (+19) · 유대80 18 (+23) | 9 | noFail |
+| `cd_c_hanna` | all 35 | all | 6 (+8) | 4 | endHeal 5 (유대80: 10) |
+| `cd_c_joy` | single 40 | single | 40 (+50) · 유대80 48 (+60) | 24 | underdog 0.5 |
+| `cd_c_irene` | single 28 | single | 28 (+35) | 17 | drawNext 1 (유대80: + extraPlay 1) |
+| `cd_c_lumi` | all 30 | all | 5 (+6) · 유대80 6 (+8) | 3 | lumiFlag |
+| `cd_p_tackle` | defense 40 | circle large | 14 | 8 | lessonMult [defense, physical] ×1.5 — 그 구역에 선 대상만 |
+| `cd_p_intercept` | defense 40 | circle large | 14 | 8 | lessonMult [defense, pass] ×1.5 — 〃 |
+| `cd_p_hold` | line DF 40 | circle medium | 18 | 11 | lessonMult [defense] ×1.5 — 〃 |
+
+- 코치 카드 비용은 cards.test가 확인하던 2-2-2 값(하르나 12 · 셀리아 12 · 오르넬라 6 · 바르바라 9 · 한나 3 · 조이 24 · 이레네 17 · 루미 3 · 태클/인터셉트 8 · 버티기 12)에서 위 표 값으로 바뀐다.
+- 카드 앞면 · 문구(`desc` · `descPlus`)는 "FW 라인 합계 40" → "중간 원 · 1인 18"처럼 대상 · 1인 위력으로 다시 쓴다 (ZE2).
+
+### 14.10 고유 · 코치 · 대비 · 중점 구역 · 특별
+
+- **고유 카드** [가정]
+  - 주인 1명만 대상이다 (`owner`).
+  - 위력 35(강화 44). 주인이 **자기 배치 포지션의 주 스탯 구역**(`mainStatsOf`: GK · DF = 수비 · 피지컬, MF = 드리블 · 패스, FW = 슈팅 · 드리블)에 서 있으면 ×1.5.
+  - 캐릭터 효과(예전 지원 모드 효과)는 늘 붙는다.
+  - L13의 두 모드는 없어진다. 매 턴 흩어지기 때문에 "이번 턴 주인이 어디 서 있나"가 카드의 값이 된다.
+  - 미팅 · 경기 전 준비 편집기의 "고유 카드 모드 변경" 표시는 "고유 카드 ×1.5 구역: 수비 · 피지컬 → 슈팅 · 드리블"로 바꾼다 (주 스탯 쌍이 바뀔 때만).
+- **코치 카드**: ×1.3은 대상마다, 그 대상이 코치 타입 구역(하르나 · 조이 = 슈팅, 셀리아 = 드리블, 오르넬라 · 이레네 = 패스, 바르바라 = 수비, 한나 · 루미 = 피지컬)에 서 있을 때만 붙는다 [가정].
+  - 실패율 감소 · 유대 +8은 그대로다.
+  - "같은 종목 레슨 클리어 유대 +5" → **중점 구역 = 코치 타입**인 레슨을 클리어하면 +5 [구현 결정].
+- **대비 카드**: ×1.5는 대상마다, 그 대상의 구역이 카드의 `lessonMult.stats` 안일 때만 붙는다 [가정]. 대비 주에도 중점 구역을 고른다 (특별은 없다 — D27).
+- **중점 구역** [가정]
+  - 레슨 주 · 대비 주에 고르는 것 = 5구역 중 1곳 (`applyWeekAction({ type: "lesson", zone })`).
+  - 그 구역은 흩어질 때 가중치 ×2 (`focus.weight`), 그 구역의 상승(기본 훈련 · 카드)은 ×1.5 (`focus.mult`).
+  - 이름은 에이스형 버프 "집중"과 헷갈리지 않게 "중점 구역"으로 부른다 (보정 보고의 "집중 구역") [구현 결정].
+- **특별 표시** [가정]
+  - 레슨 주마다 5구역 중 1곳에 무작위로 붙는다 (`special.secondChance` 0.5 → **0**, 시뮬과 같게 1곳).
+  - 그 구역을 중점으로 고르면 특별 레슨이다: 그 구역 상승 ×2.0 (×1.5 대신), 목표 ×1.15, 상한 ×1.2, 보상 강화판 확률(`plusChance.special`)은 예전과 같다.
+  - 다른 구역을 중점으로 고르면 특별 표시는 효과가 없다.
+
+### 14.11 방침 버프 — 구역 기준 [가정]
+
+카드의 "공격 구역" = 슈팅 · 드리블 · 패스, "수비 구역" = 수비 · 피지컬. T ≠ ∅이고 run 방침이 맞을 때만 패시브가 돈다 (D38 그대로).
+
+| 방침 | 예전 (배치 라인) | 구역 방식 |
+|---|---|---|
+| 역습형 (탈취) | T가 전부 GK · DF이고 실패자가 없으면 쌓기, T에 MF · FW가 있으면 쓰기 | T가 **전부 수비 구역**에 서 있고 실패자가 없으면 +(stealBuild ?? 1). T에 **공격 구역** 선수가 1명이라도 있으면 탈취를 모두 쓴다 (배율 `1 + stealPer × steal`, 실패해도 0) |
+| 점유형 (점유) | T에 MF가 있으면 +1, 없으면 −2 | 실패자가 없고 T에 **패스 구역** 선수가 있으면 +1. 패스 구역 대상이 없으면 −2 (`possKeep`이면 유지). 실패 → 가드 또는 0. 삼각형 패스의 기본 +1도 "작은 원에 패스 구역 선수가 있으면" |
+| 팀형 (분위기) | 턴 끝 7명 틱 · 쉬기 턴 −2 | 스택마다 **기본 훈련** +0.96 (§14.4). 감소는 턴마다 −1 (noDecay면 안 줆) |
+| 압박형 (압박) | 쉬기 → 0 · 단계당 +4 | 배율 · 비용 · 실패 리셋 · 라인 내리기는 그대로. 쉬기 회복 규칙은 없어진다. 기본 훈련은 압박 배율 · 비용을 받지 않는다 |
+| 에이스형 (호조 · 집중) | — | 그대로 (호조는 대상 있는 카드만, 기본 훈련에는 붙지 않는다) |
+
+- `lesson.js` 패시브 문맥 `play.ctx.{usesSteal, allDefense, hasMF, pairCard}` → `{ hasAttackZone, allDefenseZone, hasPassZone, smallCircle }`.
+- `buffs.possNoMF` → `possNoPass`, `buffs.pressRestHeal`은 지운다.
+- 미리보기 노트 문구: "점유 −2 (패스 구역 대상 없음)", "탈취 3 → ×1.9 (공격 구역 대상 있음)", "성공하면 탈취 +2 (모두 수비 구역)".
+- 칩: "분위기 3 · 기본 +2.9".
+- 시뮬 관찰: 역습형 탈취 사용 16.1회/런 · 평균 1.47스택 (예전 9.3회 · 1.86). 점유형은 패스 구역 인원이 적어 스택이 잘 쌓이지 않는다 (깨질 때 평균 0.6스택). 수치는 나중에.
+
+### 14.12 레슨 점수 · 목표 · 상한
+
+- **점수** = 이번 레슨 7명의 **구역 스탯 순증가 합**이다 — 기본 훈련(분위기 몫 포함) + 카드 상승 − 실패 −5. 부 스탯 · 스탯 상한(1000)에 잘린 분은 뺀다 [가정].
+- 점수가 예전 문서보다 높은 이유는 7명 전원의 기본 훈련이 들어가기 때문이다.
+
+| 시즌 (턴) | 일반 p30 / 평균 / p90 | 특별 중점 p30 / p90 | **목표** | **상한** | 특별 목표 / 상한 (×1.15 / ×1.2) |
+|---|---|---|---|---|---|
+| 1 (6) | 433 / 457 / 517 | 518 / 627 | **430** | **520** | 495 / 624 |
+| 2 (7) | 514 / 545 / 624 | 584 / 742 | **510** | **620** | 587 / 744 |
+| 3 (8) | 596 / 635 / 731 | 677 / 879 | **600** | **730** | 690 / 876 |
+
+- `lesson.targets = [[430, 520], [510, 620], [600, 730]]`, `special.targetMult` 1.15, `special.capMult` 1.2 (반올림) [가정].
+- 퍼펙트 판정 시점(카드 직후 · 턴 끝 ④)과 체력 보너스(남은 턴 × 5, 7명)는 그대로다 (D6). 카드로 퍼펙트가 되면 그 턴의 기본 훈련 · 벤치 회복은 하지 않는다.
+
+### 14.13 상태 · API · 뷰
+
+**`data/lesson.json` (version 2)** — 바뀌는 부분만
+
+```jsonc
+{ "version": 2,
+  "lesson": {
+    "turns": [6, 7, 8], "targets": [[430, 520], [510, 620], [600, 730]],
+    "hand": 3, "costRate": 0.6, "cardGainScale": 0.64, "subGainRatio": 0.36,
+    "failStatLoss": 5, "injuryChanceOnFail": 0.5, "perfectStaminaPerTurn": 5,
+    "base":  { "gain": 3.2, "stamina": 1 },
+    "bench": { "recover": 15, "max": 2 },
+    "focus": { "mult": 1.5, "specialMult": 2.0, "weight": 2 },
+    "special": { "targetMult": 1.15, "capMult": 1.2, "secondChance": 0 },
+    "unique": { "mainMult": 1.5 },                       // 위력 35 · 강화 44 · 비용률 0.4는 cards.json
+    "coachSameTypeMult": 1.3
+    // 지움: autoTrainRatio · autoTrainStamina · rest · special.gainBonus
+  },
+  "zones": {
+    "aspect": 0.405, "pad": 9, "pickR": 3,
+    "centers": { "defense": { "x": 20, "y": 30 }, "pass": { "x": 50, "y": 30 }, "shoot": { "x": 80, "y": 30 },
+                 "physical": { "x": 35, "y": 72 }, "dribble": { "x": 65, "y": 72 } },
+    "huddle": [0, 3.5, 4.5, 5.5, 6.5],
+    "radius": { "small": 4.2, "medium": 9, "large": 17 }
+  },
+  "teamwork": { "perExtraTarget": 1, "lessonCap": 8, "clear": 3 },          // pair 지움
+  "buffs": { "hojoMult": 1.5, "focusPer": 6, "moodK": 1.5, "stealPer": 0.3, "stealCap": 4,
+             "pressK": 0.2, "pressCostK": 0.2, "pressCap": 3, "possK": 0.05, "possCap": 8, "possNoPass": 2 }
+  // 나머지(rewards · bond · consult · freeWeek · outing · prepCards · routeOverrides · events)는 그대로
+}
+```
+
+**LessonState** (§5.2를 대신함)
+
+```jsonc
+{ "zone": "pass", "special": true, "prep": false,          // zone = 중점 구역 (예전 stat)
+  "turn": 1, "turns": 6, "target": 495, "cap": 624, "score": 0, "status": "playing",
+  "playsLeft": 1, "playedThisTurn": 0,
+  "zones": { "p1": "defense", "p2": "physical" },          // 이번 턴 흩어진 결과 (경기장 선수만)
+  "bench": ["p3"],                                          // 이번 턴 벤치 (최대 2)
+  "drawPile": [], "hand": [], "discard": [], "exhausted": [], "removed": [], "temp": [], "drawNext": 0,
+  "buffs": { … },                                           // 예전과 같다
+  "outAtStart": [], "out": [], "targeted": { },
+  "baseGains": { "p1": 0 }, "moodGains": { }, "cardGains": { },      // 결과 화면 · 시뮬용 (구역 스탯 상승)
+  "twAccrued": 0, "endHeal": 0, "lumiFlag": false, "seq": 0, "lastFx": [],
+  "stats": { "plays": 0, "benches": 0, "fails": 0, "injuries": 0 },
+  "before": { }, "bondBefore": { } }
+// 지움: stat · restTurn · cardGainSum · autoGains · stats.rests
+```
+
+**lesson.js 공개 함수**
+
+| 함수 | 바뀌는 것 |
+|---|---|
+| `startLesson(state, data, { zone, special, prep, prepCards })` | stat → zone. 1턴 시작에 흩어지기 |
+| `playCard(state, data, { uid, at, playerId })` | §14.7 |
+| `benchPlayer(state, data, { playerId, on })` | 새로 (§14.5) |
+| `endLessonTurn(state, data)` | 카드 0장이어도 된다. 턴 끝 순서 §14.3 |
+| `lessonRest` | **지운다** (lessonRun · manager · UI에서도) |
+| `getLessonView(state, data)` | 아래 |
+| `previewCard(state, data, { uid, at, playerId })` | 아래 |
+| `dropCandidates(state, data, { uid })` | 새로 (§14.14 후보 점) — 키보드 대체 조작과 감독 AI가 같이 쓴다 |
+| `lessonResult(state, data)` | `zone`, `benches`, `perPlayer[{ id, byStat: { shoot: n, … }, base, mood, card, sub, targeted, benched }]` (`auto` 지움) |
+
+```jsonc
+getLessonView → { …예전 필드 (stat → zone, canRest 지움),
+  zoneCfg: { centers, radius, aspect, pad, pickR },          // UI가 그림만 그린다
+  positions: { "p1": { "x": 23.5, "y": 30 } },               // 경기장 선수 위치 (zones.js) — 토큰을 그 자리에
+  bench: ["p3"], benchMax: 2, canBench: true, canEndTurn: true,
+  players: [ { …, zone, bench, out, baseNext, failRate } ],   // baseNext = 이번 턴 끝 기본 훈련 예상 (벤치면 0)
+  hand: [ { …, targetKind: "single"|"circle"|"all"|"owner"|"none", size, radius, onlyZones,
+            power, cost, heal: bool, playable, deadReason } ] }   // needTaps · mode · count 지움
+
+previewCard → { ok, reason, kind, at, circle: { x, y, r } | null,
+  targets: [ { id, zone, stat, gain, sub, cost, failRate, coach: bool, focus: bool, unique15: bool } ],
+  failRate, failerId, total, notes }
+// at이 없거나 대상 0명이면 ok:false. 순수 · rng 없음 (예전과 같다)
+```
+
+**lessonRun.js**
+
+| 바뀌는 것 | 내용 |
+|---|---|
+| `applyWeekAction({ type: "lesson", zone })` | `stat` → `zone`. 특별 = `zone ∈ weekOffer.specials` (레슨 주만) |
+| 주 offer | `specials`는 1곳 (`secondChance` 0) |
+| `playCard` · `benchPlayer` · `endLessonTurn` · `getLessonView` · `previewCard` · `dropCandidates` | lesson.js를 감싼다. `lessonRest`는 지운다 |
+| `afterLesson` | 같은 타입 유대 +5 = 중점 구역 = 코치 타입. 기록 `record.lessons[] = { turnIndex, zone, special, prep, score, target, cap, result, turns, plays, benches, fails, injuries }` |
+| `getWeekView().lessons[]` | `{ zone, special, target, cap, turns, expected, boosted: [id] }` — `expected` = 그 구역을 중점으로 골랐을 때 서 있을 기대 인원 (가중치 식, 소수 1자리), `boosted` = 그 구역이 주 스탯이라 고유 카드 ×1.5가 걸리는 선수 |
+| `getRewardView().result.perPlayer` | `lessonResult`의 새 모양 |
+| `version` | **2** (§14.15) |
+
+**연출 목록 (`lastFx`) 변경**
+
+- 더한다:
+  - `{ t: "scatter", zones: { id: zone } }` — 턴 시작, `draw` 앞
+  - `{ t: "base", id, stat, n }` — 턴 끝 ①
+  - `{ t: "bench", id, on }`
+  - `{ t: "heal", id, n, src: "bench" }`
+  - `{ t: "cost", id, n, src: "base" }`
+- 지운다: `tick`, `gain`의 `auto`.
+
+### 14.14 감독 AI (`manager.js`)
+
+- **`recommendCard`** → `{ kind: "bench", playerId } | { kind: "play", uid, at?, playerId?, score } | { kind: "endTurn" }`
+  1. **벤치 먼저.** 그 턴에 카드를 아직 내지 않았고, 벤치가 `bench.max`보다 적고, 체력 < 25인 경기장 선수가 있으면 → 체력이 가장 낮은 선수 (같으면 슬롯 순서)를 벤치로. 한 번에 1명씩 돌려준다.
+  2. **카드마다 후보 점** (`dropCandidates` — 엔진 `zones.candidatePoints`, 대상 집합이 같은 점은 하나로 줄인다):
+     - 단일: 후보 선수마다 그 선수 위치
+     - 원: 경기장 선수마다 그 위치 + 사람이 있는 구역 중심 + 사람이 있는 두 구역 중심의 가운데 (거리 ≤ 2r인 쌍) + 같은 구역 · 이웃 구역 두 선수의 가운데 (거리 ≤ 2r인 쌍) → 원 안 0명인 점은 버린다
+     - 전체 · 주인 · 없음: 점 1개 (경기장 가운데 `(50, 50)`)
+     - 회복 단일: 결장 포함 7명 각각 (`playerId`)
+  3. 각 후보에 `previewCard`를 돌려 점수를 매긴다.
+
+     ```
+     EV = Σ gain_i × pref_i × (1 − f) − f × (5 + 40) + 버프 가치 − 0.15 × Σ cost − 10 × (체력 40 미만 대상 수)
+     pref_i = 대상의 구역이 자기 포지션 주 스탯이면 1.2, 아니면 0.8     // 시뮬과 같다
+     ```
+
+     - 버프 가치는 예전 `value()`에서 분위기 항목만 바꾼다: 스택 1당 `0.96 × 경기장 인원 × min(남은 턴 + 1, 스택)`.
+     - 방침별 한 줄(§5.5)의 "MF" → "패스 구역", "공격진이 낀 카드" → "공격 구역 대상이 있는 카드"다.
+  4. 최고 EV ≤ 0이면 `endTurn`. 같은 EV면 손패 순서 → 후보 순서(구역 중심 → 선수 → 가운데 점)다.
+  - 예전 `restV` · 쉬기 · 탭 대상 규칙은 지운다. 라인 내리기 규칙은 그대로다 (압박 ≥ 2이고 체력 40 미만 선수가 있으면).
+- **`recommendWeek`**: 레슨 주 → 특별 표시 구역이 있으면 그 구역 (늘 — 시뮬은 70% 확률이었다. 감독 AI는 rng를 쓰지 않으므로 [구현 결정]). 대비 주 → 다음 상대 대응 구역 (수비, 수비가 7명 합 1위면 패스, D34). 그 밖 → 7명 합이 가장 낮은 구역.
+- 보상 · 상담 · 자유 주는 그대로다.
+- `autoStep`은 bench · play · endTurn을 그대로 실행한다.
+- 성능: 손패 3~5장 × 후보 점 약 30~45개 × `previewCard` — 1회 추천에 수 ms. `manager.test` 60초 예산 안.
+
+### 14.15 저장 · 결정성
+
+- rng를 쓰는 곳에 **흩어지기**가 더해진다 (턴 시작, 뽑기보다 먼저). 벤치 · 미리보기 · 후보 점 · 뷰 · 감독 AI는 rng를 쓰지 않는다.
+- 상태를 바꾸는 호출 = `playCard` · `benchPlayer` · `endLessonTurn`. UI는 호출마다 `saveRun`을 부른다. 새로고침하면 같은 구역 배치 · 같은 손패 · 같은 벤치다.
+- 위치는 저장하지 않는다 (`zones` + 데이터에서 계산 — 데이터를 바꿔도 저장본이 깨지지 않는다).
+- **저장 버전:** `lessonRun.version` 1 → **2**. `isLessonRun`은 2만 참이고, `store.isLessonRunSave` 사본은 1 · 2를 받아 `continueRun`이 이행하게 한다.
+  - `migrateLessonRun(v1)`: `lesson == null && pendingReward == null`(주 · 상담 · 준비 · 경기 · 유물 · 루트 · 끝)이면 version 2로 올리고 `record.lessons[].stat → zone`, `rests → benches`, `weekOffer.specials`는 그대로 둔다.
+  - 레슨 · 보상 중인 v1은 이행하지 않는다 → "저장 없음" + 토스트 "구역 방식으로 바뀌어 진행 중인 레슨은 이어 할 수 없습니다" [구현 결정].
+- 등록 팀(`registeredTeam`) 모양은 그대로다.
+
+### 14.16 UI (1280×720)
+
+**레슨 화면 배치** — 그리드(§6.3: HUD 56 · 경기장 + 옆 252 · dock 212)는 그대로 두고 안을 바꾼다.
+
+```
+y0   ┌ HUD ─ 시즌1 · 3주 · ➡️ 패스 중점 ★특별 ×2 │ 턴 ●●●○○○ 4/6 │ 점수 [████▌··|···|] 286 / 495 / 624 │ 칩 ┐
+y64  │ ┌ 경기장 968×392 ─────────────────────────────────────────────┐ ┌ 옆 252 ────────────────┐ │
+     │ │  (🛡️수비)         (➡️패스 ★중점)        (⚽슈팅)              │ │ 벤치 (턴 끝 +15, 최대 2) │ │
+     │ │   ●●               ●●●                  ●                    │ │ [  빈 칸  ][  빈 칸  ]   │ │
+     │ │        (💪피지컬)          (🦶드리블)                         │ ├─────────────────────────┤ │
+     │ │          ●                   ●                                │ │ 네리아 🛡️ ▮▮▮ 85 2% [벤치]│ │
+     │ │  끄는 동안: 원(점선) + 안의 토큰 흰 테두리 + 머리 위 "+12 · 2%" │ │ … 7줄 (결장 회색)       │ │
+     │ └──────────────────────────────────────────────────────────────┘ └ 덱 · 버림 · 팀워크 ─────┘ │
+y496 ├ dock: [덱][버림] │ 손패 (끌어서 경기장에) │ 안내 · 미리보기 합계 · 노트 │ [내기][턴 끝] ┤
+```
+
+- **구역 바닥** (`.zone-pad`): 각 구역 중심에 반지름 `pad` 9u 원.
+  - 구역 색 옅게 + 아이콘 · 이름 라벨은 바닥 위쪽 (위 줄) / 아래쪽 (아래 줄).
+  - 중점 구역은 금색 테두리 + "중점 ×1.5" (특별이면 "★ ×2.0").
+  - 예전 `drillZone` · `drillSpot` · 훈련장 라벨은 지운다.
+- **토큰**은 `v.positions`에 둔다 (`--t-move` transition).
+  - 대형이 4명 이상이면 이름표를 짧게 (`.tok-name.short`, 이름 앞 2글자). 전체 이름은 hover · 명단 줄에서 본다.
+  - `aria-label` = "네리아 — 수비 구역, 체력 85".
+- **카드 끌기** (Pointer Events, `touch-action: none`)
+  1. 손패 카드에서 `pointerdown` → 6px 넘게 움직이면 끌기 시작 (`setPointerCapture`). 넘지 않으면 클릭 (아래 대체 조작).
+  2. 끄는 동안 카드 유령(`.drag-ghost` 88×102, 카드 축소판)이 포인터를 따른다. 경기장 위로 들어오면 유령 대신 **조준 표시**로 바뀐다.
+     - 원 카드: 점선 원 (`rx = r·W/100`, `ry = (r/aspect)·H/100`)
+     - 단일: 십자 + 가장 가까운 후보 토큰 강조
+     - 전체 · 주인 · 없음: 경기장 전체(또는 주인 토큰)가 빛난다
+  3. 포인터 → 필드 % 변환은 `lesson_layout.pointerToField(clientX, clientY, rect)` (`.m-field`의 `getBoundingClientRect` — 무대 scale을 포함한 값).
+  4. 프레임마다 1번(rAF) `run.previewCard(state, data, { uid, at })`를 부른다.
+     - 결과의 `targets` → 토큰 `.target`(흰 테두리) + 말풍선 "+12 · 2%", 실패 후보는 `.failer`(빨강)
+     - dock 안내 칸 = "대상 3명 · 합계 +36 · 실패 10%" + notes
+     - `ok:false` → 원이 빨간 점선 + "원 안에 선수가 없습니다"
+  5. 경기장 위에서 놓으면 `actions.lessonCall('playCard', { uid, at })` → seq +1 → 연출. 경기장 밖(dock · 옆 칸)에서 놓으면 취소. Esc도 취소.
+  6. 회복 단일 카드는 벤치 칸 · 명단 줄 위에 놓을 수 있다 (`playerId`).
+- **벤치** (`.ls-bench`, 옆 칸 맨 위 252×84, 칸 2개)
+  - 카드를 끌고 있지 않을 때 경기장 토큰을 끌어 벤치 칸에 놓으면 `benchPlayer({ playerId, on: true })`.
+  - 벤치 토큰을 경기장에 끌어 놓으면 `on: false` (놓은 자리와 상관없이 자기 구역으로 간다).
+  - 벤치가 차면 칸이 회색 + "최대 2명".
+  - 명단 줄의 [벤치] / [복귀] 버튼과 토큰 포커스 + `B` 키가 같은 일을 한다.
+- **클릭 · 키보드 대체 조작** (접근성 · 테스트용)
+  - 카드를 클릭하거나 포커스 + Enter → **조준 모드** (`store.lessonUi.aim = { uid, idx }`).
+  - 마우스: 원 · 십자가 hover를 따라오고 경기장을 클릭하면 그 점에 낸다. 터치: 탭 1번 = 원을 그 자리에 놓기, 같은 자리를 한 번 더 탭하거나 [내기] = 내기.
+  - 키보드: ← → (또는 Tab)으로 `run.dropCandidates` 후보를 돈다 (라벨 "패스 구역 · 3명", "네리아", "패스–드리블 사이 · 4명"), 숫자 1~5 = 구역 중심, Enter = 내기, Esc = 취소.
+  - 전체 · 주인 · 없음 카드는 조준 없이 Enter / [내기] / 카드 두 번 클릭으로 낸다.
+- **버튼**: [쉬기]는 지운다. [내기](조준 모드에서만 켜짐) · [턴 끝](늘). 추천 배지: 감독 추천이 bench면 그 선수 명단 줄에, play면 카드 + 경기장에 추천 원(점선 · 청록), endTurn이면 [턴 끝].
+- **연출** (`lesson_layout.fxPlan` 갱신)
+  - 카드: 비용 → 대상이 **제자리에서** 훈련 동작(`.drilling` 통통 + 구역 색 고리, 280ms) → "+N" 팝 → 버프 칩. 대상이 달려가지 않는다 — 이미 훈련 구역에 서 있다.
+  - 턴 끝: 기본 훈련 "+N" 작은 회색 팝이 경기장 선수 모두에게 **동시에** (650ms) + 점수 막대 → 벤치 "+15" → 새 턴 흩어지기 = 토큰이 새 자리로 뛰어감 (450ms) → 새 손패.
+  - 턴당 약 1.1초가 늘어난다 → 런당 약 70초 (9장 시간 예산 [검증]).
+  - `no-anim` · reduced-motion이면 0ms (예전과 같다).
+- **주 화면**: 레슨 카드 5장 = 중점 구역 5곳.
+  - 카드 내용: 아이콘 · 이름 · "서 있을 확률 ×2 · 상승 ×1.5" · 기대 인원 `expected` · ★특별(×2.0, 목표 495) · 고유 ×1.5 선수 얼굴(`boosted`)
+  - 턴 수 · 목표는 머리 줄에 한 번.
+- **카드 앞면** (`js/ui/cards.js`)
+  - 대상 칩: `CARD_TARGET_LABELS = { single: '단일', circle: '원', all: '전체', owner: '주인', none: '대상 없음' }` + 크기 "작은 원 · 중간 원 · 큰 원", 원 아이콘 크기 3단계
+  - 위력 줄 "1인 18" (고유 "1인 35 · 주 스탯 구역 ×1.5")
+  - 비용 "체력 −11 /명" — `estimateCost`는 엔진 `staminaCost`를 그대로 쓴다 (인원 계산 없음)
+- **보상 모달 · 결과**: 선수 칩 = 구역별 상승 합 (`byStat` 상위 2개 아이콘) · 기본 / 카드 · 부 스탯. "자율 훈련" 문구는 지운다.
+
+### 14.17 테스트
+
+| 파일 | 바뀌는 것 |
+|---|---|
+| `test/zones.test.mjs` (새) | 대형 위치 (n = 1~7, 겹침 없음 · 필드 안), `distU` · `inCircle` 경계 포함, 원 크기 표의 약속 (작은 원 = 이웃 2명 · 중간 원 = 한 구역 전원이고 이웃 구역 0명 · 큰 원 = 22.7u 이웃 두 구역 가운데에서 두 무리 전원이고 세 번째 0명), `candidatePoints` 중복 제거 |
+| `cards.test` | 66장 · 닫힌 목록 (target kind · size · onlyZones · heal.to), §14.9 1인 위력 · 강화 · 비용 표, `resolveCardDef`, 고유 카드 effects = 예전 지원 효과 |
+| `lesson.test` | 흩어지기 결정성 · 분포 (2,000번에 가중치 ±3%p, 중점 ×2) · 결장 제외 / 기본 훈련 식 (중점 · 특별 · 컨디션 · 분위기 몫, 부 스탯 없음, 체력 −1) / 벤치 (최대 2 · 대상 불가 · 기본 훈련 없음 · +15 · 되돌리기 · 다음 턴 비움) / 대상 판정 (단일 pickR · onlyZones, 원 안 0명 거절, 전체, 주인 벤치면 불가) / 상승이 서 있는 구역 스탯으로 / 고유 ×1.5 (주 스탯 구역) / 코치 ×1.3 · 대비 ×1.5 대상별 / 점수 = 기본 + 카드 − 실패 / 0장 턴 끝 / `lessonRest` 없음 / JSON 왕복에 zones · bench / 뷰 · 미리보기 · `dropCandidates` 순수. **지움:** 범위 ÷ 인원 · 두 모드 · 울리카 파트너 · 쉬기 · 자율 훈련 |
+| `cardEffects.test` | 66장 기대값 표를 고정 배치(구역 지정 픽스처)로 다시 쓴다 — 기본 · 강화 · 코치 구역 ×1.3 · 유대 80 · 대비 구역 ×1.5 · 방침 게이트 |
+| `lessonRules.test` | D5/D6 (턴 끝 퍼펙트가 기본 훈련으로 닿는 경우 포함) · D22 · 10.1 키 매핑 그대로, D30 쉬기 항목 → 벤치 |
+| `lessonRun.test` | `{ type: "lesson", zone }`, specials 1곳, 특별 목표 · 상한 ×1.15/×1.2, 유대 +5 = 중점 구역, 기록 필드, v1 → v2 이행 · 레슨 중 v1 거절 |
+| `manager.test` | 15주 완주 그대로. 추천이 늘 유효한 행동 (bench · play의 `at`이 실제로 대상 ≥ 1), rng 없음 |
+| `lessonLayout.test` | `pointerToField`, `fxPlan`(scatter · base · bench), 그리기용 원 반지름 (rx · ry), 토큰 자리 = 뷰 positions |
+| `lessonUi.test` | 클릭 조준 → 경기장 클릭 → seq +1 · 저장 / 키보드 후보 돌기 → Enter / 명단 [벤치] → 벤치 칸에 토큰 / [턴 끝] → 새 배치 / 다시 그려도 조준 유지. 끌기는 jsdom에 레이아웃이 없어 `pointerToField` 단위 테스트 + 브라우저 스크린샷으로 본다 |
+| `ui.smoke` · `outgame.test` | 레슨 한 장 내기를 `at`으로. 필수 선택자 `.ls-bench` · `.zone-pad` 추가, `.ls-rest` 없음 |
+| 그 밖 | `rng` · `run` · `match` · `v05` · `challenge` · `layout` · `lineup` · `orient` · `stage`는 그대로 통과 |
+
+### 14.18 시뮬
+
+- `tools/lesson_sim.mjs`(실제 엔진 + 감독 AI) 출력에 더한다:
+  - 구역 상승 = 기본 + 분위기 + 카드 / 부 스탯, 기본 비중
+  - 고르게 크기 (주 스탯 최저 / 최고, 선수별 주 스탯)
+  - 벤치 회수 / 런 · 벤치 있는 턴 % · 벤치 2회 이상 런 %
+  - 시즌별 일반 · 특별 점수 p30 / p90
+  - 역습 · 점유 · 압박 지표
+- 비교 기준은 보정 시뮬(스크래치패드 `zone_sim.mjs`, 위 §14.1 요약)이다.
+- **구현 확인 띠** (수치 조정이 아니라 "규칙을 문서대로 만들었나" 점검 — 띠 밖이면 규칙 차이를 찾는다):
+  - 2-2-2 런당 성장 5,900~7,300
+  - 기본 비중 30~40%
+  - 부상 0.9~1.7
+  - 벤치 2~10회 / 런
+  - 시즌1 일반 점수 평균 400~520
+- 사람의 자유 배치 · 감독 AI의 후보 점이 시뮬의 "구역 무리 근사"보다 원을 잘 놓으므로 성장은 조금 높게 나올 수 있다. 결과는 보고만 한다 (밸런스는 나중에 한 번에).
+- `tools/drafts/lesson_sim.mjs`(옛 초안 시뮬)는 그대로 둔다. 보정 시뮬 `zone_sim.mjs`는 `tools/drafts/zone_sim.mjs`로 옮겨 커밋한다 (ZE5) — 재현 명령은 §14.1의 env 그대로.
+
+### 14.19 구현 슬라이스 (순서대로, 슬라이스 하나 = 에이전트 하나)
+
+공통 완료 조건 (§12와 같음):
+- `npm test` 통과
+- 경기 쪽 파일 diff 0
+
+슬라이스 사이 규칙: 다음 슬라이스가 고칠 테스트는 `test.skip` + 주석 `zone-pending:<슬라이스>`로 꺼 둔다. 그 슬라이스가 다시 켠다. ZI의 완료 조건은 `grep -rn "zone-pending" test` 0건이다.
+
+**ZE1 · 구역 기하 + 데이터 키** (덧붙이기만, 동작 불변)
+- 할 일:
+  - `js/engine/zones.js` (§14.6 함수 전부)
+  - `lesson.json`에 `zones` · `base` · `bench` · `focus` · `unique` · `cardGainScale` · `special.capMult` **추가** (아직 읽지 않음)
+  - `test/zones.test.mjs`, `package.json` test 목록
+- 완료 조건: zones.test 통과, 나머지 테스트 그대로
+
+**ZE2 · 카드 데이터 + 레슨 핵심**
+- 할 일:
+  - `cards.json` v2 (§14.8 · §14.9, 문구 포함), `cards.js` (kind · size · onlyZones, `targetsFor(state, def, { at, playerId })`, 1인 `costBase`, 지울 export 정리)
+  - `lesson.js`: 흩어지기 · 턴 흐름 · 기본 훈련 · 벤치 · §14.7 · 점수 · 레슨 끝(자율 훈련 제거) · `lessonRest` 제거 · 뷰 · 미리보기 · `dropCandidates` · lastFx
+  - `lesson.json` v2 (지울 키)
+  - 방침 패시브는 문맥 이름만 바꾸고 판정은 ZE3에서 (방침 테스트는 zone-pending)
+  - cards.test · lesson.test 핵심 항목 · cardEffects.test(방침 게이트 제외)
+- 완료 조건: §14.17 lesson.test 항목 중 방침 외 전부 통과, 결정성 · JSON 왕복 · 순수 뷰
+
+**ZE3 · 방침 구역 판정**
+- 할 일:
+  - §14.11 전부 (탈취 · 점유 · 분위기 → 기본 훈련, 압박 쉬기 규칙 제거), 칩 · 노트 문구
+  - 66장 퍼즈 테스트 갱신 (탭 → 무작위 drop 점 · 벤치 행동 포함, 매 행동 뒤 불변식 + 벤치 ≤ 2 + 벤치 선수 기본 훈련 0)
+- 완료 조건: lesson.test 방침 항목 · 퍼즈 · cardEffects.test 전부
+
+**ZE4 · `lessonRun.js`**
+- 할 일: §14.13 lessonRun 표 · v2 이행 · 주 뷰 `expected` · `boosted` · 보상 결과 · lessonRules.test · lessonRun.test
+- 완료 조건: 두 테스트 통과, `registeredTeam` → 도전 스냅샷 통과
+
+**ZE5 · 감독 AI + 시뮬**
+- 할 일: §14.14, manager.test, `tools/lesson_sim.mjs` 지표 추가, `tools/drafts/zone_sim.mjs` 커밋
+- 완료 조건: manager.test 60초 안, `npm run lesson-sim` 출력을 보고에 붙이고 §14.18 확인 띠 안 (밖이면 원인 보고)
+
+**ZU1 · 공용 UI**
+- 할 일:
+  - `labels.js` (대상 · 구역 · 중점 라벨)
+  - `cards.js` 앞면 · `estimateCost`
+  - `lesson_layout.js` (`pointerToField` · `circlePx` · `fxPlan`, `drillSpot` · `drillZone` 제거)
+  - 주 화면 중점 구역 카드, 보상 · 상담 · 덱 문구, 미팅 편집기 표시
+  - lessonLayout.test · outgame.test 해당 부분
+- 완료 조건: jsdom 주 화면 → 레슨 시작, 카드 앞면 잘림 없음 (shot)
+
+**ZU2 · 레슨 화면 끌어다 놓기**
+- 할 일:
+  - `screens/lesson.js` (구역 바닥 · 토큰 자리 · 끌기 · 조준 미리보기 · 벤치 칸 · 대체 조작 · 연출 · `?autolesson=1`이 bench · play `at` · endTurn을 따름), `lesson.css`
+  - `store.lessonUi` = `{ aim, drag, shownSeq, busy, timer, gen }` (taps · restPick 지움)
+  - lessonUi.test
+- 완료 조건:
+  - jsdom: 조준 → 내기 → seq +1 · 저장, 벤치 · 복귀, 턴 끝 재배치
+  - 1280×720 스크롤 없음, 토큰 · 이름표 · 원 라벨 겹침 검사 통과
+
+**ZI · 통합 · 시나리오 · 감사 · 문서**
+- 할 일:
+  - `lesson_scenarios` 갱신: og_lesson_pick → `_aim_single`, `_aim`(큰 원 미리보기) · `_pair` → `_small`, `_rest` → `_bench`, 새 `_drag`(끄는 중 프레임) · `_scatter`(턴 시작 연출 중간) · `_crowd`(한 구역 6~7명)
+  - shot 검사에 원 · 라벨 겹침
+  - 브라우저 한 판 점검 (끌기 · 터치 시뮬)
+  - ARCHITECTURE §20 · README · OUTGAME_CARDS_draft 수치 확인
+  - 이 절에 "14.21 구현 중 바뀐 것" 추가
+  - `zone-pending` 0건
+- 완료 조건: `npm test` 전부, `node tools/shot.mjs og_` 검사 통과, 스크린샷 경로 보고
+
+**ZD · 배포**: 브랜치 푸시 → `lesson-redeploy.yml`이 `/soccer/lesson/`을 다시 올린다 (§2.3). 푸시는 기획자에게 확인받은 뒤에 한다.
+
+순서 의존: ZE1 → ZE2 → ZE3 → ZE4 → ZE5. ZU1은 ZE2 뒤(뷰 계약 §14.13 고정)부터 할 수 있다 → ZU2 (ZE3 · ZE4 필요) → ZI → ZD.
+
+### 14.20 [가정] · [구현 결정] 목록 · 기획자가 정할 것
+
+**[가정] — 브리프 기본값 (기획자 확인 대상)**
+1. 레슨 주에는 종목 대신 **중점 구역** 1곳을 고른다 (서 있을 가중치 ×2, 그 구역 상승 ×1.5). 특별 표시는 1곳이고, 그 구역을 중점으로 고르면 ×2.0 · 목표 ×1.15 · 상한 ×1.2 (보정 권고 — 브리프의 ×1.3 대신).
+2. 원 · 전체 카드 위력은 **1인당** (원 안 인원이 많을수록 합계가 크다), 비용도 1인당, 실패 판정은 카드 1장에 1번 (가장 위험한 대상, L16).
+3. 원 크기: 작은 ≈ 2명 (r 4.2u), 중간 ≈ 한 구역 (9u), 큰 ≈ 이웃 두 구역 (17u). 짝 카드 → 작은 원, 1라인 → 중간 원, 2라인 → 큰 원, 전 라인 → 전체. 마무리 일격 → 공격 구역(슈팅 · 드리블 · 패스)에 선 선수만.
+4. 고유 카드: 주인 단일, 주인이 자기 포지션 주 스탯 구역에 서 있으면 ×1.5, 캐릭터 효과(예전 지원 모드)는 늘. L13 두 모드 폐지.
+5. 코치 카드 ×1.3은 대상이 코치 타입 구역에 서 있을 때만. 대비 카드 ×1.5도 대상의 구역 기준.
+6. 방침: 탈취 = 대상 전원이 수비 · 피지컬 구역이면 쌓고, 공격 구역 대상이 있으면 씀. 점유 = 패스 구역 대상 +1, 없으면 −2. 분위기 = 스택마다 기본 훈련 +. 압박 · 호조 · 집중은 그대로 (쉬기 압박 회복 · 쉬기 턴 분위기 −2는 없어짐).
+7. 벤치: 기본 훈련 없음 · 대상 불가 · 턴 끝 +15 · 다음 턴 다시 구역으로. 턴 전체 [쉬기] 버튼은 없어지고 [턴 끝]은 남는다. 한 턴 최대 2명.
+8. 레슨 점수 = 7명의 구역 스탯 상승 전부 (기본 + 카드, 실패 −5). 목표 430 / 510 / 600, 상한 520 / 620 / 730.
+9. 회복 카드 · 도르비나 고유 · 수비 복귀의 회복 대상은 구역이 아니라 포지션 (GK · DF). 기본 훈련과 분위기 몫에는 부 스탯이 없다.
+
+**[구현 결정] — 이 계획이 정한 세부**
+- 구역 중심 좌표 · 대형 반지름 · 원 반지름 · pickR (§14.2), 토큰 중심이 원 안이면 대상
+- 분위기 1스택 = 기본 훈련 +0.96 (시뮬 코드 값)
+- 기본 훈련에 컨디션 · 훈련 효율을 곱한다
+- 팀워크는 "성공 인원 − 1"로 통일 (짝 +2 규칙 폐지)
+- 카드 0장으로도 [턴 끝]
+- 벤치는 턴 중 아무 때나, 되돌리기 가능
+- 회복 단일은 벤치 · 결장 선수에게도 낼 수 있다
+- 유대 +5 = 중점 구역 = 코치 타입
+- 감독 AI는 특별 표시 구역을 늘 고른다
+- "중점 구역" 이름 (에이스형 "집중" 버프와 구분)
+- 저장 v2 이행 (레슨 중 v1 거절)
+- 1인 위력 정수 반올림, 범위에서 바뀐 카드 강화판 = round(1인 × 1.25)
+
+**기획자가 정할 것 (보정 시뮬에서 나온 질문)**
+- **Q1. 고르게 크기 (기준 3 미달).**
+  - 2-2-2에서 가장 덜 큰 선수 / 가장 많이 큰 선수 = 0.54~0.56 (기준 0.60 이상, 지금 모델 0.56~0.60).
+  - 손잡이로는 안 된다: 극단까지 돌려도 0.53~0.57, 기본 비중 80%에서도 0.63.
+  - 원인은 구조다.
+    - 네리아(GK)는 훈련 칸 가중치의 80%가 수비 · 피지컬에 몰려 있다 (DF · FW 65%, MF 60%).
+    - 수비 · 피지컬 성장률이 1.25 / 1.15로 높다.
+    - 수비 ↔ 피지컬은 서로 부 스탯이라 부 스탯 상승도 주 스탯이 된다.
+    - 수비 쪽 구역에 사람이 몰려 원에 자주 들어간다.
+  - 진단:
+    - GK 가중치를 DF와 같게 (`{"GK":{"shoot":5,"dribble":10,"pass":20,"defense":40,"physical":25}}`) → 0.63~0.68
+    - 감독 AI가 덜 큰 선수를 더 쳐줌 → 0.68~0.73
+  - 정할 것: (a) GK 가중치를 낮출지 (`config.training.slotWeights.GK` — 이 계획은 config를 바꾸지 않는다), (b) "고르게"를 탐욕 감독 AI 기준으로 잴지 사람 플레이 기준으로 잴지.
+- **Q2. 포메이션.**
+  - 3-1-2 · 1-3-2는 원래부터 낮다 (0.44~0.51 · 0.37~0.40). 인원이 많은 라인이 덜 크고, 1-3-2에서는 MF로 간 아델린이 가장 덜 큰다. 3-1-2는 지금 모델보다 좋아졌다.
+  - 2-3-1 · 3-1-2의 팀형 성장이 6,213 · 6,235로 목표 6,300 밑으로 조금 내려간다.
+- **Q3. 주 휴식이 런당 약 1번 늘었다** (기본 훈련 체력 1, 2.9~3.6회). 기본 훈련 체력을 0으로 할지 그대로 둘지.
+- **Q4. 카드 이름.** "FW 라인 드릴" · "수비 조직 훈련"처럼 라인 · 포지션이 들어간 이름이 이제 대상과 맞지 않는다 (중간 원 · 큰 원). 이번에는 이름을 두고 대상 칩으로 보여 준다. 바꿀지는 나중에.
+- **Q5. 점유형 스택이 잘 쌓이지 않는다** (패스 구역 인원이 적어 깨질 때 평균 0.6스택). 수치는 밸런스 때.
