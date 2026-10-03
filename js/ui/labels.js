@@ -160,7 +160,7 @@ export function policyInfo(id, data) {
 export const BUFF_LABELS = {
   hojo: '호조', focus: '집중', routine: '루틴', mood: '분위기', noDecay: '분위기 유지',
   steal: '탈취', press: '압박', poss: '점유', possGuard: '점유 가드',
-  nextPct: '다음 카드', nextPairPct: '다음 짝 카드', nextNoFail: '실패 없음', nextCostZero: '비용 0',
+  nextPct: '다음 카드', nextPairPct: '다음 작은 원', nextNoFail: '실패 없음', nextCostZero: '비용 0',
 };
 // 주 종류 (lesson.json weekKinds)
 export const WEEK_KIND_LABELS = { lesson: '레슨 주', free: '자유 주', prep: '대비 주' };

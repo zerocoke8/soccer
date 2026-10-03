@@ -408,10 +408,17 @@ function turnEndBuffs(state, data, fx) {
   else if (mood > 0) setBuff(L, "mood", mood - 1, fx);
 }
 
-/** 버프 칩 1개의 값 문구 */
+/** 분위기 n 스택의 기본 훈련 1인 몫 (= n × moodK × cardGainScale, 소수 1자리 문구) — §14.4 · §14.11 */
+function moodBaseText(data, n) {
+  const LD = lessonData(data);
+  return (Math.round(n * LD.buffs.moodK * LD.lesson.cardGainScale * 10) / 10).toFixed(1);
+}
+
+/** 버프 칩 1개의 값 문구 (분위기: "3 · 기본 +2.9" — 라벨과 합쳐 "분위기 3 · 기본 +2.9") */
 function chipValue(data, key, val) {
   const B = lessonData(data).buffs;
   switch (key) {
+    case "mood": return val > 0 ? `${val} · 기본 +${moodBaseText(data, val)}` : String(val);
     case "hojo": return `${val}장`;
     case "routine": return `+${val}`;
     case "noDecay": return `${val}턴`;
@@ -492,10 +499,14 @@ function previewNotes(state, data, plan) {
         break;
     }
   } else {
+    let mood = v("mood");
     for (const e of plan.effects) {
       if (e.type === "pressDrop" && v("press") > 0) notes.push(`압박 ${v("press")} → 0 · 출전 선수 체력 +${rnd(v("press") * e.perStage)}`);
-      if (e.type === "moodX2") notes.push(`분위기 ${v("mood")} → ${v("mood") * 2}`);
+      if (e.type === "mood") mood += e.n;
+      if (e.type === "moodX2") mood *= 2;
     }
+    // 분위기 → 턴 끝 기본 훈련 1인 몫 (§14.11 팀형 — 효과는 방침과 관계없이 붙는다, D38)
+    if (mood !== v("mood")) notes.push(`분위기 ${v("mood")} → ${mood} · 기본 +${moodBaseText(data, mood)}`);
   }
   return notes;
 }
