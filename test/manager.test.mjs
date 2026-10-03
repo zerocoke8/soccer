@@ -335,3 +335,58 @@ test("방침별 한 줄: counter 탈취 ≥ 3이면 공격진 카드 +30, press 
   assert.equal(r.kind, "play");
   assert.equal(r.uid, drop);
 });
+
+test("코치 지원 (§15.6): 붙은 카드 = 능력 effects 가치 + ATTACH_BONUS 6 · 같은 카드 2장이면 붙은 쪽 · 새 effect 말 가치", () => {
+  const s = LR.createRun({ data, seed: 3, policy: "team" });
+  s.weekOffer = { kind: "lesson", specials: [] };
+  LR.applyWeekAction(s, data, { type: "lesson", zone: "pass" });
+  s.lesson.zones = { ...LAYOUT };
+  for (const p of s.players) p.stamina = 90;
+  const coaching = uidOf(s, "cd_coaching");
+  keepHand(s, [coaching]);
+  const L = s.lesson;
+  const remaining = L.turns - L.turn;
+  const at = (supportId) => {
+    L.attach.cur = supportId ? { uid: coaching, supportId, turn: L.turn, upgrade: "none" } : null;
+    const r = M.recommendCard(s, data);
+    assert.equal(r.kind, "play");
+    assert.equal(r.uid, coaching);
+    return r;
+  };
+  const base = at(null);
+  const d = (supportId) => {
+    const b = at(null); // 컨디션은 상승 배율에도 들어가므로 매번 다시 잰다
+    const r = at(supportId);
+    assert.equal(b.playerId, base.playerId);
+    assert.equal(r.playerId, base.playerId, supportId); // 대상이 1명이라 모든 후보 점에 같은 값이 더해진다
+    return Math.round((r.score - b.score) * 100) / 100;
+  };
+  assert.equal(d("sp_wind_dancer"), 75 * 0.25 + 6); // drawNext 1
+  assert.equal(d("sp_elder_sage"), 3 * 2 + 0.5 * 25 + 6); // teamwork 3 · hint 50%
+  assert.equal(d("sp_river_scholar"), 75 * 0.3 + 6); // nextPct 0.3
+  assert.equal(d("sp_mountain_monk"), 10 * 1 * 0.3 + 6); // heal targets: 대상 1명 · 체력 50 이상
+  P(s, base.playerId).stamina = 45;
+  const b45 = at(null);
+  const r45 = at("sp_mountain_monk");
+  assert.equal(r45.playerId, b45.playerId);
+  assert.equal(Math.round((r45.score - b45.score) * 100) / 100, 10 * 0.3 + 2 + 6); // 체력 50 미만 대상 +2
+  P(s, base.playerId).stamina = 90;
+  s.condition = 2;
+  assert.equal(d("sp_bard_lumi"), Math.round((0.25 * 1 * (4 * remaining + 6) + 6) * 100) / 100); // condition 25%
+  s.condition = 4;
+  assert.equal(d("sp_bard_lumi"), 6); // 컨디션 최고면 능력 가치 0, 덤만
+  // 강화 · 배율 능력은 미리보기 상승에 들어 있어 덤 6 보다 크다 (하르나: 슈팅 구역 대상이 있을 때만)
+  assert.ok(d("sp_iron_captain") >= 6);
+  L.attach.cur = null;
+  // 같은 카드 2장: 붙은 쪽을 낸다 (손패 순서상 뒤에 있어도)
+  const e0 = s.deck.find((e) => e.cardId === "cd_basic");
+  s.deck.push({ ...e0, uid: `${e0.uid}_b` });
+  const two = [e0.uid, `${e0.uid}_b`];
+  keepHand(s, [two[0], two[1]]);
+  L.attach.cur = { uid: two[1], supportId: "sp_wind_dancer", turn: L.turn, upgrade: "none" };
+  const r = M.recommendCard(s, data);
+  assert.equal(r.kind, "play");
+  assert.equal(r.uid, two[1]);
+  // 감독 AI 는 상태를 바꾸지 않는다
+  assert.equal(L.attach.cur.uid, two[1]);
+});

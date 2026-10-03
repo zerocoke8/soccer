@@ -74,7 +74,7 @@
   "events": { "support": false },
   "attach": {
     "enabled": true,
-    "count": { "min": 2, "max": 4 },
+    "count": { "min": 4, "max": 5 },
     "rarityWeight": { "SSR": 3, "SR": 2, "R": 1 },
     "repeatWeight": 0.5,
     "ownCardWeight": 3,

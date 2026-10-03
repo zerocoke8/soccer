@@ -8,6 +8,8 @@
 // 진행: manager.autoStep (감독 AI) + match.simulateAuto (경기 자동). --no-match 면 경기를 돌리지 않고 홈 1:0 승으로 둔다.
 // 구역 방식 지표 (§14.18): 구역 상승 = 기본 + 분위기 + 카드 / 부 스탯 · 기본 비중 · 고르게 크기 (주 스탯 상승 최저 / 최고) ·
 //   벤치 · 시즌별 일반 / 특별 점수 p30 / p90 · 역습 · 점유 · 압박. 비교 기준 = tools/drafts/zone_sim.mjs (보정 시뮬).
+// 코치 지원 · 컷인 지표 (§15.10): 레슨당 붙기 · 컷인 (평균 · 분포 · 끝까지 간 레슨 중 2~4번 비율) · 코치별 붙기 몫 · 낸 비율 ·
+//   런당 코치별 컷인 (능력 발동) · 컷인 힌트 · 컨디션 +1 · 컷인 유대.
 // 결과는 보고만 한다. 수치는 바꾸지 않는다 (밸런스는 나중에).
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -94,6 +96,7 @@ export function simulateOne(data, { seed, policy, formation, playMatches, specia
     weekRests: 0, benches: 0, benchTurns: 0, lessonTurns: 0, hints: 0,
     base: 0, mood: 0, card: 0, sub: 0,
     stealUses: 0, stealUsed: 0, possBreaks: 0, possLost: 0, pressSum: 0, pressN: 0, tpGain: 0, tpSpent: 0, spGain: 0, spSpent: 0,
+    attachLessons: [], fires: {}, attachBy: {}, cutinHints: {}, cutinCond: 0, cutinBond: {},
     coachAcquired: 0, targeted: Object.fromEntries(state.players.map((p) => [p.id, 0])),
     actionsPerLesson: [], steps: 0, consultBuys: 0, consultUpgrades: 0, consultDeletes: 0, skillsBought: 0, rewardSkips: 0,
   };
@@ -129,6 +132,9 @@ export function simulateOne(data, { seed, policy, formation, playMatches, specia
         m.pressN += 1;
       }
       for (const fx of state.lesson ? state.lesson.lastFx : []) {
+        if (fx.t === "cutin") m.fires[fx.supportId] = (m.fires[fx.supportId] || 0) + 1;
+        if (fx.t === "condition" && fx.src === "cutin") m.cutinCond += fx.n;
+        if (fx.t === "bond") m.cutinBond[fx.supportId] = (m.cutinBond[fx.supportId] || 0) + fx.n;
         if (fx.t !== "buff") continue;
         if (fx.key === "steal" && policy === "counter" && fx.from > 0 && fx.to < fx.from) {
           m.stealUses += 1;
@@ -150,6 +156,17 @@ export function simulateOne(data, { seed, policy, formation, playMatches, specia
     if (wasLesson && state.phase === "reward") {
       const res = state.pendingReward.result;
       m.hints += res.hints.length;
+      for (const h of res.hints) if (h.src === "cutin") m.cutinHints[h.supportId] = (m.cutinHints[h.supportId] || 0) + 1;
+      // 코치 지원: 끝까지 간 레슨 = 퍼펙트로 일찍 끝나지 않고 마지막 턴까지 (출전 0명 조기 종료도 뺀다)
+      const A = state.lesson.attach || { turns: [], log: [] };
+      for (const x of A.log) m.attachBy[x.supportId] = (m.attachBy[x.supportId] || 0) + 1;
+      const reached = A.turns.filter((t) => t <= res.turnReached);
+      m.attachLessons.push({
+        attaches: res.attaches, cutins: res.cutins.length,
+        full: res.status !== "perfect" && res.turnReached >= res.turns,
+        // 미룬 붙기: 붙을 턴이었는데 붙지 않은 턴 수 (낼 카드가 없어 다음 턴으로 미뤘다)
+        deferred: reached.filter((t) => !A.log.some((x) => x.turn === t)).length,
+      });
       for (const pp of res.perPlayer) {
         m.targeted[pp.id] += pp.targeted;
         m.base += pp.base;
@@ -188,6 +205,7 @@ export function simulateOne(data, { seed, policy, formation, playMatches, specia
     bond80: state.supports.filter((s) => s.bond >= upgradeAt).length,
     tpEnd: state.trainingPoints,
     mainGrowth, totalGrowth,
+    supportIds: state.supports.map((x) => x.id),
     players: state.players.map((p) => ({ id: p.id, name: p.name, position: p.position })),
     spEnd: state.skillPoints,
     ...m,
@@ -225,8 +243,53 @@ export function summarize(data, args, policy) {
   const zoneGain = mean(rs.map((r) => r.base + r.mood + r.card));
   const plain = (a) => a.filter((l) => !l.prep && !l.special).map((l) => l.score);
   const spec = (a) => a.filter((l) => l.special).map((l) => l.score);
+  // 코치 지원 · 컷인 (§15.10)
+  const al = rs.flatMap((r) => r.attachLessons);
+  const full = al.filter((x) => x.full);
+  const dist = [0, 1, 2, 3, 4, 5].map((k) => (al.length ? al.filter((x) => (k === 5 ? x.cutins >= 5 : x.cutins === k)).length / al.length : 0));
+  const in24 = (n) => n >= 2 && n <= 4;
+  // 붙기 횟수 띠 = data.lesson.attach.count (C3: 4~5 — 컷인이 2~4번이 되게)
+  const AC = (data.lesson.attach && data.lesson.attach.count) || { min: 2, max: 4 };
+  const inCount = (n) => n >= AC.min && n <= AC.max;
+  const fullOut = full.filter((x) => !inCount(x.attaches));
+  const sids = rs[0].supportIds;
+  const totAttach = rs.reduce((a, r) => a + Object.values(r.attachBy).reduce((x, y) => x + y, 0), 0);
+  const rarityOf = (id) => ((data.supports || []).find((x) => x.id === id) || {}).rarity || "?";
+  const coachRows = sids.map((id) => ({
+    id, rarity: rarityOf(id),
+    name: ((data.supports || []).find((x) => x.id === id) || {}).name || id,
+    share: totAttach ? rs.reduce((a, r) => a + (r.attachBy[id] || 0), 0) / totAttach : 0,
+    fires: mean(rs.map((r) => r.fires[id] || 0)),
+    hints: mean(rs.map((r) => r.cutinHints[id] || 0)),
+    bond: mean(rs.map((r) => r.cutinBond[id] || 0)),
+  }));
+  const byRarity = Object.fromEntries(["SSR", "SR", "R"].map((rr) => {
+    const xs = coachRows.filter((c) => c.rarity === rr);
+    return [rr, xs.length ? mean(xs.map((c) => c.share)) : NaN];
+  }));
+  const attach = {
+    attachesPerLesson: mean(al.map((x) => x.attaches)),
+    cutinsPerLesson: mean(al.map((x) => x.cutins)),
+    cutinsFull: mean(full.map((x) => x.cutins)),
+    dist,
+    fullRate: al.length ? full.length / al.length : 0,
+    fullCutin24: full.length ? full.filter((x) => in24(x.cutins)).length / full.length : NaN,
+    countLabel: `${AC.min}~${AC.max}`,
+    fullAttachIn: full.length ? full.filter((x) => inCount(x.attaches)).length / full.length : NaN,
+    fullAttachOut: fullOut.length,
+    fullAttachOutDeferred: fullOut.filter((x) => x.deferred > 0).length,
+    fullLessons: full.length,
+    playedRate: al.reduce((a, x) => a + x.attaches, 0) ? al.reduce((a, x) => a + x.cutins, 0) / al.reduce((a, x) => a + x.attaches, 0) : NaN,
+    firesPerRun: mean(rs.map((r) => Object.values(r.fires).reduce((x, y) => x + y, 0))),
+    hintsPerRun: mean(rs.map((r) => Object.values(r.cutinHints).reduce((x, y) => x + y, 0))),
+    condPerRun: mean(rs.map((r) => r.cutinCond)),
+    bondPerRun: mean(rs.map((r) => Object.values(r.cutinBond).reduce((x, y) => x + y, 0))),
+    coaches: coachRows,
+    byRarity,
+  };
   return {
     policy, runs: N, ms: Math.round(performance.now() - t0),
+    attach,
     avgStat: mean(rs.map((r) => r.avgStat)),
     teamwork: mean(rs.map((r) => r.teamwork)),
     learned: mean(rs.map((r) => r.learned)),
@@ -348,6 +411,18 @@ function printTable(sums, args) {
     ["레슨 1회 카드 수 / 행동 수", (s) => `${f1(s.playsPerLesson)} / ${f1(s.actionsPerLesson)}`],
     [`레슨 1회 시간 추정 (행동당 ${SEC_PER_ACTION}초)`, (s) => `${f1(s.minutesPerLesson)}분`],
     ["런당 단계 수 · 시간(ms)", (s) => `${f0(s.stepsPerRun)} · ${s.ms}`],
+    ["[지원] 레슨당 붙기 / 컷인", (s) => `${f2(s.attach.attachesPerLesson)} / ${f2(s.attach.cutinsPerLesson)}`],
+    ["[지원] 컷인 0/1/2/3/4/5+ (전체 레슨)", (s) => s.attach.dist.map(pc).join("/")],
+    ["[지원] 끝까지 간 레슨 비율 · 그 컷인 평균 (띠 2.3~3.2)", (s) => `${pc(s.attach.fullRate)} · ${f2(s.attach.cutinsFull)}`],
+    [`[지원] 끝까지 간 레슨: 붙기 ${sums[0].attach.countLabel} (띠 100%)`, (s) => `${pc(s.attach.fullAttachIn)} (밖 ${s.attach.fullAttachOut}, 미룸 ${s.attach.fullAttachOutDeferred})`],
+    ["[지원] 끝까지 간 레슨: 컷인 2~4 (띠 ≥85%)", (s) => pc(s.attach.fullCutin24)],
+    ["[지원] 붙은 카드 중 낸 비율", (s) => pc(s.attach.playedRate)],
+    ["[지원] 붙기 몫 평균 SSR/SR/R (띠 SSR>SR>R)", (s) => ["SSR", "SR", "R"].map((r) => pc(s.attach.byRarity[r])).join("/")],
+    ["[지원] 런당 컷인 · 힌트 · 컨디션 +1 · 유대", (s) => `${f1(s.attach.firesPerRun)} · ${f1(s.attach.hintsPerRun)} · ${f2(s.attach.condPerRun)} · ${f1(s.attach.bondPerRun)}`],
+    ...(sums[0].attach.coaches || []).map((c, i) => [
+      `[지원] ${c.name} (${c.rarity}) 몫 · 컷인/런`,
+      (s) => { const x = s.attach.coaches[i]; return `${pc(x.share)} · ${f1(x.fires)}`; },
+    ]),
   ];
   const head = ["지표", ...sums.map((s) => s.policy)];
   const table = [head, ...rows.map(([label, fn]) => [label, ...sums.map(fn)])];

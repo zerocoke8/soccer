@@ -25,6 +25,11 @@ const REWARD_DECK_MAX = 20;
 /** 상담 삭제를 시작하는 덱 장수 (덱 > 14) */
 const CONSULT_DELETE_ABOVE = 14;
 const CONSULT_DELETE_IDS = ["cd_basic", "cd_coaching"];
+/**
+ * 코치가 붙은 카드의 덤 (§15.6 [가정]): 유대 +attach.bond 와 컷인의 값. 비슷한 EV 면 붙은 카드를 낸다.
+ * 강화 · attachMult · noFail · underdog 은 previewCard 상승 · 실패율에 이미 들어 있고, 능력 effects 는 buffValue 로 센다.
+ */
+const ATTACH_BONUS = 6;
 
 // ---------------------------------------------------------------------------
 // 공용 헬퍼
@@ -90,6 +95,7 @@ function buffValue(state, data, c) {
   const lowSt = active.filter((p) => p.stamina < 50).length;
   const moodUnit = BD.moodK * data.lesson.lesson.cardGainScale;
   const { f, T, effects, mods, consumes, zoneOf, healId } = c;
+  const tPlayers = T.map((id) => playerById(state, id)).filter(Boolean);
   let val = 0;
   for (const e of effects) {
     const when = e.when || "always";
@@ -128,6 +134,11 @@ function buffValue(state, data, c) {
           const hp = playerById(state, healId);
           x = Math.min(e.n, 40, 100 - (hp ? Number(hp.stamina) || 0 : 0)) * 0.6 + lowSt * 4;
         } else if (e.to === "target" || e.to === "mostTired") x = Math.min(e.n, 40) * 0.6 + lowSt * 4;
+        else if (e.to === "targets") {
+          // 대상 전원 (§15.6): n × (결장 아닌 대상 수) × 0.3 + 2 × (체력 50 미만 대상 수)
+          const tin = tPlayers.filter((p) => !cards.isOut(state, p));
+          x = e.n * tin.length * 0.3 + 2 * tin.filter((p) => p.stamina < 50).length;
+        }
         else if (e.to === "all") x = e.n * nAct * 0.3 + lowSt * 2;
         else x = 8 + lowSt * 2;
         break;
@@ -140,6 +151,13 @@ function buffValue(state, data, c) {
       case "drawNext": x = AVG_GAIN * 0.25 * e.n; break;
       case "endHeal": x = e.n * nAct * 0.3; break;
       case "lumiFlag": x = 10; break;
+      case "hint": x = (e.chance ?? 1) * 25; break;
+      case "condition": {
+        // 컨디션 (§15.6): (chance ?? 1) × n × (4 × 남은 턴 + 6), 4 (최고) 에서 넘치는 몫은 0
+        const room = Math.max(0, 4 - (Number(state.condition) || 0));
+        x = (e.chance ?? 1) * Math.min(e.n, room) * (4 * remaining + 6);
+        break;
+      }
       default: break;
     }
     val += w * x;
@@ -168,7 +186,8 @@ function scoreDrop(state, data, hv, def, cand, evenW) {
   const L = state.lesson;
   const pv = lesson.previewCard(state, data, { uid: hv.uid, at: cand.at || undefined, playerId: cand.playerId });
   if (!pv.ok) return null;
-  const effects = def.effects || [];
+  // 붙은 코치의 능력 effects 를 카드 effects 뒤에 (§15.6 — 능력은 카드가 실패해도 발동, when 없음)
+  const effects = [...(def.effects || []), ...((pv.attach && pv.attach.effects) || [])];
   const mods = def.mods || {};
   const T = pv.targets.map((t) => t.id);
   const f = pv.failRate || 0;
@@ -193,6 +212,7 @@ function scoreDrop(state, data, hv, def, cand, evenW) {
   ev += buffValue(state, data, { f, T, effects, mods, consumes, zoneOf, healId: pv.healId });
   ev -= COST_K * cost;
   ev -= LOW_TARGET_PENALTY * ps.filter((p) => p.stamina < 40).length;
+  if (pv.attach) ev += ATTACH_BONUS;
   if (state.policy === "counter" && steal >= 3 && hasAttackZone) ev += 30;
   if (state.policy === "poss" && T.length && !hasPassZone && !mods.possKeep) ev -= Math.min(data.lesson.buffs.possNoPass, poss) * 8;
   return { uid: hv.uid, cardId: hv.cardId, at: cand.at || null, playerId: cand.playerId ?? null, score: Math.round(ev * 100) / 100 };

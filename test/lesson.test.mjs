@@ -1608,12 +1608,13 @@ function abilityState(supportId, hand, { extra = [], layout = LAYOUT, supports }
 }
 const bondOf = (s, id) => s.supports.find((x) => x.id === id).bond;
 
-test("§15.1 ① 붙을 턴: 레슨 시작에 2~4개 · 서로 다른 턴 · 오름차순 · 같은 rngState → 같은 턴 · 코치 · 카드", () => {
+test("§15.1 ① 붙을 턴: 레슨 시작에 count.min~max 개 (C3: 4~5) · 서로 다른 턴 · 오름차순 · 같은 rngState → 같은 턴 · 코치 · 카드", () => {
   const seen = new Set();
+  const { min: cMin, max: cMax } = DA.lesson.attach.count;
   for (let seed = 1; seed <= 300; seed++) {
     const s = startA({ seed });
     const { turns } = s.lesson.attach;
-    assert.ok(turns.length >= 2 && turns.length <= 4, `seed ${seed}: ${turns}`);
+    assert.ok(turns.length >= cMin && turns.length <= Math.min(cMax, s.lesson.turns), `seed ${seed}: ${turns}`);
     assert.equal(new Set(turns).size, turns.length);
     assert.deepEqual(turns, turns.slice().sort((a, b) => a - b));
     assert.ok(turns.every((t) => Number.isInteger(t) && t >= 1 && t <= s.lesson.turns));
@@ -1629,7 +1630,7 @@ test("§15.1 ① 붙을 턴: 레슨 시작에 2~4개 · 서로 다른 턴 · 오
       assert.equal(s.lesson.attach.cur, null);
     }
   }
-  assert.deepEqual([...seen].sort(), [2, 3, 4]);
+  assert.deepEqual([...seen].sort(), Array.from({ length: cMax - cMin + 1 }, (_, i) => cMin + i));
   // 결정성: 같은 시드 → 같은 상태 (턴 끝까지)
   const runIt = () => {
     const s = startA({ seed: 42 });

@@ -438,7 +438,7 @@ test("§15.3 validateAttachData: 실제 데이터 통과 · 8명 능력 · 모�
   assert.equal(cards.validateAttachData(data), true);
   const A = data.lesson.attach;
   assert.deepEqual(Object.keys(A.abilities).sort(), ["sp_bard_lumi", "sp_coach_harr", "sp_elder_sage", "sp_iron_captain", "sp_mountain_monk", "sp_river_scholar", "sp_street_striker", "sp_wind_dancer"]);
-  assert.deepEqual([A.enabled, A.count, A.rarityWeight, A.repeatWeight, A.ownCardWeight, A.overPct, A.bond], [true, { min: 2, max: 4 }, { SSR: 3, SR: 2, R: 1 }, 0.5, 3, 0.2, 5]);
+  assert.deepEqual([A.enabled, A.count, A.rarityWeight, A.repeatWeight, A.ownCardWeight, A.overPct, A.bond], [true, { min: 4, max: 5 }, { SSR: 3, SR: 2, R: 1 }, 0.5, 3, 0.2, 5]);
   assert.deepEqual(A.cutinMs, { first: 900, repeat: 600 });
   for (const [id, a] of Object.entries(A.abilities)) assert.ok(a.name && a.text, id);
   const bad = (mutate, re) => {
