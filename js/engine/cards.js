@@ -26,7 +26,8 @@ export const TARGET_KINDS = ["single", "circle", "all", "owner", "none"];
 export const CIRCLE_SIZES = ["small", "medium", "large"];
 export const PREP_FOR = ["dribble", "pass", "midrange"];
 export const EFFECT_WHEN = ["always", "success", "consume"];
-export const HEAL_TO = ["target", "all", "defense", "mostTired", "owner"];
+/** heal 대상. targets = 이 카드의 대상 T 중 결장이 아닌 선수 전원 (§15.3) */
+export const HEAL_TO = ["target", "all", "defense", "mostTired", "owner", "targets"];
 /** 강화판 · 유대 80에서 덮어쓸 수 있는 필드 */
 export const PLUS_FIELDS = ["power", "effects", "mods"];
 export const BOND80_FIELDS = ["power", "effects", "mods", "desc", "descPlus"];
@@ -77,7 +78,17 @@ export const EFFECT_TYPES = {
   drawNext: { n: (v) => isInt(v) && v > 0 },
   endHeal: { n: (v) => isInt(v) && v > 0 },
   lumiFlag: {},
+  condition: { n: (v) => isInt(v) && v !== 0, chance: (v) => isNum(v) && v > 0 && v <= 1 },
+  hint: { chance: (v) => isNum(v) && v > 0 && v <= 1 },
 };
+
+/** 빠져도 되는 effect 필드 (§15.3) */
+const OPTIONAL_EFFECT_FIELDS = { condition: ["chance"] };
+/** 코치 지원 능력에만 쓸 수 있는 effect (카드에 쓰면 오류 — 어느 코치인지 알 수 없다, §15.3) */
+export const ABILITY_ONLY_EFFECTS = ["hint"];
+/** 코치 지원 능력 (lesson.json attach.abilities) 에 쓸 수 있는 mods · needs (§15.3) */
+export const ATTACH_MOD_KEYS = ["lessonMult", "noFail", "underdog"];
+export const ATTACH_NEEDS = ["power", "fail"];
 
 const clone = (x) => (x === undefined ? undefined : JSON.parse(JSON.stringify(x)));
 
@@ -408,7 +419,7 @@ export function staminaCost(def, opts = {}) {
 // 검증
 // ---------------------------------------------------------------------------
 
-function checkEffects(list, where, errors) {
+function checkEffects(list, where, errors, { ability = false } = {}) {
   if (!Array.isArray(list)) {
     errors.push(`${where}: effects 가 배열이 아닙니다`);
     return;
@@ -418,16 +429,18 @@ function checkEffects(list, where, errors) {
     if (!e || typeof e !== "object") return errors.push(`${at}: 객체가 아닙니다`);
     const spec = EFFECT_TYPES[e.type];
     if (!spec) return errors.push(`${at}: 알 수 없는 effect '${e.type}'`);
+    if (!ability && ABILITY_ONLY_EFFECTS.includes(e.type)) return errors.push(`${at}: '${e.type}' 는 코치 지원 능력에만 쓸 수 있습니다`);
     for (const k of Object.keys(e)) {
       if (k === "type") continue;
-      if (k === "when") {
+      if (k === "when" && !ability) {
         if (!EFFECT_WHEN.includes(e.when)) errors.push(`${at}: when '${e.when}' 이(가) 목록에 없습니다`);
         continue;
       }
       if (!spec[k]) errors.push(`${at}: '${e.type}' 에 없는 필드 '${k}'`);
       else if (!spec[k](e[k])) errors.push(`${at}: '${e.type}.${k}' 값이 잘못됐습니다 (${JSON.stringify(e[k])})`);
     }
-    for (const k of Object.keys(spec)) if (!(k in e)) errors.push(`${at}: '${e.type}' 에 '${k}' 가 없습니다`);
+    const optional = OPTIONAL_EFFECT_FIELDS[e.type] || [];
+    for (const k of Object.keys(spec)) if (!(k in e) && !optional.includes(k)) errors.push(`${at}: '${e.type}' 에 '${k}' 가 없습니다`);
   });
 }
 
@@ -502,6 +515,8 @@ export function validateCardsData(data) {
         if (t.onlyZones !== undefined) errors.push(`${at}: 회복 단일 카드에는 onlyZones 를 쓸 수 없습니다`);
       } else checkPower(c.power, at, errors);
       if (heals.length && !(t.kind === "single" && c.power === null)) errors.push(`${at}: heal target 은 위력 없는 단일 카드만`);
+      const healT = [...(c.effects || []), ...((c.plus && c.plus.effects) || [])].some((e) => e && e.type === "heal" && e.to === "targets");
+      if (healT && (t.kind === "none" || c.power === null)) errors.push(`${at}: heal targets 는 위력 있는 카드만`);
     }
     if (c.costRate !== undefined && !(isNum(c.costRate) && c.costRate > 0 && c.costRate <= 1)) errors.push(`${at}: costRate 가 잘못됐습니다`);
     checkMods(c.mods, at, errors);
@@ -597,6 +612,71 @@ export function validateCardsData(data) {
     }
   }
 
+  // lesson.json attach (코치 지원, §15.3)
+  if (L && L.attach !== undefined) attachErrors(data, errors);
+
   if (errors.length) throw new Error(`카드 데이터 오류 ${errors.length}건:\n- ${errors.join("\n- ")}`);
+  return true;
+}
+
+/** lesson.json attach 검사 — 오류 문구를 errors 에 모은다 */
+function attachErrors(data, errors) {
+  const A = data.lesson && data.lesson.attach;
+  const at = "lesson.attach";
+  if (!A || typeof A !== "object" || Array.isArray(A)) return errors.push(`${at}: 객체가 아닙니다`);
+  const TOP = ["enabled", "count", "rarityWeight", "repeatWeight", "ownCardWeight", "overPct", "bond", "cutinMs", "abilities"];
+  for (const k of Object.keys(A)) if (!TOP.includes(k)) errors.push(`${at}: 알 수 없는 필드 '${k}'`);
+  if (typeof A.enabled !== "boolean") errors.push(`${at}.enabled 는 불리언이어야 합니다`);
+  const c = A.count || {};
+  if (!isInt(c.min) || !isInt(c.max) || c.min < 0 || c.min > c.max) errors.push(`${at}.count 가 잘못됐습니다 (0 ≤ min ≤ max 정수)`);
+  const rw = A.rarityWeight;
+  if (!rw || typeof rw !== "object" || !Object.values(rw).every((v) => isNum(v) && v >= 0)) errors.push(`${at}.rarityWeight 가 잘못됐습니다 (가중치 ≥ 0)`);
+  for (const k of ["repeatWeight", "ownCardWeight", "overPct"]) if (!isNum(A[k]) || A[k] < 0) errors.push(`${at}.${k} 가 잘못됐습니다 (≥ 0)`);
+  if (!isInt(A.bond) || A.bond < 0) errors.push(`${at}.bond 는 0 이상의 정수여야 합니다`);
+  const ms = A.cutinMs || {};
+  if (!isNum(ms.first) || !isNum(ms.repeat) || ms.first < 0 || ms.repeat < 0) errors.push(`${at}.cutinMs 가 잘못됐습니다`);
+  const supportIds = Array.isArray(data.supports) ? new Set(data.supports.map((s) => s.id)) : null;
+  const ab = A.abilities;
+  if (!ab || typeof ab !== "object" || Array.isArray(ab)) return errors.push(`${at}.abilities 가 객체가 아닙니다`);
+  for (const [id, a] of Object.entries(ab)) {
+    const w = `${at}.abilities.${id}`;
+    if (supportIds && !supportIds.has(id)) errors.push(`${w}: 코치 '${id}' 이(가) supports 에 없습니다`);
+    if (!a || typeof a !== "object") {
+      errors.push(`${w}: 객체가 아닙니다`);
+      continue;
+    }
+    for (const k of Object.keys(a)) {
+      if (k === "lb") errors.push(`${w}: lb (돌파 단계별 능력) 는 아직 쓸 수 없습니다 (스키마 예약)`);
+      else if (!["name", "text", "needs", "mods", "effects"].includes(k)) errors.push(`${w}: 알 수 없는 필드 '${k}'`);
+    }
+    for (const k of ["name", "text"]) if (typeof a[k] !== "string" || !a[k]) errors.push(`${w}: ${k} 가 없습니다`);
+    if (a.needs !== undefined && !ATTACH_NEEDS.includes(a.needs)) errors.push(`${w}: needs '${a.needs}' 이(가) 목록에 없습니다`);
+    if (a.mods !== undefined) {
+      checkMods(a.mods, w, errors);
+      if (a.mods && typeof a.mods === "object") {
+        for (const k of Object.keys(a.mods)) if (MOD_KEYS[k] && !ATTACH_MOD_KEYS.includes(k)) errors.push(`${w}: 능력에 쓸 수 없는 mod '${k}'`);
+      }
+    }
+    if (a.effects !== undefined) {
+      checkEffects(a.effects, w, errors, { ability: true });
+      if (Array.isArray(a.effects)) {
+        a.effects.forEach((e, i) => {
+          if (e && e.when !== undefined) errors.push(`${w}.effects[${i}]: 능력 effects 에는 when 을 쓸 수 없습니다`);
+        });
+      }
+    }
+    if (!a.mods && !(Array.isArray(a.effects) && a.effects.length)) errors.push(`${w}: mods 나 effects 가 하나는 있어야 합니다`);
+  }
+}
+
+/**
+ * lesson.json attach (코치 지원 · 컷인, §15.3) 검증. attach 가 없으면 통과. 문제가 있으면 모두 모아 throw, 없으면 true.
+ * @param {object} data
+ * @returns {true}
+ */
+export function validateAttachData(data) {
+  const errors = [];
+  if (data && data.lesson && data.lesson.attach !== undefined) attachErrors(data, errors);
+  if (errors.length) throw new Error(`코치 지원 데이터 오류 ${errors.length}건:\n- ${errors.join("\n- ")}`);
   return true;
 }

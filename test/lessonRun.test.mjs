@@ -458,7 +458,7 @@ test("레슨 → 보상 → 주: 클리어 보상 · 건너뛰기 TP · 중점 �
   const hintId = Object.keys(s.hints)[0];
   assert.ok(s.supports.some((st) => data.supports.find((x) => x.id === st.id).hintSkillIds.includes(hintId)));
   const rec = s.record.lessons.at(-1);
-  assert.deepEqual(Object.keys(rec).sort(), ["benches", "cap", "fails", "injuries", "plays", "prep", "result", "score", "special", "target", "turnIndex", "turns", "zone"]);
+  assert.deepEqual(Object.keys(rec).sort(), ["attaches", "benches", "cap", "cutins", "fails", "injuries", "plays", "prep", "result", "score", "special", "target", "turnIndex", "turns", "zone"]);
   assert.equal(rec.result, "clear");
   assert.equal(rec.zone, "shoot");
   assert.equal(rec.special, false);
@@ -1030,4 +1030,82 @@ test("뷰는 순수 (주 · 보상 · 상담 · 준비 · 레슨), 레슨 중 JS
   walk(s, (x) => x.phase === "prep");
   check(() => LR.getPrepView(s, data));
   check(() => LR.nextMatchView(s, data));
+});
+
+// ---------------------------------------------------------------------------
+// §15 코치 지원 · 컷인 (L37) · 작은 원 카드 (L38)
+// ---------------------------------------------------------------------------
+
+test("§15.5 컷인 힌트: 레슨 끝에 그 코치의 힌트 1개 (실패한 레슨도) · 남은 스킬이 없으면 SP · 보상 뷰 src · 기록", () => {
+  const sage = data.supports.find((x) => x.id === "sp_elder_sage");
+  // 실패한 레슨 + 컷인 힌트 1개 → 오르넬라 힌트 1개 (클리어 힌트는 없다)
+  let s = newRun();
+  startLessonWeek(s, "pass");
+  s.lesson.attach.hints = ["sp_elder_sage"];
+  endToEnd(s);
+  assert.equal(s.phase, "reward");
+  assert.equal(s.pendingReward.result.status, "fail");
+  assert.deepEqual(Object.keys(s.hints).length, 1);
+  assert.ok(sage.hintSkillIds.includes(Object.keys(s.hints)[0]));
+  let v = LR.getRewardView(s, data);
+  assert.equal(v.result.hints.length, 1);
+  assert.deepEqual([v.result.hints[0].src, v.result.hints[0].supportId], ["cutin", "sp_elder_sage"]);
+  assert.equal(v.result.sp, 0);
+  checkInvariants(s);
+
+  // 클리어 힌트 (src clear) 뒤에 컷인 힌트
+  s = newRun();
+  startLessonWeek(s, "pass");
+  s.lesson.attach.hints = ["sp_elder_sage"];
+  clearLesson(s);
+  v = LR.getRewardView(s, data);
+  assert.deepEqual(v.result.hints.map((h) => h.src), ["clear", "cutin"]);
+  assert.equal(v.result.hints[1].supportId, "sp_elder_sage");
+
+  // 그 코치 스킬이 모두 레벨 3 → SP
+  s = newRun();
+  for (const id of sage.hintSkillIds) s.hints[id] = MAX_HINT_LEVEL;
+  const sp0 = s.skillPoints;
+  startLessonWeek(s, "pass");
+  s.lesson.attach.hints = ["sp_elder_sage"];
+  endToEnd(s);
+  assert.equal(s.pendingReward.result.hints.length, 0);
+  assert.equal(s.pendingReward.result.sp, data.lesson.rewards.noHintSp);
+  assert.equal(s.skillPoints, sp0 + data.lesson.rewards.noHintSp);
+});
+
+test("§15.5 컷인 로그 · 결과 cutins · attaches · 기록 (LR.playCard)", () => {
+  const s = newRun();
+  startLessonWeek(s, "shoot");
+  const L = s.lesson;
+  const uid = uidOf(s, "cd_basic");
+  forceHand(s, [uid]);
+  L.attach.cur = { uid, supportId: "sp_coach_harr", turn: L.turn, upgrade: "plus" };
+  L.attach.log.push({ turn: L.turn, supportId: "sp_coach_harr", uid, cardId: "cd_basic", played: false });
+  const attaches = L.stats.attaches;
+  const b0 = sup(s, "sp_coach_harr").bond;
+  L.buffs.nextNoFail = true;
+  LR.playCard(s, data, { uid, at: { x: 50, y: 50 } });
+  assert.ok(s.log.some((x) => x.text === "코치 하르나 지원 (기초 훈련)"), s.log.map((x) => x.text).join(" / "));
+  assert.equal(sup(s, "sp_coach_harr").bond, b0 + data.lesson.attach.bond);
+  while (s.phase === "lesson") LR.endLessonTurn(s, data);
+  const rec = s.record.lessons.at(-1);
+  assert.deepEqual([rec.cutins, rec.attaches], [1, s.pendingReward.result.attaches]);
+  assert.ok(rec.attaches >= attaches);
+  const v = LR.getRewardView(s, data);
+  assert.deepEqual(v.result.cutins[0], { supportId: "sp_coach_harr", name: "코치 하르나", cardId: "cd_basic", cardName: "기초 훈련", turn: 1 });
+  // 유대 변화에 지원 +5 가 들어간다 (중점 구역 = 슈팅이면 클리어 +5 도)
+  assert.ok(v.result.bond.some((b) => b.id === "sp_coach_harr" && b.gain >= data.lesson.attach.bond));
+  checkInvariants(s);
+});
+
+test("§15.7 새 작은 원 공용 카드 2장이 보상 후보에 나온다", () => {
+  const seen = new Set();
+  for (let seed = 1; seed <= 80 && !(seen.has("cd_pair_drill") && seen.has("cd_pair_stretch")); seed++) {
+    const s = newRun({ seed });
+    startLessonWeek(s, "shoot");
+    clearLesson(s);
+    for (const o of s.pendingReward.offer) seen.add(o.cardId);
+  }
+  assert.ok(seen.has("cd_pair_drill") && seen.has("cd_pair_stretch"), [...seen].join(","));
 });

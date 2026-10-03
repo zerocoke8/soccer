@@ -2534,4 +2534,15 @@ previewCard → { …, attach: { supportId, name, text, effects: [능력 effects
 
 ### 15.13 구현 중 바뀐 것
 
-(슬라이스가 여기에 적는다.)
+**C1 · 엔진 + 카드 데이터 (2026-10-04)**
+- **C2 의 카드 데이터를 C1 에서 함께 했다** (작업 지시): `cards.json` 2장 추가 (2인 1조 드릴 · 짝 스트레칭, 원투 패스 바로 뒤) · 2장 변환 (되찾기 6초 · 골목 슈팅, 유대 80 29) — 수치 · 문구는 §15.7 그대로. `cards.test` (68장 · 공용 15 · 변환표 · 작은 원 8장 · 새 effect 말 · `validateAttachData`) · `cardEffects.test` (새 2장 · 변환 2장, 작은 원 2명 · 1명 · 짝 스트레칭 순회복 · 100 에서 멈춤) · `docs/OUTGAME_CARDS_draft.md` 표 (공용 15장 · 합계 68)도 C1 에 들어갔다. C2 에 남은 일: 카드 앞면 문구는 `desc` 를 그대로 쓰므로 UI 수정은 필요 없었다 (`og_lesson` · `og_lesson_small` · `og_reward_clear` 스크린샷 확인, 잘림 0).
+- **기존 테스트의 rng 기대값**: 다시 계산하지 않고 **`attach.enabled: false` 데이터 사본**을 썼다 — `lesson.test` 의 §14 테스트 (`data`), `cardEffects.test` (카드 1장 감사), `lessonRules.test` (규칙 감사). 붙기 테스트는 `lesson.test` 의 `DA` (실제 데이터). `lessonRun` · `manager` · `outgame` · `ui` 테스트는 실제 데이터 그대로 통과했다 (`lessonRun.test` 기록 키 목록에 `attaches` · `cutins` 만 더함). `lesson.test` 압박형 테스트의 되찾기 6초는 작은 원 (슈팅 구역 중심 → p6 혼자) 으로 바꿨다.
+- **붙을 카드 후보에서 죽은 카드를 뺀다** (§15.1 ②는 "손패는 모두 낼 수 있다"고 가정 — 덱이 바닥나 다시 뽑기를 멈추면 죽은 카드가 남을 수 있다).
+- 미룬 붙기: 다음 턴이 이미 붙을 턴이면 미룬 1번은 없어진다 (계획 그대로 — 레슨당 횟수가 줄 수 있다).
+- `condition` 은 카드 effects 에도 쓸 수 있다 (chance 가 있으면 카드 처리 rng). `hint` 를 능력 밖에서 실행하면 오류 (검증도 막는다). 능력 effects 에 `when` 은 검증 오류.
+- 뷰 · fx 필드를 조금 더 넣었다 (C4 용): 손패 `attach` = `{ supportId, name, short, color, coachType, abilityName, abilityText, upgrade }`, `previewCard.attach` 에 `upgrade` · `note` (노트 맨 앞 줄과 같은 문구 — 조준 전 · 0명이어도 `attach` 는 채운다, `notes` 는 ok 일 때만), `attach` fx 에 `upgrade`, `cutin` fx 에 `coach` (코치 이름 "코치 하르나"), `lessonResult` 에 `cutinHints` · `cutins[].cardName`. `pct` 붙은 카드의 뷰 위력 = round(위력 × 1.2).
+- 노트 문구는 능력 데이터 (mods · effects) 에서 만든다 — 8명 모두 §15.5 문구와 같다.
+- 유대 fx `{ t: "bond" }` 는 실제로 오른 만큼 (100 에서 멈추면 없다). 컨디션 fx 는 바뀌었을 때만.
+- `validateAttachData` 는 `lessonRun.createRun` (런 시작 1번) 과 `validateCardsData` (attach 가 있으면) 에서 부른다 — 행동마다 부르지 않는다.
+- 컷인 로그는 `lessonRun.playCard` 가 `lastFx[0]` 의 cutin 을 보고 남긴다 ("코치 하르나 지원 (기초 훈련)").
+- 시뮬 (`npm run lesson-sim`, 200런 · seed 1, 감독 AI 는 아직 붙기를 모른다 — C3 전) **전 → 후** (방침 5열 범위, 수치는 조정하지 않았다): 클리어율 70~80% → 79~87% · 퍼펙트율 23~34% → 35~47% · 런당 성장 5,931~6,309 → 6,335~6,631 (띠 5,900~7,300 안) · 기본 비중 33~36% → 31~34% · 힌트 7.5~9.2 → 10.6~12.0 · 유대 80 도달 0.4~0.8 → 0.8~1.1 · 경계전 승률 51~55% → 55~59% · 런당 부상 1.94~2.26 → 1.98~2.14 · 실패 판정 3.98~4.39 → 3.87~3.98.

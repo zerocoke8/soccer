@@ -10,6 +10,8 @@ import * as cards from "../js/engine/cards.js";
 import { createRngFromState } from "../js/engine/rng.js";
 
 const data = loadData();
+// 규칙 감사는 붙기 없이 본다 — 코치 지원(§15)은 lesson.test · lessonRun.test 가 본다 (§15.13)
+data.lesson.attach.enabled = false;
 const R = cards.roundCost;
 const WIN = { winner: "home", homeGoals: 2, awayGoals: 0 };
 const P = (s, id) => s.players.find((p) => p.id === id);

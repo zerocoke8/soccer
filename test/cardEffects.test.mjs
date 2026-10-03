@@ -1,4 +1,4 @@
-// test/cardEffects.test.mjs — 엔진 감사 (ENGINE AUDIT): 66장 카드마다 통제된 상태에서 1장을 내고 핵심 효과를 확인한다.
+// test/cardEffects.test.mjs — 엔진 감사 (ENGINE AUDIT): 68장 카드마다 통제된 상태에서 1장을 내고 핵심 효과를 확인한다.
 // 기준: LESSON_PROTO_PLAN §14.7 · §14.9 · §14.10 (구역 방식 — 대상 · 1인 위력 · 비용 · effects · 강화판 · 코치 구역 ×1.3 · 유대 80판 · 대비 구역 ×1.5).
 // 상태: 기본 편성 2-2-2 (p1 GK 네리아 · p2/p3 DF 도르비나/아델린 · p4/p5 MF 실루엔/타리아 · p6/p7 FW 울리카/그레타),
 //       고정 구역 (수비 p1 p2 · 피지컬 p3 · 패스 p4 p5 · 슈팅 p6 · 드리블 p7 — 케이스마다 layout 으로 바꿀 수 있다),
@@ -12,6 +12,8 @@ import * as cards from "../js/engine/cards.js";
 import { createRngFromState } from "../js/engine/rng.js";
 
 const data = loadData();
+// 카드 1장의 효과만 본다 — 코치 지원 붙기(§15)는 끈다 (붙기는 lesson.test 가 본다, §15.13)
+data.lesson.attach.enabled = false;
 const R = cards.roundCost;
 const GS = data.lesson.lesson.cardGainScale;
 const SAFE = (() => {
@@ -138,10 +140,10 @@ const coachBond = (supportId, gain) => ({ s, before }, label) =>
   assert.equal(s.supports.find((x) => x.id === supportId).bond - before.bonds[supportId], gain, `${label}: 유대 +${gain}`);
 
 // ---------------------------------------------------------------------------
-// 66장 표 (기본판 · 강화판). 비용은 강화 전 기본 카드 기준 1인당 (D12 · §14.7 4번).
+// 68장 표 (기본판 · 강화판). 비용은 강화 전 기본 카드 기준 1인당 (D12 · §14.7 4번).
 // ---------------------------------------------------------------------------
 const CASES = [
-  // ── 공용 13 ──
+  // ── 공용 15 ──
   { id: "cd_basic", T: ALL7, per: 6, cost: 4, check: twGain(6) },
   { id: "cd_basic", plus: true, T: ALL7, per: 8, cost: 4 },
   { id: "cd_coaching", playerId: "p4", T: ["p4"], per: 35, cost: 21 },
@@ -162,6 +164,19 @@ const CASES = [
   { id: "cd_defense_org", plus: true, at: AT.defPhys, T: DEF3, per: 19, cost: 9 },
   { id: "cd_one_two", at: AT.pass, T: ["p4", "p5"], per: 20, cost: 12, check: twGain(1 + 2) },
   { id: "cd_one_two", plus: true, at: AT.pass, T: ["p4", "p5"], per: 25, cost: 12, check: twGain(3) },
+  // 2인 1조 드릴 (§15.7): 작은 원 2명 → 팀워크 L10 +1, 1명만 잡히면 합계 위력 · 비용 모두 1명 몫
+  { id: "cd_pair_drill", at: AT.pass, T: ["p4", "p5"], per: 22, cost: 13, check: twGain(1) },
+  { id: "cd_pair_drill", plus: true, at: AT.pass, T: ["p4", "p5"], per: 28, cost: 13 },
+  { id: "cd_pair_drill", at: C.shoot, T: ["p6"], per: 22, cost: 13, check: twGain(0) },
+  // 짝 스트레칭: 비용 8 · 대상 체력 +10 (강화 +12) → 대상 1인 순 +2 (+4), 대상 밖은 회복 없음 (heal to targets)
+  { id: "cd_pair_stretch", at: AT.pass, T: ["p4", "p5"], per: 14, cost: 8, setup: setStamina(ALL7, 50), selfHeal: { p4: 10, p5: 10 },
+    check: both(healed(["p4", "p5"], 2), healed(["p1", "p2", "p3", "p6", "p7"], 0), twGain(1)) },
+  { id: "cd_pair_stretch", plus: true, at: AT.pass, T: ["p4", "p5"], per: 18, cost: 8, setup: setStamina(ALL7, 50), selfHeal: { p4: 12, p5: 12 },
+    check: healed(["p4", "p5"], 4) },
+  { id: "cd_pair_stretch", at: C.shoot, T: ["p6"], per: 14, cost: 8, setup: setStamina(ALL7, 50), selfHeal: { p6: 10 }, check: healed(["p6"], 2) },
+  // 체력 100 에서 멈춘다
+  { id: "cd_pair_stretch", at: AT.pass, T: ["p4", "p5"], per: 14, cost: 8, selfHeal: { p4: 8, p5: 8 },
+    check: ({ s }, label) => assert.equal(P(s, "p4").stamina, 100, `${label}: 100 − 8 + 10 → 100`) },
   { id: "cd_one_on_one", playerId: "p7", T: ["p7"], per: 48, cost: 32 },
   { id: "cd_one_on_one", plus: true, playerId: "p7", T: ["p7"], per: 60, cost: 32 },
   { id: "cd_tactics_board", extra: 1, check: drawNextIs(1) },
@@ -243,9 +258,10 @@ const CASES = [
   { id: "cd_front_press", plus: true, policy: "press", at: AT.passDrib, T: ATT3, per: 15, mult: 1.2, cost: 9, setup: (s, L) => (L.buffs.press = 1), check: buffIs({ press: 2 }) },
   { id: "cd_full_press", policy: "press", extra: 1, check: buffIs({ press: 2 }) },
   { id: "cd_full_press", plus: true, policy: "press", extra: 1, check: buffIs({ press: 3 }) },
-  // 되찾기 6초: 압박 2 이상이면 비용 증가 없음 (17), 위력 ×1.4
-  { id: "cd_six_sec", policy: "press", playerId: "p4", T: ["p4"], per: 28, mult: 1.4, cost: 17, setup: (s, L) => (L.buffs.press = 2), check: buffIs({ press: 3 }) },
-  { id: "cd_six_sec", plus: true, policy: "press", playerId: "p4", T: ["p4"], per: 35, mult: 1.2, cost: R(28 * 0.6 * 1.2), setup: (s, L) => (L.buffs.press = 1) },
+  // 되찾기 6초 (§15.7 작은 원): 압박 2 이상이면 비용 증가 없음 (10), 위력 ×1.4
+  { id: "cd_six_sec", policy: "press", at: AT.pass, T: ["p4", "p5"], per: 17, mult: 1.4, cost: 10, setup: (s, L) => (L.buffs.press = 2), check: both(buffIs({ press: 3 }), twGain(1)) },
+  { id: "cd_six_sec", plus: true, policy: "press", at: AT.pass, T: ["p4", "p5"], per: 21, mult: 1.2, cost: R(17 * 0.6 * 1.2), setup: (s, L) => (L.buffs.press = 1) },
+  { id: "cd_six_sec", policy: "press", at: C.shoot, T: ["p6"], per: 17, cost: 10, check: buffIs({ press: 1 }) },
   { id: "cd_drop_line", policy: "press", setup: (s, L) => { L.buffs.press = 3; setStamina(ALL7, 50)(s); },
     check: both(buffIs({ press: 0, nextNoFail: true }), healed(ALL7, 18)) },
   { id: "cd_drop_line", plus: true, policy: "press", setup: (s, L) => { L.buffs.press = 3; setStamina(ALL7, 50)(s); }, check: healed(ALL7, 24) },
@@ -321,12 +337,14 @@ const CASES = [
     check: ({ pv }, label) => assert.equal(R(pv.failRate * 100), 5, `${label}: 실패율 10% − 5%p`) },
   { id: "cd_c_hanna", bond: 80, T: ALL7, per: 6, zm: { physical: 1.3 }, cost: 4, check: ({ L }, label) => assert.equal(L.endHeal, 10, label) },
   { id: "cd_c_hanna", plus: true, T: ALL7, per: 8, zm: { physical: 1.3 }, cost: 4 },
-  { id: "cd_c_joy", addSupports: [{ id: "sp_street_striker", bond: 10, firedEventIds: [] }], playerId: "p6", T: ["p6"], per: 40, mult: 1.5, zm: { shoot: 1.3 }, cost: 24,
+  // 골목 슈팅 (§15.7 작은 원): 1인 24, 목표 미만 ×1.5
+  { id: "cd_c_joy", addSupports: [{ id: "sp_street_striker", bond: 10, firedEventIds: [] }], at: C.shoot, T: ["p6"], per: 24, mult: 1.5, zm: { shoot: 1.3 }, cost: 14,
     check: coachBond("sp_street_striker", 8) },
-  { id: "cd_c_joy", addSupports: [{ id: "sp_street_striker", bond: 10, firedEventIds: [] }], playerId: "p4", T: ["p4"], per: 40, cost: 24,
+  { id: "cd_c_joy", addSupports: [{ id: "sp_street_striker", bond: 10, firedEventIds: [] }], at: AT.pass, T: ["p4", "p5"], per: 24, mult: 1.5, cost: 14, check: twGain(1) },
+  { id: "cd_c_joy", addSupports: [{ id: "sp_street_striker", bond: 10, firedEventIds: [] }], at: AT.pass, T: ["p4", "p5"], per: 24, cost: 14,
     setup: (s, L) => (L.score = L.target) },
-  { id: "cd_c_joy", addSupports: [{ id: "sp_street_striker", bond: 80, firedEventIds: [] }], playerId: "p4", T: ["p4"], per: 48, mult: 1.5, cost: 24 },
-  { id: "cd_c_joy", addSupports: [{ id: "sp_street_striker", bond: 10, firedEventIds: [] }], plus: true, playerId: "p4", T: ["p4"], per: 50, mult: 1.5, cost: 24 },
+  { id: "cd_c_joy", addSupports: [{ id: "sp_street_striker", bond: 80, firedEventIds: [] }], at: AT.pass, T: ["p4", "p5"], per: 29, mult: 1.5, cost: 14 },
+  { id: "cd_c_joy", addSupports: [{ id: "sp_street_striker", bond: 10, firedEventIds: [] }], plus: true, at: AT.pass, T: ["p4", "p5"], per: 30, mult: 1.5, cost: 14 },
   { id: "cd_c_irene", addSupports: [{ id: "sp_river_scholar", bond: 10, firedEventIds: [] }], playerId: "p4", T: ["p4"], per: 28, zm: { pass: 1.3 }, cost: 17,
     check: drawNextIs(1) },
   { id: "cd_c_irene", addSupports: [{ id: "sp_river_scholar", bond: 80, firedEventIds: [] }], playerId: "p7", T: ["p7"], per: 28, cost: 17, extra: 1,
@@ -345,9 +363,9 @@ const CASES = [
   { id: "cd_p_hold", at: AT.pass, T: ["p4", "p5"], per: 18, cost: 11 },
 ];
 
-test("카드 효과 표: 66장 모두 표에 있고 기본판 · 강화판(대비 제외)을 낸다 · 고유는 주 스탯 구역 안팎 · 코치는 유대 80 · 타입 구역 ×1.3", () => {
+test("카드 효과 표: 68장 모두 표에 있고 기본판 · 강화판(대비 제외)을 낸다 · 고유는 주 스탯 구역 안팎 · 코치는 유대 80 · 타입 구역 ×1.3", () => {
   const all = cards.cardList(data);
-  assert.equal(all.length, 66);
+  assert.equal(all.length, 68);
   for (const c of all) {
     assert.ok(CASES.some((x) => x.id === c.id && !x.plus), `${c.id} 기본판이 표에 없다`);
     if (cards.canUpgrade(c)) assert.ok(CASES.some((x) => x.id === c.id && x.plus), `${c.id} 강화판이 표에 없다`);

@@ -20,22 +20,22 @@ function layoutState({ zones = LAYOUT, bench = [], out = [] } = {}) {
 }
 const posOf = (s) => cards.fieldPositions(s, data);
 
-test("카드 66장 · id 중복 없음 · 계열별 장수 · version 2", () => {
+test("카드 68장 · id 중복 없음 · 계열별 장수 · version 2 (§15.7: 공용 13 → 15)", () => {
   assert.equal(data.cards.version, 2);
-  assert.equal(ALL.length, 66);
-  assert.equal(new Set(ALL.map((c) => c.id)).size, 66);
+  assert.equal(ALL.length, 68);
+  assert.equal(new Set(ALL.map((c) => c.id)).size, 68);
   const count = {};
   for (const c of ALL) count[c.family] = (count[c.family] || 0) + 1;
-  assert.deepEqual(count, { common: 13, ace: 8, team: 8, counter: 6, press: 6, poss: 6, unique: 8, coach: 8, prep: 3 });
+  assert.deepEqual(count, { common: 15, ace: 8, team: 8, counter: 6, press: 6, poss: 6, unique: 8, coach: 8, prep: 3 });
   assert.deepEqual(ALL.filter((c) => c.start).map((c) => c.id), data.lesson.startDeck);
-  assert.equal(ALL.filter((c) => c.pool).length, 10 + 8 + 8 + 6 + 6 + 6);
+  assert.equal(ALL.filter((c) => c.pool).length, 12 + 8 + 8 + 6 + 6 + 6);
   for (const c of ALL) if (["unique", "coach", "prep"].includes(c.family)) assert.equal(c.pool, false, c.id);
 });
 
 test("닫힌 목록: target kind · size · onlyZones · heal.to (§14.8)", () => {
   assert.deepEqual(cards.TARGET_KINDS, ["single", "circle", "all", "owner", "none"]);
   assert.deepEqual(cards.CIRCLE_SIZES, ["small", "medium", "large"]);
-  assert.deepEqual(cards.HEAL_TO, ["target", "all", "defense", "mostTired", "owner"]);
+  assert.deepEqual(cards.HEAL_TO, ["target", "all", "defense", "mostTired", "owner", "targets"]);
   assert.deepEqual(cards.PLUS_FIELDS, ["power", "effects", "mods"]);
   for (const c of ALL) {
     assert.ok(cards.TARGET_KINDS.includes(c.target.kind), c.id);
@@ -94,9 +94,13 @@ test("모든 ownerCharId · coach.supportId 가 데이터에 있고 선수 · �
   assert.equal(byId("cd_c_lumi").coach.type, "physical");
 });
 
-test("effects · mods 키가 닫힌 목록 안에 있고 모두 실제로 쓰인다 (plus · bond80 포함)", () => {
+test("effects · mods 키가 닫힌 목록 안에 있고 모두 실제로 쓰인다 (plus · bond80 · 코치 지원 능력 포함)", () => {
   const effs = [];
   const mods = [];
+  for (const a of Object.values(data.lesson.attach.abilities)) {
+    effs.push(...(a.effects || []));
+    mods.push(...Object.keys(a.mods || {}));
+  }
   for (const c of ALL) {
     effs.push(...c.effects);
     mods.push(...Object.keys(c.mods));
@@ -124,7 +128,8 @@ const TABLE = {
   cd_basic: ["all", 6, 8, 4], cd_coaching: ["single", 35, 44, 21], cd_cooldown: ["single", null, null, 0],
   cd_fw_drill: ["circle medium", 18, 23, 11], cd_mf_drill: ["circle medium", 18, 23, 11], cd_df_drill: ["circle medium", 18, 23, 11],
   cd_gk_session: ["circle medium", 17, 21, 10], cd_attack_build: ["circle large", 15, 19, 9], cd_defense_org: ["circle large", 15, 19, 9],
-  cd_one_two: ["circle small", 20, 25, 12], cd_one_on_one: ["single", 48, 60, 32], cd_tactics_board: ["none", null, null, 0],
+  cd_one_two: ["circle small", 20, 25, 12], cd_pair_drill: ["circle small", 22, 28, 13], cd_pair_stretch: ["circle small", 14, 18, 8],
+  cd_one_on_one: ["single", 48, 60, 32], cd_tactics_board: ["none", null, null, 0],
   cd_icing: ["single", null, null, 0],
   cd_hojo_up: ["none", null, null, 0], cd_focus_routine: ["none", null, null, 0], cd_ace_training: ["single", 30, 38, 18],
   cd_one_point: ["single", 25, 31, 15], cd_immerse: ["none", null, null, 0], cd_break_limit: ["single", 65, 81, 39],
@@ -134,7 +139,7 @@ const TABLE = {
   cd_breath_together: ["none", null, null, 0], cd_link_line: ["circle large", 12, 15, 7],
   cd_line_up: ["circle large", 11, 14, 7], cd_recover: ["none", null, null, 0], cd_long_ball: ["none", null, null, 0],
   cd_counter_sprint: ["circle large", 13, 16, 8], cd_finisher: ["single", 30, 38, 18], cd_all_counter: ["all", 5, 6, 3],
-  cd_front_press: ["circle large", 12, 15, 7], cd_full_press: ["none", null, null, 0], cd_six_sec: ["single", 28, 35, 17],
+  cd_front_press: ["circle large", 12, 15, 7], cd_full_press: ["none", null, null, 0], cd_six_sec: ["circle small", 17, 21, 10],
   cd_drop_line: ["none", null, null, 0], cd_all_out: ["all", 5, 6, 3], cd_gegen: ["circle large", 14, 18, 8],
   cd_triangle: ["circle small", 18, 23, 11], cd_mid_control: ["circle medium", 15, 19, 9], cd_circulate: ["none", null, null, 0],
   cd_tempo: ["none", null, null, 0], cd_dominate: ["circle large", 11, 14, 7], cd_back_build: ["circle large", 12, 15, 7],
@@ -143,12 +148,12 @@ const TABLE = {
   cd_u_greta: ["owner", 35, 44, [14, 21]], cd_u_mirka: ["owner", 35, 44, [14, 21]],
   // 코치: 강화판 = 그 시점 위력 × 1.25 (plus 없음)
   cd_c_harr: ["circle medium", 18, 23, 11], cd_c_celia: ["circle small", 20, 25, 12], cd_c_ornella: ["circle large", 15, 19, 9],
-  cd_c_barbara: ["circle large", 15, 19, 9], cd_c_hanna: ["all", 6, 8, 4], cd_c_joy: ["single", 40, 50, 24],
+  cd_c_barbara: ["circle large", 15, 19, 9], cd_c_hanna: ["all", 6, 8, 4], cd_c_joy: ["circle small", 24, 30, 14],
   cd_c_irene: ["single", 28, 35, 17], cd_c_lumi: ["all", 5, 6, 3],
   cd_p_tackle: ["circle large", 14, null, 8], cd_p_intercept: ["circle large", 14, null, 8], cd_p_hold: ["circle medium", 18, null, 11],
 };
 
-test("§14.9 변환표: 대상 · 1인 위력 · 강화판 · 1인 비용 (66장)", () => {
+test("§14.9 · §15.7 변환표: 대상 · 1인 위력 · 강화판 · 1인 비용 (68장)", () => {
   assert.deepEqual(Object.keys(TABLE).sort(), ALL.map((c) => c.id).sort());
   for (const [id, [target, power, plus, cost]] of Object.entries(TABLE)) {
     const c = byId(id);
@@ -173,7 +178,7 @@ test("§14.9 변환표: 대상 · 1인 위력 · 강화판 · 1인 비용 (66장
     assert.equal(def(c.id, { plus: true }).power, Math.round(c.power * 1.25), `${c.id}+ = round(1인 × 1.25)`);
   }
   // 코치 유대 80판 1인 위력 (강화판 = 유대 80 위력 × 1.25)
-  const b80 = { cd_c_celia: [24, 30], cd_c_ornella: [18, 23], cd_c_barbara: [18, 23], cd_c_joy: [48, 60], cd_c_lumi: [6, 8], cd_c_harr: [18, 23], cd_c_hanna: [6, 8], cd_c_irene: [28, 35] };
+  const b80 = { cd_c_celia: [24, 30], cd_c_ornella: [18, 23], cd_c_barbara: [18, 23], cd_c_joy: [29, 36], cd_c_lumi: [6, 8], cd_c_harr: [18, 23], cd_c_hanna: [6, 8], cd_c_irene: [28, 35] };
   for (const [id, [p, pp]] of Object.entries(b80)) {
     assert.equal(def(id, { bond: 80 }).power, p, `${id} 유대80`);
     assert.equal(def(id, { bond: 80, plus: true }).power, pp, `${id} 유대80+`);
@@ -380,4 +385,84 @@ test("lesson.json v2 기본 모양 (§14.13)", () => {
   assert.ok(data.routes.some((r) => r.id === "rt_hotspring"));
   assert.deepEqual(data.policies.policies.map((p) => p.id), cards.POLICY_FAMILIES);
   assert.equal(L.defaultPolicy, "team");
+});
+
+// ---------------------------------------------------------------------------
+// §15 코치 지원 데이터 · 작은 원 카드 (L37 · L38)
+// ---------------------------------------------------------------------------
+
+test("§15.7 작은 원 카드 8장 · 새 공용 2장 · 단일 → 작은 원 변환 2장 (문구 · 효과 · 유대 80)", () => {
+  const small = ALL.filter((c) => cards.isSmallCircle(c)).map((c) => c.id);
+  assert.deepEqual(small.sort(), ["cd_c_celia", "cd_c_joy", "cd_one_two", "cd_pair_drill", "cd_pair_stretch", "cd_pass_move", "cd_six_sec", "cd_triangle"]);
+  // 새 공용 2장: 보상 · 상담 후보 (pool), 원투 패스 바로 뒤
+  const ids = ALL.map((c) => c.id);
+  assert.deepEqual(ids.slice(ids.indexOf("cd_one_two"), ids.indexOf("cd_one_two") + 3), ["cd_one_two", "cd_pair_drill", "cd_pair_stretch"]);
+  for (const id of ["cd_pair_drill", "cd_pair_stretch"]) {
+    const c = byId(id);
+    assert.deepEqual([c.family, c.start, c.pool], ["common", false, true], id);
+  }
+  assert.deepEqual(byId("cd_pair_drill").effects, []);
+  assert.deepEqual([byId("cd_pair_drill").desc, byId("cd_pair_drill").descPlus], ["작은 원 · 1인 22", "작은 원 · 1인 28"]);
+  assert.deepEqual(def("cd_pair_stretch").effects, [{ type: "heal", to: "targets", n: 10 }]);
+  assert.deepEqual(def("cd_pair_stretch", { plus: true }).effects, [{ type: "heal", to: "targets", n: 12 }]);
+  assert.equal(def("cd_pair_stretch", { plus: true }).desc, "작은 원 · 1인 18, 대상 체력 +12");
+  // 변환: 효과 · mods 는 그대로
+  assert.deepEqual(byId("cd_six_sec").mods, { noPressCost: "atLeast2" });
+  assert.deepEqual(byId("cd_six_sec").effects, [{ type: "press", n: 1 }]);
+  assert.equal(byId("cd_six_sec").desc, "작은 원 · 1인 17, 압박 +1, 압박 2 이상이면 비용 증가 없음");
+  assert.deepEqual(byId("cd_c_joy").mods, { underdog: 0.5 });
+  assert.equal(def("cd_c_joy", { bond: 80, plus: true }).desc, "작은 원 · 1인 36, 점수가 목표 미만이면 +50%");
+  // 바꾸지 않는 단일 카드 (§15.7)
+  for (const id of ["cd_coaching", "cd_one_on_one", "cd_ace_training", "cd_one_point", "cd_break_limit", "cd_finisher", "cd_c_irene", "cd_cooldown", "cd_icing", "cd_breath"]) {
+    assert.equal(byId(id).target.kind, "single", id);
+  }
+});
+
+test("§15.3 새 effect 말: heal targets (위력 있는 카드만) · hint (능력 전용) · condition (chance 생략 가능)", () => {
+  const bad = (mutate, re) => {
+    const d = clone(data);
+    mutate(d.cards.cards, d);
+    assert.throws(() => cards.validateCardsData(d), re);
+  };
+  const L = (list, id) => list.find((c) => c.id === id);
+  bad((list) => { L(list, "cd_fw_drill").effects.push({ type: "hint", chance: 0.5 }); }, /'hint' 는 코치 지원 능력에만/);
+  bad((list) => { L(list, "cd_chant").effects.push({ type: "heal", to: "targets", n: 5 }); }, /heal targets 는 위력 있는 카드만/);
+  bad((list) => { L(list, "cd_fw_drill").effects.push({ type: "condition", n: 1, chance: 2 }); }, /'condition\.chance' 값이 잘못/);
+  // condition 은 chance 없이도 된다 (카드에 써도 된다)
+  const ok = clone(data);
+  L(ok.cards.cards, "cd_fw_drill").effects.push({ type: "condition", n: 1 });
+  assert.equal(cards.validateCardsData(ok), true);
+});
+
+test("§15.3 validateAttachData: 실제 데이터 통과 · 8명 능력 · 모르는 코치 · needs · mods · effect 말 · lb 거절", () => {
+  assert.equal(cards.validateAttachData(data), true);
+  const A = data.lesson.attach;
+  assert.deepEqual(Object.keys(A.abilities).sort(), ["sp_bard_lumi", "sp_coach_harr", "sp_elder_sage", "sp_iron_captain", "sp_mountain_monk", "sp_river_scholar", "sp_street_striker", "sp_wind_dancer"]);
+  assert.deepEqual([A.enabled, A.count, A.rarityWeight, A.repeatWeight, A.ownCardWeight, A.overPct, A.bond], [true, { min: 2, max: 4 }, { SSR: 3, SR: 2, R: 1 }, 0.5, 3, 0.2, 5]);
+  assert.deepEqual(A.cutinMs, { first: 900, repeat: 600 });
+  for (const [id, a] of Object.entries(A.abilities)) assert.ok(a.name && a.text, id);
+  const bad = (mutate, re) => {
+    const d = clone(data);
+    mutate(d.lesson.attach, d);
+    assert.throws(() => cards.validateAttachData(d), re);
+    assert.throws(() => cards.validateCardsData(d), re); // 카드 데이터 검사도 attach 를 본다
+  };
+  bad((a) => { a.abilities.sp_nobody = { name: "x", text: "x", effects: [{ type: "drawNext", n: 1 }] }; }, /'sp_nobody' 이\(가\) supports 에 없습니다/);
+  bad((a) => { a.abilities.sp_coach_harr.needs = "zone"; }, /needs 'zone'/);
+  bad((a) => { a.abilities.sp_coach_harr.mods = { focusX2: true }; }, /능력에 쓸 수 없는 mod 'focusX2'/);
+  bad((a) => { a.abilities.sp_coach_harr.mods = { warp: 1 }; }, /알 수 없는 mod 'warp'/);
+  bad((a) => { a.abilities.sp_wind_dancer.effects = [{ type: "teleport" }]; }, /알 수 없는 effect 'teleport'/);
+  bad((a) => { a.abilities.sp_wind_dancer.effects[0].when = "success"; }, /when/);
+  bad((a) => { a.abilities.sp_wind_dancer.lb = [{}]; }, /lb/);
+  bad((a) => { a.abilities.sp_wind_dancer.extra = 1; }, /알 수 없는 필드 'extra'/);
+  bad((a) => { delete a.abilities.sp_wind_dancer.name; }, /name 가 없습니다/);
+  bad((a) => { a.count = { min: 4, max: 2 }; }, /count 가 잘못/);
+  bad((a) => { a.rarityWeight.SSR = -1; }, /rarityWeight/);
+  bad((a) => { a.enabled = "yes"; }, /enabled/);
+  bad((a) => { a.weird = 1; }, /알 수 없는 필드 'weird'/);
+  // attach 가 없으면 통과 (예전 데이터)
+  const d = clone(data);
+  delete d.lesson.attach;
+  assert.equal(cards.validateAttachData(d), true);
+  assert.equal(cards.validateCardsData(d), true);
 });

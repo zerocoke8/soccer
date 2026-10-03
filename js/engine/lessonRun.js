@@ -495,6 +495,7 @@ export function migrateLessonRun(s) {
  */
 export function createRun({ data, seed, squad, formation, supportIds, tactics, policy, leagueTier = 1 }) {
   assertData(data);
+  cards.validateAttachData(data); // 코치 지원 데이터 (§15.3)
   if (seed === undefined || seed === null || seed === "") throw new Error("seed 가 필요합니다");
   const pol = policy || LD(data).defaultPolicy || "team";
   if (!policyOf(data, pol)) throw new Error(`알 수 없는 훈련 방침: '${pol}'`);
@@ -716,6 +717,12 @@ function afterIfEnded(state, data) {
 export function playCard(state, data, args) {
   assertPhase(state, "lesson");
   lesson.playCard(state, data, args);
+  // 코치 컷인 로그 (§15.5): "코치 하르나 지원 (인터벌 슈팅)"
+  const ci = state.lesson && state.lesson.lastFx && state.lesson.lastFx[0];
+  if (ci && ci.t === "cutin") {
+    const sc = supportCard(data, ci.supportId);
+    log(state, `${sc ? sc.name : ci.supportId} 지원 (${cards.getCard(data, ci.cardId).name})`);
+  }
   return afterIfEnded(state, data);
 }
 
@@ -768,6 +775,23 @@ function drawHint(state, data, rng) {
   const skillId = rng.pick(c.skills);
   state.hints[skillId] = clamp((state.hints[skillId] || 0) + 1, 0, MAX_HINT_LEVEL);
   return { skillId, level: state.hints[skillId], supportId: c.supportId };
+}
+
+/**
+ * 그 코치 한 명의 힌트 1개 (§15.5 컷인 힌트): 그 코치 hintSkillIds 중 배울 수 있고 레벨 3 미만인 것 균등. 없으면 null.
+ * @returns {{ skillId: string, level: number, supportId: string }|null}
+ */
+function drawHintFrom(state, data, rng, supportId) {
+  const sc = supportCard(data, supportId);
+  if (!sc || !Array.isArray(sc.hintSkillIds)) return null;
+  const skills = sc.hintSkillIds.filter((id) => {
+    const sk = skillById(data, id);
+    return sk && sk.learnable && (state.hints[id] || 0) < MAX_HINT_LEVEL;
+  });
+  if (!skills.length) return null;
+  const skillId = rng.pick(skills);
+  state.hints[skillId] = clamp((state.hints[skillId] || 0) + 1, 0, MAX_HINT_LEVEL);
+  return { skillId, level: state.hints[skillId], supportId };
 }
 
 /** 보상 후보 (§5.4.3 5, D7 · D8). rng. */
@@ -857,7 +881,16 @@ function afterLesson(state, data) {
   let sp = 0;
   for (let i = 0; i < hintCount; i++) {
     const h = drawHint(state, data, rng);
-    if (h) hints.push(h);
+    if (h) hints.push({ ...h, src: "clear" });
+    else {
+      sp += D.rewards.noHintSp;
+      state.skillPoints += D.rewards.noHintSp;
+    }
+  }
+  // 2b. 컷인 힌트 (§15.5): 레슨 중 코치 능력으로 얻은 힌트 — 결과와 상관없이, 그 코치의 힌트 1개씩
+  for (const supportId of res.cutinHints || []) {
+    const h = drawHintFrom(state, data, rng, supportId);
+    if (h) hints.push({ ...h, src: "cutin" });
     else {
       sp += D.rewards.noHintSp;
       state.skillPoints += D.rewards.noHintSp;
@@ -885,6 +918,8 @@ function afterLesson(state, data) {
     benches: res.benches,
     fails: res.fails,
     injuries: res.injuries,
+    attaches: res.attaches,
+    cutins: res.cutins.length,
   });
   const label = { perfect: "퍼펙트", clear: "클리어", fail: "실패" }[status] || status;
   log(state, `${L.prep ? "대비 레슨" : L.special ? "특별 레슨" : "레슨"}[${STAT_LABELS[L.zone]} 중점] ${label} — 점수 ${L.score} / ${L.target} / ${L.cap}${tp ? `, TP +${tp}` : ""}${hints.length ? `, 힌트 ${hints.length}` : ""}`);
@@ -919,7 +954,9 @@ function afterLesson(state, data) {
       turnReached: L.turn,
       tp,
       sp,
-      hints: hints.map((h) => ({ skillId: h.skillId, level: h.level, supportId: h.supportId, name: (skillById(data, h.skillId) || {}).name || h.skillId })),
+      hints: hints.map((h) => ({ skillId: h.skillId, level: h.level, supportId: h.supportId, src: h.src, name: (skillById(data, h.skillId) || {}).name || h.skillId })),
+      attaches: res.attaches,
+      cutins: res.cutins.map((c) => ({ ...c })),
       teamwork,
       twAccrued: L.twAccrued,
       condition,

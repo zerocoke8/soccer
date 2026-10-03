@@ -5,7 +5,8 @@
  * 상태를 바꾸는 함수 (startLesson · playCard · benchPlayer · endLessonTurn) 는 (state, data, args) 를 받아 state 를 돌려준다.
  *   - rng 는 함수에 들어올 때 state.rngState 로 열고, 나가기 직전에 저장한다 (§8). 검증은 rng · 상태를 건드리기 전에 끝낸다.
  *   - 상태를 바꾸는 레슨 호출마다 lesson.seq +1, lesson.lastFx 를 덮어쓴다 (startLesson 은 seq 0).
- *   - rng 를 쓰는 곳: 섞기 · 흩어지기 (턴 시작, 뽑기보다 먼저) · 뽑기 · 실패 · 부상. benchPlayer 는 rng 를 쓰지 않는다.
+ *   - rng 를 쓰는 곳: 섞기 · 코치 지원 붙을 턴 (레슨 시작, 섞기 뒤) · 흩어지기 (턴 시작, 뽑기보다 먼저) · 뽑기 ·
+ *     코치 지원 붙기 (턴 시작, 뽑기 뒤) · 실패 · 부상 · 지원 능력의 확률 (hint · condition). benchPlayer 는 rng 를 쓰지 않는다.
  * 뷰 · 미리보기 · 후보 점 (getLessonView · previewCard · dropCandidates · lessonResult) 는 rng 를 쓰지 않고 상태를 바꾸지 않는다.
  *
  * 턴 (§14.3): 시작 = 벤치 비우기 → 흩어지기 → 뽑기 → 죽은 카드 다시 뽑기 / 행동 = 카드 끌어다 놓기 · 벤치 · [턴 끝] /
@@ -15,10 +16,13 @@
  *
  * 선수 위치는 저장하지 않는다 — lesson.zones (이번 턴 구역) 에서 zones.js 로 매번 계산한다.
  *
+ * 코치 지원 · 컷인 (§15.1 ~ §15.5): 레슨 시작에 붙을 턴 2~4개를 정하고, 그 턴 시작에 편성 코치 1명이 손패 1장에 붙는다
+ *   (lesson.attach.cur). 붙은 카드는 그 턴만 한 단계 강화되고, 내면 컷인 fx · 코치 능력 (lesson.json attach.abilities) · 유대.
+ *
  * 순수 로직: DOM/fetch/Date/Math.random/localStorage 를 쓰지 않는다.
  */
 import { createRngFromState } from "./rng.js";
-import { clamp, trainingMult, failRateForStamina, getModifier } from "./training.js";
+import { clamp, trainingMult, failRateForStamina, getModifier, STAT_LABELS } from "./training.js";
 import * as cards from "./cards.js";
 import * as zones from "./zones.js";
 
@@ -105,7 +109,10 @@ export function resolveEntry(state, data, entry) {
     const st = (state.supports || []).find((s) => s.id === raw.coach.supportId);
     bond = st ? Number(st.bond) || 0 : 0;
   }
-  return cards.resolveCardDef(data, raw, { plus: !!entry.plus && cards.canUpgrade(raw), bond });
+  // 코치 지원이 붙은 카드는 이번 턴만 강화판 (§15.2 — 덱의 plus 는 바꾸지 않는다)
+  const cur = entry.uid != null && state.lesson ? attachOf(state.lesson).cur : null;
+  const attachPlus = !!cur && cur.uid === entry.uid && cur.upgrade === "plus";
+  return cards.resolveCardDef(data, raw, { plus: (!!entry.plus || attachPlus) && cards.canUpgrade(raw), bond });
 }
 
 /** uid 의 카드 정의 (lessonEntry + resolveEntry) */
@@ -122,6 +129,191 @@ function isUniqueOf(state, data, uid, charId) {
 function supportFailReduction(data, supportId) {
   const sp = (data.supports || []).find((s) => s.id === supportId);
   return sp ? Number(sp.failRateReduction) || 0 : 0;
+}
+
+// ---------------------------------------------------------------------------
+// 코치 지원 (§15.1 ~ §15.5) — 공용 헬퍼
+// ---------------------------------------------------------------------------
+
+/** attach 가 없는 저장본 (C1 전) 을 읽을 때의 빈 값 — 이번 레슨은 붙기 없음 (§15.5) */
+const EMPTY_ATTACH = Object.freeze({ turns: Object.freeze([]), cur: null, count: Object.freeze({}), log: Object.freeze([]), hints: Object.freeze([]) });
+
+function newAttach() {
+  return { turns: [], cur: null, count: {}, log: [], hints: [] };
+}
+
+/** 읽기용 lesson.attach (없으면 빈 값, 상태를 바꾸지 않는다) */
+function attachOf(L) {
+  return (L && L.attach) || EMPTY_ATTACH;
+}
+
+/** 쓰기용 lesson.attach (없으면 만든다) */
+function attachState(L) {
+  if (!L.attach) L.attach = newAttach();
+  return L.attach;
+}
+
+/** data.lesson.attach (없으면 {}) — 수치 읽기용 */
+function attachData(data) {
+  return (data && data.lesson && data.lesson.attach) || {};
+}
+
+/** 붙기가 켜져 있으면 data.lesson.attach, 아니면 null */
+function attachCfg(data) {
+  const A = attachData(data);
+  return A.enabled ? A : null;
+}
+
+/**
+ * 코치의 지원 능력 (data.lesson.attach.abilities[supportId]) — 없으면 null.
+ * @param {object} data
+ * @param {string} supportId
+ * @returns {{ name: string, text: string, needs?: string, mods?: object, effects?: object[] }|null}
+ */
+export function attachAbility(data, supportId) {
+  const ab = attachData(data).abilities;
+  return (ab && ab[supportId]) || null;
+}
+
+/** 붙을 수 있는 편성 코치 (능력이 있는 코치, 편성 순서) */
+function attachCoaches(state, data) {
+  return (state.supports || []).filter((st) => attachAbility(data, st.id));
+}
+
+function supportDef(data, supportId) {
+  return (data.supports || []).find((s) => s.id === supportId) || null;
+}
+
+/** "코치 하르나" → "하르나" (이름의 마지막 낱말) */
+function shortName(name) {
+  const parts = String(name || "").trim().split(/\s+/);
+  return parts[parts.length - 1] || String(name || "");
+}
+
+/** 코치의 코치 카드 타입 (없으면 supports.json type) */
+function coachTypeOf(data, supportId) {
+  const c = cards.cardList(data).find((x) => x.family === "coach" && x.coach && x.coach.supportId === supportId);
+  if (c) return c.coach.type;
+  const sc = supportDef(data, supportId);
+  return sc ? sc.type : null;
+}
+
+/** 코치 이름 · 짧은 이름 · 색 · 타입 */
+function coachInfo(data, supportId) {
+  const sc = supportDef(data, supportId);
+  const name = sc ? sc.name : supportId;
+  return { supportId, name, short: shortName(name), color: (sc && sc.portraitColor) || null, coachType: coachTypeOf(data, supportId) };
+}
+
+/** 이 uid 에 지금 붙은 지원 { cur, ability } | null */
+function attachOn(state, data, uid) {
+  const cur = attachOf(state.lesson).cur;
+  if (!cur || cur.uid !== uid) return null;
+  const ability = attachAbility(data, cur.supportId);
+  return ability ? { cur, ability } : null;
+}
+
+/** 붙은 카드의 위력 배율 (upgrade "pct" 면 1 + overPct, 아니면 1) */
+function attachPowerMult(data, att) {
+  return att && att.cur.upgrade === "pct" ? 1 + (Number(attachData(data).overPct) || 0) : 1;
+}
+
+/** 능력 needs 로 붙을 수 있는 손패 카드인가 (§15.1 ② — 낼 수 없는 카드에는 붙지 않는다) */
+function attachable(state, data, uid, needs) {
+  const def = lessonCardDef(state, data, uid);
+  if (cards.deadReason(state, def)) return false;
+  if (!needs) return true;
+  if (!Number.isFinite(def.power) || def.target.kind === "none" || cards.isHealSingle(def)) return false;
+  if (needs === "fail" && def.mods && def.mods.noFail) return false;
+  return true;
+}
+
+/** 붙는 순간의 강화 방식 (§15.2): 강화 전 · 강화 가능 → plus / 위력 있음 → pct / 그 밖 → none */
+function attachUpgradeOf(state, data, uid) {
+  const entry = lessonEntry(state, uid);
+  const raw = cards.getCard(data, entry.cardId);
+  if (!entry.plus && cards.canUpgrade(raw)) return "plus";
+  return Number.isFinite(resolveEntry(state, data, entry).power) ? "pct" : "none";
+}
+
+/** 이 uid 가 그 코치 자신의 코치 카드인가 */
+function isOwnCoachCard(state, data, uid, supportId) {
+  const c = cards.getCard(data, lessonEntry(state, uid).cardId);
+  return c.family === "coach" && !!c.coach && c.coach.supportId === supportId;
+}
+
+/**
+ * 붙을 턴 정하기 (§15.1 ① — startLesson, 덱 섞기 뒤 · 1턴 시작 전). 코치가 없거나 꺼져 있으면 rng 를 쓰지 않는다.
+ */
+function planAttachTurns(state, data, rng) {
+  const L = state.lesson;
+  L.attach = newAttach();
+  const cfg = attachCfg(data);
+  if (!cfg || !attachCoaches(state, data).length) return;
+  const k = Math.min(rng.int(cfg.count.min, cfg.count.max), L.turns);
+  const all = Array.from({ length: L.turns }, (_, i) => i + 1);
+  L.attach.turns = rng.shuffle(all).slice(0, k).sort((a, b) => a - b);
+}
+
+/**
+ * 붙이기 (§15.1 ② — beginTurn, 죽은 카드 다시 뽑기 뒤). 후보가 없으면 다음 턴으로 미룬다.
+ * 코치 = 레어도 가중 × (이번 레슨 붙은 적 있으면 repeatWeight), 카드 = 후보 균등 (그 코치 자신의 코치 카드 ×ownCardWeight).
+ */
+function attachTurn(state, data, rng, fx) {
+  const L = state.lesson;
+  const A = attachState(L);
+  A.cur = null;
+  const cfg = attachCfg(data);
+  if (!cfg || !A.turns.includes(L.turn)) return;
+  const pairs = [];
+  for (const st of attachCoaches(state, data)) {
+    const ab = attachAbility(data, st.id);
+    const cands = L.hand.filter((uid) => attachable(state, data, uid, ab.needs));
+    if (cands.length) pairs.push({ st, cands });
+  }
+  if (!pairs.length) {
+    const next = L.turn + 1;
+    if (next <= L.turns && !A.turns.includes(next)) {
+      A.turns.push(next);
+      A.turns.sort((a, b) => a - b);
+    }
+    return;
+  }
+  const rw = cfg.rarityWeight || {};
+  const pick = rng.weighted(pairs, (x) => {
+    const sc = supportDef(data, x.st.id);
+    return (Number(rw[sc && sc.rarity]) || 0) * (A.count[x.st.id] ? cfg.repeatWeight : 1);
+  });
+  const supportId = pick.st.id;
+  const uid = rng.weighted(pick.cands, (u) => (isOwnCoachCard(state, data, u, supportId) ? cfg.ownCardWeight : 1));
+  const upgrade = attachUpgradeOf(state, data, uid);
+  A.cur = { uid, supportId, turn: L.turn, upgrade };
+  A.count[supportId] = (A.count[supportId] || 0) + 1;
+  A.log.push({ turn: L.turn, supportId, uid, cardId: lessonEntry(state, uid).cardId, played: false });
+  L.stats.attaches = (L.stats.attaches || 0) + 1;
+  fx.push({ t: "attach", uid, supportId, upgrade });
+}
+
+/** 능력 노트 문구 (§15.5 — "하르나 지원 · 슈팅 구역 ×1.5") */
+function attachNote(state, data, supportId, ability) {
+  const L = state.lesson;
+  const parts = [];
+  const m = ability.mods || {};
+  if (m.lessonMult) parts.push(`${m.lessonMult.stats.map((x) => STAT_LABELS[x] || x).join("·")} 구역 ×${fmt(m.lessonMult.mult)}`);
+  if (m.noFail) parts.push("실패 없음");
+  if (m.underdog) parts.push(L.score < L.target ? `목표 미만 ×${fmt(1 + m.underdog)}` : "목표 이상이라 효과 없음");
+  for (const e of ability.effects || []) {
+    switch (e.type) {
+      case "drawNext": parts.push(`다음 턴 손패 +${e.n}`); break;
+      case "teamwork": parts.push(`팀워크 +${e.n}`); break;
+      case "hint": parts.push(`힌트 ${Math.round(e.chance * 100)}%`); break;
+      case "heal": parts.push(`${e.to === "targets" ? "대상 " : ""}체력 +${e.n}`); break;
+      case "condition": parts.push(`컨디션 +${e.n}${e.chance != null && e.chance < 1 ? ` ${Math.round(e.chance * 100)}%` : ""}`); break;
+      case "nextPct": parts.push(`다음 카드 +${Math.round(e.pct * 100)}%`); break;
+      default: parts.push(e.type); break;
+    }
+  }
+  return [`${coachInfo(data, supportId).short} 지원`, ...parts].join(" · ");
 }
 
 function addStamina(p, n, fx, src) {
@@ -545,6 +737,9 @@ function planPlay(state, data, uid, args) {
   const players = T.map((id) => playerById(state, id));
   const zoneOf = (id) => L.zones[id];
   const n = T.length;
+  const att = attachOn(state, data, uid); // 코치 지원 (§15.4)
+  const am = (att && att.ability.mods) || {};
+  const attPow = attachPowerMult(data, att);
   const ctx = {
     n,
     mods,
@@ -563,7 +758,7 @@ function planPlay(state, data, uid, args) {
     if (kind === "owner") base = def.power * mainMult;
     else base = def.power + (mods.perMood || 0) * (B.mood || 0) + (mods.perPress || 0) * (B.press || 0);
     if (kind === "single" || kind === "owner") base += B.routine || 0;
-    return base + share;
+    return base * attPow + share; // 붙은 카드 pct 강화는 focus 몫 전 (§15.2)
   });
 
   // 4. 비용 (1인당, 강화 전 기본 위력 기준)
@@ -571,7 +766,7 @@ function planPlay(state, data, uid, args) {
   const cost = cards.staminaCost(def, { mood: B.mood || 0, press: B.press || 0, mainMult, pressCostMult: pcm, costZero: !!B.nextCostZero });
 
   // 5. 실패율 (비용 내기 전 체력)
-  const noFail = !!mods.noFail || !!B.nextNoFail;
+  const noFail = !!mods.noFail || !!am.noFail || !!B.nextNoFail;
   const injuryMod = getModifier(state, "injuryRate");
   const reduce = def.family === "coach" && def.coach ? supportFailReduction(data, def.coach.supportId) : 0;
   const rates = players.map((p) =>
@@ -597,6 +792,8 @@ function planPlay(state, data, uid, args) {
   if (n && (B.hojo || 0) > 0) M0 *= LD.buffs.hojoMult;
   if (mods.lastTurnX2 && L.turn > L.turns - mods.lastTurnX2) M0 *= 2;
   if (mods.underdog && L.score < L.target) M0 *= 1 + mods.underdog;
+  const attUnder = am.underdog && L.score < L.target ? 1 + am.underdog : 1; // 능력 mods 는 카드 mods 와 따로 곱한다
+  M0 *= attUnder;
   M0 *= 1 + (B.nextPct || 0) + (ctx.smallCircle ? B.nextPairPct || 0 : 0);
   M0 *= policyMult(state, data, L, ctx);
   M0 *= ls.cardGainScale;
@@ -610,6 +807,8 @@ function planPlay(state, data, uid, args) {
     let M = M0 * zoneMult(L, data, z);
     if (coach) M *= ls.coachSameTypeMult;
     if (mods.lessonMult && mods.lessonMult.stats.includes(z)) M *= mods.lessonMult.mult;
+    const attLM = am.lessonMult && am.lessonMult.stats.includes(z) ? am.lessonMult.mult : 1;
+    M *= attLM;
     const sub = cfg.training.subStatMap[z];
     const g = rnd(power[i] * growthOf(p, z) * M);
     const gain = Math.max(0, Math.min(g, cap - p.stats[z]));
@@ -618,10 +817,12 @@ function planPlay(state, data, uid, args) {
     return {
       id: p.id, zone: z, stat: z, subStat: sub, power: power[i], M, g, gain, subGain, cost, failRate: rates[i],
       coach, focus, unique15: def.family === "unique" && unique15,
+      attachMult: att ? attUnder * attLM : 1,
     };
   });
 
-  return { entry, def, kind, T, healId, effects, rows, f, failerId, pressCostMult: pcm, ctx, buffsBefore: { ...B } };
+  const attach = att ? { supportId: att.cur.supportId, upgrade: att.cur.upgrade, ability: att.ability } : null;
+  return { entry, def, kind, T, healId, effects, rows, f, failerId, pressCostMult: pcm, ctx, buffsBefore: { ...B }, attach };
 }
 
 // ---------------------------------------------------------------------------
@@ -663,6 +864,7 @@ function beginTurn(state, data, rng, fx) {
     if (!drawOne(L, rng)) break;
   }
   fx.push({ t: "draw", uids: L.hand.slice() });
+  attachTurn(state, data, rng, fx);
 }
 
 /** 턴 끝 (§14.3): ① 기본 훈련 ② 벤치 회복 ③ 분위기 감소 ④ 퍼펙트 판정 ⑤ 손패 버림 ⑥ 마지막 턴이면 끝, 아니면 다음 턴 시작 */
@@ -674,6 +876,7 @@ function endTurn(state, data, rng, fx) {
   if (L.score >= L.cap) return finishLesson(state, data, fx);
   L.discard.push(...L.hand);
   L.hand = [];
+  if (L.attach) L.attach.cur = null; // 안 낸 지원은 턴 끝에 떨어진다 (§15.1 ③)
   if (L.turn >= L.turns) return finishLesson(state, data, fx);
   L.turn += 1;
   beginTurn(state, data, rng, fx);
@@ -692,6 +895,7 @@ function finishLesson(state, data, fx) {
     L.status = L.score >= L.target ? "clear" : "fail";
   }
   L.playsLeft = 0;
+  if (L.attach) L.attach.cur = null;
   fx.push({ t: "end", status: L.status });
 }
 
@@ -706,6 +910,7 @@ function injure(state, data, p) {
     L[pile] = L[pile].filter((uid) => {
       if (isUniqueOf(state, data, uid, p.charId)) {
         L.removed.push(uid);
+        if (L.attach && L.attach.cur && L.attach.cur.uid === uid) L.attach.cur = null;
         return false;
       }
       return true;
@@ -736,6 +941,8 @@ function healTargets(state, data, to, play) {
       const owner = cards.ownerOf(state, play.def);
       return owner ? [owner] : [];
     }
+    case "targets": // 이 카드의 대상 T 중 결장이 아닌 선수 전원 (실패자 포함, §15.3)
+      return play.T.map((id) => playerById(state, id)).filter((p) => !cards.isOut(state, p));
     default:
       throw new Error(`알 수 없는 heal 대상 '${to}'`);
   }
@@ -774,6 +981,23 @@ function applyEffect(state, data, e, play) {
       return;
     case "lumiFlag":
       L.lumiFlag = true;
+      return;
+    case "condition": {
+      // (chance 가 있으면 rng.chance 성공일 때) 컨디션 +n, 0~4 에서 멈춘다 (§15.3)
+      if (e.chance != null && !play.rng.chance(e.chance)) return;
+      const before = Number(state.condition) || 0;
+      state.condition = clamp(before + e.n, 0, 4);
+      const d = state.condition - before;
+      if (d !== 0) fx.push(play.supportId ? { t: "condition", n: d, src: "cutin" } : { t: "condition", n: d });
+      return;
+    }
+    case "hint":
+      // 코치 지원 능력 전용: 성공하면 그 코치의 힌트 1개를 레슨이 끝날 때 받는다 (lessonRun, §15.5)
+      if (!play.supportId) throw new Error("hint 는 코치 지원 능력에만 쓸 수 있습니다");
+      if (play.rng.chance(e.chance)) {
+        attachState(L).hints.push(play.supportId);
+        fx.push({ t: "hint", supportId: play.supportId, src: "cutin" });
+      }
       return;
     default:
       if (BUFF_EFFECT_TYPES.includes(e.type)) return applyBuffEffect(state, data, e, play);
@@ -841,8 +1065,10 @@ export function startLesson(state, data, { zone, special = false, prep = false, 
     twAccrued: 0, endHeal: 0, lumiFlag: false,
     before,
     seq: 0, lastFx: [],
-    stats: { plays: 0, benches: 0, fails: 0, injuries: 0 },
+    stats: { plays: 0, benches: 0, fails: 0, injuries: 0, attaches: 0, cutins: 0 },
+    attach: newAttach(),
   };
+  planAttachTurns(state, data, rng);
   const fx = [];
   beginTurn(state, data, rng, fx);
   state.lesson.lastFx = fx;
@@ -866,8 +1092,18 @@ export function playCard(state, data, { uid, at, playerId } = {}) {
   const rng = createRngFromState(state.rngState);
   const fx = [];
   const { def, T, rows } = plan;
+  const att = plan.attach;
   L.hand.splice(L.hand.indexOf(uid), 1);
   L.stats.plays += 1;
+
+  // 0. 코치 컷인 (§15.4 — 비용 fx 보다 앞, repeat = 이번 레슨 앞선 컷인 수)
+  if (att) {
+    const ci = coachInfo(data, att.supportId);
+    fx.push({
+      t: "cutin", supportId: att.supportId, uid, cardId: def.id, coach: ci.name,
+      name: att.ability.name, text: att.ability.text, repeat: L.stats.cutins || 0,
+    });
+  }
 
   // 7. 비용 지불
   for (const r of rows) {
@@ -927,7 +1163,7 @@ export function playCard(state, data, { uid, at, playerId } = {}) {
   }
 
   // 11. 방침 패시브 (run 방침이 맞고 T ≠ ∅ 일 때만)
-  const play = { ...plan, failerId, consumed: false, extraPlay: 0, fx };
+  const play = { ...plan, failerId, consumed: false, extraPlay: 0, fx, rng, supportId: null };
   applyPolicyPassive(state, data, play);
 
   // 12. 카드 effects
@@ -941,6 +1177,29 @@ export function playCard(state, data, { uid, at, playerId } = {}) {
   if (def.family === "coach" && def.coach) {
     const st = (state.supports || []).find((s) => s.id === def.coach.supportId);
     if (st) st.bond = clamp(Math.round((Number(st.bond) || 0) + LD.bond.play + getModifier(state, "bondGain")), 0, 100);
+  }
+
+  // 12b. 코치 지원 능력 effects (나열 순서 — 카드가 실패해도 발동, rng 는 hint · condition 의 chance 만)
+  // 12c. 그 코치 유대 +attach.bond · 13. 기록
+  if (att) {
+    const aplay = { ...play, supportId: att.supportId };
+    for (const e of att.ability.effects || []) applyEffect(state, data, e, aplay);
+    play.extraPlay = aplay.extraPlay;
+    const st = (state.supports || []).find((s) => s.id === att.supportId);
+    if (st) {
+      const before = Number(st.bond) || 0;
+      st.bond = clamp(Math.round(before + (Number(attachData(data).bond) || 0) + getModifier(state, "bondGain")), 0, 100);
+      if (st.bond !== before) fx.push({ t: "bond", supportId: att.supportId, n: st.bond - before });
+    }
+    const A = attachState(L);
+    for (let i = A.log.length - 1; i >= 0; i--) {
+      if (A.log[i].uid === uid && A.cur && A.log[i].turn === A.cur.turn) {
+        A.log[i].played = true;
+        break;
+      }
+    }
+    A.cur = null;
+    L.stats.cutins = (L.stats.cutins || 0) + 1;
   }
 
   // 13. 기록 · 카드 이동 · 퍼펙트 · 사용 횟수
@@ -1035,6 +1294,15 @@ function cardView(state, data, uid) {
     });
   }
   const playing = L.status === "playing";
+  const att = attachOn(state, data, uid);
+  let attach = null;
+  if (att) {
+    const ci = coachInfo(data, att.cur.supportId);
+    attach = {
+      supportId: ci.supportId, name: ci.name, short: ci.short, color: ci.color, coachType: ci.coachType,
+      abilityName: att.ability.name, abilityText: att.ability.text, upgrade: att.cur.upgrade,
+    };
+  }
   return {
     uid, cardId: def.id, name: def.name, family: def.family, plus: def.plus, bond80: def.bond80,
     targetKind: kind,
@@ -1044,11 +1312,21 @@ function cardView(state, data, uid) {
     heal,
     playable: playing && L.playsLeft >= 1 && !dead,
     deadReason: dead,
-    power: Number.isFinite(def.power) ? def.power : null,
+    power: Number.isFinite(def.power) ? rnd(def.power * attachPowerMult(data, att)) : null,
     cost,
     exhaust: !!def.exhaust,
     desc: def.desc,
+    attach,
   };
+}
+
+/** 지금 붙은 지원의 뷰 (§15.5) — 없으면 null */
+function attachView(state, data) {
+  const cur = attachOf(state.lesson).cur;
+  const ability = cur && attachAbility(data, cur.supportId);
+  if (!ability) return null;
+  const ci = coachInfo(data, cur.supportId);
+  return { uid: cur.uid, ...ci, ability: { name: ability.name, text: ability.text }, upgrade: cur.upgrade };
 }
 
 /**
@@ -1077,6 +1355,8 @@ export function getLessonView(state, data) {
     buffs: { ...L.buffs },
     chips: buffChips(state, data),
     hand: L.hand.map((uid) => cardView(state, data, uid)),
+    attach: attachView(state, data),
+    cutins: Number(L.stats && L.stats.cutins) || 0,
     piles: { draw: L.drawPile.length, discard: L.discard.length, exhausted: L.exhausted.length, removed: L.removed.length },
     players: state.players.map((p) => {
       const out = L.out.includes(p.id);
@@ -1109,7 +1389,7 @@ export function getLessonView(state, data) {
 export function previewCard(state, data, { uid, at, playerId } = {}) {
   const out = {
     ok: false, reason: null, kind: null, at: null, circle: null, healId: null,
-    targets: [], failRate: 0, failerId: null, total: 0, notes: [],
+    targets: [], failRate: 0, failerId: null, total: 0, notes: [], attach: null,
   };
   const L = state && state.lesson;
   if (!L) return { ...out, reason: "레슨 중이 아닙니다" };
@@ -1118,6 +1398,13 @@ export function previewCard(state, data, { uid, at, playerId } = {}) {
   const def = lessonCardDef(state, data, uid);
   const kind = def.target.kind;
   out.kind = kind;
+  const att = attachOn(state, data, uid);
+  if (att) {
+    out.attach = {
+      supportId: att.cur.supportId, name: att.ability.name, text: att.ability.text, upgrade: att.cur.upgrade,
+      effects: JSON.parse(JSON.stringify(att.ability.effects || [])), note: attachNote(state, data, att.cur.supportId, att.ability),
+    };
+  }
   let point = null;
   if (at) {
     try {
@@ -1141,8 +1428,10 @@ export function previewCard(state, data, { uid, at, playerId } = {}) {
   }
   const targets = plan.rows.map((r) => ({
     id: r.id, zone: r.zone, stat: r.stat, gain: r.gain, sub: r.subGain, subStat: r.subStat, cost: r.cost, failRate: r.failRate,
-    coach: r.coach, focus: r.focus, unique15: r.unique15,
+    coach: r.coach, focus: r.focus, unique15: r.unique15, attachMult: r.attachMult,
   }));
+  const notes = previewNotes(state, data, plan);
+  if (out.attach) notes.unshift(out.attach.note);
   return {
     ...out,
     ok: true,
@@ -1151,7 +1440,7 @@ export function previewCard(state, data, { uid, at, playerId } = {}) {
     failRate: plan.f,
     failerId: plan.failerId,
     total: targets.reduce((a, t) => a + t.gain, 0),
-    notes: previewNotes(state, data, plan),
+    notes,
   };
 }
 
@@ -1198,6 +1487,12 @@ export function lessonResult(state, data) {
     turns: L.turns, turnReached: L.turn,
     plays: L.stats.plays, benches: L.stats.benches, fails: L.stats.fails, injuries: L.stats.injuries,
     twAccrued: L.twAccrued, endHeal: L.endHeal, lumiFlag: L.lumiFlag,
+    attaches: Number(L.stats.attaches) || 0,
+    cutins: attachOf(L).log.filter((x) => x.played).map((x) => ({
+      supportId: x.supportId, name: coachInfo(data, x.supportId).name, cardId: x.cardId,
+      cardName: cards.getCard(data, x.cardId).name, turn: x.turn,
+    })),
+    cutinHints: attachOf(L).hints.slice(),
     outAtStart: L.outAtStart.slice(), out: L.out.slice(),
     perPlayer: state.players.map((p) => {
       const b = (L.before && L.before[p.id]) || p.stats;
