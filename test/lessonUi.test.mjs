@@ -1,11 +1,14 @@
-// test/lessonUi.test.mjs — 카드 레슨 화면 jsdom 검사 (LESSON_PROTO_PLAN §9.3 lessonUi, U3 = 레슨 화면 · U4 = 보상 모달 · 상담 화면)
+// test/lessonUi.test.mjs — 카드 레슨 화면 jsdom 검사 (LESSON_PROTO_PLAN §9.3 · §14.17 lessonUi, ZU2 = 구역 방식 레슨 화면 · U4 = 보상 모달 · 상담 화면)
 // index.html 을 jsdom 으로 올려 js/ui/app.js 를 부트하고, 감독 AI 로 걸은 레슨 런(tools/lesson_scenarios.mjs)을 store.run 에 넣어 레슨 화면을 그린다.
-//  - 골격: HUD(턴 점 · 점수 · 버프 칩) · 경기장 토큰 7 · 이번 레슨 명단 7 · 손패 = 뷰 손패 · [내기][쉬기][턴 끝]
-//  - 카드 선택 → 토큰 탭(초록 · 빨강 · 금) → [내기] → seq +1 · 저장 · 화면은 그대로(같은 DOM) · 연출이 끝나면 선택 풀림
-//  - 다시 그려도(render) 선택이 남는다, Esc = 취소, 쉬기 · 턴 끝, 레슨 끝 → reward phase (레슨 화면 inert + 보상 모달)
+//  - 골격: HUD · 구역 바닥 5 · 토큰 = 뷰 positions · 벤치 칸 · 명단 7 · 손패 · [내기][턴 끝] ([쉬기] 없음)
+//  - 클릭 조준 → 다시 그려도 조준 유지 → 경기장 클릭 → seq +1 · 저장 · 대상 = 원 안 선수 · 같은 DOM (부분 갱신)
+//  - 키보드: ← → 후보 (dropCandidates) · 숫자 = 구역 중심 · Enter = 내기 · Esc = 취소, 빈 자리 = 거절 토스트
+//  - 전체 카드 두 번 누르기 · 단일 카드 선수 위 클릭 · 회복 카드 명단 줄
+//  - 벤치: 명단 [벤치] → 벤치 칸 · 토큰 숨김 · 칸 누르기 = 복귀 · B 키 · 최대 2명 / [턴 끝] → 새 배치 · 벤치 비움 / 레슨 끝 → 보상 모달
 //  - U4 보상: 클리어 카드 고르기 · 건너뛰기(TP) · 퍼펙트 무료 강화 그리드 · 실패 [계속]
 //  - U4 상담: 구매 · 강화(고른 카드는 다시 그려도 남음) · 고유 카드 삭제 확인 모달 · 스킬(배울 선수) · 오류 토스트 · 끝내기
-// 연출은 prefers-reduced-motion 으로 줄여(타이머 0ms) 빨리 끝낸다. 레이아웃(넘침 · 잘림)은 tools/shot.mjs og_lesson* 스크린샷으로 본다.
+// 연출은 prefers-reduced-motion 으로 줄여(타이머 0ms) 빨리 끝낸다. 끌기는 jsdom 에 레이아웃이 없어 lesson_layout.pointerToField 단위 테스트
+// (lessonLayout.test) + 브라우저 스크린샷(tools/shot.mjs og_lesson_drag*)으로 본다. 레이아웃(넘침 · 잘림 · 겹침)도 스크린샷으로.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -14,6 +17,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const { KEYS } = await import(pathToFileURL(path.join(ROOT, "js/ui/store.js")).href);
+const OL = await import(pathToFileURL(path.join(ROOT, "js/ui/labels.js")).href);
 
 let JSDOM = null;
 try {
@@ -33,8 +37,7 @@ async function until(fn, ms = 4000, step = 10) {
   return fn();
 }
 
-// zone-pending:ZU2 — 레슨 화면 끌어다 놓기 · 벤치 칸 (§14.16). ZU2 가 고쳐서 다시 켠다.
-test.skip("jsdom: 레슨 화면 — 골격 · 카드 선택 · 탭 · 내기 · 다시 그리기 · 쉬기 · 턴 끝 · 레슨 끝 → 보상 모달 · 상담", { skip: !JSDOM && "jsdom 미설치" }, async (t) => {
+test("jsdom: 레슨 화면 (구역) — 골격 · 조준 · 키보드 · 벤치 · 턴 끝 · 레슨 끝 → 보상 모달 · 상담", { skip: !JSDOM && "jsdom 미설치" }, async (t) => {
   const html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
   const dom = new JSDOM(html, { url: "http://localhost/soccer/lesson/", pretendToBeVisual: true });
   const { window } = dom;
@@ -107,151 +110,221 @@ test.skip("jsdom: 레슨 화면 — 골격 · 카드 선택 · 탭 · 내기 · 
   const notBusy = () => until(() => !ui.busy, 4000);
   const lesson1 = walkLesson(data, { seed: "lesson-ui", until: (s) => s.phase === "lesson" && s.lesson.status === "playing" }).state;
 
-  // ---------- 골격 ----------
+  // ---------- 골격 (§14.16): HUD · 구역 바닥 5 · 토큰 = 뷰 positions · 벤치 칸 · 명단 7 · 손패 · [내기][턴 끝] ----------
   putRun(lesson1);
   const scr = $(".lesson-screen");
   assert.ok(scr && !scr.classList.contains("lesson-temp"), "레슨 화면 (임시 화면 아님)");
   assert.equal(doc.getElementById("stage").dataset.mode, "lesson", "스테이지 모드 lesson (토스트는 손패 위)");
   let v = view();
-  assert.ok($(".lesson-screen .lh .lh-title h2").textContent.includes(data.lesson ? "레슨" : ""), "HUD 제목");
+  assert.ok($(".lesson-screen .lh .lh-title h2").textContent.includes(`${OL.STAT_LABELS[v.zone]} 중점`), "HUD 제목 = 중점 구역");
   assert.equal($$(".lh-pips i").length, v.turns, "턴 점 = 레슨 턴 수");
   assert.equal($(".lh-score-n").textContent, String(v.score), "점수");
   assert.ok($(".lh-score-t").textContent.includes(String(v.target)) && $(".lh-score-t").textContent.includes(String(v.cap)), "목표 · 퍼펙트");
   assert.equal($$(".lh-chip").length, v.chips.length, "버프 칩 = 뷰 chips");
   assert.ok($(".lesson-screen .pitch .m-field .pitch-bg"), "경기장 = 경기 화면 마크업 (.pitch > .m-field > .pitch-bg)");
-  assert.equal($$(".lesson-screen .pitch .zone").length, 5, "5구역");
+  assert.equal($$(".lesson-screen .zone-pad").length, 5, "구역 바닥 5");
+  assert.deepEqual($$(".lesson-screen .zone-pad").map((e) => e.dataset.zone).sort(), [...OL.ZONE_IDS].sort(), "구역 5곳");
+  assert.ok($(`.zone-pad.focus[data-zone="${v.zone}"]`) && $$(".zone-pad.focus").length === 1, "중점 구역 바닥 = 금색 1곳");
+  assert.equal($$(".lesson-screen .zone-chip").length, 5, "구역 라벨 5");
+  assert.ok($(`.zone-chip.focus[data-zone="${v.zone}"]`).textContent.includes(OL.ZONE_LABELS[v.zone]), "중점 구역 라벨");
   assert.equal($$(".lesson-screen .tok-layer .tok.home").length, 7, "토큰 7");
+  const onField = Object.keys(v.positions);
+  assert.equal($$(".lesson-screen .tok:not(.off)").length, onField.length, "경기장 선수 토큰만 보인다");
+  for (const id of onField) {
+    const el = $(`.tok[data-id="${id}"]`);
+    assert.equal(Number(el.dataset.x), v.positions[id].x, `${id} 토큰 x = 뷰 positions`);
+    assert.equal(Number(el.dataset.y), v.positions[id].y, `${id} 토큰 y = 뷰 positions`);
+    assert.ok(el.classList.contains(`z-${v.zones[id]}`), `${id} 구역 색`);
+    assert.match(el.getAttribute("aria-label"), new RegExp(OL.ZONE_LABELS[v.zones[id]]), "aria-label 에 구역");
+  }
   assert.ok($$(".lesson-screen .tok").every((e) => /translate\(/.test(e.style.transform)), "토큰은 translate 로 놓인다");
-  const gkTok = $$(".lesson-screen .tok").find((e) => v.players.find((p) => p.id === e.dataset.id)?.position === "GK");
-  const xOf = (e) => Number(e.dataset.x);
-  assert.ok($$(".lesson-screen .tok").every((e) => e === gkTok || xOf(e) > xOf(gkTok)), "GK 토큰이 가장 왼쪽 (우리 골)");
-  assert.ok($(".drill-layer .drill-zone") && $(".drill-label").textContent.includes("훈련장"), "훈련장 표시");
-  assert.equal($$(".ls-side .ls-row").length, 7, "이번 레슨 명단 7");
+  assert.ok($(".ls-side .ls-bench") && $$(".ls-bench-slot").length === v.benchMax && $$(".ls-bench-slot.empty").length === v.benchMax, "벤치 칸 2 (비었음)");
+  assert.equal($$(".ls-side .ls-row").length, 7, "명단 7");
+  assert.equal($$(".ls-rest").length, 0, "[쉬기] 없음 (벤치로 바뀜)");
   assert.equal($$(".ls-hand .card-face").length, v.hand.length, "손패 = 뷰 손패");
   assert.ok($$(".ls-hand .card-face").every((c) => c.querySelector(".cf-name") && c.querySelector(".cf-target") && c.querySelector(".cf-desc")), "카드 앞면: 이름 · 대상 · 문구");
-  assert.equal($$(".ls-hand .card-face.recommended").length, S.manager.recommendCard(S.store.run, data).kind === "play" ? 1 : 0, "추천 카드 배지 (manager.recommendCard)");
-  assert.ok($(".ls-btns .ls-play").disabled, "[내기] 꺼짐 (카드 안 고름)");
-  assert.equal($(".ls-btns .ls-rest").disabled, !v.canRest, "[쉬기] = canRest");
-  assert.ok($(".ls-btns .ls-end").disabled, "[턴 끝] 꺼짐 (아직 안 냄)");
-  assert.match($(".ls-info").textContent, /카드를 고르세요/);
+  const rec0 = S.manager.recommendCard(S.store.run, data);
+  assert.equal($$(".ls-hand .card-face.recommended").length, rec0.kind === "play" ? 1 : 0, "추천 카드 배지 (manager.recommendCard)");
+  assert.ok($(".ls-btns .ls-play").disabled, "[내기] 꺼짐 (조준 전)");
+  assert.equal($(".ls-btns .ls-end").disabled, !v.canEndTurn, "[턴 끝] = canEndTurn (카드 0장이어도)");
+  assert.match($(".ls-info").textContent, /카드를 끌어 경기장에 놓으세요/);
   assert.match($(".ls-piles").textContent, new RegExp(`덱 ${v.piles.draw}`), "덱 더미 수");
   noErrorToast("골격");
 
-  // ---------- 지명 카드: 선택 → 초록/빨강 → 다시 그려도 선택 유지 → 탭 → 말풍선 → 내기 ----------
-  const pick = withHand(lesson1, "cd_coaching", 0);
-  // 한 명을 결장으로 (빨강 확인용): 레슨 out + injuredTurns
-  const outId = pick.s.players.find((p) => p.position === "DF").id;
-  pick.s.lesson.out.push(outId);
-  pick.s.lesson.outAtStart.push(outId);
-  pick.s.players.find((p) => p.id === outId).injuredTurns = 1;
-  putRun(pick.s);
-  const card0 = () => $(`.ls-hand .card-face[data-uid="${pick.uid}"]`);
-  card0().click();
-  assert.equal(ui.selectedUid, pick.uid, "카드 선택 → lessonUi.selectedUid");
-  assert.ok(card0().classList.contains("selected"), "고른 카드 강조");
-  assert.equal($$(".tok.pickable").length, 6, "지명: 출전 선수 6 초록");
-  assert.ok($(`.tok[data-id="${outId}"]`).classList.contains("blocked"), "결장 선수 빨강");
-  assert.equal($(`.tok[data-id="${outId}"] .tok-bubble`).textContent, "결장 중", "빨강 이유 말풍선");
-  assert.ok($(`.tok[data-id="${outId}"]`).classList.contains("out") && $(`.tok[data-id="${outId}"] .tok-out`).textContent === "결장", "결장 토큰 표시");
-  assert.match($(".ls-info").textContent, /대상 선수를 누르세요 \(0\/1\)/);
-  assert.ok($(".ls-btns .ls-play").disabled, "탭 전 [내기] 꺼짐");
+  // jsdom 에는 레이아웃이 없다 → 경기장 사각형을 1280×720 무대의 크기(968×392)로 흉내 내고, 필드 % → client px 로 클릭한다
+  const fieldEl = () => $(".lesson-screen .m-field");
+  const stubField = () => {
+    fieldEl().getBoundingClientRect = () => ({ left: 0, top: 0, right: 968, bottom: 392, width: 968, height: 392, x: 0, y: 0 });
+  };
+  const clickField = (at, opts = {}) => fieldEl().dispatchEvent(new window.MouseEvent("click", { bubbles: true, clientX: (at.x / 100) * 968, clientY: (at.y / 100) * 392, ...opts }));
+  const key = (k, target = doc) => target.dispatchEvent(new window.KeyboardEvent("keydown", { key: k, bubbles: true }));
+  const fxIds = () => [...new Set((S.store.run.lesson?.lastFx || []).filter((e) => e.t === "gain" || e.t === "fail").map((e) => e.id))].sort();
+
+  // ---------- 클릭 조준 → 다시 그려도 조준 유지 → 경기장 클릭 → seq +1 · 저장 ----------
+  const circ = withHand(lesson1, "cd_mf_drill", 0); // 중간 원
+  putRun(circ.s);
+  const cardOf = (uid) => $(`.ls-hand .card-face[data-uid="${uid}"]`);
+  cardOf(circ.uid).click();
+  assert.equal(ui.aim?.uid, circ.uid, "카드 클릭 → 조준 모드 (lessonUi.aim)");
+  assert.ok(cardOf(circ.uid).classList.contains("selected") && $(".lesson-screen.aiming"), "조준 카드 강조 · 화면 aiming");
+  assert.ok($(".ls-btns .ls-play").disabled, "자리를 고르기 전 [내기] 꺼짐");
+  assert.match($(".ls-info").textContent, /원을 놓을 자리/);
   const domBefore = $(".lesson-screen");
-  S.render(); // 다시 그리기 (app.render → lessonUi.gen +1) — 선택은 남는다
+  S.render(); // 다시 그리기 (app.render → lessonUi.gen +1) — 조준은 남는다
   assert.notEqual($(".lesson-screen"), domBefore, "render() = 새 화면");
-  assert.equal(ui.selectedUid, pick.uid, "다시 그려도 선택 유지");
-  assert.ok(card0().classList.contains("selected") && $$(".tok.pickable").length === 6, "다시 그려도 강조 유지");
-  // 빨강 토큰을 누르면 거절 (탭 없음)
-  $(`.tok[data-id="${outId}"]`).click();
-  assert.deepEqual(ui.taps, [], "빨강 탭 = 거절");
-  const target = view().players.find((p) => !p.out && p.position === "MF").id;
-  $(`.tok[data-id="${target}"]`).click();
-  assert.deepEqual(ui.taps, [target], "토큰 탭 → taps");
-  assert.ok($(`.tok[data-id="${target}"]`).classList.contains("picked"), "고른 토큰 금색");
-  const pv = lessonRun.previewCard(S.store.run, data, { uid: pick.uid, taps: [target] });
-  assert.ok(pv.ok);
-  assert.ok($(`.tok[data-id="${target}"] .tok-bubble`).textContent.startsWith(`+${pv.targets[0].gain}`), "말풍선 = 예상 상승");
-  assert.ok(!$(".ls-btns .ls-play").disabled, "[내기] 켜짐");
-  assert.equal($(".lh-delta").textContent, `+${pv.targets[0].gain}`, "점수 미리보기");
-  // 같은 토큰을 다시 누르면 해제, 다시 고르기
-  $(`.tok[data-id="${target}"]`).click();
-  assert.deepEqual(ui.taps, [], "다시 누르면 해제");
-  $$(`.ls-row`).find((r) => r.dataset.pid === target).click(); // 명단 줄로도 고를 수 있다
-  assert.deepEqual(ui.taps, [target], "명단 줄 탭");
+  assert.equal(ui.aim?.uid, circ.uid, "다시 그려도 조준 유지");
+  assert.ok(cardOf(circ.uid).classList.contains("selected") && $(".lesson-screen.aiming"), "다시 그려도 강조 유지");
+  const circCands = lessonRun.dropCandidates(S.store.run, data, { uid: circ.uid });
+  assert.ok(circCands.length >= 2, "원 후보 점");
+  const cd0 = circCands.reduce((b, c) => (c.ids.length > b.ids.length ? c : b));
+  stubField();
   const seq0 = S.store.run.lesson.seq;
   const scr2 = $(".lesson-screen");
-  const tokEl = $(`.tok[data-id="${target}"]`);
-  $(".ls-btns .ls-play").click();
-  assert.equal(S.store.run.lesson.seq, seq0 + 1, "내기 → seq +1");
+  const tokEl = $(`.tok[data-id="${cd0.ids[0]}"]`);
+  clickField(cd0.at);
+  assert.equal(S.store.run.lesson.seq, seq0 + 1, "경기장 클릭 → playCard → seq +1");
   assert.equal(JSON.parse(window.localStorage.getItem(KEYS.run)).lesson.seq, seq0 + 1, "레슨 호출마다 저장 (soccer-lesson.run)");
+  assert.deepEqual(fxIds(), cd0.ids.slice().sort(), "원 안 선수 = 실제 대상 (엔진이 정한다)");
   assert.ok(ui.busy, "연출 중 busy");
-  const handNow = $$(".ls-hand .card-face").length;
   $$(".ls-hand .card-face")[0]?.click(); // 연출 중 입력은 무시
-  assert.equal(ui.selectedUid, null, "연출 중 카드 선택 무시");
+  assert.equal(ui.aim, null, "연출 중 카드 클릭 무시");
   await notBusy();
   assert.equal($(".lesson-screen"), scr2, "카드를 내도 화면 DOM 은 그대로 (부분 갱신)");
-  assert.equal($(`.tok[data-id="${target}"]`), tokEl, "토큰 DOM 도 그대로");
-  assert.ok(!tokEl.classList.contains("drilling"), "훈련 지점에서 제자리로");
-  assert.equal(ui.selectedUid, null, "낸 뒤 선택 풀림");
-  assert.deepEqual(ui.taps, []);
+  assert.equal($(`.tok[data-id="${cd0.ids[0]}"]`), tokEl, "토큰 DOM 도 그대로");
+  assert.ok(!tokEl.classList.contains("drilling"), "훈련 동작 끝");
+  assert.equal(ui.aim, null, "낸 뒤 조준 풀림");
   assert.equal(ui.shownSeq, S.store.run.lesson.seq, "보여 준 seq");
   v = view();
   assert.equal($(".lh-score-n").textContent, String(v.score), "점수 갱신");
   assert.equal($$(".ls-hand .card-face").length, v.hand.length, "손패 갱신");
-  assert.ok(handNow >= 1);
-  noErrorToast("내기");
+  noErrorToast("클릭 조준");
 
-  // ---------- 범위 카드: 탭 없이 두 번 누르기 = 내기, Esc = 취소 ----------
-  const rng = withHand(lesson1, "cd_basic", 0);
-  putRun(rng.s);
-  $(`.ls-hand .card-face[data-uid="${rng.uid}"]`).click();
-  assert.equal($$(".tok.target").length, 7, "전원: 대상 7 강조");
-  assert.ok($$(".tok.target .tok-bubble").every((b) => /^\+\d+/.test(b.textContent)), "대상 말풍선 +N");
-  doc.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-  assert.equal(ui.selectedUid, null, "Esc = 취소");
-  assert.equal($$(".tok.target").length, 0);
-  $(`.ls-hand .card-face[data-uid="${rng.uid}"]`).click();
-  $(`.ls-hand .card-face[data-uid="${rng.uid}"]`).click();
-  assert.equal(S.store.run.lesson.seq, 1, "탭 없는 카드: 한 번 더 누르면 낸다");
+  // ---------- 키보드: 조준 → ← → 후보 (원 · 대상 강조 · 안내) → 숫자 = 구역 중심 → Enter ----------
+  putRun(circ.s);
+  cardOf(circ.uid).click();
+  key("ArrowRight");
+  assert.equal(ui.aim.idx, 0, "→ = 첫 후보");
+  assert.deepEqual(ui.aim.at, circCands[0].at, "후보 점 = dropCandidates");
+  assert.ok($(".aim-circle.on.ok"), "조준 원 (대상 있음)");
+  assert.equal($$(".lesson-screen .tok.target").length, circCands[0].ids.length, "원 안 선수 = 흰 고리");
+  const pv0 = lessonRun.previewCard(S.store.run, data, { uid: circ.uid, at: circCands[0].at });
+  const t0 = pv0.targets[0];
+  assert.equal($(`.tok[data-id="${t0.id}"] .tok-name`).textContent, `+${t0.gain}`, "이름표 자리에 예상 상승");
+  assert.equal($(".lh-delta").textContent, `+${pv0.total}`, "점수 막대 미리보기 = 합계");
+  assert.match($(".ls-info").textContent, new RegExp(`대상 ${pv0.targets.length}명 · 합계 \\+${pv0.total}`), "dock 안내 합계");
+  assert.match($(".ls-info .ls-cand").textContent, new RegExp(`후보 1/${circCands.length}`), "후보 번호 라벨");
+  assert.ok(!$(".ls-btns .ls-play").disabled, "[내기] 켜짐");
+  key("ArrowRight");
+  assert.equal(ui.aim.idx, 1);
+  key("ArrowLeft");
+  key("ArrowLeft");
+  assert.equal(ui.aim.idx, circCands.length - 1, "← 는 거꾸로 돈다");
+  key("2");
+  assert.deepEqual(ui.aim.at, data.lesson.zones.centers.pass, "2 = 패스 구역 중심 (위 줄 왼 → 오)");
+  key("ArrowRight");
+  const seqK = S.store.run.lesson.seq;
+  key("Enter");
+  assert.equal(S.store.run.lesson.seq, seqK + 1, "Enter = 내기");
+  assert.deepEqual(fxIds(), circCands[0].ids.slice().sort(), "키보드 후보 대상");
   await notBusy();
 
-  // ---------- 쉬기: 탭 모드 → 선수 1명 → lessonRest (턴 끝) ----------
-  putRun(lesson1);
-  const turn0 = S.store.run.lesson.turn;
-  $(".ls-btns .ls-rest").click();
-  assert.ok(ui.restPick && $$(".tok.pickable").length === 7, "쉬기: 7명 초록");
-  assert.match($(".ls-info").textContent, /쉬기/);
-  const restId = view().players[2].id;
-  const stBefore = S.store.run.players.find((p) => p.id === restId).stamina;
-  $(`.tok[data-id="${restId}"]`).click();
-  assert.equal(S.store.run.lesson.stats.rests, 1, "lessonRest 호출");
-  assert.equal(S.store.run.players.find((p) => p.id === restId).stamina, Math.min(100, stBefore + data.lesson.lesson.rest.picked), "고른 선수 +20");
-  await notBusy();
-  assert.equal(S.store.run.lesson.turn, turn0 + 1, "쉬기 = 턴 끝");
-  assert.equal($$(".lh-pips i.cur").length, 1);
-  assert.equal($(".lh-turn-n").textContent, `${turn0 + 1}/${S.store.run.lesson.turns}`, "턴 표시 갱신");
-  assert.ok(!ui.restPick);
+  // ---------- Esc = 조준 취소 · 빈 자리 클릭 = 거절(토스트) ----------
+  putRun(circ.s);
+  cardOf(circ.uid).click();
+  stubField();
+  const emptyAt = [[50, 97], [50, 3], [3, 97], [97, 97], [3, 3], [97, 3], [50, 52]].map(([x, y]) => ({ x, y }))
+    .find((at) => !lessonRun.previewCard(S.store.run, data, { uid: circ.uid, at }).ok);
+  assert.ok(emptyAt, "빈 자리");
+  clickField(emptyAt);
+  assert.equal(S.store.run.lesson.seq, circ.s.lesson.seq, "원 안에 선수가 없으면 내지 않는다");
+  assert.ok($$("#toast-root .toast").some((e) => /원 안에 선수가 없습니다/.test(e.textContent)), "이유 토스트");
+  for (const e of $$("#toast-root .toast")) e.remove();
+  key("Escape");
+  assert.equal(ui.aim, null, "Esc = 취소");
+  assert.ok(!$(".lesson-screen.aiming") && $$(".tok.target").length === 0, "조준 표시 지움");
 
-  // ---------- 턴 끝: 추가 사용 카드(쿨다운) 뒤 [턴 끝] ----------
+  // ---------- 전체 카드: 경기장 전원 강조 → 한 번 더 누르면 낸다 ----------
+  const all = withHand(lesson1, "cd_basic", 0);
+  putRun(all.s);
+  cardOf(all.uid).click();
+  assert.equal($$(".tok.target").length, Object.keys(view().positions).length, "전체: 경기장 전원 대상");
+  assert.ok($(".lesson-screen .m-field.aim-all"), "경기장 전체 빛");
+  assert.ok($$(".tok.target .tok-name").every((b) => /^\+\d+$/.test(b.textContent)), "대상 이름표 자리 +N");
+  cardOf(all.uid).click();
+  assert.equal(S.store.run.lesson.seq, all.s.lesson.seq + 1, "전체 카드: 한 번 더 누르면 낸다");
+  await notBusy();
+
+  // ---------- 단일 카드: 후보 초록 → 선수 위 클릭 = 그 선수 ----------
+  const one = withHand(lesson1, "cd_coaching", 0);
+  putRun(one.s);
+  cardOf(one.uid).click();
+  const oneCands = lessonRun.dropCandidates(S.store.run, data, { uid: one.uid });
+  assert.equal($$(".tok.cand").length, oneCands.length, "단일: 후보 선수 초록 테");
+  const pick = oneCands[oneCands.length - 1];
+  stubField();
+  clickField({ x: pick.at.x + 0.8, y: pick.at.y + 1 }); // 토큰 가장자리 (pickR 안)
+  assert.equal(S.store.run.lesson.seq, one.s.lesson.seq + 1, "선수 위 클릭 = 내기");
+  assert.deepEqual(fxIds(), [pick.playerId], "가장 가까운 선수가 대상");
+  await notBusy();
+
+  // ---------- 회복 카드: 명단 줄을 누르면 그 선수 (벤치 · 결장도 — playerId) ----------
   const cool = withHand(lesson1, "cd_cooldown", 0);
+  cool.s.players[2].stamina = 30;
   putRun(cool.s);
-  $(`.ls-hand .card-face[data-uid="${cool.uid}"]`).click();
-  assert.equal($$(".tok.pickable").length, 7, "회복 카드: 7명 고를 수 있음");
-  $(`.tok[data-id="${view().players[0].id}"]`).click();
-  $(".ls-btns .ls-play").click();
+  cardOf(cool.uid).click();
+  assert.equal($$(".ls-row.pickable").length, 7, "회복 카드: 명단 7줄 고를 수 있음");
+  const healId = cool.s.players[2].id;
+  $(`.ls-row[data-pid="${healId}"]`).click();
+  assert.equal(S.store.run.lesson.seq, cool.s.lesson.seq + 1, "명단 줄 = 회복 카드 내기");
+  assert.equal(S.store.run.players[2].stamina, 50, "체력 +20");
   await notBusy();
-  assert.equal(S.store.run.lesson.turn, 1, "추가 사용 +1 → 같은 턴");
-  assert.ok(!$(".ls-btns .ls-end").disabled, "[턴 끝] 켜짐");
-  assert.ok($(".ls-btns .ls-rest").disabled, "1장 낸 뒤 [쉬기] 꺼짐");
+  assert.equal(S.store.run.lesson.turn, cool.s.lesson.turn, "추가 사용 +1 → 같은 턴");
+  noErrorToast("카드 종류별 조준");
+
+  // ---------- 벤치: 명단 [벤치] → 벤치 칸 · 토큰 숨김 · 대형 다시 · 칸 누르기 = 복귀 · B 키 · 최대 2명 ----------
+  putRun(lesson1);
+  const fieldIds = Object.keys(view().positions);
+  const b1 = fieldIds[0];
+  $(`.ls-row[data-pid="${b1}"] .ls-bench-btn`).click();
+  assert.deepEqual(S.store.run.lesson.bench, [b1], "benchPlayer(on)");
+  assert.deepEqual(JSON.parse(window.localStorage.getItem(KEYS.run)).lesson.bench, [b1], "벤치도 저장");
+  assert.ok($(`.ls-bench-slot.filled[data-pid="${b1}"]`), "벤치 칸에 그 선수");
+  assert.ok($(`.tok[data-id="${b1}"]`).classList.contains("off"), "경기장 토큰은 숨김");
+  assert.equal($(`.ls-row[data-pid="${b1}"] .ls-bench-btn`).textContent, "복귀", "명단 버튼 = 복귀");
+  for (const id of Object.keys(view().positions)) assert.equal(Number($(`.tok[data-id="${id}"]`).dataset.x), view().positions[id].x, "남은 선수 = 새 대형");
+  $(`.ls-bench-slot.filled[data-pid="${b1}"]`).click();
+  assert.deepEqual(S.store.run.lesson.bench, [], "벤치 칸 누르기 = 복귀 (on: false)");
+  assert.ok(!$(`.tok[data-id="${b1}"]`).classList.contains("off"), "토큰이 경기장으로");
+  key("b", $(`.tok[data-id="${fieldIds[1]}"]`));
+  assert.deepEqual(S.store.run.lesson.bench, [fieldIds[1]], "토큰 포커스 + B = 벤치");
+  $(`.ls-row[data-pid="${fieldIds[2]}"] .ls-bench-btn`).click();
+  assert.equal(S.store.run.lesson.bench.length, 2);
+  assert.ok($(".ls-bench.full") && $(`.ls-row[data-pid="${fieldIds[3]}"] .ls-bench-btn`).disabled, "최대 2명 → [벤치] 꺼짐");
+  assert.match($(".ls-bench-note").textContent, /최대 2명/);
+  noErrorToast("벤치");
+
+  // ---------- 턴 끝 (카드 0장이어도) → 벤치 비움 · 새 배치 (토큰 = 새 positions) · 새 손패 ----------
+  const turn0 = S.store.run.lesson.turn;
   $(".ls-btns .ls-end").click();
   await notBusy();
-  assert.equal(S.store.run.lesson.turn, 2, "[턴 끝] → 다음 턴");
-  noErrorToast("쉬기 · 턴 끝");
+  assert.equal(S.store.run.lesson.turn, turn0 + 1, "[턴 끝] → 다음 턴");
+  assert.deepEqual(S.store.run.lesson.bench, [], "다음 턴 벤치 비움");
+  v = view();
+  assert.equal($(".lh-turn-n").textContent, `${turn0 + 1}/${v.turns}`, "턴 표시 갱신");
+  assert.equal($$(".lesson-screen .tok:not(.off)").length, Object.keys(v.positions).length, "벤치 선수도 경기장으로");
+  for (const id of Object.keys(v.positions)) {
+    assert.equal(Number($(`.tok[data-id="${id}"]`).dataset.x), v.positions[id].x, `${id} 새 배치 x`);
+    assert.equal(Number($(`.tok[data-id="${id}"]`).dataset.y), v.positions[id].y, `${id} 새 배치 y`);
+  }
+  assert.equal($$(".ls-hand .card-face").length, v.hand.length, "새 손패");
+  assert.equal($$(".ls-bench-slot.filled").length, 0, "벤치 칸 비움");
+  noErrorToast("턴 끝");
 
   // ---------- 레슨 끝 → reward phase: 레슨 화면 inert + 보상 모달 ----------
   const fin = withHand(lesson1, "cd_basic", 0);
   fin.s.lesson.score = fin.s.lesson.cap - 1; // 다음 상승으로 퍼펙트
   putRun(fin.s);
-  $(`.ls-hand .card-face[data-uid="${fin.uid}"]`).click();
+  cardOf(fin.uid).click();
   $(".ls-btns .ls-play").click();
   assert.equal(S.store.run.phase, "reward", "퍼펙트 → reward phase (엔진)");
   assert.ok($(".lesson-screen:not(.inert)"), "연출이 끝날 때까지 레슨 화면");

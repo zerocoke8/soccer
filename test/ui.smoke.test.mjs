@@ -198,13 +198,18 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
   assert.equal(doc.querySelectorAll(".lesson-screen .ls-hand .card-face").length, 3, "손패 3장");
   assert.equal(doc.querySelectorAll(".lesson-screen .tok").length, 7, "경기장 토큰 7");
   const recCard = window.__soccer.manager.recommendCard(window.__soccer.store.run, window.__soccer.store.data);
+  assert.equal(doc.querySelectorAll(".lesson-screen .zone-pad").length, 5, "구역 바닥 5");
+  assert.ok(doc.querySelector(".lesson-screen .ls-bench"), "벤치 칸");
+  assert.equal(doc.querySelectorAll(".lesson-screen .ls-rest").length, 0, "[쉬기] 없음");
   if (recCard.kind === "play") {
+    // 카드 클릭 = 조준 모드 → (자리가 필요한 카드) 키보드 → 첫 후보 → [내기]
     doc.querySelector(`.ls-hand .card-face[data-uid="${recCard.uid}"]`).click();
-    for (const id of recCard.taps || []) doc.querySelector(`.lesson-screen .tok[data-id="${id}"]`).click();
+    if (recCard.at || recCard.playerId) doc.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
     doc.querySelector(".ls-btns .ls-play").click();
+  } else if (recCard.kind === "bench") {
+    doc.querySelector(`.ls-row[data-pid="${recCard.playerId}"] .ls-bench-btn`).click();
   } else {
-    doc.querySelector(".ls-btns .ls-rest").click();
-    doc.querySelector(`.lesson-screen .tok[data-id="${recCard.playerId}"]`).click();
+    doc.querySelector(".ls-btns .ls-end").click();
   }
   await until(() => window.__soccer.store.run.lesson?.seq === 1);
   assert.equal(window.__soccer.store.run.lesson.seq, 1, "레슨 호출 1번 = seq +1");

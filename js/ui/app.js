@@ -299,8 +299,8 @@ const actions = {
   },
 
   /**
-   * 레슨 화면 전용: 엔진 호출 1번(playCard · lessonRest · endLessonTurn) + 저장만 한다 (render 없음 — 레슨 화면이 연출을 이어 그린다).
-   * @param {'playCard'|'lessonRest'|'endLessonTurn'} fnName
+   * 레슨 화면 전용: 엔진 호출 1번(playCard · benchPlayer · endLessonTurn) + 저장만 한다 (render 없음 — 레슨 화면이 연출을 이어 그린다).
+   * @param {'playCard'|'benchPlayer'|'endLessonTurn'} fnName
    * @returns {object|undefined} 엔진 반환값 (오류면 undefined + 토스트)
    */
   lessonCall(fnName, args) {

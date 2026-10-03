@@ -394,6 +394,29 @@ async function runScenario(browser, baseUrl, sc, prepared, opts) {
           if (cut(rectOf(t), rectOf(el)) > 0) overlaps.push(`토스트 "${(t.textContent || "").trim().slice(0, 30)}" ↔ ${el.className}`);
         }
       }
+      // 레슨 경기장 겹침 (LESSON_PROTO_PLAN §14.19 ZU2): 토큰 이름표끼리 · 이름표 ↔ 다른 토큰 얼굴 · 구역 라벨 ↔ 토큰 얼굴 · 이름표 · 실패율 표
+      const vis = (el) => { const cs = getComputedStyle(el); return cs.display !== "none" && cs.visibility !== "hidden" && Number(cs.opacity) > 0.05; };
+      const toks = [...document.querySelectorAll(".lesson-screen .tok-layer .tok:not(.off)")].filter(vis);
+      const nameOf = (t) => (t.querySelector(".tok-nm")?.textContent || t.dataset.id || "").trim();
+      const parts = [];
+      for (const t of toks) {
+        const nm = t.querySelector(".tok-name");
+        const face = t.querySelector(".tok-face");
+        const warn = t.querySelector(".tok-warn.on");
+        if (nm && vis(nm)) parts.push({ tok: t, kind: "이름표", r: rectOf(nm) });
+        if (face) parts.push({ tok: t, kind: "얼굴", r: rectOf(face) });
+        if (warn && vis(warn)) parts.push({ tok: t, kind: "실패율", r: rectOf(warn) });
+      }
+      for (const c of document.querySelectorAll(".lesson-screen .zone-chip")) if (vis(c)) parts.push({ tok: null, kind: `구역 라벨 ${(c.textContent || "").trim().slice(0, 8)}`, r: rectOf(c), chip: true });
+      const tag = document.querySelector(".lesson-screen .aim-tag.on");
+      if (tag && vis(tag)) parts.push({ tok: null, kind: "원 꼬리표", r: rectOf(tag), tag: true });
+      for (let i = 0; i < parts.length; i++) for (let j = i + 1; j < parts.length; j++) {
+        const a = parts[i], b = parts[j];
+        if ((a.tag || b.tag) && !(a.chip || b.chip)) continue; // 꼬리표는 구역 라벨과만 (선수 위는 조준 중 잠깐)
+        if (a.tok && a.tok === b.tok) continue; // 같은 토큰 안 (얼굴 ↔ 자기 이름표)
+        if (a.kind === "얼굴" && b.kind === "얼굴") continue; // 얼굴끼리는 대형 간격(§14.2)이 보장
+        if (cut(a.r, b.r) > 4) overlaps.push(`레슨 ${a.tok ? nameOf(a.tok) + " " : ""}${a.kind} ↔ ${b.tok ? nameOf(b.tok) + " " : ""}${b.kind}`);
+      }
       // 고정 스테이지: 배율 · 위치 (js/ui/stage.js), 스테이지 밖으로 넘친 가로 폭 (#app 논리 px)
       const stageEl = document.getElementById("stage");
       const r = stageEl ? stageEl.getBoundingClientRect() : null;
@@ -525,6 +548,24 @@ async function enterOutgame(page, sc, prepared, opts, out) {
       continue;
     }
     if (st.drag) { out.notes.push(await dragStep(page, st.drag)); continue; }
+    // 키 누르기 (레슨 조준 키보드 — ← → 후보 · 1~5 구역 · Enter · Esc): { key: "ArrowRight", times?: 2 }
+    if (st.key) {
+      for (let i = 0; i < (st.times ?? 1); i++) await page.keyboard.press(st.key);
+      out.notes.push(`키 ${st.key}${(st.times ?? 1) > 1 ? ` ×${st.times}` : ""}`);
+      await delay(st.waitMs ?? 150);
+      continue;
+    }
+    // 요소 안의 한 점(요소 박스 %)으로 마우스 이동 / 클릭 — 레슨 경기장 조준 (§14.16): { hoverAt | clickAt: { sel, x, y } }
+    if (st.hoverAt || st.clickAt) {
+      const t = st.hoverAt || st.clickAt;
+      const pt = await pointIn(page, t);
+      if (!pt) { out.notes.push(`'${t.sel}' 을 찾지 못함`); continue; }
+      await page.mouse.move(pt.x, pt.y, { steps: 6 });
+      if (st.clickAt) await page.mouse.click(pt.x, pt.y);
+      out.notes.push(`${st.clickAt ? "클릭" : "hover"} ${t.sel} (${t.x}%, ${t.y}%) → (${Math.round(pt.x)}, ${Math.round(pt.y)})`);
+      await delay(st.waitMs ?? 200);
+      continue;
+    }
     const handle = await page.evaluateHandle((sel, textSrc) => {
       if (sel) return document.querySelector(sel);
       const rx = new RegExp(textSrc);
@@ -570,8 +611,9 @@ async function dragStep(page, d) {
   if (!a || !b) return `드래그: '${!a ? d.from : d.to}' 을 찾지 못함`;
   const ax = a.x + a.width / 2;
   const ay = a.y + a.height / 2;
-  const bx = b.x + b.width / 2;
-  const by = b.y + b.height / 2;
+  // at = to 요소 박스 안의 점 (%) — 레슨 경기장의 필드 좌표에 놓기
+  const bx = d.at ? b.x + (b.width * d.at.x) / 100 : b.x + b.width / 2;
+  const by = d.at ? b.y + (b.height * d.at.y) / 100 : b.y + b.height / 2;
   await page.mouse.move(ax, ay);
   await page.mouse.down();
   await page.mouse.move(ax + 4, ay + 4, { steps: 2 }); // 문턱(6px) 전: 아직 탭
@@ -579,6 +621,16 @@ async function dragStep(page, d) {
   if (d.release) await page.mouse.up();
   await delay(d.waitMs ?? 150);
   return `드래그 ${d.from} → ${d.to} (${Math.round(ax)},${Math.round(ay)} → ${Math.round(bx)},${Math.round(by)})${d.release ? " 놓음" : " — 누른 채 캡처"}`;
+}
+
+/** 요소 박스 안의 점 (x · y = 박스 %) → 화면 px. 요소가 없으면 null */
+async function pointIn(page, t) {
+  const el = await page.$(t.sel);
+  if (!el) return null;
+  const box = await el.boundingBox();
+  await el.dispose();
+  if (!box) return null;
+  return { x: box.x + (box.width * (t.x ?? 50)) / 100, y: box.y + (box.height * (t.y ?? 50)) / 100 };
 }
 
 /** 아웃게임 캡처 시점 확인: store.screen · run.phase · 모달 · ready 선택자 */
@@ -740,7 +792,7 @@ function printScenario(sc, prep, r) {
     console.log(`  내부 스크롤: ${s.name} ${s.scrollHeight}/${s.clientHeight} (+${s.scrollHeight - s.clientHeight}px)${s.isLog ? " — 로그(허용)" : ""}`);
   }
   if ((m.clipped || []).length) console.log(`  잘린 글자: ${m.clipped.join(" · ")}`);
-  if ((m.overlaps || []).length) console.log(`  HUD 겹침: ${m.overlaps.join(" · ")}`);
+  if ((m.overlaps || []).length) console.log(`  겹침 (HUD · 레슨 경기장): ${m.overlaps.join(" · ")}`);
   console.log(`  캡처 시점 상태: ${r.stateCheck}`);
   for (const n of r.notes) console.log(`  - ${n}`);
   console.log(`  콘솔 에러: ${r.errors.length ? r.errors.length + "건" : "없음"}`);

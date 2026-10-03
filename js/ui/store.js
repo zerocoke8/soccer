@@ -78,9 +78,8 @@ export const store = {
   },
   // 레슨 화면 (phase lesson · reward 배경, LESSON_PROTO_PLAN §6.2). 메모리만 — 레슨 상태 자체는 store.run.lesson (호출마다 저장)
   lessonUi: {
-    selectedUid: null,  // 고른 손패 카드 uid
-    taps: [],           // 고른 대상 선수 id (지명 1 · 짝 2 · 울리카 파트너 1)
-    restPick: false,    // [쉬기] 를 눌러 쉴 선수를 고르는 중
+    aim: null,          // 조준 모드 (카드 클릭 · Enter — §14.16 대체 조작) { uid, idx: 키보드 후보 번호(-1 = 없음), at: 확정 점 {x,y} | null, playerId | null }. 다시 그려도 남는다
+    drag: null,         // 끄는 중 (메모리만) { kind: 'card', uid, at, playerId, over } | { kind: 'tok', id, from: 'field'|'bench', over }
     shownSeq: 0,        // 연출을 마지막으로 보여 준 lesson.seq (새로고침 뒤에는 다시 재생하지 않는다)
     busy: false,        // 연출 재생 중 (입력 무시)
     timer: null,        // 연출 타이머 (setTimeout id; app.js render() 가 지운다)
@@ -172,9 +171,8 @@ export function resetLessonUi() {
   if (ui.timer) { try { clearTimeout(ui.timer); } catch (_) { /* ignore */ } }
   ui.timer = null;
   ui.busy = false;
-  ui.selectedUid = null;
-  ui.taps = [];
-  ui.restPick = false;
+  ui.aim = null;
+  ui.drag = null;
   ui.shownSeq = 0;
   ui.gen += 1;
 }

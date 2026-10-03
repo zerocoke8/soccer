@@ -132,7 +132,8 @@ function withHandCard(state, cardId, at = 0) {
  * rng 상태를 바꿔 가며 실패 + 부상이 나오고 레슨이 계속되는 첫 경우. 걸어서는 감독 AI 가 체력을 아껴 부상이 거의 없다.
  */
 function injuredLessonState(data, runSeed) {
-  const found = walkLesson(data, { seed: runSeed, until: (s) => playingLesson(s) && s.lesson.turn >= 2 && lessonHand(data, s).some((c) => RANGE.includes(c.targetKind) && c.playable) });
+  // 마지막 턴은 빼고 (구역 방식: 카드를 내 남은 사용이 0 이면 턴이 끝나 마지막 턴이면 레슨이 끝난다)
+  const found = walkLesson(data, { seed: runSeed, until: (s) => playingLesson(s) && s.lesson.turn >= 2 && s.lesson.turn < s.lesson.turns && lessonHand(data, s).some((c) => RANGE.includes(c.targetKind) && c.playable) });
   if (!found) return null;
   const base = found.state;
   const card = lessonHand(data, base).find((c) => RANGE.includes(c.targetKind) && c.playable);
@@ -167,6 +168,43 @@ function policyLessonState(data, runSeed, policy) {
   const hasBuff = (s) => lessonRun.getLessonView(s, data).chips.some((c) => c.policy && (Number(s.lesson.buffs[c.key]) || 0) > 0);
   return walkLesson(data, { seed: runSeed, policy, until: (s) => playingLesson(s) && s.lesson.turn >= 3 && hasBuff(s) })
     || walkLesson(data, { seed: runSeed, policy, until: (s) => playingLesson(s) && s.lesson.turn === 3 });
+}
+
+// ---- 구역 방식 조준 · 끌기 시나리오 도우미 (ZU2) ----
+const FIELD = ".lesson-screen .m-field";
+/** 후보 점 중 대상이 가장 많은 점 (같으면 앞 — 구역 중심 → 선수 → 가운데 점 순서) */
+const mostTargets = (list) => list.reduce((best, c) => (!best || c.ids.length > best.ids.length ? c : best), null);
+
+/**
+ * 레슨 중(기본 2턴째 이후) 손패 첫 장을 cardId 로 바꾼 상태 + 그 카드의 후보 점 (info: { uid, cardId, at, ids }).
+ * choose(list, state) 로 후보 점을 고른다 (기본 = 첫 후보).
+ */
+function injectCard(name, data, runSeed, cardId, { until, choose } = {}) {
+  const b = walkOrThrow(name, data, { seed: runSeed, until: until || ((s) => playingLesson(s) && s.lesson.turn >= 2) });
+  const uid = withHandCard(b.runState, cardId, 0);
+  const list = lessonRun.dropCandidates(b.runState, data, { uid });
+  const cd = choose ? choose(list, b.runState) : list[0];
+  return { ...b, info: { uid, cardId, at: cd?.at ? { x: cd.at.x, y: cd.at.y } : null, ids: cd?.ids || [] }, summary: `${b.summary} (손패 첫 장 = ${cardId} 주입)` };
+}
+
+/** 경기장에서 구역 바닥 · 선수와 먼 빈 자리 (아래 터치라인 가운데) */
+function emptySpot() {
+  return { x: 50, y: 93 };
+}
+
+/** 경기장 선수 중 체력 최저 (같으면 슬롯 순서) */
+function tiredest(data, state) {
+  const v = lessonRun.getLessonView(state, data);
+  return v.players.filter((p) => v.positions[p.id]).sort((a, b) => a.stamina - b.stamina)[0].id;
+}
+
+/** 이번 턴 흩어진 결과를 바꾼 레슨 (zones 주입 — 위치는 zones 에서 계산되므로 엔진 뷰가 그대로 따라온다). zones = 슬롯 순서 구역 7개 */
+function crowdState(name, data, runSeed, zoneList) {
+  const b = walkOrThrow(name, data, { seed: runSeed, until: (s) => playingLesson(s) && s.lesson.turn >= 2 && !s.lesson.out.length });
+  const st = b.runState;
+  st.lesson.bench = [];
+  st.lesson.zones = Object.fromEntries(st.players.map((p, i) => [p.id, zoneList[i]]));
+  return { ...b, summary: `${b.summary} (구역 주입: ${zoneList.join(" · ")})` };
 }
 
 // 아웃게임 시나리오 모양은 tools/scenarios.mjs 머리말 (og_*). 진입 = 시작 화면 [이어하기] (레슨 런 저장본)
@@ -244,38 +282,222 @@ export const LESSON_OG_SCENARIOS = [
     ready: ".lesson-screen .ls-hand .card-face",
     expect: { screen: "run", phase: "lesson", modal: false },
   },
+  // ---- 구역 방식 조준 · 끌기 · 벤치 (§14.16, ZU2). 경기장 점 = .m-field 박스 % = 엔진 필드 % ----
   {
-    // 지명 카드(개인 지도)를 고른 상태: 출전 선수 초록 · 안내 "대상 선수를 누르세요 (0/1)"
-    name: "og_lesson_pick",
-    title: "레슨 — 지명 카드를 고름: 고를 수 있는 선수 초록 · 안내 (0/1)",
+    // 단일 카드(개인 지도)를 눌러 조준 모드: 고를 수 있는 선수 초록 테 · 구역 라벨에 키 1~5 · 안내
+    name: "og_lesson_aim_pick",
+    title: "레슨 — 단일 카드 조준 모드 (클릭): 후보 선수 초록 · 키 1~5",
     outgame: true,
-    build: (data, { runSeed }) => walkOrThrow("og_lesson_pick", data, { seed: runSeed, until: (s) => playingLesson(s) && lessonHand(data, s).some((c) => c.cardId === "cd_coaching" && c.playable) }),
-    steps: [{ click: '.ls-hand .card-face[data-card="cd_coaching"]' }],
-    ready: ".lesson-screen .tok.pickable",
+    build: (data, { runSeed }) => injectCard("og_lesson_aim_pick", data, runSeed, "cd_coaching"),
+    steps: (prepared) => [{ click: `.ls-hand .card-face[data-uid="${prepared.info.uid}"]` }],
+    ready: ".lesson-screen.aiming .tok.cand",
     expect: { screen: "run", phase: "lesson", modal: false },
   },
   {
-    // 지명 대상까지 고른 상태: 말풍선 "+N" · 점수 막대 미리보기 · [내기] 켜짐
+    // 단일 카드 조준 + 마우스를 선수 위에: 십자 · 대상 흰 고리 · 이름표 자리에 "+N" · 점수 막대 미리보기 · [내기]
+    name: "og_lesson_aim_single",
+    title: "레슨 — 단일 카드 조준 hover: 십자 · +N 말풍선 · 점수 미리보기",
+    outgame: true,
+    build: (data, { runSeed }) => injectCard("og_lesson_aim_single", data, runSeed, "cd_coaching"),
+    steps: (prepared) => [{ click: `.ls-hand .card-face[data-uid="${prepared.info.uid}"]` }, { hoverAt: { sel: FIELD, ...prepared.info.at } }],
+    ready: ".lesson-screen .aim-cross.on",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 큰 원 카드 조준 hover: 대상이 가장 많은 후보 점 (두 구역 사이) — 원 · 대상 말풍선 · 꼬리표 "n명 · +N"
     name: "og_lesson_aim",
-    title: "레슨 — 지명 카드 + 대상(MF1) 고름: 말풍선 +N · 점수 미리보기 · [내기]",
+    title: "레슨 — 큰 원 조준 hover: 원 안 선수 강조 · 말풍선 · 꼬리표",
     outgame: true,
-    build: (data, { runSeed }) => walkOrThrow("og_lesson_aim", data, { seed: runSeed, until: (s) => playingLesson(s) && lessonHand(data, s).some((c) => c.cardId === "cd_coaching" && c.playable) }),
-    steps: [{ click: '.ls-hand .card-face[data-card="cd_coaching"]' }, { click: '.tok[data-id="p4"] .tok-face' }],
-    ready: ".lesson-screen .tok.picked.has-bubble",
+    build: (data, { runSeed }) => injectCard("og_lesson_aim", data, runSeed, "cd_attack_build", { choose: mostTargets }),
+    steps: (prepared) => [{ click: `.ls-hand .card-face[data-uid="${prepared.info.uid}"]` }, { hoverAt: { sel: FIELD, ...prepared.info.at } }],
+    ready: ".lesson-screen .aim-circle.on.ok",
     expect: { screen: "run", phase: "lesson", modal: false },
   },
   {
-    // 짝 카드(원투 패스 — 손패 첫 장을 바꿔 넣음)에 1명만 고른 상태: .tok.picked 1 · 안내 (1/2)
-    name: "og_lesson_pair",
-    title: "레슨 — 짝 카드 탭 1/2: 고른 1명 금색 · 나머지 초록",
+    // 작은 원(원투 패스) 조준: 같은 구역 두 선수 사이 → 2명
+    name: "og_lesson_small",
+    title: "레슨 — 작은 원 조준: 두 선수 사이 (2명)",
+    outgame: true,
+    build: (data, { runSeed }) => injectCard("og_lesson_small", data, runSeed, "cd_one_two", { choose: (list) => list.find((c) => c.kind === "between" && c.ids.length === 2) || mostTargets(list) }),
+    steps: (prepared) => [{ click: `.ls-hand .card-face[data-uid="${prepared.info.uid}"]` }, { hoverAt: { sel: FIELD, ...prepared.info.at } }],
+    ready: ".lesson-screen .aim-circle.on",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 키보드 대체 조작: 중간 원 카드 클릭 → → 두 번 (dropCandidates 후보 2번) — 원 · 안내 "후보 2/n · …"
+    name: "og_lesson_keys",
+    title: "레슨 — 키보드 조준: 카드 클릭 → 오른쪽 화살표 ×2 (후보 2번)",
+    outgame: true,
+    build: (data, { runSeed }) => injectCard("og_lesson_keys", data, runSeed, "cd_mf_drill"),
+    steps: (prepared) => [{ click: `.ls-hand .card-face[data-uid="${prepared.info.uid}"]` }, { hoverAt: { sel: ".ls-dock .ls-info", x: 50, y: 50 } }, { key: "ArrowRight", times: 2 }],
+    ready: ".lesson-screen .ls-cand",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 끄는 중 (누른 채): 중간 원 카드를 구역 가운데로 — 유령 대신 원 · 대상 강조 · dock 합계
+    name: "og_lesson_drag",
+    title: "레슨 — 카드 끄는 중 (중간 원 → 구역 가운데, 누른 채)",
+    outgame: true,
+    build: (data, { runSeed }) => injectCard("og_lesson_drag", data, runSeed, "cd_mf_drill", { choose: mostTargets }),
+    steps: (prepared) => [{ drag: { from: `.ls-hand .card-face[data-uid="${prepared.info.uid}"]`, to: FIELD, at: prepared.info.at, steps: 16 } }],
+    ready: ".lesson-screen.dragging .aim-circle.on",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 끄는 중, 아직 손패 위 (경기장 밖): 카드 유령이 포인터를 따른다
+    name: "og_lesson_drag_ghost",
+    title: "레슨 — 카드 끄는 중 (경기장 밖: 카드 유령)",
+    outgame: true,
+    build: (data, { runSeed }) => injectCard("og_lesson_drag_ghost", data, runSeed, "cd_mf_drill"),
+    steps: (prepared) => [{ drag: { from: `.ls-hand .card-face[data-uid="${prepared.info.uid}"]`, to: ".ls-dock .ls-info", at: { x: 20, y: 30 }, steps: 10 } }],
+    ready: ".lesson-screen .drag-ghost.on",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 끄는 중: 원 안에 아무도 없는 자리 → 빨간 점선 · "원 안에 선수가 없습니다"
+    name: "og_lesson_drag_bad",
+    title: "레슨 — 카드 끄는 중 (빈 자리: 빨간 원)",
+    outgame: true,
+    build: (data, { runSeed }) => injectCard("og_lesson_drag_bad", data, runSeed, "cd_mf_drill", { choose: () => ({ at: emptySpot(data) }) }),
+    steps: (prepared) => [{ drag: { from: `.ls-hand .card-face[data-uid="${prepared.info.uid}"]`, to: FIELD, at: prepared.info.at, steps: 14 } }],
+    ready: ".lesson-screen .aim-circle.on.bad",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 끄는 중: 단일 카드를 선수 위로 — 십자 · 대상 1명
+    name: "og_lesson_drag_single",
+    title: "레슨 — 단일 카드 끄는 중 (선수 위)",
+    outgame: true,
+    build: (data, { runSeed }) => injectCard("og_lesson_drag_single", data, runSeed, "cd_coaching", { choose: (list) => list[list.length - 1] }),
+    steps: (prepared) => [{ drag: { from: `.ls-hand .card-face[data-uid="${prepared.info.uid}"]`, to: FIELD, at: prepared.info.at, steps: 14 } }],
+    ready: ".lesson-screen .aim-cross.on",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 끄는 중: 회복 카드(쿨다운)를 명단 줄 위로 — 그 줄 · 토큰 청록, 안내 "체력 +20"
+    name: "og_lesson_drag_heal",
+    title: "레슨 — 회복 카드 끄는 중 (명단 줄 위)",
     outgame: true,
     build: (data, { runSeed }) => {
-      const b = walkOrThrow("og_lesson_pair", data, { seed: runSeed, until: (s) => s.phase === "lesson" });
-      withHandCard(b.runState, "cd_one_two", 0);
-      return { ...b, summary: `${b.summary} (손패 첫 장 = 원투 패스 주입)` };
+      const b = injectCard("og_lesson_drag_heal", data, runSeed, "cd_cooldown", { until: (s) => playingLesson(s) && s.players.filter((p) => p.stamina < 60).length >= 2 });
+      const low = b.runState.players.slice().sort((x, y) => x.stamina - y.stamina)[0];
+      return { ...b, info: { ...b.info, pid: low.id } };
     },
-    steps: [{ click: '.ls-hand .card-face[data-card="cd_one_two"]' }, { click: '.tok[data-id="p4"] .tok-face' }],
-    ready: ".lesson-screen .tok.picked",
+    steps: (prepared) => [{ drag: { from: `.ls-hand .card-face[data-uid="${prepared.info.uid}"]`, to: `.ls-row[data-pid="${prepared.info.pid}"]`, steps: 14 } }],
+    ready: ".lesson-screen .ls-row.heal-target",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 토큰 끄는 중: 지친 선수를 벤치 칸 위로 — 벤치 칸 초록 · 토큰 유령
+    name: "og_lesson_drag_bench",
+    title: "레슨 — 지친 선수 토큰을 벤치 칸으로 끄는 중",
+    outgame: true,
+    build: (data, { runSeed }) => {
+      const b = walkOrThrow("og_lesson_drag_bench", data, { seed: runSeed, until: (s) => playingLesson(s) && s.players.filter((p) => p.stamina < 40).length >= 2 });
+      return { ...b, info: { pid: tiredest(data, b.runState) } };
+    },
+    steps: (prepared) => [{ drag: { from: `.lesson-screen .tok[data-id="${prepared.info.pid}"] .tok-face`, to: ".ls-bench", steps: 14 } }],
+    ready: ".lesson-screen .ls-bench.drop-ok",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 끌어다 놓기 (놓음): 중간 원을 구역 가운데에 놓으면 그대로 낸다 → 제자리 훈련 · +N 팝 (실제 포인터 끌기 → playCard)
+    name: "og_lesson_drop",
+    title: "레슨 — 카드를 끌어다 놓음 → 내기 · +N 팝",
+    outgame: true,
+    build: (data, { runSeed }) => injectCard("og_lesson_drop", data, runSeed, "cd_mf_drill", { choose: mostTargets }),
+    steps: (prepared) => [{ freeze: false }, { drag: { from: `.ls-hand .card-face[data-uid="${prepared.info.uid}"]`, to: FIELD, at: prepared.info.at, steps: 14, release: true, waitMs: 420 } }, { freeze: true }],
+    ready: ".lesson-screen .ls-pop.good",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 토큰을 벤치 칸에 끌어다 놓음 → benchPlayer (벤치 칸에 그 선수, 남은 선수 대형 다시)
+    name: "og_lesson_drop_bench",
+    title: "레슨 — 지친 선수를 벤치 칸에 끌어다 놓음",
+    outgame: true,
+    build: (data, { runSeed }) => {
+      const b = walkOrThrow("og_lesson_drop_bench", data, { seed: runSeed, until: (s) => playingLesson(s) && s.players.filter((p) => p.stamina < 40).length >= 2 });
+      return { ...b, info: { pid: tiredest(data, b.runState) } };
+    },
+    steps: (prepared) => [{ drag: { from: `.lesson-screen .tok[data-id="${prepared.info.pid}"] .tok-face`, to: ".ls-bench", steps: 14, release: true, waitMs: 500 } }],
+    ready: ".lesson-screen .ls-bench-slot.filled",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 명단 [벤치] 두 번: 지친 선수 2명이 벤치 칸에 (턴 끝 +15), 칸이 꽉 참
+    name: "og_lesson_bench",
+    title: "레슨 — 벤치 2명 (명단 [벤치]): 벤치 칸 · 남은 대형",
+    outgame: true,
+    build: (data, { runSeed }) => {
+      const b = walkOrThrow("og_lesson_bench", data, { seed: runSeed, until: (s) => playingLesson(s) && s.players.filter((p) => p.stamina < 40).length >= 2 });
+      const v = lessonRun.getLessonView(b.runState, data);
+      const ids = v.players.filter((p) => v.positions[p.id]).sort((x, y) => x.stamina - y.stamina).slice(0, 2).map((p) => p.id);
+      return { ...b, info: { ids } };
+    },
+    steps: (prepared) => prepared.info.ids.map((id) => ({ click: `.ls-row[data-pid="${id}"] .ls-bench-btn`, waitMs: 400 })),
+    ready: ".lesson-screen .ls-bench.full",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // [턴 끝] 연출 중간: 기본 훈련 팝 뒤 새 턴 흩어지기 — 토큰이 새 자리로 뛰어가는 중 (타이머를 잠깐 풀었다가 다시 고정)
+    name: "og_lesson_scatter",
+    title: "레슨 — 턴 끝 흩어지기 연출 중 (토큰이 새 자리로)",
+    outgame: true,
+    build: (data, { runSeed }) => walkOrThrow("og_lesson_scatter", data, { seed: runSeed, until: (s) => playingLesson(s) && s.lesson.turn === 2 }),
+    steps: [{ freeze: false }, { click: ".ls-btns .ls-end", waitMs: 0 }, { wait: 840 }, { freeze: true }],
+    ready: ".lesson-screen .m-field.scatter",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // [턴 끝] 직후: 기본 훈련 "+N" 회색 팝이 경기장 선수 전원에게 동시에 · 턴 배너 (흩어지기 전)
+    name: "og_lesson_base",
+    title: "레슨 — 턴 끝 기본 훈련 팝 (전원 동시) · 턴 배너",
+    outgame: true,
+    build: (data, { runSeed }) => walkOrThrow("og_lesson_base", data, { seed: runSeed, until: (s) => playingLesson(s) && s.lesson.turn === 2 }),
+    steps: [{ freeze: false }, { click: ".ls-btns .ls-end", waitMs: 0 }, { wait: 330 }, { freeze: true }],
+    ready: ".lesson-screen .ls-pop.base",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 카드를 낸 직후 (중간 원): 대상이 제자리에서 훈련 동작 (구역 색 고리) → "+N" 팝
+    name: "og_lesson_play",
+    title: "레슨 — 중간 원 카드를 낸 직후: 제자리 훈련 동작 · +N 팝",
+    outgame: true,
+    build: (data, { runSeed }) => injectCard("og_lesson_play", data, runSeed, "cd_mf_drill", { choose: mostTargets }),
+    steps: (prepared) => [{ click: `.ls-hand .card-face[data-uid="${prepared.info.uid}"]` }, { freeze: false }, { clickAt: { sel: FIELD, ...prepared.info.at }, waitMs: 0 }, { wait: 420 }, { freeze: true }],
+    ready: ".lesson-screen .ls-pop.good",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 한 구역에 6명 (위 줄 패스 구역) + 1명: 짧은 이름표 · 바깥쪽 자리 · 라벨 겹침 없음 (zones 주입)
+    name: "og_lesson_crowd",
+    title: "레슨 — 한 구역에 6명 (패스) + 1명: 대형 · 짧은 이름표",
+    outgame: true,
+    build: (data, { runSeed }) => crowdState("og_lesson_crowd", data, runSeed, ["pass", "pass", "pass", "pass", "pass", "pass", "physical"]),
+    ready: ".lesson-screen .tok.short",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 아래 줄 드리블 구역에 7명 전원: 맨 아래 이름표 · 라벨 칩이 필드 안
+    name: "og_lesson_crowd7",
+    title: "레슨 — 한 구역에 7명 (드리블, 아래 줄)",
+    outgame: true,
+    build: (data, { runSeed }) => crowdState("og_lesson_crowd7", data, runSeed, ["dribble", "dribble", "dribble", "dribble", "dribble", "dribble", "dribble"]),
+    ready: ".lesson-screen .tok.short",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 6명 대형에 중간 원 조준: 6명 모두 이름표 자리에 "+N"
+    name: "og_lesson_crowd_aim",
+    title: "레슨 — 6명 대형 + 중간 원 조준 (구역 가운데)",
+    outgame: true,
+    build: (data, { runSeed }) => {
+      const b = crowdState("og_lesson_crowd_aim", data, runSeed, ["shoot", "shoot", "shoot", "shoot", "shoot", "shoot", "defense"]);
+      const uid = withHandCard(b.runState, "cd_mf_drill", 0);
+      return { ...b, info: { uid, at: data.lesson.zones.centers.shoot } };
+    },
+    steps: (prepared) => [{ click: `.ls-hand .card-face[data-uid="${prepared.info.uid}"]` }, { hoverAt: { sel: FIELD, ...prepared.info.at } }],
+    ready: ".lesson-screen .aim-circle.on.ok",
     expect: { screen: "run", phase: "lesson", modal: false },
   },
   {
@@ -302,25 +524,15 @@ export const LESSON_OG_SCENARIOS = [
     expect: { screen: "run", phase: "lesson", modal: false },
   },
   {
-    // [쉬기] 를 누른 상태: 7명 초록 · 말풍선 +20 · 안내
-    name: "og_lesson_rest",
-    title: "레슨 — [쉬기] 누름: 쉴 선수 고르기 (7명 초록 · +20)",
-    outgame: true,
-    build: (data, { runSeed }) => walkOrThrow("og_lesson_rest", data, { seed: runSeed, until: (s) => playingLesson(s) && s.players.filter((p) => p.stamina < 40).length >= 2 }),
-    steps: [{ click: ".ls-btns .ls-rest" }],
-    ready: ".lesson-screen .tok.pickable",
-    expect: { screen: "run", phase: "lesson", modal: false },
-  },
-  {
     name: "og_lesson_injury",
-    title: "레슨 — 부상 직후: 빨간 '부상' 토큰 · 명단 결장 · 고유 카드 제외",
+    title: "레슨 — 부상 직후: 경기장에서 빠짐 · 명단 '부상' · 고유 카드 제외",
     outgame: true,
     build: (data, { runSeed }) => {
       const found = injuredLessonState(data, runSeed);
       if (!found) throw new Error("[og_lesson_injury] 부상 상태를 찾지 못했습니다");
       return { runState: found.state, steps: found.steps, preferred: true, summary: `${describeLessonRun(found.state)} (체력 30 으로 낮춰 범위 카드 — 부상 찾기)` };
     },
-    ready: ".lesson-screen .tok.injured",
+    ready: ".lesson-screen .ls-row.out",
     expect: { screen: "run", phase: "lesson", modal: false },
   },
   {
@@ -341,9 +553,9 @@ export const LESSON_OG_SCENARIOS = [
     expect: { screen: "run", phase: "lesson", modal: false },
   },
   {
-    // 팀형 · 분위기 > 0 에서 범위 카드 1장 = 턴 끝: 분위기 틱 금색 "+N" 팝 · 가운데 "턴 n — 분위기 +N" (연출 1.25초 지점)
+    // 팀형 · 분위기 > 0 에서 전체 카드 1장 = 턴 끝: 기본 훈련(분위기 몫 포함) "+N" 팝 · 가운데 "턴 n — 기본 훈련 +N" (연출 1.25초 지점)
     name: "og_lesson_turnend",
-    title: "레슨 — 턴 끝 연출: 분위기 틱 +N · 턴 배너",
+    title: "레슨 — 턴 끝 연출: 기본 훈련 +N (분위기 몫 포함) · 턴 배너",
     outgame: true,
     build: (data, { runSeed }) => {
       const rangeCard = (s) => lessonHand(data, s).find((c) => RANGE.includes(c.targetKind) && c.playable);
@@ -355,7 +567,7 @@ export const LESSON_OG_SCENARIOS = [
       { click: `.ls-hand .card-face[data-card="${prepared.info.cardId}"]` }, { click: ".ls-btns .ls-play", waitMs: 0 },
       { freeze: false }, { wait: 1250 }, { freeze: true },
     ],
-    ready: ".lesson-screen .ls-pop.mood",
+    ready: ".lesson-screen .ls-pop.base",
     expect: { screen: "run", phase: "lesson", modal: false },
   },
   {
