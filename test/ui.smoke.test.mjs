@@ -1445,8 +1445,8 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
       } else if (phase === "lesson") {
         // 레슨 화면 전용 호출 (저장만 — 실제 화면은 연출 뒤 render). 레슨이 끝나면 직접 render
         const a = M.recommendCard(st, data);
-        const r = a.kind === "play" ? S.actions.lessonCall("playCard", { uid: a.uid, taps: a.taps })
-          : a.kind === "rest" ? S.actions.lessonCall("lessonRest", { playerId: a.playerId })
+        const r = a.kind === "play" ? S.actions.lessonCall("playCard", { uid: a.uid, at: a.at, playerId: a.playerId })
+          : a.kind === "bench" ? S.actions.lessonCall("benchPlayer", { playerId: a.playerId, on: true })
             : S.actions.lessonCall("endLessonTurn");
         assert.ok(r !== undefined, `레슨 호출 ${a.kind}`);
         if (S.store.run.phase !== "lesson") S.render();

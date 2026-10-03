@@ -1,38 +1,39 @@
 /**
- * cards.js — 카드 레슨 카드 정의 (LESSON_PROTO_PLAN §4.3 · §4.4 · §5.3.1 3~5번).
+ * cards.js — 카드 레슨 카드 정의 (LESSON_PROTO_PLAN §4.3 · §14.6 · §14.8 · §14.9).
  *
- * 데이터: data.cards = data/cards.json ({ version, cards: [...] }), data.lesson = data/lesson.json, data.policies = data/policies.json.
+ * 데이터: data.cards = data/cards.json ({ version: 2, cards: [...] }), data.lesson = data/lesson.json, data.policies = data/policies.json.
  * 이 모듈이 하는 일:
  *   - 카드 정의 찾기 (`indexCards` · `getCard`)
  *   - 해석 (`resolveCardDef`): base → (코치이고 유대 ≥ upgradeAt) bond80 → (plus) plus. 매번 새로 계산하고 상태에 저장하지 않는다.
- *   - 고유 카드 모드 (`cardMode`), 탭 후보 · 대상 (`tapCandidates` · `targetsFor`), 죽은 카드 (`deadReason`)
- *   - 비용 (`costBase` · `staminaCost`): 강화 전 기본 카드의 1인 위력 × 비용률 × 압박 배율
+ *   - 대상 (`targetsFor`): 놓은 점(at, 필드 %) 또는 playerId → 선수 id. 구역 기하는 zones.js. 죽은 카드 (`deadReason`)
+ *   - 비용 (`costBase` · `staminaCost`): 강화 전 기본 카드의 1인 위력 × 비용률 × 압박 배율 (1인당 — 인원과 무관)
  *   - 주 스탯 쌍 (`mainStatsOf`), 데이터 검증 (`validateCardsData`)
  *
+ * 대상 종류 (§14.6): single(+onlyZones) · circle(+size) · all · owner · none. power 가 null 인 single = 회복 단일 (결장 · 벤치 포함 7명).
+ * "경기장 선수" = 레슨 중 이번 턴 구역(lesson.zones)에 서 있고 벤치 · 결장이 아닌 선수 (state.players 순서 = 슬롯 순서).
+ *
  * 순수 로직: DOM/fetch/Date/Math.random/localStorage 를 쓰지 않고, 입력을 바꾸지 않으며, rng 를 쓰지 않는다.
- * "출전 선수" = 레슨 중이면 state.lesson.out 에 없는 선수, 레슨 밖이면 injuredTurns ≤ 0 인 선수. 순서는 state.players 순서(슬롯 순서).
  */
-import { STATS, POSITIONS } from "./training.js";
+import { STATS } from "./training.js";
+import * as zones from "./zones.js";
 
 // ---------------------------------------------------------------------------
-// 닫힌 목록 (§4.3)
+// 닫힌 목록 (§4.3 · §14.8)
 // ---------------------------------------------------------------------------
 export const POLICY_FAMILIES = ["ace", "team", "counter", "press", "poss"];
 export const CARD_FAMILIES = ["common", ...POLICY_FAMILIES, "unique", "coach", "prep"];
-export const TARGET_KINDS = ["all", "line", "attack", "defense", "single", "pair", "owner", "tap", "none"];
-/** 위력이 카드 합계인 범위 카드 */
-export const RANGE_KINDS = ["all", "line", "attack", "defense"];
-/** 위력이 1인당인 카드 */
-export const PER_PLAYER_KINDS = ["single", "pair", "owner"];
+export const TARGET_KINDS = ["single", "circle", "all", "owner", "none"];
+export const CIRCLE_SIZES = ["small", "medium", "large"];
 export const PREP_FOR = ["dribble", "pass", "midrange"];
 export const EFFECT_WHEN = ["always", "success", "consume"];
-export const HEAL_TO = ["tap", "all", "defense", "mostTired", "owner"];
+export const HEAL_TO = ["target", "all", "defense", "mostTired", "owner"];
 /** 강화판 · 유대 80에서 덮어쓸 수 있는 필드 */
-export const PLUS_FIELDS = ["power", "effects", "mods", "support"];
+export const PLUS_FIELDS = ["power", "effects", "mods"];
 export const BOND80_FIELDS = ["power", "effects", "mods", "desc", "descPlus"];
 
 const isNum = (v) => typeof v === "number" && Number.isFinite(v);
 const isInt = (v) => Number.isInteger(v);
+
 
 /** mods 키 → 값 검사 */
 export const MOD_KEYS = {
@@ -181,8 +182,9 @@ export function resolveCardDef(data, card, { plus = false, bond = 0 } = {}) {
   return d;
 }
 
+
 // ---------------------------------------------------------------------------
-// 포지션 · 출전
+// 포지션 · 출전 · 경기장
 // ---------------------------------------------------------------------------
 
 /**
@@ -211,9 +213,37 @@ export function isOut(state, player) {
   return (Number(player.injuredTurns) || 0) > 0;
 }
 
-/** 출전 선수 (state.players 순서) */
+/** 출전 선수 = 결장이 아닌 선수 (벤치 포함, state.players 순서) */
 export function activePlayers(state) {
   return (state.players || []).filter((p) => !isOut(state, p));
+}
+
+/** 이번 턴 벤치에 있는가 */
+export function isBenched(state, id) {
+  return !!(state.lesson && Array.isArray(state.lesson.bench) && state.lesson.bench.includes(id));
+}
+
+/** 경기장 선수 (이번 턴 구역에 서 있고 벤치 · 결장이 아닌 선수, state.players 순서) */
+export function fieldPlayers(state) {
+  const L = state.lesson;
+  if (!L || !L.zones) return [];
+  return (state.players || []).filter((p) => L.zones[p.id] && !isBenched(state, p.id) && !isOut(state, p));
+}
+
+/** 경기장 선수 위치 { id: {x, y} } (zones.zonePositions — 결장은 뺀다) */
+export function fieldPositions(state, data) {
+  const L = state.lesson;
+  if (!L || !L.zones) return {};
+  const ids = new Set(fieldPlayers(state).map((p) => p.id));
+  const all = zones.zonePositions(L, state.players.filter((p) => ids.has(p.id)), zoneCfg(data));
+  return all;
+}
+
+/** data.lesson.zones */
+export function zoneCfg(data) {
+  const cfg = data && data.lesson && data.lesson.zones;
+  if (!cfg) throw new Error("data.lesson.zones 가 없습니다 (data/lesson.json)");
+  return cfg;
 }
 
 /** 고유 카드 주인 (명단에 없으면 null) */
@@ -222,175 +252,149 @@ export function ownerOf(state, def) {
   return (state.players || []).find((p) => p.charId === def.ownerCharId) || null;
 }
 
-/** 짝 카드인가 (pair 이거나 owner + partner) — nextPairPct · L10 짝 팀워크 */
-export function isPairCard(def) {
-  return def.target.kind === "pair" || (def.target.kind === "owner" && !!def.target.partner);
+/** 회복 단일 카드인가 (single + power null) — 결장 · 벤치 포함 7명 중 1명에게 회복만 */
+export function isHealSingle(def) {
+  return !!def && def.target && def.target.kind === "single" && !isNum(def.power);
+}
+
+/** 작은 원 카드인가 (nextPairPct · 예전 "짝 카드") */
+export function isSmallCircle(def) {
+  return !!def && def.target && def.target.kind === "circle" && def.target.size === "small";
+}
+
+/** 원 카드 반지름 (u). 원이 아니면 null */
+export function circleRadius(def, data) {
+  if (!def || def.target.kind !== "circle") return null;
+  const r = zoneCfg(data).radius[def.target.size];
+  if (!isNum(r)) throw new Error(`알 수 없는 원 크기 '${def.target.size}'`);
+  return r;
 }
 
 /**
- * 카드 모드. 고유 카드만 "power" | "support", 그 밖은 null.
- * 강화 모드 = stat ∈ mainStatsOf(주인의 지금 position). 주인이 명단에 없거나, 울리카 강화 모드에 파트너 후보가 없으면 지원 모드.
- * @param {object} state
- * @param {object} def resolveCardDef 결과
- * @param {string} stat 레슨 종목
- * @returns {"power"|"support"|null}
+ * 주인이 자기 배치 포지션의 주 스탯 구역에 서 있는가 (고유 카드 ×1.5, §14.10).
+ * @returns {boolean}
  */
-export function cardMode(state, def, stat) {
-  if (def.family !== "unique") return null;
+export function ownerOnMainZone(state, def) {
   const owner = ownerOf(state, def);
-  if (!owner || !mainStatsOf(owner.position).includes(stat)) return "support";
-  if (def.target.partner && !isOut(state, owner)) {
-    const partners = activePlayers(state).filter((p) => p.id !== owner.id);
-    if (partners.length === 0) return "support";
-  }
-  return "power";
-}
-
-/** 지금 계산에 쓸 대상 종류 (지원 모드 고유 카드는 none) */
-export function effectiveKind(def, mode) {
-  return def.family === "unique" && mode === "support" ? "none" : def.target.kind;
-}
-
-function resolveMode(state, def, mode) {
-  if (def.family !== "unique") return null;
-  if (mode === "power" || mode === "support") return mode;
-  return state.lesson && state.lesson.stat ? cardMode(state, def, state.lesson.stat) : "power";
+  const z = owner && state.lesson && state.lesson.zones ? state.lesson.zones[owner.id] : null;
+  return !!z && mainStatsOf(owner.position).includes(z);
 }
 
 /**
- * 탭이 필요한 수와 고를 수 있는 선수.
- * single: 출전 1명 (only 가 있으면 그 포지션만) · pair: 출전 2명 · tap: 1명 (결장 포함) · 울리카 강화 모드: 주인 말고 출전 1명.
- * @param {object} state
- * @param {object} def
- * @param {{ mode?: "power"|"support" }} [opts] 고유 카드 모드 (생략하면 state.lesson.stat 으로 정한다)
- * @returns {{ need: 0|1|2, candidates: string[] }}
+ * 단일 카드의 후보 선수 id. 회복 단일 = 7명 전원 (결장 · 벤치 포함), 그 밖 = 경기장 선수 (onlyZones 가 있으면 그 구역에 선 선수만).
+ * 단일이 아니면 [].
  */
-export function tapCandidates(state, def, { mode } = {}) {
-  const m = resolveMode(state, def, mode);
-  const kind = effectiveKind(def, m);
-  const active = activePlayers(state);
-  switch (kind) {
-    case "single": {
-      const only = def.target.only;
-      return { need: 1, candidates: active.filter((p) => !only || only.includes(p.position)).map((p) => p.id) };
-    }
-    case "pair":
-      return { need: 2, candidates: active.map((p) => p.id) };
-    case "tap":
-      return { need: 1, candidates: (state.players || []).map((p) => p.id) };
-    case "owner": {
-      if (!def.target.partner) return { need: 0, candidates: [] };
-      const owner = ownerOf(state, def);
-      return { need: 1, candidates: active.filter((p) => !owner || p.id !== owner.id).map((p) => p.id) };
-    }
-    default:
-      return { need: 0, candidates: [] };
-  }
+export function singleCandidates(state, def) {
+  if (!def || def.target.kind !== "single") return [];
+  if (isHealSingle(def)) return (state.players || []).map((p) => p.id);
+  const only = def.target.onlyZones;
+  const Z = (state.lesson && state.lesson.zones) || {};
+  return fieldPlayers(state).filter((p) => !only || only.includes(Z[p.id])).map((p) => p.id);
 }
 
 /**
- * 탭 검증. 잘못되면 throw.
+ * 대상 T (§14.6). 잘못된 인자 · 대상 0명이면 throw.
+ *   single: { playerId } 또는 { at } (놓은 점에서 pickR 안 가장 가까운 후보, 회복 단일은 경기장 위 토큰 또는 playerId)
+ *   circle: { at } 필수 — 원 안의 경기장 선수 전원 (슬롯 순서)
+ *   all: 경기장 선수 전원 · owner: [주인] (벤치 · 결장이면 throw) · none: []
+ * 회복 단일은 회복 대상 1명 [id] 를 돌려준다 (상승 대상은 아니다 — lesson.js 가 구분한다).
  * @param {object} state
- * @param {object} def
- * @param {string[]} taps
- * @param {{ mode?: string }} [opts]
- */
-export function validateTaps(state, def, taps = [], opts = {}) {
-  const list = Array.isArray(taps) ? taps : [];
-  const { need, candidates } = tapCandidates(state, def, opts);
-  if (list.length !== need) throw new Error(`'${def.name}' 은(는) 선수 ${need}명을 골라야 합니다 (받은 수: ${list.length})`);
-  if (new Set(list).size !== list.length) throw new Error(`'${def.name}': 같은 선수를 두 번 고를 수 없습니다`);
-  for (const id of list) {
-    if (!candidates.includes(id)) throw new Error(`'${def.name}': 선수 '${id}' 은(는) 고를 수 없습니다`);
-  }
-}
-
-/**
- * 상승 대상 T (출전 선수만, 배치 포지션 기준). tap · none · 지원 모드 = [].
- * 범위 카드는 state.players 순서, single · pair 는 탭 순서, owner 는 [주인, 파트너].
- * 탭이 맞지 않으면 throw (validateTaps).
- * @param {object} state
- * @param {object} def resolveCardDef 결과
- * @param {string[]} [taps]
- * @param {{ mode?: "power"|"support" }} [opts]
+ * @param {object} def resolveCardDef 결과 (원본 정의도 된다)
+ * @param {{ at?: {x:number, y:number}, playerId?: string }} [args]
+ * @param {object} data data.lesson.zones 를 읽는다
  * @returns {string[]} 선수 id
  */
-export function targetsFor(state, def, taps = [], opts = {}) {
-  const m = resolveMode(state, def, opts.mode);
-  validateTaps(state, def, taps, { mode: m });
-  const kind = effectiveKind(def, m);
-  const active = activePlayers(state);
+export function targetsFor(state, def, args = {}, data) {
+  const a = args || {};
+  const kind = def.target.kind;
   switch (kind) {
-    case "all":
-      return active.map((p) => p.id);
-    case "line":
-      return active.filter((p) => p.position === def.target.line).map((p) => p.id);
-    case "attack":
-      return active.filter((p) => p.position === "MF" || p.position === "FW").map((p) => p.id);
-    case "defense":
-      return active.filter((p) => p.position === "GK" || p.position === "DF").map((p) => p.id);
-    case "single":
-    case "pair":
-      return taps.slice();
+    case "none":
+      return [];
+    case "all": {
+      const ids = fieldPlayers(state).map((p) => p.id);
+      if (!ids.length) throw new Error(`'${def.name}': 경기장에 선수가 없습니다`);
+      return ids;
+    }
     case "owner": {
       const owner = ownerOf(state, def);
-      if (!owner || isOut(state, owner)) return [];
-      return def.target.partner ? [owner.id, taps[0]] : [owner.id];
+      if (!owner) throw new Error(`'${def.name}': 주인이 명단에 없습니다`);
+      if (isOut(state, owner)) throw new Error(`'${def.name}': 주인이 결장 중입니다`);
+      if (isBenched(state, owner.id)) throw new Error(`'${def.name}': 주인이 벤치에 있습니다`);
+      if (!fieldPlayers(state).some((p) => p.id === owner.id)) throw new Error(`'${def.name}': 주인이 경기장에 없습니다`);
+      return [owner.id];
+    }
+    case "single": {
+      const cands = singleCandidates(state, def);
+      if (a.playerId != null) {
+        if (!cands.includes(a.playerId)) throw new Error(`'${def.name}': 선수 '${a.playerId}' 은(는) 고를 수 없습니다`);
+        return [a.playerId];
+      }
+      if (!a.at) throw new Error(`'${def.name}': 선수 위에 놓아야 합니다`);
+      const cfg = zoneCfg(data);
+      const at = zones.clampPoint(a.at);
+      const id = zones.nearestWithin(fieldPositions(state, data), at, cfg.pickR, cfg.aspect, cands);
+      if (!id) throw new Error(`'${def.name}': 놓은 자리에 고를 수 있는 선수가 없습니다`);
+      return [id];
+    }
+    case "circle": {
+      if (!a.at) throw new Error(`'${def.name}': 원을 놓을 자리(at)가 필요합니다`);
+      const cfg = zoneCfg(data);
+      const ids = zones.inCircle(fieldPositions(state, data), zones.clampPoint(a.at), circleRadius(def, data), cfg.aspect);
+      if (!ids.length) throw new Error(`'${def.name}': 원 안에 선수가 없습니다`);
+      return ids;
     }
     default:
-      return [];
+      throw new Error(`알 수 없는 대상 종류 '${kind}'`);
   }
 }
 
 /**
- * 죽은 카드 이유 (§5.3.2): 대상 카드인데 지금 대상이 0명이면 문자열, 낼 수 있으면 null.
+ * 지금 낼 수 없는 이유 (§14.3 죽은 카드 · 행동 중 낼 수 없게 된 카드): 대상 후보가 0명이면 문자열, 낼 수 있으면 null.
+ * 원 · 전체 카드는 경기장에 1명이라도 있으면 낼 수 있다. 회복 단일 · 대상 없는 카드는 늘 낼 수 있다.
  * @param {object} state
  * @param {object} def
- * @param {{ mode?: string }} [opts]
  * @returns {string|null}
  */
-export function deadReason(state, def, opts = {}) {
-  const m = resolveMode(state, def, opts.mode);
-  const kind = effectiveKind(def, m);
-  if (kind === "none" || kind === "tap") return null;
-  if (RANGE_KINDS.includes(kind)) return targetsFor(state, def, [], { mode: m }).length === 0 ? "대상 선수가 없습니다" : null;
+export function deadReason(state, def) {
+  const kind = def.target.kind;
+  if (kind === "none" || isHealSingle(def)) return null;
   if (kind === "owner") {
     const owner = ownerOf(state, def);
-    return !owner || isOut(state, owner) ? "주인이 결장 중입니다" : null;
+    if (!owner) return "주인이 명단에 없습니다";
+    if (isOut(state, owner)) return "주인이 결장 중입니다";
+    if (isBenched(state, owner.id)) return "주인이 벤치에 있습니다";
+    return fieldPlayers(state).some((p) => p.id === owner.id) ? null : "주인이 경기장에 없습니다";
   }
-  const { need, candidates } = tapCandidates(state, def, { mode: m });
-  return candidates.length < need ? "고를 수 있는 선수가 없습니다" : null;
+  if (!fieldPlayers(state).length) return "경기장에 선수가 없습니다";
+  if (kind === "single" && !singleCandidates(state, def).length) return "그 구역에 선수가 없습니다";
+  return null;
 }
 
 // ---------------------------------------------------------------------------
-// 비용 (§5.3.1 5번 · D12 · D25)
+// 비용 (§14.7 4번 · D12 · D25)
 // ---------------------------------------------------------------------------
 
 /**
  * 비용 기준 = 강화 전 기본 카드의 1인 위력 (perMood · perPress 몫 포함, 집중 · routine · 강화판 · 유대 80 증가분 제외).
- * 범위 카드: (basePower + perMood × mood + perPress × press) / count. single · pair · owner: basePower. 울리카 파트너: partner.power.
+ * 고유 카드는 주 스탯 구역 배율(mainMult)을 곱한 값 (35 × 1.5 = 52.5).
  * @param {object} def resolveCardDef 결과 (원본 정의도 된다)
- * @param {{ count?: number, mood?: number, press?: number, partner?: boolean }} [opts]
- * @returns {number} 소수 유지. 위력 없는 카드 · 대상 0명은 0
+ * @param {{ mood?: number, press?: number, mainMult?: number }} [opts]
+ * @returns {number} 소수 유지. 위력 없는 카드는 0
  */
-export function costBase(def, { count = 1, mood = 0, press = 0, partner = false } = {}) {
+export function costBase(def, { mood = 0, press = 0, mainMult = 1 } = {}) {
   const basePower = isNum(def.basePower) ? def.basePower : def.power;
   if (!isNum(basePower)) return 0;
   const kind = def.target.kind;
-  if (partner) return def.target.partner ? def.target.partner.power : 0;
-  if (RANGE_KINDS.includes(kind)) {
-    if (!(count > 0)) return 0;
-    const mods = def.baseMods || def.mods || {};
-    return (basePower + (mods.perMood || 0) * mood + (mods.perPress || 0) * press) / count;
-  }
-  if (PER_PLAYER_KINDS.includes(kind)) return basePower;
-  return 0;
+  if (kind === "none") return 0;
+  if (kind === "owner") return basePower * (isNum(mainMult) ? mainMult : 1);
+  const mods = def.baseMods || def.mods || {};
+  return basePower + (mods.perMood || 0) * mood + (mods.perPress || 0) * press;
 }
 
 /**
  * 대상 1인 체력 비용 = round(costBase × costRate × pressCostMult), costZero 면 0.
  * @param {object} def resolveCardDef 결과
- * @param {{ count?: number, mood?: number, press?: number, partner?: boolean, pressCostMult?: number, costZero?: boolean }} [opts]
+ * @param {{ mood?: number, press?: number, mainMult?: number, pressCostMult?: number, costZero?: boolean }} [opts]
  * @returns {number}
  */
 export function staminaCost(def, opts = {}) {
@@ -454,7 +458,7 @@ export function validateCardsData(data) {
   const owners = new Set();
   const coachSupports = new Set();
   const TOP = ["id", "name", "family", "start", "pool", "target", "power", "costRate", "mods", "effects", "exhaust", "plus", "bond80",
-    "ownerCharId", "support", "coach", "prepFor", "desc", "descPlus"];
+    "ownerCharId", "coach", "prepFor", "desc", "descPlus"];
 
   for (const c of list) {
     const at = `카드 '${c && c.id}'`;
@@ -483,17 +487,21 @@ export function validateCardsData(data) {
     if (!t || !TARGET_KINDS.includes(t.kind)) {
       errors.push(`${at}: 알 수 없는 target.kind '${t && t.kind}'`);
     } else {
-      const allowed = { line: ["line"], single: ["only"], owner: ["partner"] }[t.kind] || [];
+      const allowed = { single: ["onlyZones"], circle: ["size"] }[t.kind] || [];
       for (const k of Object.keys(t)) if (k !== "kind" && !allowed.includes(k)) errors.push(`${at}: target 에 없는 필드 '${k}'`);
-      if (t.kind === "line" && !POSITIONS.includes(t.line)) errors.push(`${at}: target.line '${t.line}' 이(가) 포지션이 아닙니다`);
-      if (t.only !== undefined && (!Array.isArray(t.only) || !t.only.length || !t.only.every((p) => POSITIONS.includes(p))))
-        errors.push(`${at}: target.only 가 잘못됐습니다`);
+      if (t.kind === "circle" && !CIRCLE_SIZES.includes(t.size)) errors.push(`${at}: target.size '${t.size}' 이(가) 원 크기가 아닙니다`);
+      if (t.onlyZones !== undefined && (!Array.isArray(t.onlyZones) || !t.onlyZones.length || !t.onlyZones.every((z) => zones.ZONE_IDS.includes(z))))
+        errors.push(`${at}: target.onlyZones 가 잘못됐습니다`);
       if (t.kind === "owner" && fam !== "unique") errors.push(`${at}: owner 대상은 고유 카드만`);
-      if (t.partner !== undefined && (!t.partner || !isInt(t.partner.power) || t.partner.power <= 0 || Object.keys(t.partner).length !== 1))
-        errors.push(`${at}: target.partner 는 { power } 여야 합니다`);
-      if (t.kind === "tap" || t.kind === "none") {
-        if (c.power !== null) errors.push(`${at}: ${t.kind} 카드의 power 는 null 이어야 합니다`);
+      const heals = (c.effects || []).filter((e) => e && e.type === "heal" && e.to === "target");
+      if (t.kind === "none") {
+        if (c.power !== null) errors.push(`${at}: none 카드의 power 는 null 이어야 합니다`);
+      } else if (t.kind === "single" && c.power === null) {
+        // 회복 단일: heal target 이 있어야 한다, onlyZones 는 쓸 수 없다
+        if (!heals.length) errors.push(`${at}: 위력 없는 단일 카드는 heal target 효과가 있어야 합니다`);
+        if (t.onlyZones !== undefined) errors.push(`${at}: 회복 단일 카드에는 onlyZones 를 쓸 수 없습니다`);
       } else checkPower(c.power, at, errors);
+      if (heals.length && !(t.kind === "single" && c.power === null)) errors.push(`${at}: heal target 은 위력 없는 단일 카드만`);
     }
     if (c.costRate !== undefined && !(isNum(c.costRate) && c.costRate > 0 && c.costRate <= 1)) errors.push(`${at}: costRate 가 잘못됐습니다`);
     checkMods(c.mods, at, errors);
@@ -512,10 +520,6 @@ export function validateCardsData(data) {
       if ("power" in c.plus && c.power === null) errors.push(`${at}: 위력 없는 카드의 plus 에 power`);
       if ("effects" in c.plus) checkEffects(c.plus.effects, `${at}.plus`, errors);
       if ("mods" in c.plus) checkMods(c.plus.mods, `${at}.plus`, errors);
-      if ("support" in c.plus) {
-        if (fam !== "unique") errors.push(`${at}: plus.support 는 고유 카드만`);
-        else checkEffects(c.plus.support && c.plus.support.effects, `${at}.plus.support`, errors);
-      }
       if (Object.keys(c.plus).length === 0) errors.push(`${at}: plus 가 비었습니다`);
     }
 
@@ -550,15 +554,7 @@ export function validateCardsData(data) {
         if (owners.has(c.ownerCharId)) errors.push(`${at}: '${c.ownerCharId}' 의 고유 카드가 두 장입니다`);
         owners.add(c.ownerCharId);
       }
-      if (!c.support || typeof c.support !== "object") errors.push(`${at}: support 가 없습니다`);
-      else {
-        for (const k of Object.keys(c.support)) if (k !== "effects") errors.push(`${at}: support 에 없는 필드 '${k}'`);
-        checkEffects(c.support.effects, `${at}.support`, errors);
-      }
-    } else {
-      if (c.ownerCharId !== undefined) errors.push(`${at}: ownerCharId 는 고유 카드만`);
-      if (c.support !== undefined) errors.push(`${at}: support 는 고유 카드만`);
-    }
+    } else if (c.ownerCharId !== undefined) errors.push(`${at}: ownerCharId 는 고유 카드만`);
 
     // prep
     if (fam === "prep") {

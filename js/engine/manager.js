@@ -53,42 +53,19 @@ function lowestStamina(state, list) {
   return list.slice().sort((a, b) => a.stamina - b.stamina || slotOrder(state, a.id) - slotOrder(state, b.id))[0] || null;
 }
 
-function growthOf(p, stat) {
-  const g = Number(p.growth && p.growth[stat]);
-  return Number.isFinite(g) ? g : 1;
-}
-
-/**
- * 지명 · 짝 · 파트너 탭 (§5.5, D33): 레슨 종목을 주 스탯 쌍에 가진 선수 먼저, 그중 체력 높은 순 → 성장률 높은 순 → 슬롯 순서.
- * 주 스탯 선수가 모자라면 나머지 후보에서 같은 순서로 채운다.
- */
-function pickBestTargets(state, candidates, stat, need) {
-  const list = candidates.map((id) => playerById(state, id)).filter(Boolean);
-  const main = (p) => (cards.mainStatsOf(p.position).includes(stat) ? 1 : 0);
-  list.sort(
-    (a, b) =>
-      main(b) - main(a) ||
-      b.stamina - a.stamina ||
-      growthOf(b, stat) - growthOf(a, stat) ||
-      slotOrder(state, a.id) - slotOrder(state, b.id),
-  );
-  return list.slice(0, need).map((p) => p.id);
-}
-
-/** 탭 회복 · 쉬기: 체력이 가장 낮은 선수 (출전 선수 먼저) */
-function pickTired(state, candidates) {
-  const list = candidates.map((id) => playerById(state, id)).filter(Boolean);
-  const active = list.filter((p) => !cards.isOut(state, p));
-  const p = lowestStamina(state, active.length ? active : list);
-  return p ? [p.id] : [];
-}
-
 // ---------------------------------------------------------------------------
-// 레슨 카드 고르기 (§5.5 카드 고르기)
+// 레슨 카드 고르기 (§14.14) — [ZE2 다리] 구역 방식 첫 판. ZE5 가 §14.14 대로 다듬는다 (덜 큰 선수 보너스 Q1-b 등).
 // ---------------------------------------------------------------------------
+
+/** 체력이 이 값 미만인 경기장 선수는 벤치 후보 (§14.1 BT) */
+const BENCH_BELOW = 25;
+/** 대상 구역이 자기 포지션 주 스탯이면 1.2, 아니면 0.8 (§14.14 pref) */
+const PREF_MAIN = 1.2;
+const PREF_OTHER = 0.8;
 
 /**
  * 카드 효과 · 방침 패시브의 가치 (초안 tools/drafts/lesson_sim.mjs value() 를 문서 상수 data.lesson.buffs 로 옮긴 것).
+ * 분위기는 스택 1당 기본 훈련 +moodK × cardGainScale (0.96) × 경기장 인원 × min(남은 턴 + 1, 스택) (§14.14).
  * 방침 버프 (탈취 · 압박 · 점유) 는 run 방침이 맞을 때만 값이 있다 (다른 방침에서는 쌓여도 쓰이지 않는다).
  */
 function buffValue(state, data, c) {
@@ -99,9 +76,11 @@ function buffValue(state, data, c) {
   const v = (k) => Number(B[k]) || 0;
   const remaining = Math.max(0, L.turns - L.turn);
   const active = cards.activePlayers(state);
+  const nField = cards.fieldPlayers(state).length;
   const nAct = active.length;
   const lowSt = active.filter((p) => p.stamina < 50).length;
-  const { f, T, effects, mods, consumes } = c;
+  const moodUnit = BD.moodK * data.lesson.lesson.cardGainScale;
+  const { f, T, effects, mods, consumes, zoneOf } = c;
   let val = 0;
   for (const e of effects) {
     const when = e.when || "always";
@@ -111,13 +90,9 @@ function buffValue(state, data, c) {
     switch (e.type) {
       case "hojo": x = 0.5 * AVG_GAIN * Math.min(e.n, remaining); break;
       case "focus": x = e.n * BD.focusPer * remaining * 0.9; break;
-      case "mood": {
-        const n = Math.min(remaining + 1, v("mood") + e.n);
-        x = e.n * BD.moodK * nAct * n * 0.8;
-        break;
-      }
-      case "moodX2": x = v("mood") * BD.moodK * nAct * Math.min(remaining + 1, v("mood")) * 0.8; break;
-      case "noDecay": x = v("mood") * BD.moodK * nAct * Math.min(e.turns, remaining) * 0.6; break;
+      case "mood": x = e.n * moodUnit * nField * Math.min(remaining + 1, v("mood") + e.n); break;
+      case "moodX2": x = v("mood") * moodUnit * nField * Math.min(remaining + 1, v("mood") * 2); break;
+      case "noDecay": x = v("mood") * moodUnit * nField * Math.min(e.turns, remaining) * 0.6; break;
       case "routine": x = Math.max(0, e.n - v("routine")) * remaining * 0.7; break;
       case "steal":
         if (policy === "counter") x = Math.min(BD.stealCap - v("steal"), e.n) * BD.stealPer * 40 * (remaining > 0 ? 0.8 : 0);
@@ -139,7 +114,7 @@ function buffValue(state, data, c) {
         break;
       case "heal":
         if (e.n < 0) x = e.n * 0.6;
-        else if (e.to === "tap" || e.to === "mostTired") x = Math.min(e.n, 40) * 0.6 + lowSt * 4;
+        else if (e.to === "target" || e.to === "mostTired") x = Math.min(e.n, 40) * 0.6 + lowSt * 4;
         else if (e.to === "all") x = e.n * nAct * 0.3 + lowSt * 2;
         else x = 8 + lowSt * 2;
         break;
@@ -156,15 +131,14 @@ function buffValue(state, data, c) {
     }
     val += w * x;
   }
-  // 방침 패시브 (§5.3.1 13번) — 쌓는 쪽의 가치
+  // 방침 패시브 (§14.11) — 쌓는 쪽의 가치
   if (T.length) {
-    const ps = T.map((id) => playerById(state, id));
-    const allDefense = ps.every((p) => p.position === "GK" || p.position === "DF");
-    const hasMF = ps.some((p) => p.position === "MF");
-    if (policy === "counter" && allDefense) {
+    const allDefenseZone = T.every((id) => lesson.DEFENSE_ZONES.includes(zoneOf[id]));
+    const hasPassZone = T.some((id) => zoneOf[id] === "pass");
+    if (policy === "counter" && allDefenseZone) {
       val += (1 - f) * Math.min(BD.stealCap - v("steal"), mods.stealBuild ?? 1) * BD.stealPer * 40 * (remaining > 0 ? 0.8 : 0);
     }
-    if (policy === "poss" && hasMF) {
+    if (policy === "poss" && hasPassZone) {
       val += (1 - f) * Math.min(BD.possCap - v("poss"), 1) * BD.possK * 40 * remaining * 0.7;
     }
   }
@@ -172,85 +146,106 @@ function buffValue(state, data, c) {
 }
 
 /**
- * 손패 카드 1장의 점수 (§5.5 EV). 낼 수 없으면 null.
- *   EV = Σgain×(1−f) − f×(failStatLoss + 40) + 버프 가치 − 0.15×Σcost − 체력 40 미만 대상 1명당 10
- *   방침별 한 줄: counter 탈취 ≥ 3이면 공격진이 낀 카드 +30 · poss 실패 비용 + poss×8 (가드가 없을 때), MF 없는 대상 카드 −min(2, poss)×8
+ * 후보 점 1개의 점수 (§14.14 EV). 낼 수 없으면 null.
+ *   EV = Σ gain_i × pref_i × (1 − f) − f × (5 + 40) + 버프 가치 − 0.15 × Σ cost − 10 × (체력 40 미만 대상 수)
+ *   방침별 한 줄: counter 탈취 ≥ 3이면 공격 구역 대상이 있는 카드 +30 · poss 실패 비용 + poss×8 (가드가 없을 때), 패스 구역 대상이 없는 카드 −min(2, poss)×8
  */
-function scoreCard(state, data, hv) {
+function scoreDrop(state, data, hv, def, cand) {
   const L = state.lesson;
-  let taps = [];
-  if (hv.needTaps > 0) {
-    const pv0 = lesson.previewCard(state, data, { uid: hv.uid, taps: [] });
-    const cand = pv0.tapCandidates || [];
-    taps = hv.targetKind === "tap" ? pickTired(state, cand) : pickBestTargets(state, cand, L.stat, hv.needTaps);
-    if (taps.length < hv.needTaps) return null;
-  }
-  const pv = lesson.previewCard(state, data, { uid: hv.uid, taps });
+  const pv = lesson.previewCard(state, data, { uid: hv.uid, at: cand.at || undefined, playerId: cand.playerId });
   if (!pv.ok) return null;
-  const def = lesson.lessonCardDef(state, data, hv.uid);
-  const mode = cards.cardMode(state, def, L.stat);
-  const effects = mode === "support" ? (def.support && def.support.effects) || [] : def.effects || [];
-  const mods = mode === "support" ? {} : def.mods || {};
+  const effects = def.effects || [];
+  const mods = def.mods || {};
   const T = pv.targets.map((t) => t.id);
   const f = pv.failRate || 0;
+  const zoneOf = L.zones || {};
   const ps = T.map((id) => playerById(state, id));
-  const hasAttack = ps.some((p) => p.position === "MF" || p.position === "FW");
-  const hasMF = ps.some((p) => p.position === "MF");
+  const hasAttackZone = T.some((id) => lesson.ATTACK_ZONES.includes(zoneOf[id]));
+  const hasPassZone = T.some((id) => zoneOf[id] === "pass");
   const B = L.buffs;
   const steal = Number(B.steal) || 0;
   const poss = Number(B.poss) || 0;
-  const consumes = state.policy === "counter" && hasAttack && steal > 0;
+  const consumes = state.policy === "counter" && hasAttackZone && steal > 0;
 
-  const gain = pv.targets.reduce((a, t) => a + t.gain, 0);
+  let gain = 0;
+  for (const t of pv.targets) {
+    const p = playerById(state, t.id);
+    gain += t.gain * (cards.mainStatsOf(p.position).includes(t.zone) ? PREF_MAIN : PREF_OTHER);
+  }
   const cost = pv.targets.reduce((a, t) => a + t.cost, 0);
   let failLoss = data.lesson.lesson.failStatLoss + FAIL_EXTRA;
   if (state.policy === "poss" && T.length && !(Number(B.possGuard) > 0)) failLoss += poss * 8;
   let ev = gain * (1 - f) - f * failLoss;
-  ev += buffValue(state, data, { f, T, effects, mods, consumes });
+  ev += buffValue(state, data, { f, T, effects, mods, consumes, zoneOf });
   ev -= COST_K * cost;
   ev -= LOW_TARGET_PENALTY * ps.filter((p) => p.stamina < 40).length;
-  if (state.policy === "counter" && steal >= 3 && hasAttack) ev += 30;
-  if (state.policy === "poss" && T.length && !hasMF && !mods.possKeep) ev -= Math.min(data.lesson.buffs.possNoMF, poss) * 8;
-  return { uid: hv.uid, cardId: hv.cardId, taps, score: Math.round(ev * 100) / 100 };
+  if (state.policy === "counter" && steal >= 3 && hasAttackZone) ev += 30;
+  if (state.policy === "poss" && T.length && !hasPassZone && !mods.possKeep) ev -= Math.min(data.lesson.buffs.possNoPass, poss) * 8;
+  return { uid: hv.uid, cardId: hv.cardId, at: cand.at || null, playerId: cand.playerId ?? null, score: Math.round(ev * 100) / 100 };
+}
+
+/** 손패 카드 1장의 가장 좋은 후보 점. 회복 단일은 체력이 가장 낮은 선수 (출전 선수 먼저) 1명만 본다. */
+function scoreCard(state, data, hv) {
+  const def = lesson.lessonCardDef(state, data, hv.uid);
+  let cands = lesson.dropCandidates(state, data, { uid: hv.uid });
+  if (hv.heal) {
+    const pick = pickTired(state, cands.map((c) => c.playerId));
+    cands = cands.filter((c) => c.playerId === pick[0]).map((c) => ({ playerId: c.playerId }));
+  }
+  let best = null;
+  for (const c of cands) {
+    const s = scoreDrop(state, data, hv, def, c);
+    if (s && (!best || s.score > best.score)) best = s;
+  }
+  return best;
+}
+
+/** 회복 대상: 체력이 가장 낮은 선수 (출전 선수 먼저) */
+function pickTired(state, candidates) {
+  const list = candidates.map((id) => playerById(state, id)).filter(Boolean);
+  const active = list.filter((p) => !cards.isOut(state, p));
+  const p = lowestStamina(state, active.length ? active : list);
+  return p ? [p.id] : [];
+}
+
+function playAction(s) {
+  const a = { kind: "play", uid: s.uid, score: s.score };
+  if (s.at) a.at = s.at;
+  if (s.playerId != null) a.playerId = s.playerId;
+  return a;
 }
 
 /**
- * 레슨 중 다음 행동 (§5.5). 순수.
- * @returns {{ kind: "play", uid: string, taps: string[], score: number } | { kind: "rest", playerId: string } | { kind: "endTurn" }}
+ * 레슨 중 다음 행동 (§14.14). 순수.
+ *   1. 벤치 먼저: 그 턴에 카드를 아직 내지 않았고 벤치가 남았고 체력 < 25 인 경기장 선수가 있으면 → 체력 최저 (슬롯 순서) 1명
+ *   2. 카드마다 후보 점 (dropCandidates) → previewCard 로 EV
+ *   3. 최고 EV ≤ 0 이면 endTurn. 같은 EV 면 손패 순서 → 후보 순서
+ * @returns {{ kind: "bench", playerId: string } | { kind: "play", uid: string, at?: {x,y}, playerId?: string, score: number } | { kind: "endTurn" }}
  */
 export function recommendCard(state, data) {
   const L = state && state.lesson;
   if (!L || state.phase !== "lesson") throw new Error("레슨 중이 아닙니다");
   if (L.status !== "playing") throw new Error(`레슨이 이미 끝났습니다 (${L.status})`);
   const view = lesson.getLessonView(state, data);
-  const active = cards.activePlayers(state);
+  if (L.playedThisTurn === 0 && view.canBench) {
+    const tired = cards.fieldPlayers(state).filter((p) => p.stamina < BENCH_BELOW);
+    if (tired.length) return { kind: "bench", playerId: lowestStamina(state, tired).id };
+  }
   const scored = [];
   for (const hv of view.hand) {
     if (!hv.playable) continue;
     const s = scoreCard(state, data, hv);
     if (s) scored.push(s);
   }
-  // 점수 높은 순, 같으면 손패 순서
+  // 압박형: 압박 ≥ 2이고 체력 40 미만 출전 선수가 있으면 라인 내리기 우선
+  if (state.policy === "press" && (Number(L.buffs.press) || 0) >= 2 && cards.activePlayers(state).some((p) => p.stamina < 40)) {
+    const drop = scored.find((s) => s.cardId === "cd_drop_line");
+    if (drop) return playAction(drop);
+  }
   let best = null;
   for (const s of scored) if (!best || s.score > best.score) best = s;
-
-  let restV = active.filter((p) => p.stamina < 40).length * 18 + (active.some((p) => p.stamina < 20) ? 30 : 0);
-  // 압박형: 압박 ≥ 2이고 체력 40 미만 출전 선수가 있으면 라인 내리기 우선, 없으면 쉬기를 미룬다
-  if (state.policy === "press" && (Number(L.buffs.press) || 0) >= 2 && active.some((p) => p.stamina < 40)) {
-    const drop = scored.find((s) => s.cardId === "cd_drop_line");
-    if (drop) return { kind: "play", uid: drop.uid, taps: drop.taps, score: drop.score };
-    restV *= 0.5;
-  }
-  const tired = avgStamina(active) < 40;
-  if (!best || tired || restV > best.score) {
-    if (view.canRest) {
-      const p = lowestStamina(state, active.length ? active : state.players);
-      return { kind: "rest", playerId: p.id };
-    }
-    if (view.canEndTurn) return { kind: "endTurn" };
-  }
-  if (best) return { kind: "play", uid: best.uid, taps: best.taps, score: best.score };
-  return view.canRest ? { kind: "rest", playerId: lowestStamina(state, state.players).id } : { kind: "endTurn" };
+  if (!best || best.score <= 0) return { kind: "endTurn" };
+  return playAction(best);
 }
 
 // ---------------------------------------------------------------------------
@@ -423,8 +418,8 @@ export function autoStep(state, data, { playMatch } = {}) {
     }
     case "lesson": {
       const a = recommendCard(state, data);
-      if (a.kind === "play") LR.playCard(state, data, { uid: a.uid, taps: a.taps });
-      else if (a.kind === "rest") LR.lessonRest(state, data, { playerId: a.playerId });
+      if (a.kind === "play") LR.playCard(state, data, { uid: a.uid, at: a.at, playerId: a.playerId });
+      else if (a.kind === "bench") LR.benchPlayer(state, data, { playerId: a.playerId, on: true });
       else LR.endLessonTurn(state, data);
       return { phase, action: a };
     }

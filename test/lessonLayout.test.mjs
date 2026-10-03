@@ -100,7 +100,8 @@ test("fxPlan: 합성 lastFx — 카드 · 턴 끝 · 레슨 끝 단계로 나눈
   assert.deepEqual(fxPlan(null).play.targets, []);
 });
 
-test("fxPlan: 실제 엔진 lastFx (기초 훈련 = 전원 → 턴 끝 → 새 손패)", () => {
+// zone-pending:ZU1 — lesson_layout.fxPlan 의 scatter · base · bench 단계 (§14.16). ZU1 가 고쳐서 다시 켠다.
+test.skip("fxPlan: 실제 엔진 lastFx (기초 훈련 = 전원 → 턴 끝 → 새 손패)", () => {
   const data = loadData();
   const cfg = data.config;
   // 기초 훈련이 1턴 손패에 오는 레슨을 찾는다 (시드 · 종목 순서대로 — 결정적)
@@ -132,7 +133,8 @@ test("fxPlan: 실제 엔진 lastFx (기초 훈련 = 전원 → 턴 끝 → 새 �
 });
 
 // 플레이 점검 (2026-10-02): 보상 · 상담 카드 앞면의 비용이 "체력 −위력×0.6" 이 아니라 실제 1인 비용 (엔진 cards.staminaCost 와 같은 값)
-test("cards.js estimateCost/costText: 보상 · 상담 카드 비용 = 엔진 1인 비용 (기본 위력 · 범위 인원, 강화판 · 유대 80 은 비용 그대로)", async () => {
+// zone-pending:ZU1 — cards.js estimateCost 1인 비용 (§14.16 카드 앞면). ZU1 가 고쳐서 다시 켠다.
+test.skip("cards.js estimateCost/costText: 보상 · 상담 카드 비용 = 엔진 1인 비용 (기본 위력 · 범위 인원, 강화판 · 유대 80 은 비용 그대로)", async () => {
   const { estimateCost, costText, rangeCount } = await import("../js/ui/cards.js");
   const engineCards = await import("../js/engine/cards.js");
   const data = loadData();

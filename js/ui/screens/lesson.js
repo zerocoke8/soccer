@@ -59,9 +59,11 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
   const screen = h('div', { class: ['screen', 'og', 'lesson-screen', inert ? 'inert' : '', reduced ? 'no-anim' : ''], dataset: { screen: 'lesson' } });
   root.append(screen);
 
+  // [ZE2 다리] 엔진 뷰는 구역 방식(zone)으로 바뀌었다 — 옛 화면이 읽는 stat 을 중점 구역으로 채운다. ZU2 가 화면을 새로 쓰며 지운다.
+  const bridge = (x) => (x && x.stat == null && x.zone ? { ...x, stat: x.zone } : x);
   const getView = (quiet = inert) => {
-    if (quiet) { try { return run.getLessonView(st(), data); } catch (_) { return null; } }
-    return safe(() => run.getLessonView(st(), data));
+    if (quiet) { try { return bridge(run.getLessonView(st(), data)); } catch (_) { return null; } }
+    return bridge(safe(() => run.getLessonView(st(), data)));
   };
   let v = getView();
   if (!v) {

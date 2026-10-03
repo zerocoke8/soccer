@@ -45,10 +45,14 @@ function checkValid(state, rec) {
     case "lesson": {
       const v = LR.getLessonView(state, data);
       if (rec.kind === "play") {
-        assert.ok(v.hand.some((h) => h.uid === rec.uid && h.playable), "낼 수 있는 카드");
-        assert.ok(LR.previewCard(state, data, { uid: rec.uid, taps: rec.taps }).ok, "미리보기 ok");
-      } else if (rec.kind === "rest") assert.ok(v.canRest);
-      else assert.ok(v.canEndTurn);
+        const h = v.hand.find((x) => x.uid === rec.uid && x.playable);
+        assert.ok(h, "낼 수 있는 카드");
+        const pv = LR.previewCard(state, data, { uid: rec.uid, at: rec.at, playerId: rec.playerId });
+        assert.ok(pv.ok, "미리보기 ok");
+        if (["single", "circle", "all", "owner"].includes(h.targetKind) && !h.heal) assert.ok(pv.targets.length >= 1, "놓을 점에 대상 ≥ 1");
+      } else if (rec.kind === "bench") {
+        assert.ok(v.canBench && rec.playerId in v.positions, "벤치로 보낼 수 있는 경기장 선수");
+      } else assert.ok(v.canEndTurn);
       break;
     }
     case "reward": {
@@ -107,7 +111,8 @@ test("감독 AI는 rng 를 쓰지 않는다 (Math.random · Date · rng import �
   for (const bad of ["Math.random", "Date", "createRng", "rngState", "rng.js", "document", "localStorage"]) assert.ok(!code.includes(bad), bad);
 });
 
-test("탭 대상: 지명 = 주 스탯 쌍 선수 중 체력 최고 (같으면 성장률), 탭 회복 = 체력 최저", () => {
+// zone-pending:ZE5 — 감독 AI 단일 · 회복 대상 (§14.14 후보 점). ZE5 가 고쳐서 다시 켠다.
+test.skip("탭 대상: 지명 = 주 스탯 쌍 선수 중 체력 최고 (같으면 성장률), 탭 회복 = 체력 최저", () => {
   const s = LR.createRun({ data, seed: 3, policy: "team" });
   s.weekOffer = { kind: "lesson", specials: [] };
   LR.applyWeekAction(s, data, { type: "lesson", stat: "pass" });
@@ -140,7 +145,8 @@ test("탭 대상: 지명 = 주 스탯 쌍 선수 중 체력 최고 (같으면 �
   same(r.taps, ["p6"]);
 });
 
-test("쉬기: 출전 평균 체력 < 40이면 첫 행동에서 쉬기, 1장 낸 뒤에는 턴 끝", () => {
+// zone-pending:ZE5 — 감독 AI 쉬기 → 벤치 (§14.14). ZE5 가 고쳐서 다시 켠다.
+test.skip("쉬기: 출전 평균 체력 < 40이면 첫 행동에서 쉬기, 1장 낸 뒤에는 턴 끝", () => {
   const s = LR.createRun({ data, seed: 4, policy: "ace" });
   s.weekOffer = { kind: "lesson", specials: [] };
   LR.applyWeekAction(s, data, { type: "lesson", stat: "defense" });

@@ -179,7 +179,7 @@ function lessonTargets(state, data, special) {
   let [target, cap] = ls.targets[si];
   if (special) {
     target = cards.roundCost(target * ls.special.targetMult);
-    cap = cards.roundCost(cap * ls.special.targetMult);
+    cap = cards.roundCost(cap * ls.special.capMult);
   }
   return { turns: ls.turns[si], target, cap };
 }
@@ -576,7 +576,8 @@ export function applyWeekAction(state, data, action) {
       const special = !prep && Array.isArray(offer.specials) && offer.specials.includes(action.stat);
       const bondBefore = {};
       for (const st of state.supports) bondBefore[st.id] = st.bond;
-      lesson.startLesson(state, data, { stat: action.stat, special, prep, prepCards: prep ? offer.prepCards || [] : [] });
+      // [ZE2 다리] 주 행동은 아직 { stat } — ZE4 가 { zone } 으로 바꾼다 (§14.13). 종목 = 중점 구역.
+      lesson.startLesson(state, data, { zone: action.stat, special, prep, prepCards: prep ? offer.prepCards || [] : [] });
       state.lesson.bondBefore = bondBefore;
       state.phase = "lesson";
       log(state, `${prep ? "대비 레슨" : special ? "특별 레슨" : "레슨"}[${STAT_LABELS[action.stat]}] 시작`);
@@ -648,11 +649,11 @@ export function playCard(state, data, args) {
   return afterIfEnded(state, data);
 }
 
-/** 레슨 중 쉬기 (lesson.lessonRest) */
-export function lessonRest(state, data, args) {
+/** 벤치로 보내기 / 돌아오기 (lesson.benchPlayer, §14.5) */
+export function benchPlayer(state, data, args) {
   assertPhase(state, "lesson");
-  lesson.lessonRest(state, data, args);
-  return afterIfEnded(state, data);
+  lesson.benchPlayer(state, data, args);
+  return state;
 }
 
 /** 레슨 턴 끝 (lesson.endLessonTurn) */
@@ -670,6 +671,11 @@ export function getLessonView(state, data) {
 /** 카드 미리보기 (순수) */
 export function previewCard(state, data, args) {
   return lesson.previewCard(state, data, args);
+}
+
+/** 후보 놓을 점 (순수, §14.14) */
+export function dropCandidates(state, data, args) {
+  return lesson.dropCandidates(state, data, args);
 }
 
 /**
@@ -762,7 +768,7 @@ function afterLesson(state, data) {
     teamwork = state.teamwork - twBefore;
     for (const st of state.supports) {
       const cc = coachCardOf(data, st.id);
-      if (cc && cc.coach.type === L.stat) addBond(st, D.bond.sameTypeClear);
+      if (cc && cc.coach.type === L.zone) addBond(st, D.bond.sameTypeClear);
     }
     if (L.lumiFlag) {
       const before = state.condition;
@@ -797,7 +803,7 @@ function afterLesson(state, data) {
   // 4. 기록 · 로그
   state.record.lessons.push({
     turnIndex: state.turnIndex,
-    stat: L.stat,
+    stat: L.zone,
     special: L.special,
     prep: L.prep,
     score: L.score,
@@ -806,12 +812,12 @@ function afterLesson(state, data) {
     result: status,
     turns: L.turn,
     plays: res.plays,
-    rests: res.rests,
+    rests: res.benches,
     fails: res.fails,
     injuries: res.injuries,
   });
   const label = { perfect: "퍼펙트", clear: "클리어", fail: "실패" }[status] || status;
-  log(state, `${L.prep ? "대비 레슨" : L.special ? "특별 레슨" : "레슨"}[${STAT_LABELS[L.stat]}] ${label} — 점수 ${L.score} / ${L.target} / ${L.cap}${tp ? `, TP +${tp}` : ""}${hints.length ? `, 힌트 ${hints.length}` : ""}`);
+  log(state, `${L.prep ? "대비 레슨" : L.special ? "특별 레슨" : "레슨"}[${STAT_LABELS[L.zone]}] ${label} — 점수 ${L.score} / ${L.target} / ${L.cap}${tp ? `, TP +${tp}` : ""}${hints.length ? `, 힌트 ${hints.length}` : ""}`);
 
   // 5. 보상 후보
   const offer = ok ? rollRewardOffer(state, data, rng, status, L.special) : [];
@@ -832,7 +838,7 @@ function afterLesson(state, data) {
     offer,
     freeUpgrades,
     result: {
-      stat: L.stat,
+      stat: L.zone,
       special: L.special,
       prep: L.prep,
       score: L.score,
@@ -850,10 +856,11 @@ function afterLesson(state, data) {
       prepBonus,
       bond,
       plays: res.plays,
-      rests: res.rests,
+      rests: res.benches,
       fails: res.fails,
       injuries: res.injuries,
-      perPlayer: res.perPlayer.map((x) => ({ id: x.id, gain: x.gain, sub: x.sub, auto: x.auto, targeted: x.targeted })),
+      // [ZE2 다리] 구역 방식 결과 → 옛 모양 (gain = 구역 스탯 상승 = 기본 + 분위기 + 카드, auto 0). ZE4 가 새 모양으로 바꾼다.
+      perPlayer: res.perPlayer.map((x) => ({ id: x.id, gain: x.base + x.mood + x.card, sub: x.sub, auto: 0, targeted: x.targeted })),
     },
   };
   state.phase = "reward";
