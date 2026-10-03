@@ -36,7 +36,7 @@ npm run lesson-sim   # node tools/lesson_sim.mjs --runs 200 --seed 1  (카드 �
 npm run sim          # node tools/sim.mjs --runs 300 --seed 1  (옛 육성 런: 시즌별 승률·등급 분포·부상·우정 훈련·골 · 박스 연결 · GK 배급 · 마지막 공격 · 대이변)
 node tools/shot.mjs <출력폴더>   # 로컬 Chrome으로 경기(01~27 — 레슨 런의 친선전 · 경계전에서 찾음)·아웃게임(og_* — 주 · 레슨 · 보상 · 상담 · 준비 · 도전 모드 등) 시나리오 스크린샷 (puppeteer-core, 1280×720). 요약 끝 줄 = 스크롤 · 잘린 글자 · HUD 겹침 · 상태 · 에러 검사에 걸린 시나리오
 node tools/shot.mjs <출력폴더> --only og   # 아웃게임만 (--list 로 목록). 레슨 화면만: --only og_lesson,og_lesson_  (레슨 경기장 이름표 · 구역 라벨 겹침, 원 판정 = 그린 원 ↔ 엔진 대상도 검사)
-node tools/lesson_play.mjs <출력폴더>     # 실제 입력(마우스 끌기 · 터치 끌기 · 터치 탭 · 클릭 · 키보드)으로 시즌 1 을 진행하며 행동마다 엔진 · 화면 대상 확인 (--until run = 15주, --mobile --touch-only --width 915 --height 412 = 터치 전용 작은 화면)
+node tools/lesson_play.mjs <출력폴더>     # 실제 입력(마우스 끌기 · 터치 끌기 · 터치 탭 · 클릭 · 키보드)으로 시즌 1 을 진행하며 행동마다 엔진 · 화면 대상 확인 · 레슨마다 코치 컷인 수 (기획 2~4번) 보고 (--until run = 15주, --mobile --touch-only --width 915 --height 412 = 터치 전용 작은 화면)
 node tools/shot.mjs <출력폴더> --width 1920 --height 1080   # 다른 창 크기에서 스테이지 배율·레터박스 확인
 node tools/challenge_sim.mjs --runs 100 --teams 6   # 도전 모드 단계별 승률 (샘플 팀 + 자동 완주 팀 6개, --targets 로 단계 목표 시험)
 node tools/challenge_sim.mjs --write-sample         # 테스트용 샘플 팀(data/challenge_sample_team.json) 다시 만들기

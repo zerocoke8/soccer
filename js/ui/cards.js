@@ -212,6 +212,7 @@ export function miniCard(view, opts = {}) {
   const tagName = onClick ? 'button' : 'div';
   if (onClick) { attrs.type = 'button'; attrs.onclick = onClick; attrs.disabled = disabled; }
   return h(tagName, attrs,
-    h('span', { class: 'mc-name' }, view.name ?? view.cardId, view.plus ? h('b', { class: 'cf-plus' }, '+') : null),
+    // 긴 이름 (+ 포함 9자 이상 — "물결 세이브 루틴+")은 글자를 조금 줄여 8열 그리드에서도 다 보이게 한다
+    h('span', { class: ['mc-name', String(view.name ?? view.cardId ?? '').length + (view.plus ? 1 : 0) >= 9 ? 'long' : ''] }, view.name ?? view.cardId, view.plus ? h('b', { class: 'cf-plus' }, '+') : null),
     h('span', { class: 'mc-desc' }, note ?? desc));
 }

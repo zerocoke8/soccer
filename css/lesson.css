@@ -535,6 +535,7 @@ button.mini-card { cursor: pointer; }
 .mini-card.selected { border-color: var(--gold); box-shadow: inset 4px 0 0 var(--fam, var(--panel-3)), 0 0 0 1px var(--gold); }
 .mini-card.disabled { opacity: .5; }
 .mc-name { font-size: 13px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mc-name.long { font-size: 12px; letter-spacing: -.03em; } /* cards.js miniCard — 긴 이름이 8열 덱 그리드에서 잘리지 않게 */
 .mc-desc { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pile-modal { gap: 12px; }
 .pile-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }

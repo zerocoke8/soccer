@@ -155,6 +155,7 @@ async function main() {
     let wayI = 0;
     let lessonsDone = 0;
     let touchShotDone = false;
+    let lessonCut0 = 0; // 이번 레슨이 시작될 때의 cutN — 레슨마다 본 컷인 수 (§15 기획 "레슨당 2~4번")
     let cutN = 0; // 본 코치 컷인 수 (§15.8 — 3번 중 2번은 탭 · 클릭으로 넘기고, 1번은 저절로 닫힐 때까지 본다)
     const lessonIdle = () => page.waitForFunction(() => {
       const s = window.__soccer.store;
@@ -375,8 +376,13 @@ async function main() {
         const after = await phaseNow();
         if (after.phase !== "lesson") {
           lessonsDone++;
-          const r = await S(() => { const pr = window.__soccer.store.run.pendingReward; return pr ? { status: pr.result?.status, score: pr.result?.score, target: pr.result?.target } : null; });
-          report.lessons.push({ season: ph.season, week: ph.turn, ...(r || {}) });
+          const r = await S(() => {
+            const pr = window.__soccer.store.run.pendingReward;
+            const res = pr?.result;
+            return res ? { status: res.status, score: res.score, target: res.target, attaches: res.attaches ?? 0, cutins: Array.isArray(res.cutins) ? res.cutins.length : (res.cutins ?? 0) } : null;
+          });
+          report.lessons.push({ season: ph.season, week: ph.turn, seenCut: cutN - lessonCut0, ...(r || {}) });
+          lessonCut0 = cutN;
           await delay(1600); // 레슨 끝 연출
         }
         continue;
@@ -499,7 +505,14 @@ async function main() {
   // ---- 보고 ----
   log(`레슨판 한 판 점검 — seed ${args.seed} · 방침 ${args.policy} · 뷰포트 ${args.width}×${args.height}${args.mobile ? " (mobile)" : ""}${args.touchOnly ? " · 터치만" : ""} · ${Math.round((Date.now() - t0) / 1000)}초`);
   log(`  끝: ${report.end ? `${report.end.phase} 시즌 ${report.end.season} ${report.end.turn}주` : "-"} · 레슨 ${report.lessonsDone ?? 0}번`);
-  for (const l of report.lessons) log(`    레슨 시즌 ${l.season} ${l.week}주: ${l.status ?? "-"} ${l.score ?? ""}/${l.target ?? ""}`);
+  for (const l of report.lessons) log(`    레슨 시즌 ${l.season} ${l.week}주: ${l.status ?? "-"} ${l.score ?? ""}/${l.target ?? ""} · 붙기 ${l.attaches ?? "-"} · 컷인 ${l.cutins ?? "-"} (화면 ${l.seenCut})`);
+  if (report.lessons.length) {
+    const cs = report.lessons.map((l) => l.seenCut);
+    const inBand = cs.filter((n) => n >= 2 && n <= 4).length;
+    log(`  컷인 (화면): 레슨당 평균 ${(cs.reduce((x, y) => x + y, 0) / cs.length).toFixed(2)} · 2~4번 ${inBand}/${cs.length} · 분포 ${[0, 1, 2, 3, 4, 5].map((k) => `${k === 5 ? "5+" : k}:${cs.filter((n) => (k === 5 ? n >= 5 : n === k)).length}`).join(" ")}`);
+    const mis = report.lessons.filter((l) => l.cutins != null && l.cutins !== l.seenCut);
+    if (mis.length) report.fails.push(`엔진 컷인 수 ≠ 화면 컷인 수: ${mis.map((l) => `시즌 ${l.season} ${l.week}주 ${l.cutins}/${l.seenCut}`).join(", ")}`);
+  }
   log(`  화면: ${Object.entries(report.phases).map(([k, n]) => `${k} ${n}`).join(" · ")}`);
   log("  입력:");
   for (const [k, n] of Object.entries(report.actions).sort()) log(`    ${k}: ${n}`);
