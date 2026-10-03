@@ -9,6 +9,7 @@
     "targets": [[330, 520], [380, 610], [450, 720]],
     "hand": 3,
     "costRate": 0.6,
+    "cardGainScale": 0.64,
     "subGainRatio": 0.36,
     "autoTrainRatio": 0.35,
     "autoTrainStamina": 10,
@@ -16,8 +17,27 @@
     "injuryChanceOnFail": 0.5,
     "rest": { "picked": 20, "others": 5 },
     "perfectStaminaPerTurn": 5,
-    "special": { "targetMult": 1.3, "gainBonus": 0.5, "secondChance": 0.5 },
+    "special": { "targetMult": 1.3, "capMult": 1.2, "gainBonus": 0.5, "secondChance": 0.5 },
+    "base": { "gain": 3.2, "stamina": 1 },
+    "bench": { "recover": 15, "max": 2 },
+    "focus": { "mult": 1.5, "specialMult": 2.0, "weight": 2 },
+    "unique": { "mainMult": 1.5 },
     "coachSameTypeMult": 1.3
+  },
+  "zones": {
+    "aspect": 0.405, "pad": 9, "pickR": 3,
+    "centers": {
+      "defense": { "x": 20, "y": 30 }, "pass": { "x": 50, "y": 30 }, "shoot": { "x": 80, "y": 30 },
+      "physical": { "x": 35, "y": 72 }, "dribble": { "x": 65, "y": 72 }
+    },
+    "huddle": [0, 3.5, 4.5, 5.5, 6.5],
+    "radius": { "small": 4.2, "medium": 9, "large": 17 },
+    "weights": {
+      "GK": { "shoot": 5, "dribble": 10, "pass": 20, "defense": 40, "physical": 25 },
+      "DF": { "shoot": 5, "dribble": 10, "pass": 20, "defense": 40, "physical": 25 },
+      "MF": { "shoot": 15, "dribble": 25, "pass": 35, "defense": 15, "physical": 10 },
+      "FW": { "shoot": 35, "dribble": 30, "pass": 15, "defense": 5, "physical": 15 }
+    }
   },
   "teamwork": { "pair": 2, "perExtraTarget": 1, "lessonCap": 8, "clear": 3 },
   "buffs": {

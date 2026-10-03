@@ -2140,3 +2140,10 @@ y496 ├ dock: [덱][버림] │ 손패 (끌어서 경기장에) │ 안내 · �
 - **Q3. 주 휴식이 런당 약 1번 늘었다** (기본 훈련 체력 1, 2.9~3.6회). 기본 훈련 체력을 0으로 할지 그대로 둘지.
 - **Q4. 카드 이름.** "FW 라인 드릴" · "수비 조직 훈련"처럼 라인 · 포지션이 들어간 이름이 이제 대상과 맞지 않는다 (중간 원 · 큰 원). 이번에는 이름을 두고 대상 칩으로 보여 준다. 바꿀지는 나중에.
 - **Q5. 점유형 스택이 잘 쌓이지 않는다** (패스 구역 인원이 적어 깨질 때 평균 0.6스택). 수치는 밸런스 때.
+
+### 14.21 구현 중 바뀐 것
+
+- ZE1 [가정 Q1-a]: 흩어지기 가중치는 `config.training.slotWeights`가 아니라 `lesson.json zones.weights`를 읽는다 (slotWeights 사본, GK만 DF와 같은 `{shoot 5, dribble 10, pass 20, defense 40, physical 25}`). config.json은 그대로라 옛 run 테스트에 영향 없음. 가중치 계산은 `zones.zoneWeight(cfg, pos, zone, focusZone, focusWeight)`.
+- ZE1: `zones.js`에 §14.6 목록 밖 export를 더했다 — `clampPoint(at)`(놓은 점 [0,100]² 자르기), `areNeighbors(a, b, cfg)`(구역 중심 거리 ≤ `NEIGHBOR_MAX_U` 30.5u — 22.7 · 30 쌍이 이웃, 48u 이상은 아님), `zoneWeight`.
+- ZE1: `candidatePoints(positions, cfg, { kind, r | size, zoneOf, ids })` — 인자를 늘렸다 (원은 구역 판정에 `zoneOf` = `lesson.zones`가 필요, 단일은 `ids`로 후보 제한). 반환 `[{ at, ids, kind: "zone"|"player"|"between"|"field", zone?, zones?, playerId?, players? }]`, `ids` = 그 점의 대상. 전체 · 주인 · 없음은 `(50, 50)` 한 점(`ids` = 경기장 전원), 회복 단일의 7명(`playerId`) 후보는 `dropCandidates`(ZE2)가 만든다. 가운데 점은 소수 2자리.
+- ZE1: 큰 원(17u)이 22.7u 이웃 두 구역의 가운데에서 "두 무리 전원"을 잡는 것은 무리당 4명까지다 (5명 이상 대형 R 6.5u면 11.35 + 6.5 > 17이라 가장자리 1명이 빠질 수 있다 — §14.2의 "거의 전원"). zones.test는 무리당 1~4명으로 고정했다.
