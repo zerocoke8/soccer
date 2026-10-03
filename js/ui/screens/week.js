@@ -2,7 +2,7 @@
 // LESSON_PROTO_PLAN §6.3 "주 선택 화면". grid "top top" "main roster" "bar roster", columns 1fr | 350:
 //   ┌ topbar (hud.js) ───────────────────────────────────────────────────────────────────────┐
 //   │ 머리 줄: n주차 · 주 종류 · 안내                                │ 선수 7 (hud.roster)        │
-//   │ 레슨 주 · 대비 주: 종목 카드 5장(150×260) + [휴식]               │  체력 · 스탯 · 결장         │
+//   │ 레슨 주 · 대비 주: 중점 구역 카드 5장(150×260) + [휴식]          │  체력 · 스탯 · 결장         │
 //   │ 자유 주: 행동 카드 3장(220×260, 보장 배지) + [휴식]              │ 코치 유대 (눈금 = 80)       │
 //   │ 대비 주: 대비 카드 2장 미리보기                                  │                            │
 //   │ 시즌 일정 줄 (1~5주 · 보장 행동 · ⚔ 경계전)                      │                            │
@@ -15,6 +15,7 @@ import { h, avatar, bar, openModal, closeOverlays } from '../dom.js';
 import * as L from '../labels.js';
 import { hudTopbar, hudRoster, openRecords, stamCls } from '../hud.js';
 import { meetingEditor } from '../meeting.js';
+import { targetText } from '../cards.js';
 
 export function renderWeek(root, ctx, { inert = false } = {}) {
   const { store, data, run, manager, safe, actions } = ctx;
@@ -53,32 +54,40 @@ export function renderWeek(root, ctx, { inert = false } = {}) {
   // ---------- 이번 주 ----------
   let cardsRow;
   if (kind === 'lesson' || kind === 'prep') {
+    // 중점 구역 카드 (§14.10 · §14.16): 아이콘 · 구역 이름 · "서 있을 확률 ×2 · 상승 ×1.5" · 예상 인원(expected) · ★특별(×2.0, 목표) · 고유 ×1.5 선수(boosted).
+    // 턴 수 · 일반 목표는 머리 줄에 한 번.
+    const weight = focusCfg.weight ?? 2;
     cardsRow = (view.lessons || []).map((ls) => {
-      // 중점 구역 (§14.13): ls.zone · 고유 ×1.5 선수 = ls.boosted (엔진). 카드 내용 개편은 ZU1.
       const a = { type: 'lesson', zone: ls.zone };
       const boosted = new Set(Array.isArray(ls.boosted) ? ls.boosted : []);
       const owners = players.filter((p) => boosted.has(p.id));
+      const mult = ls.special ? (focusCfg.specialMult ?? 2) : (focusCfg.mult ?? 1.5);
+      const exp = Number(ls.expected);
+      const expText = Number.isFinite(exp) ? exp.toFixed(1) : '?';
       return h('button', {
         class: ['btn', 'week-card', 'week-lesson', ls.special ? 'special' : '', ls.prep ? 'prep' : '', isRec(a) ? 'recommended' : ''],
         disabled: !live,
         dataset: { zone: ls.zone },
-        title: `${L.STAT_LABELS[ls.zone]} 중점 ${ls.prep ? '대비 ' : ls.special ? '특별 ' : ''}레슨 · ${ls.turns}턴 · 목표 ${ls.target} · 퍼펙트 ${ls.cap}`,
+        title: `${L.zoneLabel(ls.zone)} 중점 ${ls.prep ? '대비 ' : ls.special ? '특별 ' : ''}레슨 · ${ls.turns}턴 · 목표 ${ls.target} · 퍼펙트 ${ls.cap}\n`
+          + `선수가 이 구역에 서 있을 확률 ×${weight} · 이 구역 스탯 상승 ${L.multText(mult)} · 예상 ${expText}명`,
         onclick: () => act(a),
       },
       h('span', { class: 'wl-tags' },
         ls.special ? h('span', { class: 'badge badge-gold' }, '★ 특별') : null,
         ls.prep ? h('span', { class: 'badge badge-warn' }, '대비 레슨') : null,
         recBadge(a)),
-      h('span', { class: 'wl-ico', 'aria-hidden': 'true' }, L.STAT_ICONS[ls.zone] ?? ''),
-      h('b', { class: 'wl-name' }, L.STAT_LABELS[ls.zone] ?? ls.zone),
-      h('span', { class: 'wl-sub tiny' }, ls.special ? h('span', { class: 'gold' }, `목표 ×${specialCfg.targetMult ?? 1.15} · 상승 ×${focusCfg.specialMult ?? 2}`)
-        : ls.prep ? (prepBoost(ls.zone) ? h('span', { class: 'warn' }, `대비 카드 ${prepBoost(ls.zone)}장 ×1.5`) : h('span', { class: 'muted' }, '대비 카드 배율 없음'))
-          : h('span', { class: 'muted' }, '기본 레슨')),
-      h('span', { class: 'wl-target' },
-        h('span', { class: 'wl-k tiny muted' }, '목표'), h('b', {}, ls.target)),
-      h('span', { class: 'wl-cap' },
-        h('span', { class: 'wl-k tiny muted' }, '퍼펙트'), h('span', {}, ls.cap)),
-      h('span', { class: 'wl-owners', title: owners.length ? `이 구역이 주 스탯이라 고유 카드 ×1.5인 선수: ${owners.map((p) => p.name).join(' · ')}` : '이 구역에서 ×1.5가 걸리는 고유 카드 없음' },
+      h('span', { class: 'wl-ico', 'aria-hidden': 'true' }, L.ZONE_ICONS[ls.zone] ?? ''),
+      h('b', { class: 'wl-name' }, L.zoneLabel(ls.zone)),
+      h('span', { class: 'wl-focus tiny' },
+        h('span', { class: 'muted' }, `서 있을 확률 ×${weight}`),
+        h('span', { class: ls.special ? 'gold' : 'good' }, `상승 ${L.multText(mult)}`)),
+      h('span', { class: 'wl-exp' },
+        h('span', { class: 'wl-k tiny muted' }, '예상 인원'), h('b', {}, expText), h('span', { class: 'small muted' }, '명')),
+      ls.special
+        ? h('span', { class: 'wl-target gold tiny' }, '목표 ', h('b', {}, ls.target), ` · 퍼펙트 ${ls.cap}`)
+        : ls.prep ? h('span', { class: 'wl-sub tiny' }, prepBoost(ls.zone) ? h('span', { class: 'warn' }, `대비 카드 ${prepBoost(ls.zone)}장 ×1.5`) : h('span', { class: 'muted' }, '대비 카드 배율 없음'))
+          : h('span', { class: 'wl-sub tiny muted' }, '기본 레슨'),
+      h('span', { class: 'wl-owners', title: owners.length ? `이 구역이 주 스탯이라 고유 카드 ×${data.lesson?.lesson?.unique?.mainMult ?? 1.5}인 선수: ${owners.map((p) => p.name).join(' · ')}` : '이 구역에서 ×1.5가 걸리는 고유 카드 없음' },
         h('span', { class: 'wl-owners-k tiny muted' }, '고유 ×1.5'),
         h('span', { class: 'wl-owners-av' }, owners.length ? owners.map((p) => avatar(p.portraitColor, p.name, 'xs')) : h('span', { class: 'tiny muted' }, '없음'))));
     });
@@ -114,16 +123,32 @@ export function renderWeek(root, ctx, { inert = false } = {}) {
   h('span', { class: 'tiny muted' }, '전원 체력'));
 
   const prepHint = view.nextMatch?.styleHint ? `상대 ${view.nextMatch.styleHint}` : '경계전 상대';
+  // 머리 줄: 턴 수 · 일반 목표 · 퍼펙트 한 번 (특별 구역 카드는 자기 목표를 따로 보여 준다)
+  const plainLesson = (view.lessons || []).find((l) => !l.special) || view.lessons?.[0] || null;
+  const lessonHead = plainLesson
+    ? h('span', { class: 'week-lhead' },
+      h('span', {}, `${plainLesson.turns}턴`),
+      h('span', {}, '목표 ', h('b', { class: 'wlh-target' }, plainLesson.target)),
+      h('span', { class: 'muted' }, `퍼펙트 ${plainLesson.cap}`))
+    : null;
   const headText = kind === 'prep'
     ? `대비 레슨 — ${prepHint}에 맞춘 대비 카드가 레슨 덱에 들어갑니다. 클리어하면 경계전 컨디션 +1`
-    : kind === 'lesson' ? `중점 구역을 고르세요 (${view.lessons?.[0]?.turns ?? '?'}턴). ★ 특별 구역을 중점으로 고르면 목표가 높은 대신 상승 ×${focusCfg.specialMult ?? 2}`
+    : kind === 'lesson' ? `${L.FOCUS_LABEL}을 고르세요`
       : '행동 하나를 고르세요. 휴식은 늘 열려 있습니다.';
+  const focusNote = kind === 'lesson' || kind === 'prep'
+    ? h('p', { class: 'week-focus-note tiny muted' },
+      `${L.FOCUS_LABEL}: 매 턴 선수가 그 구역에 서 있을 확률 ×${focusCfg.weight ?? 2} · 그 구역 스탯 상승 ${L.multText(focusCfg.mult ?? 1.5)} (기본 훈련 · 카드 모두).`,
+      kind === 'lesson' ? h('span', { class: 'gold' }, ` ★ 특별 구역을 고르면 상승 ${L.multText(focusCfg.specialMult ?? 2)} · 목표 ×${specialCfg.targetMult ?? 1.15}`) : null)
+    : null;
   const main = h('section', { class: ['og-panel', 'week-main', `wk-${kind}`] },
     h('div', { class: 'og-panel-head week-head' },
       h('h3', { class: 'week-title' }, `${view.week}주차 · `, h('span', { class: `wk-name wk-${kind}` }, L.WEEK_KIND_LABELS[kind] ?? kind ?? '')),
-      h('span', { class: 'small muted week-hint ellipsis' }, headText)),
+      h('span', { class: 'small muted week-hint ellipsis' }, headText),
+      kind === 'lesson' || kind === 'prep' ? lessonHead : null),
     kind === 'prep' ? prepPreview() : null,
-    h('div', { class: 'week-row' }, cardsRow, h('span', { class: 'week-sep', 'aria-hidden': 'true' }), restBtn),
+    h('div', { class: 'week-mid' },
+      h('div', { class: 'week-row' }, cardsRow, h('span', { class: 'week-sep', 'aria-hidden': 'true' }), restBtn),
+      focusNote),
     seasonPlan());
 
   // ---------- 아래 줄 ----------
@@ -165,7 +190,7 @@ export function renderWeek(root, ctx, { inert = false } = {}) {
     return act({ type });
   }
 
-  /** 대비 주: 그 종목 레슨에서 ×1.5 가 붙는 대비 카드 수 (cards.json mods.lessonMult) */
+  /** 대비 주: 그 구역에 선 대상에게 ×1.5 가 붙는 대비 카드 수 (cards.json mods.lessonMult) */
   function prepBoost(stat) {
     return (view.prepCards || []).filter((id) => (cardDefs.get(id)?.mods?.lessonMult?.stats || []).includes(stat)).length;
   }
@@ -276,7 +301,7 @@ export function renderWeek(root, ctx, { inert = false } = {}) {
         const def = cardDefs.get(c.cardId);
         return h('span', { class: ['deck-item', `fam-${c.family}`], title: (c.plus ? def?.descPlus : def?.desc) ?? '' },
           h('b', { class: 'ellipsis' }, `${c.name}${c.plus ? '+' : ''}`),
-          h('span', { class: 'tiny muted' }, L.CARD_FAMILY_LABELS[c.family] ?? c.family ?? ''));
+          h('span', { class: 'tiny muted ellipsis' }, [L.CARD_FAMILY_LABELS[c.family] ?? c.family ?? '', def ? targetText({}, def) : ''].filter(Boolean).join(' · ')));
       }))),
     { className: 'modal-lg' });
   }

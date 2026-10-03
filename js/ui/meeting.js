@@ -4,7 +4,7 @@
 //
 //   ┌ .meeting-cols (2단: 260 | 1fr) ───────────────────────────────────────────────┐
 //   │ 전술 지시 (select 6)   │ 포메이션 select  ·  라인업 보드 (끌어서 맞바꾸기, lineup.js)     │
-//   │                        │ 고유 카드 모드가 바뀌는 선수 = 슬롯 카드 아래 "고유 카드 모드 변경" │
+//   │                        │ 고유 카드 ×1.5 구역이 바뀌는 선수 = 슬롯 카드 아래 "고유 ×1.5 구역 변경" │
 //   └────────────────────────┴───────────────────────────────────────────────────────────┘
 //   [취소] [submitLabel]
 // 스킬 상점은 없다 (스킬은 상담에서 SP 로 산다).
@@ -41,19 +41,19 @@ export function meetingEditor(ctx, o) {
   // 적성: 런 선수의 aptitude (없으면 캐릭터 데이터). 배치 규칙 = 엔진 validateSquad (lineup.js canPlay)
   const aptOf = (pid, pos) => runById.get(pid)?.aptitude?.[pos] ?? charById.get(runById.get(pid)?.charId)?.aptitude?.[pos] ?? '-';
   const nameOf = (pid) => runById.get(pid)?.name ?? pid;
-  // 고유 카드: 덱에 주인 카드가 있는 선수만. 강화 모드 종목 = 주 스탯 쌍(cards.mainStatsOf) — 자리를 옮겨 쌍이 바뀌면 표시
+  // 고유 카드: 덱에 주인 카드가 있는 선수만. ×1.5 구역 = 포지션 주 스탯 쌍(cards.mainStatsOf, §14.10) — 자리를 옮겨 쌍이 바뀌면 표시
   const deckOwners = new Set((Array.isArray(state.deck) ? state.deck : []).map((e) => cardById.get(e.cardId)).filter((c) => c && c.family === 'unique').map((c) => c.ownerCharId));
   const mainsOf = (pos) => {
     try { return typeof runMod?.mainStatsOf === 'function' && pos ? runMod.mainStatsOf(pos) : null; } catch (_) { return null; }
   };
-  const statText = (arr) => (arr || []).map((k) => L.STAT_LABELS[k] ?? k).join('·');
+  const statText = (arr) => (arr || []).map((k) => L.STAT_LABELS[k] ?? k).join(' · ');
   function modeChange(pid, slot) {
     const p = runById.get(pid);
     if (!p || !deckOwners.has(p.charId)) return null;
     const before = mainsOf(p.position ?? (p.slot ? L.positionOfSlot(p.slot) : null));
     const after = mainsOf(L.positionOfSlot(slot));
     if (!before || !after || before.join() === after.join()) return null;
-    return `고유 카드 강화 모드 종목: ${statText(before)} → ${statText(after)}`;
+    return `고유 카드 ×1.5 구역: ${statText(before)} → ${statText(after)}`;
   }
 
   const seat = (from) => reseat(from, L.slotsOf(formation), aptOf, { fillAll: true, extraIds: allIds });
@@ -91,7 +91,7 @@ export function meetingEditor(ctx, o) {
               ? h('span', { class: 'tiny warn ellipsis' }, `← 원래 ${was ?? '-'}`)
               : h('span', { class: ['tiny', 'ellipsis', injured ? 'bad' : 'muted'] }, injured ? `결장 · 레슨 ${p.injuredTurns}`
                 : `체력 ${Math.round(Number(p?.stamina) || 0)}${mains.length ? ` · ${mains.map((k) => L.STAT_SHORT[k] ?? k).join('')}` : ''}`)),
-          chg ? h('span', { class: 'mode-chg', title: chg }, '고유 카드 모드 변경') : null,
+          chg ? h('span', { class: 'mode-chg', title: chg }, '고유 ×1.5 구역 변경') : null,
         ];
       },
       onChange: (next) => { assign = next; draw(); },

@@ -368,7 +368,8 @@ async function runScenario(browser, baseUrl, sc, prepared, opts) {
       // 보상 선수 이름 · 방침 설명이 말줄임(가로) · 줄 제한 넘침(세로, line-clamp)으로 잘렸는가 (§14.3 · LESSON_PROTO_PLAN §10.2)
       const clipped = [...document.querySelectorAll([
         ".skill-row .sk-nm", ".card-face .cf-name", ".card-face .cf-desc", ".card-face .cf-power", ".card-face .cf-target", ".card-face .cf-reason",
-        ".mini-card .mc-name", ".rw-pl-nm", ".policy-desc", ".ls-nm b", ".lesson-screen .tok-name",
+        ".mini-card .mc-name", ".rw-pl-nm", ".rw-pl-split", ".rw-pl-by", ".card-face .cf-cost", ".week-lesson .wl-focus", ".week-lesson .wl-target", ".week-lhead",
+        ".policy-desc", ".ls-nm b", ".lesson-screen .tok-name",
       ].join(", "))]
         .map((el) => {
           // 말줄임은 소수 픽셀만 넘쳐도 생긴다 → 정수 scrollWidth 대신 글자 Range 크기와 요소 크기(소수)를 비교

@@ -1,8 +1,8 @@
 // js/ui/screens/reward.js — 레슨 결과 · 보상 모달 (phase reward, 배경 = 레슨 화면 inert)
 // LESSON_PROTO_PLAN §6.3 "보상 모달" (openModal closable:false, 'modal-xl reward-modal'):
-//   ┌ ➡️ 패스 ★특별 레슨 · 퍼펙트!      점수 [█████████████|] 702 / 목표 429 / 퍼펙트 676      카드 12 · 쉬기 1 · 실패 0 ┐
+//   ┌ ➡️ 패스 중점 ★특별 레슨 · 퍼펙트!  점수 [█████████████|] 702 / 목표 495 / 퍼펙트 624      카드 12 · 벤치 1 · 실패 0 ┐
 //   │ TP +20 · 힌트 스루패스 Lv2 · 팀워크 +3 (레슨 중 +5) · 유대 오르넬라 +13 …                                          │
-//   │ (선수 7) 실루엔 +62 · 부 +18 …  자율 훈련 = "자율" 표시                                                               │
+//   │ (선수 7) 실루엔 +62 ➡️40 🦶22 / 기본 30 / 카드 32 · 부+18 …  (구역 스탯 상승 = 기본 훈련 + 분위기 + 카드)                │
 //   ├ 카드 1장을 고르세요 ─ [cardFace][cardFace +][cardFace 코치] [건너뛰기 TP +10] │ 고른 카드 설명                        ┤
 //   ├ 무료 강화 1장 (퍼펙트) ─ 덱 miniCard 8열 · 고른 카드 "강화 후" 한 줄                                                ┤
 //   └ 고른 것 요약 ───────────────────────────────────────────────────────────────────────────── [확인] ┘
@@ -26,11 +26,16 @@ export function uniqueNote(c, players) {
   return `${p?.name ?? '선수'} 고유 카드`;
 }
 
-/** "강화 후" 한 줄: 위력 35 → 44 · 문구 */
+/** 구역별 상승 { stat: n } → 많이 오른 순 n 곳 [[stat, n]] (0 이하는 뺀다, 같으면 STATS 순서) */
+export function topStats(byStat, n = 2) {
+  return L.STATS.map((k) => [k, Number(byStat?.[k]) || 0]).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).slice(0, n);
+}
+
+/** "강화 후" 한 줄: 1인 35 → 44 · 문구 */
 export function upgradeLine(c) {
   const up = c?.upgrade;
   if (!up) return '';
-  const pw = c.power != null && up.power != null && up.power !== c.power ? `위력 ${c.power} → ${up.power}` : '';
+  const pw = c.power != null && up.power != null && up.power !== c.power ? `1인 ${c.power} → ${up.power}` : '';
   const desc = up.desc && up.desc !== c.desc ? up.desc : '';
   return [pw, desc].filter(Boolean).join(' · ') || '강화판';
 }
@@ -112,19 +117,29 @@ export function renderRewardModal(ctx) {
   const chipRow = h('div', { class: 'rw-chips' }, chips);
 
   // ---------- 선수 7 ----------
-  // 선수 칩 (§14.13 perPlayer = { byStat, base, mood, card, sub, targeted, benched }): 구역 스탯 상승 = 기본 + 분위기 + 카드.
-  // 칩 개편 (byStat 상위 2개 아이콘 · 기본 / 카드) 은 ZU1.
+  // 선수 칩 (§14.16 · perPlayer = { byStat, base, mood, card, sub, targeted, benched }): 구역 스탯 상승 합 · 많이 오른 구역 2곳(아이콘) ·
+  // 기본(기본 훈련 + 분위기 몫) / 카드 · 부 스탯. 자세한 값은 title.
   const playerRow = h('div', { class: 'rw-players' }, (r.perPlayer || []).map((pp) => {
     const p = players.find((x) => x.id === pp.id) || {};
     const base = (pp.base || 0) + (pp.mood || 0);
-    const total = base + (pp.card || 0);
+    const card = pp.card || 0;
+    const total = base + card;
+    const top = topStats(pp.byStat, 2);
     const by = Object.entries(pp.byStat || {}).filter(([, n]) => n).map(([k, n]) => `${L.STAT_LABELS[k] ?? k} ${signed(n)}`).join(' · ');
-    return h('div', { class: ['rw-pl', total > 0 ? '' : total < 0 ? 'neg' : 'zero'], title: `${p.name ?? pp.id}: 기본 ${signed(base)} · 카드 ${signed(pp.card || 0)}${pp.sub ? ` · 부 스탯 +${pp.sub}` : ''}${by ? ` (${by})` : ''} · 대상 ${pp.targeted ?? 0}회${pp.benched ? ` · 벤치 ${pp.benched}턴` : ''}` },
-      avatar(p.portraitColor, p.name, 'sm'),
-      h('span', { class: 'rw-pl-nm' }, p.name ?? pp.id, h('span', { class: 'rw-pl-slot' }, p.slot ?? '')),
-      h('span', { class: 'rw-pl-gain' },
-        h('b', { class: total > 0 ? 'good' : total < 0 ? 'bad' : 'muted' }, signed(total)),
-        pp.sub ? h('span', { class: 'rw-pl-sub' }, `부+${pp.sub}`) : null));
+    return h('div', {
+      class: ['rw-pl', total > 0 ? '' : total < 0 ? 'neg' : 'zero'],
+      dataset: { pid: pp.id },
+      title: `${p.name ?? pp.id}: 구역 스탯 ${signed(total)} = 기본 훈련 ${signed(pp.base || 0)}${pp.mood ? ` · 분위기 ${signed(pp.mood)}` : ''} · 카드 ${signed(card)}`
+        + `${pp.sub ? ` · 부 스탯 +${pp.sub}` : ''}${by ? `\n${by}` : ''}\n대상 ${pp.targeted ?? 0}회${pp.benched ? ` · 벤치 ${pp.benched}턴` : ''}`,
+    },
+    avatar(p.portraitColor, p.name, 'sm'),
+    h('span', { class: 'rw-pl-nm' }, p.name ?? pp.id, h('span', { class: 'rw-pl-slot' }, p.slot ?? '')),
+    h('span', { class: 'rw-pl-gain' },
+      h('b', { class: total > 0 ? 'good' : total < 0 ? 'bad' : 'muted' }, signed(total)),
+      h('span', { class: 'rw-pl-by' }, top.map(([k, n]) => h('span', { class: 'rw-by', dataset: { stat: k }, title: `${L.zoneLabel(k)} ${signed(n)}` }, L.ZONE_ICONS[k] ?? L.STAT_SHORT[k] ?? k, h('i', {}, n))))),
+    h('span', { class: 'rw-pl-split' },
+      h('span', { title: '기본 훈련 (분위기 몫 포함)' }, `기본 ${base}`), ' / ', h('span', { title: '카드 상승 (실패 −5 포함)' }, `카드 ${card}`),
+      pp.sub ? h('span', { class: 'rw-pl-sub', title: '부 스탯 상승 (점수 밖)' }, ` · 부+${pp.sub}`) : null));
   }));
 
   const body = h('div', { class: 'reward-body' });

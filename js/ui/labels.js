@@ -142,9 +142,9 @@ export const POLICY_LABELS = { ace: '에이스형', team: '팀형', counter: '�
 export const POLICY_DESC = {
   ace: '한두 명을 확 키운다 — 호조 · 집중',
   team: '7명을 고르게 — 분위기',
-  counter: '수비진이 쌓고 공격진이 터뜨린다 — 탈취',
+  counter: '수비 구역에서 쌓고 공격 구역에서 터뜨린다 — 탈취',
   press: '몰아치고 내려서 정비 — 압박 단계',
-  poss: 'MF를 거쳐 끊기지 않게 — 점유',
+  poss: '패스 구역을 거쳐 끊기지 않게 — 점유',
 };
 /** 방침 표시 정보 { id, name, desc, buffs } — data.policies(있으면) 우선 */
 export function policyInfo(id, data) {
@@ -164,11 +164,36 @@ export const BUFF_LABELS = {
 };
 // 주 종류 (lesson.json weekKinds)
 export const WEEK_KIND_LABELS = { lesson: '레슨 주', free: '자유 주', prep: '대비 주' };
-// 카드 대상 종류 (cards.json target.kind)
-export const CARD_TARGET_LABELS = {
-  all: '전원', line: '라인', attack: '공격진', defense: '수비진', single: '지명', pair: '짝',
-  owner: '고유', tap: '지명 회복', none: '대상 없음',
-};
+// 카드 대상 종류 (cards.json target.kind, LESSON_PROTO_PLAN §14.6 · §14.16)
+export const CARD_TARGET_LABELS = { single: '단일', circle: '원', all: '전체', owner: '주인', none: '대상 없음' };
+// 원 크기 (cards.json target.size) — 작은 ≈ 2명 · 중간 ≈ 한 구역 · 큰 ≈ 이웃 두 구역
+export const CIRCLE_SIZES = ['small', 'medium', 'large'];
+export const CIRCLE_SIZE_LABELS = { small: '작은 원', medium: '중간 원', large: '큰 원' };
+// 훈련 구역 5곳 (data/lesson.json zones, 엔진 zones.ZONE_IDS = STATS 순서). 구역 = 그 스탯이 오르는 자리
+export const ZONE_IDS = STATS;
+export const ZONE_LABELS = { shoot: '슈팅 구역', dribble: '드리블 구역', pass: '패스 구역', defense: '수비 구역', physical: '피지컬 구역' };
+export const ZONE_ICONS = STAT_ICONS;
+// 공격 구역 · 수비 구역 (방침 판정, 엔진 lesson.ATTACK_ZONES · DEFENSE_ZONES)
+export const ATTACK_ZONES = ['shoot', 'dribble', 'pass'];
+export const DEFENSE_ZONES = ['defense', 'physical'];
+/** 레슨 주에 고르는 구역의 이름 (에이스형 버프 "집중" 과 헷갈리지 않게) */
+export const FOCUS_LABEL = '중점 구역';
+/** 구역 이름 "패스 구역" (모르는 id 는 그대로) */
+export function zoneLabel(zone) {
+  return ZONE_LABELS[zone] ?? (zone == null ? '' : String(zone));
+}
+/** 구역 목록 짧은 이름 "슈팅·드리블·패스" — 공격 구역 3곳이면 "공격 구역" */
+export function zonesText(list) {
+  const zs = Array.isArray(list) ? list : [];
+  if (zs.length === ATTACK_ZONES.length && ATTACK_ZONES.every((z) => zs.includes(z))) return '공격 구역';
+  if (zs.length === DEFENSE_ZONES.length && DEFENSE_ZONES.every((z) => zs.includes(z))) return '수비 구역';
+  return zs.map((z) => STAT_LABELS[z] ?? z).join('·');
+}
+/** 배율 표기 "×1.5" · "×2.0" (소수 1자리) */
+export function multText(x) {
+  const n = Number(x);
+  return Number.isFinite(n) ? `×${n.toFixed(1)}` : '';
+}
 // 카드 계열 (cards.json family)
 export const CARD_FAMILY_LABELS = {
   common: '공용', ace: '에이스형', team: '팀형', counter: '역습형', press: '압박형', poss: '점유형',

@@ -2,7 +2,7 @@
 //
 //   ┌ HUD: 종목 · ★특별 │ 턴 ●●●○○○ 4/6 │ 점수 [████▌···|····] 286 / 목표 429 / 퍼펙트 676 │ 버프 칩 ───────────────┐
 //   │ ┌ 경기장 (.pitch > .m-field — 경기 화면 마크업 복제, 우리 골 = 왼쪽) ─────────────┐ ┌ 이번 레슨 ───────────┐ │
-//   │ │  토큰 7 (자리 = lesson_layout.tokenSpot) · 훈련장 (drillZone) · 말풍선 · +N 팝  │ │ 선수 7: 체력 · 대상 · 실패율│ │
+//   │ │  토큰 7 (자리 = 뷰 positions, lesson_layout.tokenSpots) · 말풍선 · +N 팝        │ │ 선수 7: 체력 · 대상 · 실패율│ │
 //   │ └─────────────────────────────────────────────────────────────────────────────────┘ └ 덱 · 버림 · 팀워크 · 방침 ┘ │
 //   ├ 손패 dock: [덱 n][버림 n] │ 카드 176×204 (cards.cardFace, 4장 이상이면 겹침) │ 안내 · 미리보기 노트 │ [내기][쉬기][턴 끝] ┤
 //
@@ -19,7 +19,7 @@ import { h, avatar, bar, openModal, toast } from '../dom.js';
 import * as L from '../labels.js';
 import { ZONES } from '../layout.js';
 import { cardFace, miniCard } from '../cards.js';
-import { tokenSpot, drillSpots, drillZone, fxPlan, scoreAfterPlay, handStep, FIELD_PX, TOKEN_PX } from '../lesson_layout.js';
+import { tokenSpot, tokenSpots, fxPlan, scoreAfterPlay, handStep, FIELD_PX, TOKEN_PX } from '../lesson_layout.js';
 import { stamCls } from '../hud.js';
 import { uniqueNote } from './reward.js';
 
@@ -118,14 +118,8 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     h('div', { class: 'pl-box top' }), h('div', { class: 'pl-box bottom' }),
     h('div', { class: 'pl-goal top' }), h('div', { class: 'pl-goal bottom' }),
     h('div', { class: 'pl-spot top' }), h('div', { class: 'pl-spot bottom' }));
-  const zoneEls = drillZone(v.stat).map((z) => h('div', {
-    class: ['drill-zone', z.shape],
-    style: { left: `${z.x}%`, top: `${z.y}%`, width: `${z.w}%`, height: `${z.h}%` },
-  }));
-  const z0 = drillZone(v.stat)[0];
-  const drillLabel = z0 ? h('span', { class: 'drill-label', style: { left: `${z0.x + z0.w / 2}%`, top: `${z0.y + (z0.y < 50 && z0.h < 30 ? z0.h + 1 : 1)}%` } },
-    `${L.STAT_ICONS[v.stat] ?? ''} ${statName} 훈련장`) : null;
-  const drillLayer = h('div', { class: 'drill-layer', 'aria-hidden': 'true' }, zoneEls, drillLabel);
+  // [ZU1 다리] 종목 훈련장(drillZone)은 없어졌다 — 구역 바닥(.zone-pad)은 ZU2 가 이 층에 그린다.
+  const drillLayer = h('div', { class: 'drill-layer', 'aria-hidden': 'true' });
   const tokLayer = h('div', { class: 'tok-layer' });
   const popLayer = h('div', { class: 'pop-layer', 'aria-hidden': 'true' });
   const field = h('div', { class: 'm-field', onclick: (e) => { if (e.target === field || e.target.closest?.('.pitch-bg, .drill-layer')) cancelSelect(); } },
@@ -181,7 +175,8 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     return id;
   }
   const setBusy = (b) => { ui.busy = b; screen.classList.toggle('busy', b); };
-  const homeSpot = (p) => tokenSpot(p.slot, slots);
+  // [ZU1 다리] 토큰 자리 = 엔진 뷰 positions (구역 대형). 벤치 · 결장은 편성 자리 (벤치 칸은 ZU2)
+  const homeSpot = (p) => tokenSpots(v)[p.id] ?? tokenSpot(p.slot, slots);
   const playerOf = (id) => (v.players || []).find((p) => p.id === id);
   const runPlayer = (id) => (st().players || []).find((p) => p.id === id);
 
@@ -655,7 +650,8 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     renderTokens();
     renderSide();
     const targets = plan.play.targets;
-    const spots = drillSpots(v.stat, targets);
+    // [ZU1 다리] 대상은 이미 훈련 구역에 서 있다 — 달려가지 않고 제자리에서 훈련 동작 (§14.16)
+    const spots = Object.fromEntries(targets.map((id) => [id, spotOfTok(id)]));
     const stepA = () => {
       if (targets.length) {
         drillLayer.classList.add('active');
@@ -664,7 +660,6 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
           const el = tokEls.get(id);
           if (!el) continue;
           el.classList.add('drilling');
-          placeTok(el, spots[id]);
         }
       }
       // 쉬기 · 회복 카드 (대상 없음): 회복 팝은 바로
@@ -710,15 +705,17 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     };
     const stepD = () => {
       if (plan.turn && plan.turn.turn != null) {
-        const ticks = Object.entries(plan.turn.ticks || {}).filter(([, n]) => n > 0);
+        // 턴 끝 기본 훈련 (분위기 몫 포함) · 벤치 회복 (§14.4 · §14.5)
+        const ticks = Object.entries(plan.turn.base || {}).filter(([, n]) => n > 0);
         for (const [id, n] of ticks) pop(spotOfTok(id), `+${n}`, 'mood', 'small');
+        for (const [id, n] of Object.entries(plan.turn.bench || {})) if (n) pop(spotOfTok(id), `체력 +${n}`, 'heal', 'small');
         for (const [id, n] of Object.entries(plan.turn.heal || {})) if (n) pop(spotOfTok(id), `체력 +${n}`, 'heal', 'small');
         shown.score = vNew.score;
         shown.turn = vNew.turn;
         renderHud(shown.score);
         const flash = Object.keys(plan.turn.buffs || {});
         if (flash.length) renderChips(flash);
-        if (!ended) centerPop(ticks.length ? `턴 ${vNew.turn} — 분위기 +${ticks.reduce((a, [, n]) => a + n, 0)}` : `턴 ${vNew.turn}`, 'turn', 'mid');
+        if (!ended) centerPop(ticks.length ? `턴 ${vNew.turn} — 기본 훈련 +${ticks.reduce((a, [, n]) => a + n, 0)}` : `턴 ${vNew.turn}`, 'turn', 'mid');
         later(stepE, ticks.length ? LESSON_T.tick : LESSON_T.turn);
       } else {
         stepE();
@@ -727,7 +724,6 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     const stepE = () => {
       if (ended) {
         const status = plan.end?.status || vNew.status;
-        for (const [id, n] of Object.entries(plan.end?.auto || {})) if (n) pop(spotOfTok(id), `자율 +${n}`, 'auto', 'small');
         shown.score = vNew.score;
         renderHud(shown.score);
         centerPop(L.LESSON_STATUS_LABELS[status] ?? status, status === 'fail' ? 'bad' : status === 'perfect' ? 'gold' : 'good', 'big');

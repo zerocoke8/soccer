@@ -73,6 +73,11 @@
 .wk-name.wk-free { color: var(--good); }
 .wk-name.wk-prep { color: var(--warn); }
 .week-hint { min-width: 0; }
+/* 레슨 주 머리: 턴 수 · 일반 목표 · 퍼펙트 (한 번) */
+.week-lhead { display: flex; align-items: baseline; gap: 10px; margin-left: auto; flex: none; font-size: 13px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.week-lhead .wlh-target { font-size: 16px; }
+.week-mid { flex: none; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.week-focus-note { margin: 0; text-align: center; line-height: 1.4; }
 /* 카드 줄: 레슨 · 대비 = 종목 5장(≈147×260) · 자유 = 행동 3장(220×260), 가는 세로선 뒤 [휴식] */
 .week-row { flex: none; display: flex; justify-content: center; align-items: stretch; gap: 8px; }
 .week-sep { flex: none; width: 1px; margin: 18px 4px; background: var(--border); }
@@ -98,11 +103,15 @@
 .week-lesson .wl-ico { font-size: 38px; line-height: 1.1; margin-top: 2px; }
 .week-lesson .wl-name { font-size: 19px; }
 .wl-sub { min-height: 15px; white-space: nowrap; }
-.wl-target, .wl-cap { display: flex; align-items: baseline; gap: 6px; font-variant-numeric: tabular-nums; }
-.wl-target b { font-size: 26px; line-height: 1.1; }
-.wl-cap span:last-child { font-size: 14px; color: var(--muted); }
-.wl-k { min-width: 30px; text-align: right; }
-.wl-target { margin-top: auto; }
+/* 중점 효과 두 줄: 서 있을 확률 ×2 / 상승 ×1.5 (특별 ×2.0) */
+.wl-focus { display: flex; flex-direction: column; align-items: center; gap: 1px; line-height: 1.3; white-space: nowrap; }
+.wl-focus span:last-child { font-weight: 800; font-size: 12px; }
+/* 예상 인원 (엔진 getWeekView expected — 그 구역에 서 있을 기대 인원) */
+.wl-exp { display: flex; align-items: baseline; gap: 4px; margin-top: auto; font-variant-numeric: tabular-nums; }
+.wl-exp b { font-size: 26px; line-height: 1.1; }
+.wl-k { text-align: right; }
+.wl-target { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.wl-target b { font-size: 13px; }
 .wl-owners {
   display: flex; flex-direction: column; align-items: center; gap: 3px; align-self: stretch;
   margin-top: 4px; padding-top: 5px; border-top: 1px dashed var(--border);
@@ -365,13 +374,24 @@ button.card-face:disabled { cursor: default; }
 .cf-name { font-size: 15px; font-weight: 800; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cf-plus { margin-left: 2px; color: var(--gold); }
 .cf-meta { display: flex; align-items: center; gap: 4px; min-height: 16px; font-size: 10.5px; line-height: 15px; color: var(--muted); white-space: nowrap; overflow: hidden; }
-.cf-mode, .cf-bond, .cf-ex { padding: 0 5px; border-radius: 6px; font-weight: 800; }
-.cf-mode.power { background: rgba(229, 143, 208, .22); color: #f4b8e6; }
-.cf-mode.support { background: var(--panel-3); color: #c3cbd8; }
+.cf-bond, .cf-ex { padding: 0 5px; border-radius: 6px; font-weight: 800; }
 .cf-bond { background: rgba(124, 196, 255, .2); color: var(--accent-2); }
 .cf-ex { background: rgba(255, 179, 71, .18); color: var(--warn); }
-.cf-target { align-self: flex-start; margin-top: 3px; padding: 1px 8px; border-radius: 999px; background: rgba(255, 255, 255, .08); font-size: 11.5px; font-weight: 700; white-space: nowrap; }
+.cf-target { display: inline-flex; align-items: center; gap: 5px; align-self: flex-start; margin-top: 3px; padding: 1px 8px 1px 6px; border-radius: 999px; background: rgba(255, 255, 255, .08); font-size: 11.5px; font-weight: 700; white-space: nowrap; }
+/* 대상 아이콘 (§14.16): 원 3단계 크기 · 단일 = 점 · 전체 = 둥근 사각 · 주인 = 별 · 회복 = 초록 + */
+.cf-ticon { flex: none; display: inline-block; box-sizing: border-box; border: 1.5px solid currentColor; border-radius: 50%; opacity: .9; }
+.cf-ticon.circle { border-style: dashed; }
+.cf-ticon.sz-small { width: 7px; height: 7px; }
+.cf-ticon.sz-medium { width: 10px; height: 10px; }
+.cf-ticon.sz-large { width: 13px; height: 13px; }
+.cf-ticon.single { width: 7px; height: 7px; background: currentColor; box-shadow: 0 0 0 2px rgba(255, 255, 255, .08), 0 0 0 3.5px currentColor; margin: 0 2px; }
+.cf-ticon.all { width: 14px; height: 9px; border-radius: 3px; }
+.cf-ticon.owner { border: 0; border-radius: 0; width: auto; height: auto; font-style: normal; }
+.cf-ticon.owner::before { content: '★'; font-size: 10px; line-height: 1; color: var(--gold); }
+.cf-ticon.heal { border: 0; border-radius: 0; width: auto; height: auto; font-style: normal; }
+.cf-ticon.heal::before { content: '+'; font-size: 13px; font-weight: 900; line-height: 1; color: var(--good); }
 .cf-power { margin-top: 2px; font-size: 14px; font-weight: 800; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cf-pmult { margin-left: 6px; font-size: 10.5px; font-weight: 700; color: var(--gold); }
 .cf-power.muted { font-weight: 700; font-size: 13px; }
 .cf-cost { font-size: 12px; font-weight: 700; color: var(--warn); white-space: nowrap; }
 .cf-cost.none { font-weight: 400; color: var(--muted); }
@@ -427,14 +447,20 @@ button.mini-card { cursor: pointer; }
 .rw-chip.bad { color: var(--bad); border-color: rgba(255, 92, 92, .4); }
 .rw-players { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
 .rw-pl {
-  display: grid; grid-template-columns: 30px minmax(0, 1fr); grid-template-rows: auto auto; column-gap: 6px; align-items: center;
-  min-width: 0; padding: 4px 8px; border-radius: 9px; background: var(--panel-2); font-size: 13px; line-height: 17px; white-space: nowrap; font-variant-numeric: tabular-nums;
+  display: grid; grid-template-columns: 30px minmax(0, 1fr); grid-template-rows: auto auto auto; column-gap: 5px; align-items: center;
+  min-width: 0; padding: 4px 6px 4px 7px; border-radius: 9px; background: var(--panel-2); font-size: 13px; line-height: 17px; white-space: nowrap; font-variant-numeric: tabular-nums;
 }
 .rw-pl > .avatar { grid-row: 1 / span 2; }
 .rw-pl-nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 700; }
 .rw-pl-slot { margin-left: 4px; font-size: 10.5px; font-weight: 400; color: var(--muted); }
-.rw-pl-gain { display: flex; align-items: baseline; gap: 5px; min-width: 0; }
-.rw-pl-sub { font-size: 11px; color: var(--muted); }
+.rw-pl-gain { display: flex; align-items: baseline; gap: 4px; min-width: 0; }
+/* 많이 오른 구역 2곳 (아이콘 + 양) */
+.rw-pl-by { display: flex; gap: 3px; min-width: 0; overflow: hidden; font-size: 10.5px; letter-spacing: -.2px; color: #c9d2e0; }
+.rw-by { display: inline-flex; align-items: baseline; gap: 1px; }
+.rw-by i { font-style: normal; }
+/* 기본 / 카드 · 부 스탯 (아래 줄 — 아바타 아래까지 넓게) */
+.rw-pl-split { grid-column: 1 / -1; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 10.5px; line-height: 14px; color: var(--muted); }
+.rw-pl-sub { font-size: 10.5px; color: var(--muted); }
 .rw-pl.zero { opacity: .6; }
 .rw-auto { flex: none; padding: 0 5px; border-radius: 6px; font-size: 10px; line-height: 15px; font-weight: 700; background: rgba(124, 196, 255, .15); color: var(--accent-2); }
 .rw-none { display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; border-radius: 12px; background: var(--panel-2); }
