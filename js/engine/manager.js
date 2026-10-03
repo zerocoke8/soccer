@@ -1,5 +1,5 @@
 /**
- * manager.js — 감독 AI (LESSON_PROTO_PLAN §5.5). 순수 · 결정적이고 rng 를 쓰지 않는다.
+ * manager.js — 감독 AI (LESSON_PROTO_PLAN §5.5 · 레슨은 구역 방식 §14.14). 순수 · 결정적이고 rng 를 쓰지 않는다.
  *
  * recommend* 함수는 상태를 읽기만 하고 (뷰 · 미리보기만 부른다) 다음에 할 행동 하나를 돌려준다.
  * UI 는 그 결과에 "추천" 배지만 붙인다. autoStep 만 상태를 바꾼다 (lessonRun 공개 함수로 한 단계 진행 — 헤드리스 시뮬 · 테스트 ·
@@ -54,7 +54,7 @@ function lowestStamina(state, list) {
 }
 
 // ---------------------------------------------------------------------------
-// 레슨 카드 고르기 (§14.14) — [ZE2 다리] 구역 방식 첫 판. ZE5 가 §14.14 대로 다듬는다 (덜 큰 선수 보너스 Q1-b 등).
+// 레슨 카드 고르기 (§14.14)
 // ---------------------------------------------------------------------------
 
 /** 체력이 이 값 미만인 경기장 선수는 벤치 후보 (§14.1 BT) */
@@ -62,6 +62,15 @@ const BENCH_BELOW = 25;
 /** 대상 구역이 자기 포지션 주 스탯이면 1.2, 아니면 0.8 (§14.14 pref) */
 const PREF_MAIN = 1.2;
 const PREF_OTHER = 0.8;
+/**
+ * 덜 큰 선수 보너스 ([가정 Q1-b] §14.21): 대상 i 가 **자기 주 스탯 구역**에 서 있으면 상승에
+ * ((팀 평균 주 스탯 상승 + EVEN_K0) / (i 의 주 스탯 상승 + EVEN_K0))^EVEN_POW 를 곱한다 (pref 1.2 와 함께).
+ * 주 스탯 상승 = 지금 포지션의 주 스탯 2개 − 캐릭터 기본 스탯 (런 시작 값). 런 처음(모두 0)에는 1.
+ * EVEN_POW 1.75 · EVEN_K0 50 = 2-2-2 lesson_sim (200런 · 경기 포함) 에서 방침 5개 모두 고르게 크기 (주 스탯 상승 최저 / 최고) ≥ 0.60 이 되는
+ * 가장 약한 값 근처 (1.5 면 팀형 0.59, 2 면 0.63~0.66 — 대신 성장 · 부상이 조금씩 나빠진다).
+ */
+const EVEN_POW = 1.75;
+const EVEN_K0 = 50;
 
 /**
  * 카드 효과 · 방침 패시브의 가치 (초안 tools/drafts/lesson_sim.mjs value() 를 문서 상수 data.lesson.buffs 로 옮긴 것).
@@ -80,7 +89,7 @@ function buffValue(state, data, c) {
   const nAct = active.length;
   const lowSt = active.filter((p) => p.stamina < 50).length;
   const moodUnit = BD.moodK * data.lesson.lesson.cardGainScale;
-  const { f, T, effects, mods, consumes, zoneOf } = c;
+  const { f, T, effects, mods, consumes, zoneOf, healId } = c;
   let val = 0;
   for (const e of effects) {
     const when = e.when || "always";
@@ -114,7 +123,11 @@ function buffValue(state, data, c) {
         break;
       case "heal":
         if (e.n < 0) x = e.n * 0.6;
-        else if (e.to === "target" || e.to === "mostTired") x = Math.min(e.n, 40) * 0.6 + lowSt * 4;
+        else if (e.to === "target" && healId != null) {
+          // 회복 단일: 그 대상이 실제로 회복하는 양 (체력 100 에서 멈춤)
+          const hp = playerById(state, healId);
+          x = Math.min(e.n, 40, 100 - (hp ? Number(hp.stamina) || 0 : 0)) * 0.6 + lowSt * 4;
+        } else if (e.to === "target" || e.to === "mostTired") x = Math.min(e.n, 40) * 0.6 + lowSt * 4;
         else if (e.to === "all") x = e.n * nAct * 0.3 + lowSt * 2;
         else x = 8 + lowSt * 2;
         break;
@@ -148,9 +161,10 @@ function buffValue(state, data, c) {
 /**
  * 후보 점 1개의 점수 (§14.14 EV). 낼 수 없으면 null.
  *   EV = Σ gain_i × pref_i × (1 − f) − f × (5 + 40) + 버프 가치 − 0.15 × Σ cost − 10 × (체력 40 미만 대상 수)
+ *   pref_i = 주 스탯 구역이면 1.2 × even_i (덜 큰 선수 보너스 evenWeights, [가정 Q1-b]), 아니면 0.8
  *   방침별 한 줄: counter 탈취 ≥ 3이면 공격 구역 대상이 있는 카드 +30 · poss 실패 비용 + poss×8 (가드가 없을 때), 패스 구역 대상이 없는 카드 −min(2, poss)×8
  */
-function scoreDrop(state, data, hv, def, cand) {
+function scoreDrop(state, data, hv, def, cand, evenW) {
   const L = state.lesson;
   const pv = lesson.previewCard(state, data, { uid: hv.uid, at: cand.at || undefined, playerId: cand.playerId });
   if (!pv.ok) return null;
@@ -170,13 +184,13 @@ function scoreDrop(state, data, hv, def, cand) {
   let gain = 0;
   for (const t of pv.targets) {
     const p = playerById(state, t.id);
-    gain += t.gain * (cards.mainStatsOf(p.position).includes(t.zone) ? PREF_MAIN : PREF_OTHER);
+    gain += t.gain * (cards.mainStatsOf(p.position).includes(t.zone) ? PREF_MAIN * (evenW[t.id] ?? 1) : PREF_OTHER);
   }
   const cost = pv.targets.reduce((a, t) => a + t.cost, 0);
   let failLoss = data.lesson.lesson.failStatLoss + FAIL_EXTRA;
   if (state.policy === "poss" && T.length && !(Number(B.possGuard) > 0)) failLoss += poss * 8;
   let ev = gain * (1 - f) - f * failLoss;
-  ev += buffValue(state, data, { f, T, effects, mods, consumes, zoneOf });
+  ev += buffValue(state, data, { f, T, effects, mods, consumes, zoneOf, healId: pv.healId });
   ev -= COST_K * cost;
   ev -= LOW_TARGET_PENALTY * ps.filter((p) => p.stamina < 40).length;
   if (state.policy === "counter" && steal >= 3 && hasAttackZone) ev += 30;
@@ -185,7 +199,7 @@ function scoreDrop(state, data, hv, def, cand) {
 }
 
 /** 손패 카드 1장의 가장 좋은 후보 점. 회복 단일은 체력이 가장 낮은 선수 (출전 선수 먼저) 1명만 본다. */
-function scoreCard(state, data, hv) {
+function scoreCard(state, data, hv, evenW) {
   const def = lesson.lessonCardDef(state, data, hv.uid);
   let cands = lesson.dropCandidates(state, data, { uid: hv.uid });
   if (hv.heal) {
@@ -194,10 +208,34 @@ function scoreCard(state, data, hv) {
   }
   let best = null;
   for (const c of cands) {
-    const s = scoreDrop(state, data, hv, def, c);
+    const s = scoreDrop(state, data, hv, def, c, evenW);
     if (s && (!best || s.score > best.score)) best = s;
   }
   return best;
+}
+
+/** 캐릭터 기본 스탯 (런 시작 값 — run.buildRoster 와 같은 반올림) */
+function baseStatOf(data, p, stat) {
+  const ch = (data.characters || []).find((c) => c.id === p.charId);
+  return Math.round(Number(ch && ch.baseStats && ch.baseStats[stat]) || 0);
+}
+
+/** 선수의 런 동안 주 스탯 상승 (지금 포지션의 주 스탯 2개, 0 아래로는 세지 않는다) */
+export function mainGrowth(state, data, p) {
+  return Math.max(0, cards.mainStatsOf(p.position).reduce((a, s) => a + (Number(p.stats[s]) || 0) - baseStatOf(data, p, s), 0));
+}
+
+/**
+ * 덜 큰 선수 보너스 배율 { id: w } ([가정 Q1-b]). 팀 평균보다 덜 큰 선수 > 1, 더 큰 선수 < 1.
+ * w = ((평균 + EVEN_K0) / (그 선수 + EVEN_K0))^EVEN_POW — 7명 (결장 포함) 평균.
+ */
+export function evenWeights(state, data) {
+  const g = Object.fromEntries(state.players.map((p) => [p.id, mainGrowth(state, data, p)]));
+  const ids = Object.keys(g);
+  const avg = ids.reduce((a, id) => a + g[id], 0) / Math.max(1, ids.length);
+  const out = {};
+  for (const id of ids) out[id] = Math.round(Math.pow((avg + EVEN_K0) / (g[id] + EVEN_K0), EVEN_POW) * 1000) / 1000;
+  return out;
 }
 
 /** 회복 대상: 체력이 가장 낮은 선수 (출전 선수 먼저) */
@@ -232,9 +270,10 @@ export function recommendCard(state, data) {
     if (tired.length) return { kind: "bench", playerId: lowestStamina(state, tired).id };
   }
   const scored = [];
+  const evenW = evenWeights(state, data);
   for (const hv of view.hand) {
     if (!hv.playable) continue;
-    const s = scoreCard(state, data, hv);
+    const s = scoreCard(state, data, hv, evenW);
     if (s) scored.push(s);
   }
   // 압박형: 압박 ≥ 2이고 체력 40 미만 출전 선수가 있으면 라인 내리기 우선
@@ -254,11 +293,6 @@ export function recommendCard(state, data) {
 
 function teamTotal(state, stat) {
   return state.players.reduce((a, p) => a + (Number(p.stats[stat]) || 0), 0);
-}
-
-/** 주 스탯 합: 그 종목을 주 스탯 쌍에 가진 선수들의 합 */
-function mainStatTotal(state, stat) {
-  return state.players.reduce((a, p) => a + (cards.mainStatsOf(p.position).includes(stat) ? Number(p.stats[stat]) || 0 : 0), 0);
 }
 
 /** 다음 상대 대응 종목 (D34): 수비, 수비가 이미 7명 합 1위면 패스 */
@@ -302,8 +336,8 @@ export function recommendWeek(state, data) {
     }
     const cs = counterStat(state);
     if (stats.includes(cs)) return { type: "lesson", zone: cs, reason: "다음 상대 대응 구역" };
-    const zone = stats.slice().sort((a, b) => mainStatTotal(state, a) - mainStatTotal(state, b) || STATS.indexOf(a) - STATS.indexOf(b))[0];
-    return { type: "lesson", zone, reason: "주 스탯 합이 가장 낮은 구역" };
+    const zone = stats.slice().sort((a, b) => teamTotal(state, a) - teamTotal(state, b) || STATS.indexOf(a) - STATS.indexOf(b))[0];
+    return { type: "lesson", zone, reason: "7명 합이 가장 낮은 구역" };
   }
   // 자유 주
   const open = new Set(view.actions.map((a) => a.type));

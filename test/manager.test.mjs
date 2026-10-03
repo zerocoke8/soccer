@@ -1,4 +1,4 @@
-// test/manager.test.mjs — LESSON_PROTO_PLAN §5.5 · §9.3 (js/engine/manager.js 감독 AI, E5)
+// test/manager.test.mjs — LESSON_PROTO_PLAN §5.5 · §9.3 · §14.14 (js/engine/manager.js 감독 AI, E5 · ZE5)
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { loadData, clone, match } from "./helpers.mjs";
 import * as LR from "../js/engine/lessonRun.js";
 import * as M from "../js/engine/manager.js";
+import { mainStatsOf as cardsMainOf } from "../js/engine/cards.js";
 
 const data = loadData();
 const same = (a, b) => assert.equal(JSON.stringify(a), JSON.stringify(b));
@@ -111,52 +112,89 @@ test("감독 AI는 rng 를 쓰지 않는다 (Math.random · Date · rng import �
   for (const bad of ["Math.random", "Date", "createRng", "rngState", "rng.js", "document", "localStorage"]) assert.ok(!code.includes(bad), bad);
 });
 
-// zone-pending:ZE5 — 감독 AI 단일 · 회복 대상 (§14.14 후보 점). ZE5 가 고쳐서 다시 켠다.
-test.skip("탭 대상: 지명 = 주 스탯 쌍 선수 중 체력 최고 (같으면 성장률), 탭 회복 = 체력 최저", () => {
+/** 손패를 지정한 카드만으로 (나머지는 뽑을 더미로) */
+function keepHand(s, uids) {
+  const L = s.lesson;
+  for (const pile of ["drawPile", "discard", "hand"]) L[pile] = L[pile].filter((u) => !uids.includes(u));
+  L.drawPile.push(...L.hand);
+  L.hand = uids.slice();
+}
+/** 2-2-2 고정 배치: GK · DF1 수비, DF2 피지컬, MF1 패스, MF2 드리블, FW 둘 슈팅 */
+const LAYOUT = { p1: "defense", p2: "defense", p3: "physical", p4: "pass", p5: "dribble", p6: "shoot", p7: "shoot" };
+
+test("단일 · 회복 대상 (§14.14 후보 점): 단일 = EV 최고 선수 위 · 덜 큰 선수 보너스 [가정 Q1-b] · 회복 = 체력 최저", () => {
   const s = LR.createRun({ data, seed: 3, policy: "team" });
   s.weekOffer = { kind: "lesson", specials: [] };
   LR.applyWeekAction(s, data, { type: "lesson", zone: "pass" });
-  const L = s.lesson;
+  s.lesson.zones = { ...LAYOUT };
   const coaching = uidOf(s, "cd_coaching");
-  const keep = (uids) => {
-    for (const pile of ["drawPile", "discard", "hand"]) L[pile] = L[pile].filter((u) => !uids.includes(u));
-    L.drawPile.push(...L.hand);
-    L.hand = uids.slice();
-  };
-  keep([coaching]);
+  keepHand(s, [coaching]);
   for (const p of s.players) p.stamina = 90;
-  P(s, "p5").stamina = 95; // MF (pass 주 스탯) 중 체력 최고
-  P(s, "p1").stamina = 100; // GK 는 pass 가 주 스탯이 아니다
+  // 런 처음: 모두 주 스탯 상승 0 → 보너스 1
+  for (const w of Object.values(M.evenWeights(s, data))) assert.equal(w, 1);
+  // 패스 중점 (×1.5) 에 선 MF 실루엔 (패스 성장 1.3, 주 스탯 구역) 이 EV 최고
   let r = M.recommendCard(s, data);
   assert.equal(r.kind, "play");
-  same(r.taps, ["p5"]);
-  // 체력이 같으면 성장률 높은 쪽
-  P(s, "p5").stamina = 90;
-  P(s, "p4").stamina = 90;
-  const better = P(s, "p4").growth.pass >= P(s, "p5").growth.pass ? "p4" : "p5";
+  assert.equal(r.uid, coaching);
+  assert.equal(r.playerId, "p4");
+  same(r.at, LR.getLessonView(s, data).positions.p4);
+  // 실루엔이 이미 많이 컸으면 (주 스탯 +300) 보너스가 1 아래로 → 다른 선수를 고른다
+  const p4 = P(s, "p4");
+  p4.stats.pass += 150;
+  p4.stats.dribble += 150;
+  const w = M.evenWeights(s, data);
+  assert.ok(w.p4 < 1, `p4 ${w.p4}`);
+  for (const id of ["p1", "p2", "p3", "p5", "p6", "p7"]) assert.ok(w[id] > 1, `${id} ${w[id]}`);
+  assert.equal(M.mainGrowth(s, data, p4), 300);
   r = M.recommendCard(s, data);
-  same(r.taps, [better]);
-  // 탭 회복 카드: 체력 최저
+  assert.equal(r.kind, "play");
+  assert.notEqual(r.playerId, "p4");
+  const pv = LR.previewCard(s, data, { uid: r.uid, at: r.at, playerId: r.playerId });
+  assert.ok(pv.ok && pv.targets.length === 1 && pv.targets[0].id === r.playerId);
+  // 보너스는 주 스탯 구역에 선 대상에만: 고른 선수는 자기 주 스탯 구역에 서 있다
+  assert.ok(cardsMainOf(P(s, r.playerId).position).includes(LAYOUT[r.playerId]));
+  // 회복 단일: 체력이 가장 낮은 선수 (playerId)
   const cool = uidOf(s, "cd_cooldown");
-  keep([cool]);
+  keepHand(s, [cool]);
   P(s, "p6").stamina = 30;
   r = M.recommendCard(s, data);
   assert.equal(r.kind, "play");
-  same(r.taps, ["p6"]);
+  assert.equal(r.uid, cool);
+  assert.equal(r.playerId, "p6");
 });
 
-// zone-pending:ZE5 — 감독 AI 쉬기 → 벤치 (§14.14). ZE5 가 고쳐서 다시 켠다.
-test.skip("쉬기: 출전 평균 체력 < 40이면 첫 행동에서 쉬기, 1장 낸 뒤에는 턴 끝", () => {
+test("벤치 (§14.14): 카드를 내기 전 체력 < 25 경기장 선수를 최저부터 1명씩, 최대 2명 · 카드를 낸 뒤에는 벤치 없음", () => {
   const s = LR.createRun({ data, seed: 4, policy: "ace" });
   s.weekOffer = { kind: "lesson", specials: [] };
   LR.applyWeekAction(s, data, { type: "lesson", zone: "defense" });
+  s.lesson.zones = { ...LAYOUT };
   for (const p of s.players) p.stamina = 30;
   P(s, "p3").stamina = 10;
+  P(s, "p5").stamina = 20;
+  P(s, "p6").stamina = 24;
+  same(M.recommendCard(s, data), { kind: "bench", playerId: "p3" });
+  M.autoStep(s, data, {});
+  assert.deepEqual(s.lesson.bench, ["p3"]);
+  same(M.recommendCard(s, data), { kind: "bench", playerId: "p5" });
+  M.autoStep(s, data, {});
+  assert.deepEqual(s.lesson.bench, ["p3", "p5"]);
+  // 벤치가 찼다 (최대 2) → p6 (24) 은 벤치로 가지 않는다
   const r = M.recommendCard(s, data);
-  same(r, { kind: "rest", playerId: "p3" });
-  s.lesson.playedThisTurn = 1;
-  s.lesson.playsLeft = 1;
-  same(M.recommendCard(s, data), { kind: "endTurn" });
+  assert.notEqual(r.kind, "bench");
+  if (r.kind === "play") assert.ok(r.playerId !== "p3" && r.playerId !== "p5");
+  // 카드를 낸 뒤에는 벤치를 추천하지 않는다
+  const t = LR.createRun({ data, seed: 4, policy: "ace" });
+  t.weekOffer = { kind: "lesson", specials: [] };
+  LR.applyWeekAction(t, data, { type: "lesson", zone: "defense" });
+  for (const p of t.players) p.stamina = 30;
+  P(t, "p2").stamina = 5;
+  assert.equal(M.recommendCard(t, data).kind, "bench");
+  t.lesson.playedThisTurn = 1;
+  assert.notEqual(M.recommendCard(t, data).kind, "bench");
+  // 체력 25 이상이면 벤치 없음
+  t.lesson.playedThisTurn = 0;
+  P(t, "p2").stamina = 25;
+  assert.notEqual(M.recommendCard(t, data).kind, "bench");
 });
 
 test("주 고르기: 무료 외출 → 체력 → 특별 레슨 → 대응 종목, 자유 주 순서", () => {
