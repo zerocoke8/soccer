@@ -4,6 +4,7 @@
 > 기준 문서: [OUTGAME_LESSON_draft.md](OUTGAME_LESSON_draft.md) (L1~L31) · [OUTGAME_CARDS_draft.md](OUTGAME_CARDS_draft.md) (66장) · [ARCHITECTURE.md](ARCHITECTURE.md)
 > 사용자 결정 (2026-10-02): **A** 별도 브랜치에서 만들고 다른 주소(`/soccer/lesson/`)에 올린다 · 두 번에 나눠 1차 먼저. **C** 콘텐츠 결정은 추천대로 (L31).
 > **2026-10-04 구역 방식 개편 (L32~L36)**: [§14](#14-구역-방식-개편-l32l36)가 §4 · §5 · §6.3 · §9 · §10 · §12의 해당 부분(대상 지정 · 종목 · 쉬기 · 자율 훈련 · 수치)을 대신한다.
+> **2026-10-04 코치 지원 · 컷인 · 작은 원 카드 (L37 · L38)**: [§15](#15-코치-지원--컷인-l37--작은-원-카드-l38) — 레슨당 2~4번 코치가 손패 카드에 붙어 그 턴만 강화되고, 내면 컷인과 코치 능력. 카드 66장 → 68장.
 > 표기: **[구현 결정]** = 기획서에 없거나 서로 다른 것을 이 계획이 정한 값. 프로토타입을 해 본 뒤 바꿀 수 있다. 수치는 모두 출발점이다. 밸런스는 조정하지 않고, 시뮬 결과만 보고한다.
 
 ---
@@ -2185,3 +2186,352 @@ y496 ├ dock: [덱][버림] │ 손패 (끌어서 경기장에) │ 안내 · �
 - ZI [발견 · 밸런스 때]: 감독 AI 후보 점(두 구역 가운데 · 두 선수 가운데)은 가장자리 선수가 원 테두리에 거의 닿는 자리가 많다 — 큰 원(17u)이 22.7u 이웃 두 구역의 4명 무리 둘을 다 잡는 여유는 0.15u(약 1.5px). 브라우저 점검에서 추천 자리와 0.03~0.4% 다른 자리(터치 정수 px)에 놓으면 가장자리 1명이 빠졌다 (화면 미리보기는 늘 실제와 같아 사람은 보고 고칠 수 있다). 반지름을 17.5u 로 올리면 여유 0.65u(≈6px)이고 세 번째 구역(24u)은 그대로 밖이다 — 수치는 바꾸지 않았다.
 - ZI: [가정 Q1] 기본값 확인 — 흩어지기 가중치는 `lesson.json zones.weights`(GK = DF 와 같은 `{shoot 5, dribble 10, pass 20, defense 40, physical 25}`), config.json 은 그대로. 감독 AI 덜 큰 선수 보너스(ZE5, 지수 1.75)로 2-2-2 고르게 크기(가장 덜 큰 / 가장 많이 큰 주 스탯) = 0.62~0.67 (ace 0.65 · team 0.63 · counter 0.67 · press 0.63 · poss 0.62, 기준 0.60 이상).
 - ZI: 문서 — ARCHITECTURE §20 (구역 방식 요약 · zones.js · 저장 v2 · lessonUi · 시나리오 · shot 검사 · lesson_play · 테스트 283), README (구역 방식 조작 · 테스트 수 · 도구), OUTGAME_CARDS_draft 표 66장의 대상 · 1인 위력 · 1인 비용을 `data/cards.json` 과 대조 (모두 같음, 고유 35/44 · 비용 14/21, 목표 · 상한 430/520 · 510/620 · 600/730 = `lesson.json`). `zone-pending` 0건.
+
+---
+
+## 15. 코치 지원 · 컷인 (L37) · 작은 원 카드 (L38)
+
+> 상태: 구현 계획 · 2026-10-04 · 브랜치 `outgame-lesson`. 기준: [OUTGAME_LESSON_draft.md](OUTGAME_LESSON_draft.md) L37 · L38 (사용자 결정 2026-10-04: 빈도 레슨당 2~4번 · 코치별 추가 능력은 출발점 표로 · 작은 원 크기는 그대로, 공용 카드 1~2장 추가 · 단일 카드 몇 장 변환). 조사: [RESEARCH_gakumas_trainer.md](RESEARCH_gakumas_trainer.md) §3 "스킬카드 서포트".
+> 표기는 §14와 같다. **[가정]** = 기획자가 아직 정하지 않은 값 (사용자: "세부적인 건 어차피 나중에 바꿀 테니" — 나중에 한 번에 바꾼다). **[구현 결정]** = 이 계획이 정한 세부. 둘 다 §15.12에 모았다.
+> 밸런스는 조정하지 않는다. 시뮬은 전 / 후만 보고한다.
+> 여기 적지 않은 것은 §14 그대로다. 경기 쪽 파일(§0) · `data/config.json`은 바꾸지 않는다.
+
+### 15.0 한눈에
+
+| 무엇 | 규칙 |
+|---|---|
+| 언제 붙나 | 레슨 시작에 **붙을 턴 2~4개**를 정해 둔다 (rng, 화면에 안 보임). 그 턴의 시작(뽑기 · 죽은 카드 다시 뽑기 뒤)에 코치 1명이 손패 1장에 붙는다 |
+| 누가 | 편성 코치 중 1명 — 레어도 가중 **SSR 3 · SR 2 · R 1**, 이번 레슨에 이미 붙은 코치는 ×0.5 [가정] |
+| 어느 카드 | 그 코치 능력이 의미 있는 손패 카드 중 균등, **그 코치 자신의 코치 카드는 ×3** [가정] |
+| 붙으면 | 그 카드가 **이번 턴만 한 단계 강화** (강화 전 카드 → 강화판, 이미 강화판 · 강화 불가 → 위력 +20%). 비용은 그대로. 카드에 코치 얼굴 칩 |
+| 내면 | **코치 컷인** (첫 번 0.9초 · 다음부터 0.6초, 탭으로 넘김) → 카드 처리에 **코치 추가 능력**이 얹힌다 → 그 코치 **유대 +5** |
+| 안 내면 | 턴 끝에 떨어진다 (손패와 함께 버린 더미로, 강화도 사라짐) |
+| 작은 원 카드 | 새 공용 2장 (**2인 1조 드릴** · **짝 스트레칭**) + 단일 → 작은 원 2장 (**되찾기 6초** · **골목 슈팅**). 66장 → **68장**. 작은 원 카드 4장 → 8장 |
+
+### 15.1 붙는 규칙 (엔진 `lesson.js`)
+
+**① 붙을 턴 정하기 — `startLesson`, 덱 섞기 바로 뒤 · 1턴 시작 전**
+
+```
+coaches = state.supports 중 lesson.json attach.abilities 에 능력이 있는 코치 (편성 순서)
+if !attach.enabled || coaches 가 비었으면 → L.attach = { turns: [], … }, rng 를 쓰지 않는다
+k     = rng.int(attach.count.min, attach.count.max)            // 2~4 균등 [가정]
+k     = min(k, L.turns)
+turns = rng.shuffle([1 … L.turns]).slice(0, k) 를 오름차순     // 서로 다른 턴
+```
+
+- **턴마다 확률(0.4)이 아니라 레슨 시작에 횟수를 정하는 이유** [구현 결정]: 기획 결정은 "레슨당 2~4번"이다. 턴마다 독립 0.4면 6턴 레슨의 23%가 0~1번, 4%가 5번 이상이라 약속을 자주 어긴다 (이항분포 B(6, 0.4): P(≤1) = 0.233, P(≥5) = 0.041). 미리 정하면 끝까지 간 레슨은 늘 2~4번 붙고, 평균(3번)은 턴당 0.4~0.5와 같다.
+- 붙을 턴은 화면에 보이지 않는다 (학마스처럼 "이번 턴에 붙을까"는 모른다).
+- 퍼펙트로 일찍 끝나거나 출전 0명으로 끝나면 남은 턴의 붙기는 없다.
+- 코치가 없는 상태(테스트 픽스처 · 편성 0명)면 rng 소비가 예전과 똑같다 → 기존 고정 rng 기대값 테스트 중 코치 없는 것은 그대로 통과한다.
+
+**② 붙이기 — `beginTurn`, ④ 죽은 카드 다시 뽑기 뒤 · ⑤ playsLeft 앞**
+
+```
+if L.turn ∉ L.attach.turns → 끝
+pairs = coaches 중 붙을 수 있는 손패 카드 (아래 needs) 가 1장 이상인 코치
+if pairs 가 비었으면 → 다음 턴으로 미룬다 (L.turn + 1 ≤ L.turns 이고 아직 목록에 없으면 turns 에 넣는다), 끝
+coach = rng.weighted(pairs, w_c)     w_c = attach.rarityWeight[rarity] × (이번 레슨 붙은 적 있으면 attach.repeatWeight : 1)
+card  = rng.weighted(그 코치의 후보 카드, w_k)   w_k = (그 코치 자신의 코치 카드면 attach.ownCardWeight : 1)
+L.attach.cur = { uid, supportId, turn, upgrade }    // upgrade: "plus" | "pct" | "none" (§15.2)
+fx.push({ t: "attach", uid, supportId })             // draw fx 뒤
+```
+
+- 코치 레어도는 `data/supports.json rarity`다 (하르나 · 오르넬라 SSR, 셀리아 · 바르바라 · 루미 SR, 한나 · 조이 · 이레네 R). 6명 편성이 SSR 2 · SR 2 · R 2면 SSR 한 명의 몫 25%, R 한 명 8%다.
+- **돌파는 프로토타입에 없다.** 생기면 `w_c × (1 + attach.lbWeight × 돌파 단계)`로 붙을 몫을 키운다 (스키마만 예약, §15.3).
+- **"구역이 맞는 카드" 우선으로 고르지 않는 이유** [구현 결정]: 원 카드의 대상은 놓는 자리에서 정해지므로 턴 시작에는 "코치 타입 구역에 맞는 카드"를 알 수 없다. 대신 (1) 능력이 헛도는 카드에는 붙지 않게 `needs`로 거르고 (2) 자기 코치 카드에는 잘 붙게(×3) 해 "하르나가 인터벌 슈팅에 붙었다" 같은 장면을 만든다. 나머지는 균등이라 읽기 쉽다.
+- **needs** (능력 데이터 필드, §15.3):
+
+| needs | 붙을 수 있는 카드 |
+|---|---|
+| 없음 | 손패 전부 (위력 카드 · 효과 카드 · 회복 카드 · 대비 카드) |
+| `"power"` | 위력이 있는 카드 (`power != null` — 단일 · 원 · 전체 · 주인). 회복 단일 · 대상 없음 카드는 안 된다 |
+| `"fail"` | `"power"`이면서 `mods.noFail`이 없는 카드 (바르바라 — 이미 실패 없는 카드에는 붙지 않는다) |
+
+- 손패 카드는 턴 시작에 모두 낼 수 있는 카드다 (죽은 카드는 이미 다시 뽑았다). 행동 중 낼 수 없게 된 카드(주인을 벤치로 보냄)에도 붙은 채로 남는다.
+
+**③ 떨어지기**
+
+| 언제 | 처리 |
+|---|---|
+| 그 카드를 냈다 | 컷인 · 능력 · 유대 (§15.4) 뒤 `cur = null` |
+| 턴 끝 ⑤ 손패 버리기 | `cur = null` (강화도 사라진다 — 덱의 카드는 바뀌지 않는다) |
+| 부상으로 그 고유 카드가 `removed`로 갔다 | `cur = null` |
+| 레슨 끝 | `cur = null` |
+
+### 15.2 "이번 턴만 한 단계 강화"
+
+`resolveEntry(state, data, entry)`가 `entry.uid === L.attach.cur?.uid`를 보고 정한다. 덱(`state.deck`)의 `plus`는 바꾸지 않는다.
+
+| 붙은 카드 | upgrade | 결과 |
+|---|---|---|
+| 강화 전이고 강화할 수 있다 (`canUpgrade`) | `"plus"` | 그 턴 동안 **강화판** (`resolveCardDef({ plus: true })` — 위력 · effects · 문구 모두. 코치 카드는 지금처럼 × 1.25) |
+| 이미 강화판이거나 강화할 수 없다 (대비 카드) · 위력 있음 | `"pct"` | 1인 위력 × (1 + `attach.overPct` 0.2) [가정] — §14.7 3번의 `p_i`에 곱한다 (focus 몫 더하기 전) |
+| 이미 강화판 · 위력 없음 | `"none"` | 강화 없음, 능력만 |
+
+- **비용은 바뀌지 않는다.** `costBase`는 강화 전 기본 위력(`basePower`)을 쓰므로 강화판이어도 체력 비용이 같다 (§14.7 4번 그대로). 학마스처럼 "공짜로 한 단계".
+- 유대 80판 코치 카드도 같다 (유대 80판 → 그 강화판).
+- `upgrade`는 붙는 순간 정해 `cur`에 저장한다 (뷰 · 미리보기 · 실제가 같다).
+
+### 15.3 데이터 (`data/lesson.json` — version 2 그대로, 키 추가)
+
+```jsonc
+"attach": {
+  "enabled": true,
+  "count": { "min": 2, "max": 4 },                       // 레슨당 붙는 횟수 [가정]
+  "rarityWeight": { "SSR": 3, "SR": 2, "R": 1 },          // [가정]
+  "repeatWeight": 0.5,                                    // 이번 레슨에 이미 붙은 코치 [가정]
+  "ownCardWeight": 3,                                     // 그 코치 자신의 코치 카드 [가정]
+  "overPct": 0.2,                                         // 이미 강화판 · 강화 불가 카드의 위력 + [가정]
+  "bond": 5,                                              // 붙은 카드를 냈을 때 그 코치 유대 [가정]
+  "cutinMs": { "first": 900, "repeat": 600 },             // UI 만 읽는다 [가정]
+  "abilities": {
+    "sp_coach_harr":     { "name": "골문을 보는 눈", "text": "슈팅 구역 대상 +50%",       "needs": "power", "mods": { "lessonMult": { "stats": ["shoot"], "mult": 1.5 } } },
+    "sp_wind_dancer":    { "name": "바람의 스텝",    "text": "다음 턴 손패 +1",           "effects": [{ "type": "drawNext", "n": 1 }] },
+    "sp_elder_sage":     { "name": "빈 공간의 지혜", "text": "팀워크 +3 · 50%로 힌트",    "effects": [{ "type": "teamwork", "n": 3 }, { "type": "hint", "chance": 0.5 }] },
+    "sp_iron_captain":   { "name": "다치지 않는 법", "text": "이 카드 실패 없음",         "needs": "fail",  "mods": { "noFail": true } },
+    "sp_mountain_monk":  { "name": "산사의 호흡",    "text": "대상 전원 체력 +10",        "needs": "power", "effects": [{ "type": "heal", "to": "targets", "n": 10 }] },
+    "sp_bard_lumi":      { "name": "응원의 노래",    "text": "25%로 컨디션 +1",           "effects": [{ "type": "condition", "n": 1, "chance": 0.25 }] },
+    "sp_street_striker": { "name": "뒷골목 근성",    "text": "점수가 목표 미만이면 +50%", "needs": "power", "mods": { "underdog": 0.5 } },
+    "sp_river_scholar":  { "name": "기록의 수식",    "text": "다음 카드 위력 +30%",       "effects": [{ "type": "nextPct", "pct": 0.3 }] }
+  }
+}
+```
+
+- 능력 = `{ name, text, needs?, mods?, effects? }`. `name` · `text`는 컷인 · 카드 칩 · 미리보기 노트에 쓰는 한국어 (이름은 모두 [가정]).
+- **mods**는 카드 mods 말을 그대로 쓴다 — `lessonMult`(대상 구역별 배율) · `noFail` · `underdog`. 카드 자신의 mods와 **따로** 곱한다 (대비 카드의 `lessonMult`와 하르나가 겹치면 둘 다, 조이 카드의 `underdog`과 조이 능력이 겹치면 ×1.5 × 1.5).
+- **effects**는 카드 effects 말을 그대로 쓴다 — `drawNext` · `teamwork` · `nextPct` · `heal`. **새 말 3개**:
+
+| 새 말 | 모양 | 뜻 | 어디에 쓸 수 있나 |
+|---|---|---|---|
+| `heal.to: "targets"` | `{ type: "heal", to: "targets", n }` | 이 카드의 대상 T 중 결장이 아닌 선수 전원 체력 +n (실패자 포함) | 카드 · 능력 (`heal.to` 닫힌 목록에 추가) |
+| `hint` | `{ type: "hint", chance }` | rng.chance(chance) 성공이면 그 코치의 힌트 1개를 **레슨이 끝날 때** 받는다 (§15.5) | 능력만 (카드에 쓰면 검증 오류 — 어느 코치인지 알 수 없다) |
+| `condition` | `{ type: "condition", n, chance? }` | (chance가 있으면 rng.chance 성공일 때) `state.condition += n` (0~4에서 멈춤) — 바로 다음 상승부터 컨디션 배율이 바뀐다 | 카드 · 능력 |
+
+- 능력 effects에는 `when`을 쓰지 않는다 — 컷인은 낸 순간 터지므로 카드가 실패해도 능력은 모두 발동한다 (하르나 ×1.5는 실패자에게 원래 상승이 없어 의미 없음) [구현 결정].
+- **표 값은 각 코치의 지금 레어도 기준**이다. 레어도 · 돌파에 따른 능력 크기 차이는 이번에 넣지 않는다 — 돌파가 생기면 `abilities[id].lb = [{ 덮어쓸 mods · effects }, …]`(단계별)로 넣는다 (스키마 예약, 지금 검증은 `lb`가 있으면 오류).
+- 검증 (`cards.validateAttachData(data)` 새 export, `lessonRun` 데이터 검사에서 부른다): `abilities` 키 ⊂ `data.supports` id, `needs ∈ {power, fail}`, mods 키 ⊂ `{lessonMult, noFail, underdog}` (값 검사는 `cards.MOD_KEYS`), effects는 `checkEffects` + 위 새 말, `count.min ≤ count.max`, 가중치 ≥ 0.
+
+### 15.4 붙은 카드를 냈을 때 (`playCard` — §14.7에 끼우는 자리)
+
+| §14.7 단계 | 더하는 것 |
+|---|---|
+| 0. 맨 앞 | `fx.push({ t: "cutin", supportId, uid, cardId, name, text, repeat })` — `repeat` = 이번 레슨 앞선 컷인 수 (0 = 첫 컷인). 비용 fx보다 **앞** |
+| 1. 검증 | 그대로 |
+| 3. 1인 위력 | `upgrade == "pct"`면 `p_i × (1 + overPct)` (focus 몫 전) |
+| 5. 실패율 | `noFail = mods.noFail ‖ 능력 mods.noFail ‖ B.nextNoFail` |
+| 6. 배율 M_i | `× (능력 underdog && score < target ? 1 + underdog : 1)` · `× (능력 lessonMult && z_i ∈ stats ? mult : 1)` — 대상마다. rows에 `attachMult`(그 대상에 걸린 능력 배율, 없으면 1) |
+| 12. 카드 effects 뒤 | **12b. 능력 effects** (나열 순서, rng는 hint · condition의 chance만) |
+| 12c. 유대 | 그 코치 `bond += attach.bond + getModifier("bondGain")` (0~100). fx `{ t: "bond", supportId, n }`. 그 코치 자신의 코치 카드면 기존 `bond.play` +8도 따로 (+13) |
+| 13. 기록 | `L.attach.cur = null`, `L.attach.log`의 그 항목 `played: true`, `L.stats.cutins += 1` |
+
+- 새 fx: `{ t: "attach", uid, supportId }`(턴 시작) · `{ t: "cutin", … }` · `{ t: "bond", supportId, n }` · `{ t: "hint", supportId, src: "cutin" }`(성공했을 때만) · `{ t: "condition", n, src: "cutin" }`(바뀌었을 때만). 회복 · 팀워크 · 버프 fx는 예전 모양 그대로.
+- rng 순서: 실패 판정 → 부상 판정 → 카드 effects → 능력 effects (hint · condition의 chance). 같은 rngState면 같은 결과.
+- 퍼펙트 판정 · 턴 끝 진행은 그대로 (능력의 상승도 같은 카드 처리 안이다).
+
+**8명 능력 — 출발점 표 (모두 [가정], 기획자 표 그대로)**
+
+| 코치 (레어도 · 타입) | 능력 이름 | 효과 | 데이터 | needs |
+|---|---|---|---|---|
+| 하르나 (SSR · 슈팅) | 골문을 보는 눈 | 슈팅 구역에 선 대상 상승 ×1.5 | mods `lessonMult {shoot} ×1.5` | power |
+| 셀리아 (SR · 드리블) | 바람의 스텝 | 다음 턴 손패 +1 | `drawNext 1` | — |
+| 오르넬라 (SSR · 패스) | 빈 공간의 지혜 | 팀워크 +3 (카드 효과 팀워크처럼 레슨 팀워크 상한 8과 별개) · 50%로 힌트 1 | `teamwork 3`, `hint 0.5` | — |
+| 바르바라 (SR · 수비) | 다치지 않는 법 | 이 카드 실패 판정 없음 | mods `noFail` | fail |
+| 한나 (R · 피지컬) | 산사의 호흡 | 대상 전원 체력 +10 | `heal targets 10` | power |
+| 루미 (SR · 피지컬 [가정, L28]) | 응원의 노래 | 25%로 컨디션 +1 | `condition 1, chance 0.25` | — |
+| 조이 (R · 슈팅) | 뒷골목 근성 | 점수가 목표 미만이면 상승 ×1.5 | mods `underdog 0.5` | power |
+| 이레네 (R · 패스) | 기록의 수식 | 다음 카드 위력 +30% | `nextPct 0.3` (지금 카드의 버프 소비 뒤에 걸리므로 **다음** 카드에) | — |
+
+- 오르넬라 힌트 50%, 루미 25%는 기획자 표의 "힌트 기회" · "낮은 확률"을 숫자로 옮긴 것이다 [가정].
+- 이레네 `nextPct`는 실루엔 고유 카드와 더해진다 (§14.7 6번 `1 + nextPct`).
+
+### 15.5 상태 · 뷰 · 저장 · lessonRun
+
+**LessonState 추가**
+
+```jsonc
+"attach": {
+  "turns": [2, 4, 5],                                    // 붙을 턴 (레슨 시작에 정함, 미루면 늘어남)
+  "cur": { "uid": "k12", "supportId": "sp_coach_harr", "turn": 4, "upgrade": "plus" },   // 없으면 null
+  "count": { "sp_coach_harr": 1 },                       // 이번 레슨 코치별 붙은 횟수 (repeatWeight)
+  "log": [ { "turn": 2, "supportId": "sp_elder_sage", "uid": "k3", "cardId": "cd_one_two", "played": true } ],
+  "hints": ["sp_elder_sage"]                             // 컷인 힌트 성공 — 레슨 끝에 lessonRun 이 힌트로 바꾼다
+},
+"stats": { …, "attaches": 3, "cutins": 2 }
+```
+
+- 저장: `lessonRun.version` 2 그대로. `L.attach`가 없는 저장본(C1 전에 저장한 레슨 중 상태)은 `{ turns: [], cur: null, count: {}, log: [], hints: [] }`로 읽는다 → 이번 레슨은 붙기 없음 [구현 결정]. `stats.attaches` · `cutins`가 없으면 0.
+- 뷰 · 미리보기 · `dropCandidates` · 감독 AI는 rng를 쓰지 않는다 (§14.15 그대로). 붙을 턴(`turns`)은 뷰에 내보내지 않는다.
+
+**뷰**
+
+```jsonc
+getLessonView → { …,
+  attach: { uid, supportId, name: "코치 하르나", short: "하르나", color: "#ff7a3d", coachType: "shoot",
+            ability: { name: "골문을 보는 눈", text: "슈팅 구역 대상 +50%" }, upgrade: "plus" } | null,
+  cutins: 2,                                             // 이번 레슨 컷인 수
+  hand: [ { …, plus: true, attach: { supportId, short, color, abilityText, upgrade } | null } ] }
+  // 붙은 카드의 power · desc 는 강화된 값, cost 는 그대로
+previewCard → { …, attach: { supportId, name, text, effects: [능력 effects] } | null,
+  targets: [ { …, attachMult } ], notes: [ "하르나 지원 · 슈팅 구역 ×1.5", … ] }
+```
+
+- `short` = 이름의 마지막 낱말 ("코치 하르나" → "하르나"), `coachType` = 그 코치의 코치 카드 타입 (루미 = 피지컬), `color` = `portraitColor`.
+- 노트 문구 (맨 앞 줄): "하르나 지원 · 슈팅 구역 ×1.5" / "셀리아 지원 · 다음 턴 손패 +1" / "오르넬라 지원 · 팀워크 +3 · 힌트 50%" / "바르바라 지원 · 실패 없음" / "한나 지원 · 대상 체력 +10" / "루미 지원 · 컨디션 +1 25%" / "조이 지원 · 목표 미만 ×1.5" (점수 ≥ 목표면 "조이 지원 · 목표 이상이라 효과 없음") / "이레네 지원 · 다음 카드 +30%".
+- `lessonResult`에 `cutins: [{ supportId, name, cardId, turn }]` · `attaches`를 더한다.
+
+**lessonRun**
+
+| 바뀌는 것 | 내용 |
+|---|---|
+| 레슨 끝 (`afterLesson`) | `L.attach.hints`의 코치마다 **그 코치의** 힌트 1개 (`drawHint`를 코치 하나로 좁힌 `drawHintFrom(state, data, rng, supportId)` — 그 코치 `hintSkillIds` 중 배울 수 있고 레벨 3 미만인 것 균등). 결과와 상관없이 받는다 (컷인 때 이미 얻은 것) [구현 결정]. 남은 스킬이 없으면 `noHintSp` SP. 클리어 · 퍼펙트 힌트 뒤에 처리 |
+| 보상 뷰 | `result.hints[]`에 `src: "cutin" \| "clear"`, `result.cutins` (코치 얼굴 + 횟수) |
+| 기록 | `record.lessons[]`에 `attaches` · `cutins` |
+| 로그 | 컷인마다 "코치 하르나 지원 (인터벌 슈팅)" 한 줄 |
+
+### 15.6 감독 AI (`manager.js`)
+
+- `scoreDrop`은 `previewCard`를 쓰므로 강화 · `attachMult` · `noFail` · `underdog`은 이미 상승 · 실패율에 들어간다.
+- `buffValue`에 넘기는 effects = 카드 effects + `pv.attach.effects`. 새 말의 가치 [가정]:
+
+| effect | 가치 x |
+|---|---|
+| `heal to targets` | `n × (T 중 결장 아닌 수) × 0.3 + 2 × (체력 50 미만 대상 수)` |
+| `hint` | `chance × 25` |
+| `condition` | `(chance ?? 1) × n × (4 × 남은 턴 + 6)` (컨디션 4면 0) |
+
+- 붙은 카드에는 `ATTACH_BONUS` = 6을 더한다 (유대 +5와 컷인의 값 — 비슷한 EV면 붙은 카드를 낸다) [가정].
+- 그 밖(벤치 먼저 · 후보 점 · endTurn 규칙)은 §14.14 그대로. rng를 쓰지 않는다.
+
+### 15.7 작은 원 카드 (L38)
+
+**규칙.** 단일 → 작은 원 변환 1인 위력 = `round(단일 위력 × 0.6)` [가정] — 2명이 잡히면 합계 위력 · 합계 비용이 단일의 1.2배, 1명만 잡히면 0.6배 (지금 작은 원과 단일의 비: 원투 패스 20 / 개인 지도 35 = 0.57, 스텝 레슨 20 / 전술 노트 28 = 0.71). 강화판 = `round(1인 × 1.25)`, 비용 = `round(1인 × 0.6)` (§14.9와 같다). 작은 원 반지름 4.2u는 그대로 (L38).
+
+**새 공용 카드 2장** (`family: "common"`, `start: false`, `pool: true` — 보상 · 상담 후보, 가중치 `rewards.weights.common` 1)
+
+| id | 이름 | 대상 | 1인 위력 (+강화) | 비용 (1인) | 효과 | desc / descPlus |
+|---|---|---|---|---|---|---|
+| `cd_pair_drill` | 2인 1조 드릴 | circle small | 22 (+28) | 13 | 없음 — 효과가 없는 대신 작은 원 중 위력이 가장 높다 (원투 패스 20 + 팀워크 2와 비슷한 값) | "작은 원 · 1인 22" / "작은 원 · 1인 28" |
+| `cd_pair_stretch` | 짝 스트레칭 | circle small | 14 (+18) | 8 | 대상 전원 체력 +10 (강화 +12) — `heal to targets` (§15.3 새 말) | "작은 원 · 1인 14, 대상 체력 +10" / "작은 원 · 1인 18, 대상 체력 +12" |
+
+- 짝 스트레칭은 비용 8 · 회복 10이라 대상 체력이 1인 +2 — "지친 둘을 같이 훈련시키며 버티는" 카드다. 강화판 `plus = { "power": 18, "effects": [{ "type": "heal", "to": "targets", "n": 12 }] }`.
+- `cards.json`에서 `cd_one_two` 바로 뒤에 넣는다 (공용 계열끼리).
+
+**단일 → 작은 원 2장**
+
+| id | 이름 | 예전 (1인 · 비용) | 새 대상 · 1인 위력 (+강화) | 비용 | 유대 80판 | 이유 |
+|---|---|---|---|---|---|---|
+| `cd_six_sec` | 되찾기 6초 | single 28 (+35) · 17 | circle small · **17 (+21)** | **10** | — | 공을 잃은 뒤 둘이 같이 달려드는 압박 — 주제에 맞는다. 압박 +1 · 압박 2 이상 비용 증가 없음은 그대로 |
+| `cd_c_joy` | 골목 슈팅 | single 40 (+50) · 24 | circle small · **24 (+30)** | **14** | 48 → **29 (+36)** | 뒷골목 2대2 내기 축구. 목표 미만 +50% 그대로. 조이 능력과 겹치면 ×2.25 |
+
+- desc: "작은 원 · 1인 17, 압박 +1, 압박 2 이상이면 비용 증가 없음" / "… 1인 21 …", 골목 슈팅 "작은 원 · 1인 24, 점수가 목표 미만이면 +50%" / "… 1인 30 …", 유대 80 "작은 원 · 1인 29, …" / "… 1인 36, …".
+- **바꾸지 않는 단일 카드**: 에이스형 단일(에이스 특훈 · 원포인트 레슨 · 한계 돌파), 회복 단일(쿨다운 · 아이싱 · 숨 고르기), 개인 지도, 1:1 특훈, 마무리 일격, **전술 노트**(이레네 — 개인 과외 노트라는 그림에 단일이 맞고, 코치 카드 중 단일을 하나 남겨 고르는 맛을 둔다. 이레네 능력 "다음 카드 +30%"는 어느 카드에나 붙는다) [구현 결정].
+- 작은 원 카드: 원투 패스 · 패스 앤 무브 · 삼각형 패스 · 스텝 레슨 + 2인 1조 드릴 · 짝 스트레칭 · 되찾기 6초 · 골목 슈팅 = **8장**. 카드 수 66 → **68**, 공용 13 → 15, 압박형 · 코치 장수는 그대로.
+- 팀워크(L10)는 작은 원 2명 성공이면 +1 — 그대로. 울리카 "다음 작은 원 +50%"(nextPairPct)는 새 4장에도 걸린다.
+- 압박형 패시브(§14.11)는 대상 구역과 무관해 되찾기 6초가 작은 원이 되어도 그대로다.
+- 이름 · 문구 · 수치 모두 [가정]. `docs/OUTGAME_CARDS_draft.md` 표에 2장을 더하고 2장을 고친다 (C2).
+
+### 15.8 UI (1280×720, 스크롤 · 잘림 없음)
+
+**① 붙은 카드 표시 (`js/ui/cards.js cardFace` + `css/lesson.css`)**
+- 손패 뷰의 `attach`가 있으면 카드에 `.attached` · `--coach: <portraitColor>`:
+  - 테두리 + 바깥 빛 (`box-shadow: 0 0 0 2px var(--coach), 0 0 14px var(--coach)`). 선택(금색) · 추천(청록)과 겹치면 선택이 위다.
+  - 위 띠(`.cf-band`)를 코치 색 사선 줄무늬로.
+  - 메타 줄 맨 앞에 **코치 칩** `.cf-coach` = 코치 얼굴(`avatar(color, name, 'xs')`, 16px) + "하르나 지원". 손패가 겹쳐도 카드 왼쪽은 늘 보이므로 칩을 왼쪽에 둔다 (오른쪽은 다음 카드에 가린다). 계열 라벨은 칩 뒤로 밀리고 넘치면 메타 줄 안에서 잘린다 (`.cf-meta`는 원래 overflow hidden).
+  - 이름 뒤 "+"는 코치 색 `.cf-plus.att` (덱의 강화와 구분). `upgrade == "pct"`면 위력 줄 옆 `.cf-pmult` "+20%".
+  - title = "코치 하르나 지원 — 이번 턴만 강화 · 내면: 슈팅 구역 대상 +50%".
+- 턴 시작 연출: 새 손패가 들어온 뒤(`deal`) 260ms에 칩이 튀어나온다 (`.cf-coach.pop` 크기 0.4 → 1.15 → 1, 300ms). `no-anim`이면 없음.
+- 조준 · 끌기 중 dock 안내 칸 노트 맨 앞에 `preview.notes`의 "하르나 지원 · …" 줄. 하르나 ×1.5가 걸린 대상의 "+N" 이름표는 코치 색 (`.att`).
+
+**② 코치 컷인 (`screens/lesson.js` + `css/lesson.css`만 — `match.css` · `screens/match.js`는 건드리지 않는다)**
+- 시각 언어는 경기 필살기 컷인(`.m-cutin` · `.cut-band` · `.cut-face`)을 **베껴** 레슨 전용 클래스로 만든다: `.ls-cutin`(레슨 화면 전체 덮개, 어둡게 .5) > `.lc` > `.lc-band`(코치 색 `--ec` 그라데이션 띠, `skewY(-4deg)`, 높이 약 128px, 경기장 세로 가운데 y ≈ 260) = `.lc-face`(88px 원, 코치 색 + 이름 첫 글자, 흰 고리) + `.lc-txt`(`small` "코치 지원 · 슈팅" / `b` "코치 하르나" 34px / `.lc-sub` "골문을 보는 눈 — 슈팅 구역 대상 +50%").
+- 애니메이션: 경기 `cut-life`와 같은 곡선 (왼쪽에서 들어와 12%에 멈추고 82%부터 오른쪽으로 빠짐) + 얼굴 튀어나오기. 길이 `--t-cut` = `attach.cutinMs.first` 900ms (이번 레슨 첫 컷인, `repeat == 0`) / `repeat` 600ms (`.lc.short` — 얼굴 튀기 없이 띠만).
+- **넘기기**: 덮개 위 아무 곳 `pointerdown`, 또는 Enter · Space · Esc → 바로 닫고 다음 단계. 덮개는 `pointer-events: auto`라 그동안 경기장 · 손패 입력을 막는다. 화면 아래 작은 글씨 "탭하여 넘기기"는 첫 컷인에만.
+- 연출 순서 (`fxPlan`이 `cutin`을 따로 꺼낸다 → `plan.cutin = { supportId, name, text, repeat } | null`): **컷인 → (닫힘) → 기존 카드 연출 (비용 → 제자리 훈련 → "+N" → 버프 칩)**. 능력 결과는 카드 연출 쪽에서 보인다: 힌트 성공 = 옆 칸 위 "힌트!" 팝 (코치 얼굴 + 글자), 컨디션 = HUD 컨디션 칩 깜빡 + "컨디션 ↑", 유대 = dock 노트 "하르나 유대 +5".
+- `no-anim` · reduced-motion: 컷인 덮개를 띄우지 않는다 (0ms). 대신 dock 안내 칸에 "하르나 지원 발동 — 슈팅 구역 대상 +50%"를 연출이 끝날 때까지.
+- `?autolesson=1`: 컷인도 그대로 보인다 (짧은 판이 저절로 닫힌다).
+- `aria-live="polite"`로 "코치 하르나 지원: 슈팅 구역 대상 +50%"를 읽는다.
+- 1280×720: 띠는 화면 폭 전체 (기울어진 양 끝이 화면 밖으로 나가도 덮개가 `overflow: hidden`이라 스크롤이 생기지 않는다). 글자는 1줄씩, `.lc-sub` 최대 약 26글자(13px) ≈ 340px.
+
+**③ 그 밖**
+- 보상 모달 결과 줄: "코치 지원 2번" + 힌트 목록에서 컷인 힌트는 코치 얼굴 + "지원".
+- 카드 효과 문구 (`labels` · `ui/cards.js`): `heal to targets` → "대상 체력 +10".
+
+### 15.9 테스트
+
+| 파일 | 더하는 것 |
+|---|---|
+| `lesson.test` | 붙을 턴: 같은 rngState → 같은 turns · 코치 · 카드 / 횟수 ∈ [min, max] · 서로 다른 턴 · ≤ turns / 코치 없음 · `enabled: false`면 rng 소비가 붙기 없는 데이터와 똑같다 (rngState 같음) / 레어도 가중 (2,000번: 코치 몫이 3:2:1 비 ±3%p) · 반복 ×0.5 / needs: power 코치는 효과 카드 · 회복 카드에, fail 코치는 noFail 카드에 붙지 않는다 / 자기 코치 카드 ×3 / 후보가 없으면 다음 턴으로 미룸 (마지막 턴이면 없음) / 강화: 강화 전 → 강화판 값 (뷰 · 미리보기 · 실제 상승 같음, 비용 같음), 강화판 → 위력 ×1.2, 효과 카드 강화판 → none / 턴 끝 · 낸 뒤 · 부상 제거에 떨어짐, 덱 `plus` 그대로 / 8명 능력 각각 (구역 고정 픽스처) / 컷인 fx가 lastFx 맨 앞 · `repeat` 셈 / 유대 +5 (자기 카드면 +13) / 힌트 성공은 `attach.hints`에 / 컨디션 0~4 멈춤 / JSON 왕복 · `attach` 없는 저장본 / 뷰 · 미리보기 순수 (rngState 그대로) |
+| `cards.test` | 68장 · 계열 장수 (공용 15) · 새 2장 · 변환 2장의 대상 · 1인 위력 · 강화 · 비용 · 유대 80 (§15.7) · `heal.to` 닫힌 목록에 `targets` · `hint`를 카드에 쓰면 오류 · 능력 데이터 검증 (모르는 코치 id · needs · mods 키 · effect 말 · `lb`) |
+| `cardEffects.test` | 새 2장 · 변환 2장 기대값 줄 (작은 원 2명 · 1명), 짝 스트레칭 순회복 |
+| `lessonRun.test` | 컷인 힌트 → 레슨 끝에 그 코치 힌트 (실패한 레슨도) · 남은 스킬이 없으면 SP / 보상 뷰 `src` · `cutins` / 기록 `attaches` · `cutins` / 새 카드가 보상 · 상담 후보에 나온다 |
+| `manager.test` | 15주 완주 그대로 · 추천이 늘 유효 · rng 없음 / 같은 EV면 붙은 카드 (`ATTACH_BONUS`) / 새 effect 가치 |
+| `lessonLayout.test` | `fxPlan`이 `cutin` · `attach` · `bond` · `hint` · `condition`을 꺼낸다 |
+| `lessonUi.test` | 붙은 카드에 `.cf-coach` · `.attached` / 그 카드를 내면 `.ls-cutin`이 뜨고 클릭하면 닫히며 카드 연출로 이어진다 / 두 번째 컷인은 `.lc.short` / `no-anim`이면 덮개 없음 · 안내 문구 |
+| `ui.smoke` · `outgame.test` | 필수 선택자 `.ls-cutin`(덮개 뿌리), 완주 중 컷인 1번 이상 |
+| 그 밖 | 경기 쪽 테스트 그대로. 고정 rng 기대값이 붙기 rng 때문에 바뀌는 테스트는 기대값을 다시 계산하거나, 붙기와 무관한 테스트면 `attach.enabled: false` 데이터 사본을 쓴다 (어느 쪽인지 §15.13에 적는다) |
+
+- `tools/shot.mjs` 시나리오: `og_lesson_attach`(붙은 카드가 있는 손패) · `og_lesson_attach_aim`(하르나가 붙은 원 카드 조준 — 코치 색 "+N" · 노트) · `og_lesson_cutin`(첫 컷인 중간 프레임) · `og_lesson_cutin_short`(두 번째 컷인) · `og_lesson_cutin_noanim`(안내 문구). 잘림 검사에 `.lc-txt b` · `.lc-sub` · `.cf-coach`를 더하고, 덮개가 1280×720 안 · 스크롤 0인지 본다. PNG를 직접 열어 본다.
+
+### 15.10 시뮬 (`tools/lesson_sim.mjs`)
+
+출력에 더한다 (보고만 — 수치는 바꾸지 않는다):
+- 레슨당 붙기 · 컷인: 평균 · 분포 (0 · 1 · 2 · 3 · 4 · 5+) · **끝까지 간 레슨 중 컷인 2~4번 비율**
+- 코치별 붙은 몫 (레어도별 평균), 붙은 카드 중 낸 비율
+- 런당 컷인 힌트 · 컨디션 +1 · 컷인 유대 (코치별 평균), 유대 80에 닿은 코치 수
+- 런당 성장 · 부상 · 실패 — C1 전 (이 문서 커밋 시점 엔진) / 후 비교표
+
+**구현 확인 띠** (규칙을 문서대로 만들었나 — 밖이면 원인 보고):
+- 끝까지 간 레슨의 붙기 횟수 2~4 = 100% (미룬 붙기가 마지막 턴을 넘어간 경우만 예외, 그 수를 따로 보고)
+- 레슨당 컷인 평균 **2.3~3.2**, 끝까지 간 레슨의 컷인 2~4번 ≥ 85%
+- 코치 몫 SSR > SR > R (같은 레어도 코치끼리 비슷)
+
+### 15.11 구현 슬라이스 (순서대로, 슬라이스 하나 = 에이전트 하나)
+
+공통 완료 조건:
+- `npm test` 통과
+- `git diff --stat main -- js/engine/match.js js/engine/ai.js js/engine/skills.js js/engine/rng.js js/ui/screens/match.js js/ui/layout.js css/match.css data/config.json` 비어 있음
+- 엔진 순수 · 결정적 (rng는 `state.rngState`로만, 미리보기 · 뷰 · 감독 AI는 rng를 쓰지 않음)
+- 바뀐 점은 §15.13에, 슬라이스마다 커밋 (경로 지정 `git add`)
+
+**C1 · 엔진: 붙기 · 강화 · 컷인 · 능력**
+- 할 일: `lesson.json attach` (§15.3) · 검증 (`cards.js` 새 effect 말 `heal targets` · `hint` · `condition`, `validateAttachData`) · `lesson.js` (§15.1 ①②③ · §15.2 · §15.4 · LessonState · 뷰 · 미리보기 노트 · `lessonResult`) · `lessonRun.js` (`drawHintFrom` · 레슨 끝 컷인 힌트 · 기록 · 보상 뷰 · 로그) · lesson.test · lessonRun.test · cards.test (검증 부분). 고정 rng 기대값이 바뀐 테스트 정리.
+- 완료 조건: §15.9의 lesson · lessonRun 항목 통과, 결정성 · JSON 왕복 · 순수 뷰, 감독 AI 15주 완주 (manager.test 그대로 통과).
+
+**C2 · 카드: 작은 원 (L38)**
+- 할 일: `cards.json` 2장 추가 · 2장 변환 (§15.7, 문구 포함), cards.test (68장 · 표) · cardEffects.test, 회복 대상 문구, `docs/OUTGAME_CARDS_draft.md` 표.
+- 완료 조건: 두 테스트 통과, 보상 · 상담 후보에 새 2장이 나온다 (lessonRun.test 1줄), 카드 앞면 잘림 없음 (`node tools/shot.mjs` 보상 · 손패 시나리오 PNG 확인).
+
+**C3 · 감독 AI · 시뮬**
+- 할 일: §15.6 (`buffValue` 새 말 · 능력 effects · `ATTACH_BONUS`), manager.test, `tools/lesson_sim.mjs` §15.10 지표 + C1 전 / 후 비교 (C1 전 = 이 문서 커밋의 엔진을 `git worktree`로 따로 돌린다).
+- 완료 조건: manager.test 60초 안, `npm run lesson-sim` 출력을 보고에 붙이고 §15.10 띠 안 (밖이면 원인 보고 — 수치는 바꾸지 않는다).
+
+**C4 · UI: 붙은 카드 · 컷인 · 시나리오 · 문서**
+- 할 일: §15.8 전부 (`ui/cards.js` 칩 · `lesson_layout.fxPlan` · `screens/lesson.js` 컷인 덮개 · 넘기기 · 연출 순서 · no-anim 안내 · autolesson · 보상 모달 줄, CSS는 `css/lesson.css`만), lessonLayout.test · lessonUi.test · ui.smoke · outgame.test, shot 시나리오 5개 + 잘림 검사, `tools/lesson_play.mjs` 한 판 점검 (컷인을 탭으로 넘기는 입력 포함), ARCHITECTURE §20 · README 한 줄 · §15.13.
+- 완료 조건: `npm test` 전부, `node tools/shot.mjs og_lesson_attach og_lesson_cutin …` 검사 통과 + PNG를 직접 보고 잘림 · 겹침 · 스크롤 없음, 스크린샷 경로 보고.
+
+순서 의존: C1 → C2 (`heal targets`가 C1에 있다) → C3 (새 카드까지 들어간 뒤 시뮬) → C4 (뷰 · fx 계약 §15.5 고정 뒤). C4는 C1 뒤부터 시작할 수 있지만 시나리오 · 문서 마무리는 C3 뒤에 한다. 배포(푸시)는 기획자 확인 뒤.
+
+### 15.12 [가정] · [구현 결정] 목록
+
+**[가정]** (기획자 확인 대상 — 나중에 한 번에 바꾼다)
+1. 붙는 횟수 레슨당 2~4번 균등 (평균 3), 레어도 가중 SSR 3 · SR 2 · R 1, 같은 코치 반복 ×0.5, 자기 코치 카드 ×3.
+2. 이미 강화판인 카드에 붙으면 위력 +20%. 비용은 그대로.
+3. 붙은 카드를 내면 유대 +5 (자기 코치 카드면 +8과 따로).
+4. 8명 능력 표 (§15.4) — 오르넬라 힌트 50%, 루미 컨디션 25%를 숫자로 정함. 능력 이름 8개.
+5. 컷인 0.9초 / 다음부터 0.6초.
+6. 작은 원 변환 계수 0.6, 새 카드 2장의 이름 · 수치, 변환 2장 (되찾기 6초 · 골목 슈팅).
+7. 감독 AI 새 effect 가치 · `ATTACH_BONUS` 6.
+
+**[구현 결정]**
+- 턴마다 확률 대신 레슨 시작에 붙을 턴을 정한다 (§15.1 ①의 이유).
+- 카드 고르기 = needs 거르기 + 균등 (+ 자기 카드 ×3). 구역 맞춤 우선은 하지 않는다.
+- 능력은 카드가 실패해도 발동한다. 컷인 힌트는 레슨 결과와 상관없이 받는다.
+- 능력 mods는 카드 mods와 따로 곱한다.
+- 코치가 없으면 rng를 쓰지 않는다. `attach` 없는 저장본은 붙기 없음으로 읽는다 (저장 버전 그대로).
+- 대비 레슨에도 붙는다.
+- 전술 노트는 단일로 남긴다.
+
+### 15.13 구현 중 바뀐 것
+
+(슬라이스가 여기에 적는다.)
