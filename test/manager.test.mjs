@@ -36,7 +36,7 @@ function checkValid(state, rec) {
   switch (state.phase) {
     case "week": {
       const v = LR.getWeekView(state, data);
-      if (rec.type === "lesson") assert.ok(v.lessons.some((l) => l.stat === rec.stat), `레슨 ${rec.stat}`);
+      if (rec.type === "lesson") assert.ok(v.lessons.some((l) => l.zone === rec.zone), `레슨 ${rec.zone}`);
       else if (rec.type === "outing" && rec.free) assert.ok(v.freeOuting);
       else if (rec.type !== "rest") assert.ok(v.actions.some((a) => a.type === rec.type), `자유 주 행동 ${rec.type}`);
       assert.equal(typeof rec.reason, "string");
@@ -115,7 +115,7 @@ test("감독 AI는 rng 를 쓰지 않는다 (Math.random · Date · rng import �
 test.skip("탭 대상: 지명 = 주 스탯 쌍 선수 중 체력 최고 (같으면 성장률), 탭 회복 = 체력 최저", () => {
   const s = LR.createRun({ data, seed: 3, policy: "team" });
   s.weekOffer = { kind: "lesson", specials: [] };
-  LR.applyWeekAction(s, data, { type: "lesson", stat: "pass" });
+  LR.applyWeekAction(s, data, { type: "lesson", zone: "pass" });
   const L = s.lesson;
   const coaching = uidOf(s, "cd_coaching");
   const keep = (uids) => {
@@ -149,7 +149,7 @@ test.skip("탭 대상: 지명 = 주 스탯 쌍 선수 중 체력 최고 (같으�
 test.skip("쉬기: 출전 평균 체력 < 40이면 첫 행동에서 쉬기, 1장 낸 뒤에는 턴 끝", () => {
   const s = LR.createRun({ data, seed: 4, policy: "ace" });
   s.weekOffer = { kind: "lesson", specials: [] };
-  LR.applyWeekAction(s, data, { type: "lesson", stat: "defense" });
+  LR.applyWeekAction(s, data, { type: "lesson", zone: "defense" });
   for (const p of s.players) p.stamina = 30;
   P(s, "p3").stamina = 10;
   const r = M.recommendCard(s, data);
@@ -163,13 +163,13 @@ test("주 고르기: 무료 외출 → 체력 → 특별 레슨 → 대응 종�
   const s = LR.createRun({ data, seed: 5, policy: "team" });
   // 레슨 주: 특별 레슨
   s.weekOffer = { kind: "lesson", specials: ["shoot"] };
-  assert.equal(M.recommendWeek(s, data).stat, "shoot");
+  assert.equal(M.recommendWeek(s, data).zone, "shoot");
   // 대비 주: 다음 상대 대응 종목 (수비, 수비가 7명 합 1위면 패스)
   s.weekOffer = { kind: "prep", prepCards: ["cd_p_tackle", "cd_p_tackle"] };
   for (const p of s.players) p.stats.defense = 0;
-  assert.equal(M.recommendWeek(s, data).stat, "defense");
+  assert.equal(M.recommendWeek(s, data).zone, "defense");
   for (const p of s.players) p.stats.defense = 900;
-  assert.equal(M.recommendWeek(s, data).stat, "pass");
+  assert.equal(M.recommendWeek(s, data).zone, "pass");
   // 체력 < 40 → 휴식
   for (const p of s.players) p.stamina = 35;
   assert.equal(M.recommendWeek(s, data).type, "rest");
@@ -268,7 +268,7 @@ test("상담: 스킬 → 방침 · 코치 구매 → 고유 아닌 강화 → �
 test("방침별 한 줄: counter 탈취 ≥ 3이면 공격진 카드 +30, press 압박 ≥ 2 · 지친 선수 → 라인 내리기 우선", () => {
   const s = LR.createRun({ data, seed: 8, policy: "counter" });
   s.weekOffer = { kind: "lesson", specials: [] };
-  LR.applyWeekAction(s, data, { type: "lesson", stat: "shoot" });
+  LR.applyWeekAction(s, data, { type: "lesson", zone: "shoot" });
   const L = s.lesson;
   const basic = uidOf(s, "cd_basic");
   for (const pile of ["drawPile", "discard", "hand"]) L[pile] = L[pile].filter((u) => u !== basic);
@@ -284,7 +284,7 @@ test("방침별 한 줄: counter 탈취 ≥ 3이면 공격진 카드 +30, press 
   const t = LR.createRun({ data, seed: 8, policy: "press" });
   t.deck.push({ uid: `k${t.nextUid++}`, cardId: "cd_drop_line", plus: false });
   t.weekOffer = { kind: "lesson", specials: [] };
-  LR.applyWeekAction(t, data, { type: "lesson", stat: "shoot" });
+  LR.applyWeekAction(t, data, { type: "lesson", zone: "shoot" });
   const T = t.lesson;
   const drop = uidOf(t, "cd_drop_line");
   for (const pile of ["drawPile", "discard", "hand"]) T[pile] = T[pile].filter((u) => u !== drop && u !== "k1");

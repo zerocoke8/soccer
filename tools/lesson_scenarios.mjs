@@ -101,7 +101,7 @@ function eventInjectedState(data, runSeed) {
 export function describeLessonRun(state) {
   if (!state) return "저장된 런 없음";
   const kind = state.weekOffer?.kind ?? "-";
-  const ls = state.lesson ? ` · 레슨 ${state.lesson.stat} 턴 ${state.lesson.turn}/${state.lesson.turns} 점수 ${state.lesson.score}/${state.lesson.target}` : "";
+  const ls = state.lesson ? ` · 레슨 ${state.lesson.zone} 중점 턴 ${state.lesson.turn}/${state.lesson.turns} 점수 ${state.lesson.score}/${state.lesson.target}` : "";
   return `${state.phase} · 시즌 ${state.season} ${state.turn}주 (${kind})${ls} · 방침 ${state.policy} · TP ${state.trainingPoints} · seed ${state.seed}`;
 }
 

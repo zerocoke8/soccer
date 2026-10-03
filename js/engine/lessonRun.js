@@ -31,6 +31,7 @@ import {
 import * as run from "./run.js";
 import * as cards from "./cards.js";
 import * as lesson from "./lesson.js";
+import * as zones from "./zones.js";
 import { applyEffects } from "./effects.js";
 
 // run.js 에서 그대로 다시 내보내는 것 (같은 이름 · 같은 동작)
@@ -63,7 +64,9 @@ export { lessonResult } from "./lesson.js";
 export { mainStatsOf } from "./cards.js";
 
 export const RUN_KIND = "lessonRun";
-export const RUN_VERSION = 1;
+export const RUN_VERSION = 2;
+/** 저장소가 받는 저장본 버전 (1 은 migrateLessonRun 이 2 로 올린다 — 레슨 · 보상 중인 1 은 못 올린다, §14.15) */
+export const SAVE_VERSIONS = [1, 2];
 
 /** 사용자 입력을 기다리는 phase (continueFlow 가 여기서 멈춘다) */
 const STOP_PHASES = new Set(["week", "lesson", "reward", "consult", "prep", "event", "match", "relic", "route", "finished"]);
@@ -172,7 +175,7 @@ function upgradable(data, entry) {
   return !!entry && !entry.plus && cards.canUpgrade(cards.getCard(data, entry.cardId));
 }
 
-/** 레슨 종목 목표 · 상한 (lesson.startLesson 과 같은 계산) */
+/** 레슨 목표 · 상한 (lesson.startLesson 과 같은 계산) */
 function lessonTargets(state, data, special) {
   const ls = LD(data).lesson;
   const si = clamp((Number(state.season) || 1) - 1, 0, ls.turns.length - 1);
@@ -182,6 +185,39 @@ function lessonTargets(state, data, special) {
     cap = cards.roundCost(cap * ls.special.capMult);
   }
   return { turns: ls.turns[si], target, cap };
+}
+
+/** 레슨 시작 때 경기장에 설 선수 (결장 아님, state.players 순서) */
+function lessonFieldPlayers(state) {
+  return state.players.filter((p) => !((Number(p.injuredTurns) || 0) > 0));
+}
+
+/**
+ * 그 구역을 중점으로 골랐을 때 한 턴에 그 구역에 서 있을 기대 인원 (흩어지기 가중치 식, 소수 1자리, §14.13).
+ * 결장 선수는 빼고, 가중치는 lesson.zones.weights × (중점이면 focus.weight).
+ */
+function expectedInZone(state, data, zone) {
+  const cfg = LD(data).zones;
+  const fw = LD(data).lesson.focus.weight;
+  let sum = 0;
+  for (const p of lessonFieldPlayers(state)) {
+    let tot = 0;
+    for (const z of zones.ZONE_IDS) tot += zones.zoneWeight(cfg, p.position, z, zone, fw);
+    if (tot > 0) sum += zones.zoneWeight(cfg, p.position, zone, zone, fw) / tot;
+  }
+  return Math.round(sum * 10) / 10;
+}
+
+/** 그 구역이 자기 포지션 주 스탯이라 고유 카드 ×1.5 가 걸리는 선수 id (덱에 고유 카드가 있고 결장이 아닌 선수, §14.10) */
+function boostedInZone(state, data, zone) {
+  const owners = new Set();
+  for (const e of state.deck) {
+    const c = cards.getCard(data, e.cardId);
+    if (c.family === "unique" && c.ownerCharId) owners.add(c.ownerCharId);
+  }
+  return lessonFieldPlayers(state)
+    .filter((p) => owners.has(p.charId) && cards.mainStatsOf(p.position).includes(zone))
+    .map((p) => p.id);
 }
 
 /** 이번 시즌 경계전 상대 */
@@ -415,11 +451,38 @@ export function isLessonRun(s) {
 }
 
 /**
- * 저장본 이행 (지금은 tactics · modifiers 만 run.migrateRun 으로). in-place, 멱등.
+ * 저장소가 받는 레슨 런 저장본인가 (version 1 · 2 — 1 은 migrateLessonRun 으로 올린다). store.isLessonRunSave 의 원본.
+ * @param {any} s
+ * @returns {boolean}
+ */
+export function isLessonRunSave(s) {
+  return !!s && typeof s === "object" && s.kind === RUN_KIND && SAVE_VERSIONS.includes(s.version) && typeof s.phase === "string";
+}
+
+/** version 1 저장본을 2 로 올릴 수 있는가 — 레슨 · 보상 중이 아니어야 한다 (§14.15) */
+export function canMigrateLessonRun(s) {
+  if (isLessonRun(s)) return true;
+  return isLessonRunSave(s) && s.version === 1 && s.lesson == null && s.pendingReward == null;
+}
+
+/**
+ * 저장본 이행. in-place, 멱등.
+ *   - version 1 (종목 레슨): 레슨 · 보상 중이 아니면 version 2 로 — record.lessons[].stat → zone, rests → benches (§14.15).
+ *     레슨 · 보상 중인 1 은 그대로 둔다 (isLessonRun 이 거짓 → UI 는 "저장 없음" + 토스트).
+ *   - version 2: tactics · modifiers 를 run.migrateRun 으로.
  * @param {object} s
  * @returns {object}
  */
 export function migrateLessonRun(s) {
+  if (isLessonRunSave(s) && s.version === 1) {
+    if (!canMigrateLessonRun(s)) return s;
+    const rec = s.record && typeof s.record === "object" ? s.record : (s.record = { goalMatches: [], friendlies: [], losses: 0, lessons: [] });
+    rec.lessons = (Array.isArray(rec.lessons) ? rec.lessons : []).map((l) => {
+      const { stat, rests, ...rest } = l || {};
+      return { ...rest, zone: rest.zone ?? stat ?? null, benches: rest.benches ?? rests ?? 0 };
+    });
+    s.version = RUN_VERSION;
+  }
   if (!isLessonRun(s)) return s;
   return run.migrateRun(s);
 }
@@ -507,9 +570,17 @@ export function getWeekView(state, data) {
   const wps = weeksPerSeason(data);
   const lessons =
     kind === "lesson" || kind === "prep"
-      ? STATS.map((stat) => {
-          const special = kind === "lesson" && Array.isArray(offer.specials) && offer.specials.includes(stat);
-          return { stat, label: STAT_LABELS[stat], special, prep: kind === "prep", ...lessonTargets(state, data, special) };
+      ? zones.ZONE_IDS.map((zone) => {
+          const special = kind === "lesson" && Array.isArray(offer.specials) && offer.specials.includes(zone);
+          return {
+            zone,
+            label: STAT_LABELS[zone],
+            special,
+            prep: kind === "prep",
+            ...lessonTargets(state, data, special),
+            expected: expectedInZone(state, data, zone),
+            boosted: boostedInZone(state, data, zone),
+          };
         })
       : [];
   return {
@@ -554,7 +625,7 @@ function doOuting(state, data, p) {
  * 주 행동 (§5.4.1 표).
  * @param {object} state
  * @param {object} data
- * @param {{ type: "lesson", stat: string } | { type: "rest" } | { type: "outing", playerId: string, free?: boolean } |
+ * @param {{ type: "lesson", zone: string } | { type: "rest" } | { type: "outing", playerId: string, free?: boolean } |
  *         { type: "meeting", tactics?: object, formation?: string, swaps?: Array<{ playerId: string, slot: string }> } |
  *         { type: "consult" } | { type: "friendly" }} action
  * @returns {object} state
@@ -571,16 +642,15 @@ export function applyWeekAction(state, data, action) {
   switch (action.type) {
     case "lesson": {
       if (offer.kind !== "lesson" && offer.kind !== "prep") throw new Error("이번 주에는 레슨이 없습니다");
-      if (!STATS.includes(action.stat)) throw new Error(`알 수 없는 레슨 종목: '${action.stat}'`);
+      if (!zones.ZONE_IDS.includes(action.zone)) throw new Error(`알 수 없는 중점 구역: '${action.zone}'`);
       const prep = offer.kind === "prep";
-      const special = !prep && Array.isArray(offer.specials) && offer.specials.includes(action.stat);
+      const special = !prep && Array.isArray(offer.specials) && offer.specials.includes(action.zone);
       const bondBefore = {};
       for (const st of state.supports) bondBefore[st.id] = st.bond;
-      // [ZE2 다리] 주 행동은 아직 { stat } — ZE4 가 { zone } 으로 바꾼다 (§14.13). 종목 = 중점 구역.
-      lesson.startLesson(state, data, { zone: action.stat, special, prep, prepCards: prep ? offer.prepCards || [] : [] });
+      lesson.startLesson(state, data, { zone: action.zone, special, prep, prepCards: prep ? offer.prepCards || [] : [] });
       state.lesson.bondBefore = bondBefore;
       state.phase = "lesson";
-      log(state, `${prep ? "대비 레슨" : special ? "특별 레슨" : "레슨"}[${STAT_LABELS[action.stat]}] 시작`);
+      log(state, `${prep ? "대비 레슨" : special ? "특별 레슨" : "레슨"}[${STAT_LABELS[action.zone]} 중점] 시작`);
       if (state.lesson.status !== "playing") afterLesson(state, data);
       return state;
     }
@@ -803,7 +873,7 @@ function afterLesson(state, data) {
   // 4. 기록 · 로그
   state.record.lessons.push({
     turnIndex: state.turnIndex,
-    stat: L.zone,
+    zone: L.zone,
     special: L.special,
     prep: L.prep,
     score: L.score,
@@ -812,18 +882,18 @@ function afterLesson(state, data) {
     result: status,
     turns: L.turn,
     plays: res.plays,
-    rests: res.benches,
+    benches: res.benches,
     fails: res.fails,
     injuries: res.injuries,
   });
   const label = { perfect: "퍼펙트", clear: "클리어", fail: "실패" }[status] || status;
-  log(state, `${L.prep ? "대비 레슨" : L.special ? "특별 레슨" : "레슨"}[${STAT_LABELS[L.zone]}] ${label} — 점수 ${L.score} / ${L.target} / ${L.cap}${tp ? `, TP +${tp}` : ""}${hints.length ? `, 힌트 ${hints.length}` : ""}`);
+  log(state, `${L.prep ? "대비 레슨" : L.special ? "특별 레슨" : "레슨"}[${STAT_LABELS[L.zone]} 중점] ${label} — 점수 ${L.score} / ${L.target} / ${L.cap}${tp ? `, TP +${tp}` : ""}${hints.length ? `, 힌트 ${hints.length}` : ""}`);
 
   // 5. 보상 후보
   const offer = ok ? rollRewardOffer(state, data, rng, status, L.special) : [];
   state.rngState = rng.getState();
 
-  // 유대 변화 (레슨 중 코치 카드 +8, 같은 종목 +5)
+  // 유대 변화 (레슨 중 코치 카드 +8, 중점 구역 = 코치 타입 +5)
   const bond = [];
   for (const st of state.supports) {
     const before = L.bondBefore && typeof L.bondBefore[st.id] === "number" ? L.bondBefore[st.id] : st.bond;
@@ -838,7 +908,7 @@ function afterLesson(state, data) {
     offer,
     freeUpgrades,
     result: {
-      stat: L.zone,
+      zone: L.zone,
       special: L.special,
       prep: L.prep,
       score: L.score,
@@ -856,11 +926,11 @@ function afterLesson(state, data) {
       prepBonus,
       bond,
       plays: res.plays,
-      rests: res.benches,
+      benches: res.benches,
       fails: res.fails,
       injuries: res.injuries,
-      // [ZE2 다리] 구역 방식 결과 → 옛 모양 (gain = 구역 스탯 상승 = 기본 + 분위기 + 카드, auto 0). ZE4 가 새 모양으로 바꾼다.
-      perPlayer: res.perPlayer.map((x) => ({ id: x.id, gain: x.base + x.mood + x.card, sub: x.sub, auto: 0, targeted: x.targeted })),
+      // lessonResult 모양 그대로: { id, byStat, base, mood, card, sub, targeted, benched } (§14.13)
+      perPlayer: res.perPlayer.map((x) => ({ ...x, byStat: { ...x.byStat } })),
     },
   };
   state.phase = "reward";

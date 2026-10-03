@@ -84,10 +84,15 @@ test("저장 키: 'soccer-lesson.' 앞머리 · loadRun 은 레슨 런 저장본
   for (const [k, v] of Object.entries(st.KEYS)) assert.equal(v, `soccer-lesson.${k}`, `KEYS.${k}`);
   assert.equal(st.LESSON_RUN_KIND, lr.RUN_KIND);
   assert.equal(st.LESSON_RUN_VERSION, lr.RUN_VERSION);
+  assert.deepEqual(st.LESSON_RUN_SAVE_VERSIONS, lr.SAVE_VERSIONS);
   const cases = [null, undefined, 0, "x", [], {}, { phase: "turn", seed: 1 }, { kind: "lessonRun", version: 1 }, { kind: "lessonRun", version: 2, phase: "week" },
     { kind: "lessonRun", version: "1", phase: "week" }, { kind: "run", version: 1, phase: "week" }, { kind: "lessonRun", version: 1, phase: "week" },
-    { kind: "lessonRun", version: 1, phase: 3 }];
-  for (const c of cases) assert.equal(st.isLessonRunSave(c), lr.isLessonRun(c), `같은 검사: ${JSON.stringify(c)}`);
+    { kind: "lessonRun", version: 1, phase: 3 }, { kind: "lessonRun", version: 3, phase: "week" }, { kind: "lessonRun", version: 2, phase: 3 }];
+  // store 사본 = 엔진 isLessonRunSave (version 1 · 2 — 1 은 continueRun 이 migrateLessonRun 으로 올린다, §14.15)
+  for (const c of cases) assert.equal(st.isLessonRunSave(c), lr.isLessonRunSave(c), `같은 검사: ${JSON.stringify(c)}`);
+  // 엔진 isLessonRun 은 version 2 만
+  assert.ok(lr.isLessonRun({ kind: "lessonRun", version: 2, phase: "week" }));
+  assert.ok(!lr.isLessonRun({ kind: "lessonRun", version: 1, phase: "week" }));
   // 코드에 본편 키 문자열('soccer.run' 등)이 남지 않았다 (UI · 도구)
   const files = ["js/ui/app.js", "js/ui/store.js", "js/ui/screens/challenge.js", "js/ui/screens/start.js", "js/ui/hud.js", "tools/shot.mjs", "tools/scenarios.mjs", "tools/lesson_scenarios.mjs"];
   for (const f of files) {
@@ -392,7 +397,7 @@ test("jsdom: 아웃게임 화면 전부 스테이지 안에 그려지고 주요 
   // 이번 주 (레슨 주): 종목 카드 5 + [휴식], 추천 1, 시즌 일정 줄 (5주 + 경계전)
   assert.equal($$(".week-lesson").length, 5, "레슨 종목 5");
   assert.equal($$(".week-lesson.recommended").length, 1, "추천 1");
-  assert.equal($(".week-lesson.recommended").dataset.stat, S.manager.recommendWeek(S.store.run, data).stat, "추천 = manager.recommendWeek");
+  assert.equal($(".week-lesson.recommended").dataset.zone, S.manager.recommendWeek(S.store.run, data).zone, "추천 = manager.recommendWeek");
   assert.ok($(".week-lesson.recommended .badge-accent").textContent === "추천", "추천 배지");
   assert.equal($$(".week-lesson .badge-gold").length, wv.lessons.filter((l) => l.special).length, "★ 특별 배지");
   assert.deepEqual($$(".week-lesson .wl-target b").map((e) => Number(e.textContent)), wv.lessons.map((l) => l.target), "레슨 카드: 목표");
@@ -571,7 +576,7 @@ test("jsdom: 아웃게임 화면 전부 스테이지 안에 그려지고 주요 
   assert.equal($$(".week-lesson .badge-warn").length, 5, "대비 주: 대비 레슨 배지");
   assert.equal($$(".prep-minis .prep-mini").length, prepWeek.weekOffer.prepCards.length, "대비 주: 대비 카드 미리보기");
   assert.ok($$(".prep-mini").every((e, i) => e.textContent.includes(data.cards.cards.find((c) => c.id === prepWeek.weekOffer.prepCards[i]).name)), "대비 카드 이름");
-  $('.week-lesson[data-stat="defense"]').click();
+  $('.week-lesson[data-zone="defense"]').click();
   assert.equal(S.store.run.phase, "lesson", "대비 레슨 시작");
   assert.ok(S.store.run.lesson.prep && S.store.run.lesson.temp.length === prepWeek.weekOffer.prepCards.length, "대비 레슨: 대비 카드가 덱에");
 

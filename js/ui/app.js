@@ -231,9 +231,17 @@ const actions = {
   },
 
   continueRun() {
-    const s = loadRun(); // 레슨 런 저장본만 (store.isLessonRunSave)
-    if (!s || (run && !run.isLessonRun(s))) return toast('저장된 런이 없습니다.');
-    if (run) safe(() => run.migrateLessonRun(s));
+    const s = loadRun(); // 레슨 런 저장본만 (store.isLessonRunSave — version 1 · 2)
+    if (!s) return toast('저장된 런이 없습니다.');
+    if (run) {
+      safe(() => run.migrateLessonRun(s)); // version 1 → 2 (레슨 · 보상 중이면 그대로 1, §14.15)
+      if (!run.isLessonRun(s)) {
+        const oldLesson = s.version === 1;
+        clearRunSaves(); // "저장 없음"
+        render();
+        return oldLesson ? toast('구역 방식으로 바뀌어 진행 중인 레슨은 이어 할 수 없습니다', 'info', 5000) : toast('저장된 런이 없습니다.');
+      }
+    }
     store.run = s;
     store.final = null;
     store.registered = false;

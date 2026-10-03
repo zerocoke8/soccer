@@ -71,14 +71,14 @@ export function renderRewardModal(ctx) {
   const offerUid = (i) => (i != null && offer[i]?.kind === 'upgrade' ? offer[i].uid : null);
 
   // ---------- 결과 머리 ----------
-  const statName = L.STAT_LABELS[r.stat] ?? r.stat ?? '?';
+  const statName = `${L.STAT_LABELS[r.zone] ?? r.zone ?? '?'} 중점`;
   const kindText = r.prep ? '대비 레슨' : r.special ? '★특별 레슨' : '레슨';
   const statusCls = failed ? 'bad' : r.status === 'perfect' ? 'gold' : 'good';
   const cap = Math.max(1, Number(r.cap) || 1);
   const pct = (x) => `${Math.max(0, Math.min(100, ((Number(x) || 0) / cap) * 100)).toFixed(1)}%`;
   const head = h('div', { class: 'rw-head' },
     h('div', { class: 'rw-title' },
-      h('span', { class: 'rw-ico', 'aria-hidden': 'true' }, L.STAT_ICONS[r.stat] ?? '📋'),
+      h('span', { class: 'rw-ico', 'aria-hidden': 'true' }, L.STAT_ICONS[r.zone] ?? '📋'),
       h('span', { class: 'col' },
         h('span', { class: 'small muted' }, `${statName} ${kindText} · 시즌 ${state.season ?? '?'} ${state.turn ?? '?'}주`),
         h('b', { class: ['rw-status', statusCls] }, L.LESSON_STATUS_LABELS[r.status] ?? r.status))),
@@ -91,7 +91,7 @@ export function renderRewardModal(ctx) {
         h('span', { class: 'rw-mark', style: { left: pct(r.target) }, title: `목표 ${r.target}` }))),
     h('div', { class: 'rw-stats tiny muted' },
       h('span', {}, `턴 ${r.turnReached ?? '?'}/${r.turns ?? '?'}`),
-      h('span', {}, `카드 ${r.plays ?? 0}장 · 쉬기 ${r.rests ?? 0}`),
+      h('span', {}, `카드 ${r.plays ?? 0}장 · 벤치 ${r.benches ?? 0}`),
       h('span', { class: r.fails ? 'warn' : '' }, `실패 ${r.fails ?? 0}${r.injuries ? ` · 부상 ${r.injuries}` : ''}`)));
 
   // ---------- 보상 칩 ----------
@@ -112,16 +112,19 @@ export function renderRewardModal(ctx) {
   const chipRow = h('div', { class: 'rw-chips' }, chips);
 
   // ---------- 선수 7 ----------
-  const subName = L.STAT_LABELS[data.config?.training?.subStatMap?.[r.stat]] ?? '부';
+  // 선수 칩 (§14.13 perPlayer = { byStat, base, mood, card, sub, targeted, benched }): 구역 스탯 상승 = 기본 + 분위기 + 카드.
+  // 칩 개편 (byStat 상위 2개 아이콘 · 기본 / 카드) 은 ZU1.
   const playerRow = h('div', { class: 'rw-players' }, (r.perPlayer || []).map((pp) => {
     const p = players.find((x) => x.id === pp.id) || {};
-    const total = (pp.gain || 0) + (pp.auto || 0);
-    return h('div', { class: ['rw-pl', total > 0 ? '' : total < 0 ? 'neg' : 'zero'], title: `${p.name ?? pp.id}: ${statName} ${signed(pp.gain || 0)}${pp.auto ? ` · 자율 훈련 +${pp.auto}` : ''}${pp.sub ? ` · ${subName} +${pp.sub}` : ''} · 대상 ${pp.targeted ?? 0}회` },
+    const base = (pp.base || 0) + (pp.mood || 0);
+    const total = base + (pp.card || 0);
+    const by = Object.entries(pp.byStat || {}).filter(([, n]) => n).map(([k, n]) => `${L.STAT_LABELS[k] ?? k} ${signed(n)}`).join(' · ');
+    return h('div', { class: ['rw-pl', total > 0 ? '' : total < 0 ? 'neg' : 'zero'], title: `${p.name ?? pp.id}: 기본 ${signed(base)} · 카드 ${signed(pp.card || 0)}${pp.sub ? ` · 부 스탯 +${pp.sub}` : ''}${by ? ` (${by})` : ''} · 대상 ${pp.targeted ?? 0}회${pp.benched ? ` · 벤치 ${pp.benched}턴` : ''}` },
       avatar(p.portraitColor, p.name, 'sm'),
       h('span', { class: 'rw-pl-nm' }, p.name ?? pp.id, h('span', { class: 'rw-pl-slot' }, p.slot ?? '')),
       h('span', { class: 'rw-pl-gain' },
         h('b', { class: total > 0 ? 'good' : total < 0 ? 'bad' : 'muted' }, signed(total)),
-        pp.auto ? h('span', { class: 'rw-auto' }, '자율') : pp.sub ? h('span', { class: 'rw-pl-sub' }, `${subName}+${pp.sub}`) : null));
+        pp.sub ? h('span', { class: 'rw-pl-sub' }, `부+${pp.sub}`) : null));
   }));
 
   const body = h('div', { class: 'reward-body' });

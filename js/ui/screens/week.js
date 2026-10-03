@@ -38,46 +38,48 @@ export function renderWeek(root, ctx, { inert = false } = {}) {
 
   const live = !inert && state.phase === 'week';
   const rec = live && manager ? safe(() => manager.recommendWeek(state, data)) : null;
-  const isRec = (a) => !!rec && rec.type === a.type && (a.stat == null || rec.stat === a.stat) && !!rec.free === !!a.free;
+  const isRec = (a) => !!rec && rec.type === a.type && (a.zone == null || rec.zone === a.zone) && !!rec.free === !!a.free;
   const recBadge = (a) => (isRec(a) ? h('span', { class: 'badge badge-accent rec-badge', title: rec.reason ? `감독 추천 — ${rec.reason}` : '감독 추천' }, '추천') : null);
   const act = (action) => { if (live) actions.weekAction(action); };
   const kind = view.kind;
   const players = Array.isArray(view.players) ? view.players : [];
   const cardDefs = new Map(((data.cards && data.cards.cards) || []).map((c) => [c.id, c]));
   const fr = data.config?.friendly || {};
+  const focusCfg = data.lesson?.lesson?.focus || {};
+  const specialCfg = data.lesson?.lesson?.special || {};
   const outingCfg = data.lesson?.outing || {};
   const outingText = `고른 선수 +${outingCfg.picked ?? 20} · 전원 +${outingCfg.team ?? 10} · 컨디션 +${outingCfg.condition ?? 1}`;
-  // 덱에 고유 카드가 있는 선수 (레슨 종목이 주 스탯 쌍이면 강화 모드)
-  const deckOwners = new Set((view.deck || []).map((d) => cardDefs.get(d.cardId)).filter((c) => c && c.family === 'unique').map((c) => c.ownerCharId));
 
   // ---------- 이번 주 ----------
   let cardsRow;
   if (kind === 'lesson' || kind === 'prep') {
     cardsRow = (view.lessons || []).map((ls) => {
-      const a = { type: 'lesson', stat: ls.stat };
-      const owners = players.filter((p) => deckOwners.has(p.charId) && Array.isArray(p.mainStats) && p.mainStats.includes(ls.stat));
+      // 중점 구역 (§14.13): ls.zone · 고유 ×1.5 선수 = ls.boosted (엔진). 카드 내용 개편은 ZU1.
+      const a = { type: 'lesson', zone: ls.zone };
+      const boosted = new Set(Array.isArray(ls.boosted) ? ls.boosted : []);
+      const owners = players.filter((p) => boosted.has(p.id));
       return h('button', {
         class: ['btn', 'week-card', 'week-lesson', ls.special ? 'special' : '', ls.prep ? 'prep' : '', isRec(a) ? 'recommended' : ''],
         disabled: !live,
-        dataset: { stat: ls.stat },
-        title: `${L.STAT_LABELS[ls.stat]} ${ls.prep ? '대비 ' : ls.special ? '특별 ' : ''}레슨 · ${ls.turns}턴 · 목표 ${ls.target} · 퍼펙트 ${ls.cap}`,
+        dataset: { zone: ls.zone },
+        title: `${L.STAT_LABELS[ls.zone]} 중점 ${ls.prep ? '대비 ' : ls.special ? '특별 ' : ''}레슨 · ${ls.turns}턴 · 목표 ${ls.target} · 퍼펙트 ${ls.cap}`,
         onclick: () => act(a),
       },
       h('span', { class: 'wl-tags' },
         ls.special ? h('span', { class: 'badge badge-gold' }, '★ 특별') : null,
         ls.prep ? h('span', { class: 'badge badge-warn' }, '대비 레슨') : null,
         recBadge(a)),
-      h('span', { class: 'wl-ico', 'aria-hidden': 'true' }, L.STAT_ICONS[ls.stat] ?? ''),
-      h('b', { class: 'wl-name' }, L.STAT_LABELS[ls.stat] ?? ls.stat),
-      h('span', { class: 'wl-sub tiny' }, ls.special ? h('span', { class: 'gold' }, '목표 ×1.3 · 상승 +50%')
-        : ls.prep ? (prepBoost(ls.stat) ? h('span', { class: 'warn' }, `대비 카드 ${prepBoost(ls.stat)}장 ×1.5`) : h('span', { class: 'muted' }, '대비 카드 배율 없음'))
+      h('span', { class: 'wl-ico', 'aria-hidden': 'true' }, L.STAT_ICONS[ls.zone] ?? ''),
+      h('b', { class: 'wl-name' }, L.STAT_LABELS[ls.zone] ?? ls.zone),
+      h('span', { class: 'wl-sub tiny' }, ls.special ? h('span', { class: 'gold' }, `목표 ×${specialCfg.targetMult ?? 1.15} · 상승 ×${focusCfg.specialMult ?? 2}`)
+        : ls.prep ? (prepBoost(ls.zone) ? h('span', { class: 'warn' }, `대비 카드 ${prepBoost(ls.zone)}장 ×1.5`) : h('span', { class: 'muted' }, '대비 카드 배율 없음'))
           : h('span', { class: 'muted' }, '기본 레슨')),
       h('span', { class: 'wl-target' },
         h('span', { class: 'wl-k tiny muted' }, '목표'), h('b', {}, ls.target)),
       h('span', { class: 'wl-cap' },
         h('span', { class: 'wl-k tiny muted' }, '퍼펙트'), h('span', {}, ls.cap)),
-      h('span', { class: 'wl-owners', title: owners.length ? `이 종목에서 고유 카드가 강화 모드인 선수 (주 스탯 쌍): ${owners.map((p) => p.name).join(' · ')}` : '이 종목에서 강화 모드인 고유 카드 없음' },
-        h('span', { class: 'wl-owners-k tiny muted' }, '고유 카드 강화'),
+      h('span', { class: 'wl-owners', title: owners.length ? `이 구역이 주 스탯이라 고유 카드 ×1.5인 선수: ${owners.map((p) => p.name).join(' · ')}` : '이 구역에서 ×1.5가 걸리는 고유 카드 없음' },
+        h('span', { class: 'wl-owners-k tiny muted' }, '고유 ×1.5'),
         h('span', { class: 'wl-owners-av' }, owners.length ? owners.map((p) => avatar(p.portraitColor, p.name, 'xs')) : h('span', { class: 'tiny muted' }, '없음'))));
     });
   } else {
@@ -114,7 +116,7 @@ export function renderWeek(root, ctx, { inert = false } = {}) {
   const prepHint = view.nextMatch?.styleHint ? `상대 ${view.nextMatch.styleHint}` : '경계전 상대';
   const headText = kind === 'prep'
     ? `대비 레슨 — ${prepHint}에 맞춘 대비 카드가 레슨 덱에 들어갑니다. 클리어하면 경계전 컨디션 +1`
-    : kind === 'lesson' ? `레슨 종목을 고르세요 (${view.lessons?.[0]?.turns ?? '?'}턴). ★ 특별 레슨은 목표가 높은 대신 상승 +50%`
+    : kind === 'lesson' ? `중점 구역을 고르세요 (${view.lessons?.[0]?.turns ?? '?'}턴). ★ 특별 구역을 중점으로 고르면 목표가 높은 대신 상승 ×${focusCfg.specialMult ?? 2}`
       : '행동 하나를 고르세요. 휴식은 늘 열려 있습니다.';
   const main = h('section', { class: ['og-panel', 'week-main', `wk-${kind}`] },
     h('div', { class: 'og-panel-head week-head' },

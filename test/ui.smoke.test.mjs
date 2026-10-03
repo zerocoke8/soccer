@@ -183,7 +183,7 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
   assert.equal(lessonBtns.length, 5, "레슨 종목 5");
   const recLesson = lessonBtns.find((b) => b.classList.contains("recommended"));
   assert.ok(recLesson && recLesson.textContent.includes("추천"), "추천 배지 (manager.recommendWeek)");
-  assert.equal(recLesson.dataset.stat, window.__soccer.manager.recommendWeek(run, window.__soccer.store.data).stat);
+  assert.equal(recLesson.dataset.zone, window.__soccer.manager.recommendWeek(run, window.__soccer.store.data).zone);
   // 저장 확인: 레슨판 키에만, 본편 저장은 그대로
   const savedRun = JSON.parse(window.localStorage.getItem(KEYS.run));
   assert.equal(savedRun.seed, "ui-smoke");
@@ -216,6 +216,36 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
   contBtn.click();
   assert.equal(window.__soccer.store.run.phase, "lesson", "이어하기 → 레슨");
   assert.ok(doc.querySelector(".lesson-screen"));
+  {
+    // 저장 v1 (§14.15): 주 phase v1 → v2 로 올려 이어하기, 레슨 중 v1 → "저장 없음" + 토스트
+    const S0 = window.__soccer;
+    const cur = JSON.parse(JSON.stringify(S0.store.run));
+    const weekV1 = S0.run.createRun({ data: S0.store.data, seed: "v1-save" });
+    weekV1.version = 1;
+    weekV1.record.lessons = [{ turnIndex: 0, stat: "pass", special: false, prep: false, score: 300, target: 300, cap: 400, result: "clear", turns: 6, plays: 5, rests: 1, fails: 0, injuries: 0 }];
+    const contOf = () => [...doc.querySelectorAll(".start-menu button")].find((b) => !b.classList.contains("challenge-btn") && b.textContent.includes("이어하기"));
+    S0.actions.resetToStart();
+    window.localStorage.setItem(KEYS.run, JSON.stringify(weekV1));
+    S0.render();
+    contOf().click();
+    assert.equal(S0.store.run.version, 2, "v1 (주) → v2");
+    assert.equal(S0.store.run.record.lessons[0].zone, "pass");
+    assert.equal(S0.store.run.record.lessons[0].benches, 1);
+    assert.ok(doc.querySelector(".week-screen"), "이어하기 → 주 화면");
+    S0.actions.resetToStart();
+    window.localStorage.setItem(KEYS.run, JSON.stringify({ ...cur, version: 1 }));
+    S0.render();
+    contOf().click();
+    assert.equal(S0.store.screen, "start", "레슨 중 v1 은 이어 하지 않는다");
+    assert.equal(window.localStorage.getItem(KEYS.run), null, "저장 없음");
+    assert.ok(!contOf(), "이어하기 버튼 없음");
+    assert.ok([...doc.querySelectorAll("#toast-root .toast")].some((t) => t.textContent.includes("구역 방식으로 바뀌어 진행 중인 레슨은 이어 할 수 없습니다")), "토스트");
+    // 원래 런으로 돌아간다
+    window.localStorage.setItem(KEYS.run, JSON.stringify(cur));
+    S0.render();
+    contOf().click();
+    assert.equal(S0.store.run.phase, "lesson");
+  }
 
   // ---- 경기 화면 (§12.3 + v0.3 §13.6): 친선전 한 판 — 수동 결정(받는 선수 선택) → 연출 → 스킵 → 결과 → finishMatch 1회 ----
   const S = window.__soccer;

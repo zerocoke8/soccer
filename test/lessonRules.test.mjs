@@ -1,6 +1,6 @@
-// test/lessonRules.test.mjs — 엔진 감사 (ENGINE AUDIT): 규칙 항목 중 다른 테스트가 직접 보지 않던 것.
-//   OUTGAME_LESSON_draft 10.1 키 매핑 (trainingEfficiency · injuryRate · bondGain · hintRate · restEffect + D30),
-//   D6 턴 끝 틱 퍼펙트 → 런 보상 (D5), D22 대비 레슨 부상 → 경계전 유스 → 다음 레슨 −1, 경기 전 준비 뷰 prepBonus.
+// test/lessonRules.test.mjs — 엔진 감사 (ENGINE AUDIT): 규칙 항목 중 다른 테스트가 직접 보지 않던 것 (구역 방식, §14.17).
+//   OUTGAME_LESSON_draft 10.1 키 매핑 (trainingEfficiency · injuryRate · bondGain · hintRate · restEffect + D30 → 벤치),
+//   D6 턴 끝 기본 훈련 퍼펙트 → 런 보상 (D5), D22 대비 레슨 부상 → 경계전 유스 → 다음 레슨 −1, 경기 전 준비 뷰 prepBonus.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { loadData } from "./helpers.mjs";
@@ -33,7 +33,7 @@ function walk(s, until) {
   for (let g = 0; !until(s); g++) {
     if (g > 500) throw new Error(`walk (${s.phase})`);
     if (s.phase === "week") LR.applyWeekAction(s, data, { type: "rest" });
-    else if (s.phase === "lesson") LR.lessonRest(s, data, { playerId: "p1" });
+    else if (s.phase === "lesson") LR.endLessonTurn(s, data);
     else if (s.phase === "reward") LR.resolveReward(s, data, { pick: null });
     else if (s.phase === "consult") LR.endConsult(s, data);
     else if (s.phase === "prep") LR.confirmPrep(s, data, {});
@@ -53,10 +53,35 @@ function forceHand(s, uids) {
   L.drawPile.push(...old);
 }
 
-function startLessonWeek(s, stat, specials = []) {
+/** 레슨 주 레슨 시작 (zone = 중점 구역) */
+function startLessonWeek(s, zone, specials = []) {
   s.weekOffer = { kind: "lesson", specials };
-  LR.applyWeekAction(s, data, { type: "lesson", stat });
+  LR.applyWeekAction(s, data, { type: "lesson", zone });
   return s;
+}
+
+/** 이번 턴 구역 배치를 고정한다 (테스트용, 결장 선수는 뺀다) */
+function setZones(s, layout) {
+  const z = {};
+  for (const [id, zone] of Object.entries(layout)) if (!s.lesson.out.includes(id)) z[id] = zone;
+  s.lesson.zones = z;
+  return s;
+}
+const LAYOUT = { p1: "defense", p2: "defense", p3: "physical", p4: "pass", p5: "dribble", p6: "shoot", p7: "shoot" };
+
+/** [턴 끝] 만 눌러 레슨을 끝낸다 */
+function endToEnd(s) {
+  for (let g = 0; s.phase === "lesson"; g++) {
+    if (g > 20) throw new Error("레슨이 끝나지 않습니다");
+    LR.endLessonTurn(s, data);
+  }
+}
+
+/** 마지막 턴으로 건너뛰고 점수 = 목표 → [턴 끝] 1번 (기본 훈련 한 번은 상한에 닿지 않는다 → 클리어) */
+function clearLesson(s) {
+  s.lesson.turn = s.lesson.turns;
+  s.lesson.score = s.lesson.target;
+  LR.endLessonTurn(s, data);
 }
 
 const addDeck = (s, cardId) => {
@@ -67,39 +92,52 @@ const addDeck = (s, cardId) => {
 
 // ---------------------------------------------------------------------------
 
-// zone-pending:ZE4 — 레슨 런 규칙을 구역 방식(at · 벤치 · zone)으로 (§14.13 lessonRun). ZE4 가 고쳐서 다시 켠다.
-test.skip("10.1 키 매핑: trainingEfficiency = 카드 상승 · 분위기 틱 배율, injuryRate = 카드 실패율 +%p (뷰 포함)", () => {
+test("10.1 키 매핑: trainingEfficiency = 카드 상승 · 기본 훈련(분위기 몫 포함) 배율, injuryRate = 카드 실패율 +%p (뷰 포함)", () => {
   const s = newRun();
-  s.modifiers.push({ key: "trainingEfficiency", amount: 0.2, untilSeason: null }, { key: "injuryRate", amount: 0.05, untilSeason: null });
+  s.condition = 2; // 컨디션 배율 1.0
   startLessonWeek(s, "pass");
+  setZones(s, LAYOUT);
   const uid = s.deck.find((e) => e.cardId === "cd_coaching").uid;
   forceHand(s, [uid]);
-  const pv = LR.previewCard(s, data, { uid, taps: ["p4"] });
+  const plain = LR.previewCard(s, data, { uid, playerId: "p4" });
+  s.modifiers.push({ key: "trainingEfficiency", amount: 0.2, untilSeason: null }, { key: "injuryRate", amount: 0.05, untilSeason: null });
+  const pv = LR.previewCard(s, data, { uid, playerId: "p4" });
+  assert.ok(pv.ok);
   assert.equal(R(pv.failRate * 100), 7, "체력 100: 2% + 5%p");
   assert.equal(R(LR.getLessonView(s, data).players[0].failRate * 100), 7);
+  // 카드 상승 = 1인 35 × 패스 성장률 × 중점 ×1.5 × 카드 배율 0.64 × (1 + 0.2)
   const p4 = P(s, "p4");
+  const ls = data.lesson.lesson;
+  assert.equal(pv.targets[0].id, "p4");
+  assert.equal(pv.targets[0].zone, "pass");
+  assert.equal(pv.targets[0].gain, R(35 * p4.growth.pass * ls.focus.mult * ls.cardGainScale * 1.2));
+  assert.ok(Math.abs(pv.targets[0].gain - plain.targets[0].gain * 1.2) <= 1, `${plain.targets[0].gain} → ${pv.targets[0].gain}`);
+  // 기본 훈련: (3.2 + 분위기 2 × 0.96) × 패스 성장률 × 중점 ×1.5 × (1 + 0.2) — 카드를 내면 턴이 끝난다 (playsLeft 1)
   const before = p4.stats.pass;
   s.lesson.buffs.mood = 2;
   s.rngState = SAFE;
-  LR.playCard(s, data, { uid, taps: ["p4"] }); // 손패가 비어 턴 끝 → 분위기 틱
-  const card = R(35 * p4.growth.pass * 1.2);
-  const tick = R(2 * 1.5 * p4.growth.pass * 1.2);
-  assert.equal(p4.stats.pass - before, card + tick);
+  LR.playCard(s, data, { uid, playerId: "p4" });
+  const unit = ls.base.gain + 2 * data.lesson.buffs.moodK * ls.cardGainScale;
+  const base = R(unit * p4.growth.pass * ls.focus.mult * 1.2);
+  const fx = s.lesson.lastFx.find((x) => x.t === "base" && x.id === "p4");
+  assert.equal(fx.n, base);
+  assert.equal(p4.stats.pass - before, pv.targets[0].gain + base);
 });
 
-// zone-pending:ZE4 — 레슨 런 규칙을 구역 방식(at · 벤치 · zone)으로 (§14.13 lessonRun). ZE4 가 고쳐서 다시 켠다.
-test.skip("10.1 키 매핑: bondGain 은 코치 카드를 낼 때만 (+8 + 3), 카드 획득 +15 · 같은 종목 클리어 +5 에는 더하지 않는다", () => {
+test("10.1 키 매핑: bondGain 은 코치 카드를 낼 때만 (+8 + 3), 카드 획득 +15 · 중점 구역 = 코치 타입 클리어 +5 에는 더하지 않는다", () => {
   const s = newRun();
   s.modifiers.push({ key: "bondGain", amount: 3, untilSeason: null });
   const uid = addDeck(s, "cd_c_harr");
   startLessonWeek(s, "shoot");
+  setZones(s, LAYOUT);
   const b0 = sup(s, "sp_coach_harr").bond;
   forceHand(s, [uid]);
   s.rngState = SAFE;
-  LR.playCard(s, data, { uid });
+  LR.playCard(s, data, { uid, at: data.lesson.zones.centers.shoot }); // 중간 원 = 슈팅 구역 2명
+  assert.equal(s.lesson.stats.plays, 1);
   assert.equal(sup(s, "sp_coach_harr").bond, b0 + 8 + 3);
-  s.lesson.score = s.lesson.target; // 클리어 → 같은 종목(슈팅) 코치 +5
-  while (s.phase === "lesson") LR.lessonRest(s, data, { playerId: "p1" });
+  clearLesson(s); // 클리어 → 중점 구역(슈팅) = 하르 코치 타입 +5
+  assert.equal(s.pendingReward.result.status, "clear");
   assert.equal(sup(s, "sp_coach_harr").bond, b0 + 11 + 5);
   // 보상에서 코치 카드 획득 +15 (bondGain 없음)
   s.pendingReward.offer = [{ cardId: "cd_c_celia", plus: false, kind: "add" }];
@@ -108,27 +146,24 @@ test.skip("10.1 키 매핑: bondGain 은 코치 카드를 낼 때만 (+8 + 3), �
   assert.equal(sup(s, "sp_wind_dancer").bond, c0 + 15);
 });
 
-// zone-pending:ZE4 — 레슨 런 규칙을 구역 방식(at · 벤치 · zone)으로 (§14.13 lessonRun). ZE4 가 고쳐서 다시 켠다.
-test.skip("10.1 키 매핑: hintRate 는 클리어 때 힌트 1개 더 (확률), 실패 레슨에는 없다", () => {
+test("10.1 키 매핑: hintRate 는 클리어 때 힌트 1개 더 (확률), 실패 레슨에는 없다", () => {
   const s = newRun();
   s.modifiers.push({ key: "hintRate", amount: 1, untilSeason: null });
   startLessonWeek(s, "pass");
-  s.lesson.score = s.lesson.target;
-  while (s.phase === "lesson") LR.lessonRest(s, data, { playerId: "p1" });
+  clearLesson(s);
   assert.equal(s.pendingReward.result.status, "clear");
   assert.equal(s.pendingReward.result.hints.length + s.pendingReward.result.sp / data.lesson.rewards.noHintSp, 2);
 
   const t = newRun();
   t.modifiers.push({ key: "hintRate", amount: 1, untilSeason: null });
   startLessonWeek(t, "pass");
-  while (t.phase === "lesson") LR.lessonRest(t, data, { playerId: "p1" });
+  endToEnd(t);
   assert.equal(t.pendingReward.result.status, "fail");
   assert.equal(t.pendingReward.result.hints.length, 0);
   assert.equal(t.pendingReward.result.sp, 0);
 });
 
-// zone-pending:ZE4 — 레슨 런 규칙을 구역 방식(at · 벤치 · zone)으로 (§14.13 lessonRun). ZE4 가 고쳐서 다시 켠다.
-test.skip("10.1 키 매핑 · D30: restEffect 는 주 휴식에만, 레슨 중 쉬기는 늘 +20 / +5", () => {
+test("10.1 키 매핑 · D30 (L36): restEffect 는 주 휴식에만, 레슨 벤치 회복은 늘 +15 (경기장 선수는 기본 훈련 체력 −1)", () => {
   const s = newRun();
   s.modifiers.push({ key: "restEffect", amount: -0.3, untilSeason: null });
   for (const p of s.players) p.stamina = 10;
@@ -138,13 +173,15 @@ test.skip("10.1 키 매핑 · D30: restEffect 는 주 휴식에만, 레슨 중 �
   walk(s, (x) => x.phase === "week" && x.weekOffer.kind === "lesson");
   for (const p of s.players) p.stamina = 10;
   startLessonWeek(s, "pass");
-  LR.lessonRest(s, data, { playerId: "p3" });
-  assert.equal(P(s, "p3").stamina, 30);
-  assert.ok(s.players.filter((p) => p.id !== "p3").every((p) => p.stamina === 15));
+  assert.equal(typeof LR.lessonRest, "undefined", "레슨 중 [쉬기] 는 없다");
+  LR.benchPlayer(s, data, { playerId: "p3", on: true });
+  LR.endLessonTurn(s, data);
+  assert.equal(P(s, "p3").stamina, 10 + data.lesson.lesson.bench.recover);
+  assert.ok(s.players.filter((p) => p.id !== "p3").every((p) => p.stamina === 10 - data.lesson.lesson.base.stamina));
+  assert.deepEqual(s.lesson.bench, [], "다음 턴 시작에 벤치를 비운다");
 });
 
-// zone-pending:ZE4 — 레슨 런 규칙을 구역 방식(at · 벤치 · zone)으로 (§14.13 lessonRun). ZE4 가 고쳐서 다시 켠다.
-test.skip("D5 · D6: 턴 끝 분위기 틱으로 상한에 닿아도 퍼펙트 — 그 턴까지 쓴 것으로 세고, 보상은 TP 20 · 힌트 2 · 무료 강화 1 (클리어 보상과 겹치지 않음)", () => {
+test("D5 · D6: 턴 끝 기본 훈련으로 상한에 닿아도 퍼펙트 — 그 턴까지 쓴 것으로 세고, 보상은 TP 20 · 힌트 2 · 무료 강화 1 (클리어 보상과 겹치지 않음)", () => {
   const s = newRun({ policy: "team" });
   startLessonWeek(s, "pass");
   const L = s.lesson;
@@ -154,7 +191,8 @@ test.skip("D5 · D6: 턴 끝 분위기 틱으로 상한에 닿아도 퍼펙트 �
   for (const p of s.players) p.stamina = 40;
   const tp0 = s.trainingPoints;
   const tw0 = s.teamwork;
-  LR.lessonRest(s, data, { playerId: "p1" });
+  LR.benchPlayer(s, data, { playerId: "p1", on: true });
+  LR.endLessonTurn(s, data); // 카드 0장 → 기본 훈련 (분위기 몫 포함) 으로 상한
   assert.equal(s.phase, "reward");
   const r = s.pendingReward.result;
   assert.equal(r.status, "perfect");
@@ -163,21 +201,42 @@ test.skip("D5 · D6: 턴 끝 분위기 틱으로 상한에 닿아도 퍼펙트 �
   assert.equal(r.hints.length + r.sp / data.lesson.rewards.noHintSp, data.lesson.rewards.perfect.hints);
   assert.equal(s.pendingReward.freeUpgrades, 1);
   assert.equal(s.teamwork - tw0, data.lesson.teamwork.clear);
-  // 체력: 쉬기 (p1 +20 · 나머지 +5) → 자율 훈련 +10 (대상 없음) → 퍼펙트 5 × (6 − 3)
-  assert.equal(P(s, "p1").stamina, 40 + 20 + 10 + 15);
-  assert.equal(P(s, "p2").stamina, 40 + 5 + 10 + 15);
+  // 체력: 기본 훈련 −1 (경기장) · 벤치 +15 (p1) → 퍼펙트 5 × (6 − 3). 자율 훈련은 없다.
+  const ls = data.lesson.lesson;
+  const bonus = ls.perfectStaminaPerTurn * (L.turns - 3);
+  assert.equal(P(s, "p1").stamina, 40 + ls.bench.recover + bonus);
+  assert.equal(P(s, "p2").stamina, 40 - ls.base.stamina + bonus);
 });
 
-// zone-pending:ZE4 — 레슨 런 규칙을 구역 방식(at · 벤치 · zone)으로 (§14.13 lessonRun). ZE4 가 고쳐서 다시 켠다.
-test.skip("D22: 대비 레슨에서 다치면 바로 뒤 경계전 · 원정 친선전에서 유스, 다음 시즌 첫 레슨이 끝나면 −1", () => {
+test("D6: 카드로 퍼펙트가 되면 그 턴의 기본 훈련 · 벤치 회복은 하지 않는다", () => {
+  const s = newRun();
+  startLessonWeek(s, "pass");
+  const L = s.lesson;
+  L.score = L.cap - 1;
+  L.buffs.nextNoFail = true;
+  for (const p of s.players) p.stamina = 50;
+  LR.benchPlayer(s, data, { playerId: "p1", on: true });
+  const uid = s.deck.find((e) => e.cardId === "cd_basic").uid;
+  forceHand(s, [uid]);
+  LR.playCard(s, data, { uid, at: { x: 50, y: 50 } });
+  assert.equal(s.phase, "reward");
+  assert.equal(s.pendingReward.result.status, "perfect");
+  assert.equal(s.pendingReward.result.turnReached, 1);
+  assert.ok(!L.lastFx.some((x) => x.t === "base"), "기본 훈련 없음");
+  const bonus = data.lesson.lesson.perfectStaminaPerTurn * (L.turns - 1);
+  assert.equal(P(s, "p1").stamina, 50 + bonus, "벤치 회복 없음");
+  assert.ok(s.pendingReward.result.perPlayer.every((x) => x.base === 0 && x.mood === 0));
+});
+
+test("D22: 대비 레슨에서 다치면 바로 뒤 경계전 · 원정 친선전에서 유스, 다음 시즌 첫 레슨이 끝나면 −1", () => {
   const s = newRun();
   walk(s, (x) => x.phase === "week" && x.turn === 5);
-  LR.applyWeekAction(s, data, { type: "lesson", stat: "defense" });
+  LR.applyWeekAction(s, data, { type: "lesson", zone: "defense" });
   const uid = s.deck.find((e) => e.cardId === "cd_coaching").uid;
   forceHand(s, [uid]);
   P(s, "p4").stamina = 10;
   s.rngState = FAIL_INJURE;
-  LR.playCard(s, data, { uid, taps: ["p4"] });
+  LR.playCard(s, data, { uid, playerId: "p4" });
   assert.equal(s.lesson.stats.injuries, 1);
   assert.ok(s.lesson.out.includes("p4"));
   assert.ok(s.lesson.removed.includes(s.deck.find((e) => e.cardId === "cd_u_silluen").uid));
@@ -195,12 +254,12 @@ test.skip("D22: 대비 레슨에서 다치면 바로 뒤 경계전 · 원정 친
   assert.equal(P(s, "p4").injuredTurns, 1, "주 시작만으로는 줄지 않는다");
   startLessonWeek(s, "pass");
   assert.deepEqual(s.lesson.outAtStart, ["p4"]);
-  while (s.phase === "lesson") LR.lessonRest(s, data, { playerId: "p1" });
+  assert.ok(!("p4" in s.lesson.zones));
+  endToEnd(s);
   assert.equal(P(s, "p4").injuredTurns, 0);
 });
 
-// zone-pending:ZE4 — 레슨 런 규칙을 구역 방식(at · 벤치 · zone)으로 (§14.13 lessonRun). ZE4 가 고쳐서 다시 켠다.
-test.skip("경기 전 준비 뷰 prepBonus = 이번 시즌 대비 레슨 클리어만 (유물 '낡은 주장 완장' 의 경계전 컨디션은 아니다)", () => {
+test("경기 전 준비 뷰 prepBonus = 이번 시즌 대비 레슨 클리어만 (유물 '낡은 주장 완장' 의 경계전 컨디션은 아니다)", () => {
   const s = newRun();
   s.relics.push("rl_captain_band");
   s.modifiers.push({ key: "goalMatchCondition", amount: 1, untilSeason: null, source: "relic:rl_captain_band" });
@@ -210,9 +269,8 @@ test.skip("경기 전 준비 뷰 prepBonus = 이번 시즌 대비 레슨 클리�
   const t = newRun();
   t.modifiers.push({ key: "goalMatchCondition", amount: 1, untilSeason: null, source: "relic:rl_captain_band" });
   walk(t, (x) => x.phase === "week" && x.turn === 5);
-  LR.applyWeekAction(t, data, { type: "lesson", stat: "defense" });
-  t.lesson.score = t.lesson.target;
-  while (t.phase === "lesson") LR.lessonRest(t, data, { playerId: "p1" });
+  LR.applyWeekAction(t, data, { type: "lesson", zone: "defense" });
+  clearLesson(t);
   LR.resolveReward(t, data, { pick: null });
   assert.equal(LR.getPrepView(t, data).prepBonus, true);
   // 다음 시즌 경기 전 준비에서는 지난 시즌 대비 보너스가 남지 않는다
@@ -220,8 +278,7 @@ test.skip("경기 전 준비 뷰 prepBonus = 이번 시즌 대비 레슨 클리�
   assert.equal(LR.getPrepView(t, data).prepBonus, false);
 });
 
-// zone-pending:ZE4 — 레슨 런 규칙을 구역 방식(at · 벤치 · zone)으로 (§14.13 lessonRun). ZE4 가 고쳐서 다시 켠다.
-test.skip("뷰 · 미리보기 · lessonResult 는 rng 를 쓰지 않는다 (rngState 그대로) — 레슨 · 보상 · 상담 · 준비 · 주", () => {
+test("뷰 · 미리보기 · lessonResult 는 rng 를 쓰지 않는다 (rngState 그대로) — 레슨 · 보상 · 상담 · 준비 · 주", () => {
   const s = newRun({ seed: 4 });
   const pure = (fn) => {
     const b = JSON.stringify(s);
@@ -232,10 +289,15 @@ test.skip("뷰 · 미리보기 · lessonResult 는 rng 를 쓰지 않는다 (rng
   startLessonWeek(s, "dribble");
   pure(() => {
     LR.getLessonView(s, data);
-    for (const uid of s.lesson.hand) LR.previewCard(s, data, { uid, taps: [] });
+    for (const uid of s.lesson.hand) {
+      LR.previewCard(s, data, { uid, at: { x: 50, y: 30 } });
+      LR.previewCard(s, data, { uid });
+      for (const c of LR.dropCandidates(s, data, { uid })) LR.previewCard(s, data, { uid, at: c.at || undefined, playerId: c.playerId });
+    }
     lesson.lessonResult(s, data);
   });
   s.lesson.score = s.lesson.cap;
-  LR.lessonRest(s, data, { playerId: "p1" });
+  LR.endLessonTurn(s, data);
+  assert.equal(s.phase, "reward");
   pure(() => LR.getRewardView(s, data));
 });

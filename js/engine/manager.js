@@ -282,7 +282,7 @@ function hasBuyableSkill(state, data) {
 
 /**
  * 주 행동 추천 (§5.5). 순수.
- * @returns {{ type: string, stat?: string, playerId?: string, free?: boolean, reason: string }}
+ * @returns {{ type: string, zone?: string, playerId?: string, free?: boolean, reason: string }}
  */
 export function recommendWeek(state, data) {
   if (!state || state.phase !== "week") throw new Error("phase 'week' 에서만 추천합니다");
@@ -294,16 +294,16 @@ export function recommendWeek(state, data) {
   const avg = avgStamina(weekActive(state));
   if (view.kind === "lesson" || view.kind === "prep") {
     if (avg < 40) return { type: "rest", reason: `출전 선수 평균 체력 ${Math.round(avg)} < 40` };
-    const stats = view.lessons.map((l) => l.stat);
-    const specials = view.lessons.filter((l) => l.special).map((l) => l.stat);
+    const stats = view.lessons.map((l) => l.zone);
+    const specials = view.lessons.filter((l) => l.special).map((l) => l.zone);
     if (specials.length) {
-      const stat = specials.slice().sort((a, b) => teamTotal(state, a) - teamTotal(state, b) || STATS.indexOf(a) - STATS.indexOf(b))[0];
-      return { type: "lesson", stat, reason: "특별 레슨" };
+      const zone = specials.slice().sort((a, b) => teamTotal(state, a) - teamTotal(state, b) || STATS.indexOf(a) - STATS.indexOf(b))[0];
+      return { type: "lesson", zone, reason: "특별 레슨" };
     }
     const cs = counterStat(state);
-    if (stats.includes(cs)) return { type: "lesson", stat: cs, reason: "다음 상대 대응 종목" };
-    const stat = stats.slice().sort((a, b) => mainStatTotal(state, a) - mainStatTotal(state, b) || STATS.indexOf(a) - STATS.indexOf(b))[0];
-    return { type: "lesson", stat, reason: "주 스탯 합이 가장 낮은 종목" };
+    if (stats.includes(cs)) return { type: "lesson", zone: cs, reason: "다음 상대 대응 구역" };
+    const zone = stats.slice().sort((a, b) => mainStatTotal(state, a) - mainStatTotal(state, b) || STATS.indexOf(a) - STATS.indexOf(b))[0];
+    return { type: "lesson", zone, reason: "주 스탯 합이 가장 낮은 구역" };
   }
   // 자유 주
   const open = new Set(view.actions.map((a) => a.type));

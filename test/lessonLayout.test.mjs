@@ -114,7 +114,7 @@ test.skip("fxPlan: 실제 엔진 lastFx (기초 훈련 = 전원 → 턴 끝 → 
     });
     for (const stat of STATS) {
       const s = clone(base);
-      lessonRun.applyWeekAction(s, data, { type: "lesson", stat });
+      lessonRun.applyWeekAction(s, data, { type: "lesson", zone: stat });
       const c = lessonRun.getLessonView(s, data).hand.find((x) => x.cardId === "cd_basic");
       if (c) { st = s; uid = c.uid; break; }
     }
