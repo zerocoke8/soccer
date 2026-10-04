@@ -205,6 +205,50 @@ test("E0 pass extraLine: 한 구역 더 도착 (line 0 → 2) · outcomesBySkill
   assert.equal(c.ball.comboReadyId, null, "t_pass_x → t_team 은 등록 안 된 짝");
 });
 
+test("L49 GK 게이지: 동료 필드 선수가 수비 듀얼을 이기면 우리 GK +35 · GK 가 직접 막으면 onDuelWin 만 · 뚫리면 그대로 · 필살기 없는 GK · 필드용 필살기 GK 는 안 채움 · 0 이면 끔", () => {
+  const GKW = 35; // match.js ultCfg 기본값 (config.json 에 키 없음)
+  assert.equal(UC.gkOnTeamDefWin, undefined, "config.json 은 그대로");
+  const both = () => mk({ GK: { skillIds: ["t_save_sure"] } }, { GK: { skillIds: ["t_save_sure"] } });
+  // 원정 공격 · 홈 필드 수비 승리 → 홈 GK +35, 원정 GK 그대로
+  let ms = place(both(), { atk: "away", line: 1, carrier: "a_MF1", gauges: { h_GK: 30, a_GK: 30 } });
+  let r = forced(ms, null, false);
+  assert.equal(r.ev.type, "turnover");
+  assert.notEqual(r.ev.defenderId, "h_GK");
+  assert.equal(r.ms.home.live.h_GK.gauge, 30 + GKW);
+  assert.equal(r.ms.away.live.a_GK.gauge, 30);
+  // 뚫리면 (공격 성공) GK 게이지 그대로
+  ms = place(both(), { atk: "away", line: 1, carrier: "a_MF1", gauges: { h_GK: 30 } });
+  r = forced(ms, null, true);
+  assert.equal(r.ms.home.live.h_GK.gauge, 30);
+  // GK 가 직접 막은 세이브 = onDuelWin 만 (두 번 더하지 않는다)
+  ms = place(both(), { atk: "away", line: 3, carrier: "a_FW1", gauges: { h_GK: 30 } });
+  r = forced(ms, null, false);
+  assert.equal(r.ev.type, "save");
+  assert.equal(r.ms.home.live.h_GK.gauge, 30 + UC.onDuelWin);
+  // 홈 공격 · 원정 필드 수비 승리 → 원정 GK (상대도 같은 규칙) · 가득이면 넘치지 않는다
+  ms = place(both(), { atk: "home", line: 1, carrier: "h_MF1", gauges: { a_GK: 90, h_GK: 30 } });
+  r = forced(ms, null, false);
+  assert.equal(r.ms.away.live.a_GK.gauge, 100);
+  assert.equal(r.ms.home.live.h_GK.gauge, 30);
+  // 필살기 없는 GK 는 게이지가 없다 (그대로)
+  ms = place(mk(), { atk: "away", line: 1, carrier: "a_MF1" });
+  r = forced(ms, null, false);
+  assert.equal(r.ms.home.live.h_GK.gauge, undefined);
+  // GK 자리에 필드용 필살기 (필살 수비) 를 가진 선수 → 채우지 않는다 · 팀 필살기는 GK 도 쓸 수 있어 채운다
+  ms = place(mk({ GK: { skillIds: ["t_def"] } }), { atk: "away", line: 1, carrier: "a_MF1", gauges: { h_GK: 30 } });
+  r = forced(ms, null, false);
+  assert.equal(r.ms.home.live.h_GK.gauge, 30, "필살 수비 GK");
+  ms = place(mk({ GK: { skillIds: ["t_team"] } }), { atk: "away", line: 1, carrier: "a_MF1", gauges: { h_GK: 30 } });
+  r = forced(ms, null, false);
+  assert.equal(r.ms.home.live.h_GK.gauge, 30 + GKW, "팀 필살기 GK");
+  // gkOnTeamDefWin 0 = 끔
+  const off = clone(data);
+  off.config.match.ultimate.gkOnTeamDefWin = 0;
+  ms = place(mk({ GK: { skillIds: ["t_save_sure"] } }, {}, { data: off }), { atk: "away", line: 1, carrier: "a_MF1", gauges: { h_GK: 30 } }, off);
+  r = forced(ms, null, false, off);
+  assert.equal(r.ms.home.live.h_GK.gauge, 30);
+});
+
 test("E0 sureDistribution: 필살 세이브로 막으면 배급 롱패스 p = 1 · 판정 앞뒤 rngState 같음 · 그다음 배급은 보통", () => {
   const ms = mk({ GK: { skillIds: ["t_save_sure"], stats: { defense: 300 } } });
   place(ms, { atk: "away", line: 3, carrier: "a_FW1", gauges: { h_GK: 100 } });

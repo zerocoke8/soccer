@@ -328,6 +328,9 @@ function ultCfg(m) {
   return {
     start: num(u.gaugeStart, 30), max, onDuelWin: num(u.onDuelWin, 20), onReceive,
     onGoal: num(u.onGoal, 30), onUltPassReceive: num(u.onUltPassReceive, 50), comboBonus: num(u.comboBonus, 1.2),
+    // GK 게이지 규칙 (L49): 동료 필드 선수가 수비 듀얼을 이기면 우리 GK 게이지 + 이만큼 — 이 브랜치의 모든 경기 (레슨 런 · 옛 런 · 도전 모드,
+    // 상대 팀 GK 도). config.json 은 옛 런 테스트가 기대는 파일이라 키를 더하지 않고 기본값을 여기 둔다 (config 에 적으면 그 값, 0 = 끔)
+    gkOnTeamDefWin: num(u.gkOnTeamDefWin, 35),
     // 에이스의 외침 (표시 전용): 받으면 필살기가 준비되는 게이지 문턱. 없으면 gaugeMax − onReceive (받으면 가득)
     aceCall: num(u.aceCallGauge, max - onReceive),
   };
@@ -2511,6 +2514,13 @@ function resolveDuel(state, data) {
   incr(state.stats[defSide].playerDuelWins, defender.id);
   addTension(state, m, defSide, isGK ? num(m.tension && m.tension.save, 15) : num(m.tension && m.tension.steal, 15), odds.modsD);
   gain(defSide, defender.id, uc.onDuelWin);
+  // GK 게이지 규칙 (L49): 필드 선수가 막으면 뒤에서 지켜보던 GK 도 힘을 모은다 (GK 가 직접 막은 세이브 · 박스 연결은 위 onDuelWin 만).
+  // GK 자리에서 쓸 수 있는 필살기(세이브 · 팀)일 때만 — 필드용 필살기를 가진 선수를 GK 에 세우면 게이지만 차고 못 쓰므로 채우지 않는다
+  if (!isGK && uc.gkOnTeamDefWin > 0) {
+    const ownGk = state[defSide].players.find((p) => p.position === "GK");
+    const gkUlt = ownGk && ownGk.id !== defender.id ? getPlayerUltimate(data, ownGk) : null;
+    if (gkUlt && (gkUlt.ultimate.type === "save" || gkUlt.ultimate.type === "team")) gain(defSide, ownGk.id, uc.gkOnTeamDefWin);
+  }
   const cp = counterPlan(data, line, defAction, fxD, defender, isGK);
   if (cp.capTension || cp.stealTension) addTension(state, m, defSide, cp.capTension + cp.stealTension, odds.modsD);
   // 마지막 포제션이라 이 턴오버 · 세이브로 경기가 끝나면 역습 문구 없음 (2026-09-30)

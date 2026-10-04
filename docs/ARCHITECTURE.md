@@ -2194,6 +2194,7 @@ node tools/lesson_play.mjs <출력폴더> --watch-match --slot GK=ch_giant_keepe
 - 경기 쪽: `lessonRun` 이 home 스냅샷에 `partyPassives` 를 싣고, `skills.collectMods` · `collectModSources` 가 팀 패시브처럼 센다 (출처 = 코치). `match.initTeam` 은 배열인지만 본다. 옛 런 · 도전 모드 · 상대 팀은 키가 없어 그대로.
 - 슬롯 3 = 액티브만 (`canTeachSkill.full`, 바꾸기는 액티브만). 저장 모양은 그대로 (v4).
 - 테스트 370 (새 `passives.test.mjs` 5).
+- **L49 키퍼 게이지 규칙** (`match.js` — 계획 §21): 필드 수비 듀얼 승리마다 막은 팀 GK 게이지 + `ultCfg.gkOnTeamDefWin` (기본 35, config.json 에 키 없음). 테스트 371.
 
 ### 20.7 선수 16명 · 전원 필살기 · 경기 엔진 수정 (L44 ~ L46, 2026-10-04 — 계획 §19 · §19.19)
 
