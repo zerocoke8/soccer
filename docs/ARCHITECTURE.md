@@ -2133,7 +2133,7 @@ node tools/challenge_sim.mjs --write-sample [--sample-seed challenge-sample-7] [
 | 데이터 | `data/cards.json`(76장 — 고유 16장) · `data/lesson.json`(주 · 레슨 · 보상 · 상담 · 코치 지원 `attach` 수치 · `zones.ownerRadius · dropR`) · `data/policies.json`(방침 5) · `data/traits.json` 의 `lesson` 블록 (고유 카드 모양 — 경기 엔진은 읽지 않는다) |
 
 - 옛 `run.js` · `training.js` · `effects.js` · `rating.js` 는 남는다 (`ai.js` 가 run.js 를 import). 옛 파일에는 export 만 더했다 (§5.6, 동작 불변).
-- ~~경기 쪽 파일은 바이트 하나도 바꾸지 않는다~~ → **L45 (§20.7)부터 이 브랜치에서는 `match.js · ai.js · skills.js` · `screens/match.js` · `css/match.css` · `labels.js` 가 바뀌었다** (필살기 종류 · 합체기 · 컷인 · 주장). 지금도 그대로인 것: `js/engine/rng.js` · `run.js` · `training.js` · `js/ui/layout.js` · `data/config.json` — `git diff --stat 78cc0d3 -- <이 5개>` 가 비어 있어야 한다.
+- ~~경기 쪽 파일은 바이트 하나도 바꾸지 않는다~~ → **L45 (§20.7)부터 이 브랜치에서는 `match.js · ai.js · skills.js` · `screens/match.js` · `css/match.css` · `labels.js` 가 바뀌었다** (필살기 종류 · 합체기 · 컷인 · 주장). 지금도 그대로인 것: `js/engine/rng.js` · `run.js` · `training.js` · `js/ui/layout.js` — `git diff --stat 78cc0d3 -- <이 4개>` 가 비어 있어야 한다. `data/config.json` 은 **L51 (경기 밸런스 1차, 계획 §22) 에서 값 4개만** 바뀌었다 (`match.actionCoef.tackle` · `intercept` 1 → 0.6, `match.holdMult` 1 → 0.6, `friendly.possessions` 6 → 10).
 - 런 흐름: 시즌 3 × 5주 (레슨 · 자유 · 레슨 · 자유 · 대비) → 경기 전 준비 → 경계전 → (유물) → 루트. 1차에는 이벤트가 없다 (`lesson.events.support = false`, 라우팅 · `supportEventCheck` 단계만 남김).
 - 등록 팀 = `run.finalizeRun` 과 같은 모양 + `policy` (`createdTurnIndex` 14). 도전 모드 `buildChallengeTeamSnapshot` 을 그대로 통과한다.
 
@@ -2195,6 +2195,7 @@ node tools/lesson_play.mjs <출력폴더> --watch-match --slot GK=ch_giant_keepe
 - 슬롯 3 = 액티브만 (`canTeachSkill.full`, 바꾸기는 액티브만). 저장 모양은 그대로 (v4).
 - 테스트 370 (새 `passives.test.mjs` 5).
 - **L49 키퍼 게이지 규칙** (`match.js` — 계획 §21): 필드 수비 듀얼 승리마다 막은 팀 GK 게이지 + `ultCfg.gkOnTeamDefWin` (기본 35, config.json 에 키 없음). 테스트 371.
+- **L51 경기 밸런스 1차** (2026-10-05 — 계획 §22): `config.match.actionCoef.tackle` · `intercept` · `holdMult` 1.0 → **0.6** (필드 수비 세 행동 같은 배율), `config.friendly.possessions` 6 → **10**, `opponents.json` 경계전 상대 3팀 스탯만 ×0.85 · ×0.88 · ×0.85 (`tools/sim.mjs scaleOpponents` 규칙, 10 단위), `challenge.json` 3 ~ 10단계 `statTarget` 500 / 555 / 650 / 660 / 880 / 910 / 950 / 1100. 엔진 규칙은 그대로이고, `computeOdds` 결정타 칩 목록만 버티기의 holdMult 를 철벽처럼 수비 기본 `stat` 에서 빼 `coef` 로 옮겼다 (표시 전용 — 확률 · 난수 불변, 같은 능력치에 "능력치 우위 ×1.67" 이 뜨던 버그). §13.1 의 holdMult · 태클 · 인터셉트 계수 1.0, §18.1 단계 statTarget · §18.11 보정 표 · §18.12-4 "10단계 GK 1580" (지금 1880) 은 L51 전 값이다. 테스트 373.
 
 ### 20.7 선수 16명 · 전원 필살기 · 경기 엔진 수정 (L44 ~ L46, 2026-10-04 — 계획 §19 · §19.19)
 

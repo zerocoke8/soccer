@@ -824,9 +824,8 @@ async function main() {
         if (rec.op === "end") ok = await press(".consult-screen .cs-end");
         else if (rec.op === "buy") ok = await press(`.cs-item[data-index="${rec.index}"] .cs-buy-btn`);
         else if (rec.op === "skill") {
-          const sel = `.cs-skill[data-skill="${rec.skillId}"]`;
-          await page.select(`${sel} .cs-sk-player`, rec.playerId).catch(() => {});
-          ok = await press(`${sel} .cs-learn`);
+          // L48 패시브 상점 압축판: 선수 줄의 패시브 칩을 누르면 바로 산다
+          ok = await press(`.consult-screen .ps-chip[data-skill="${rec.skillId}"][data-pid="${rec.playerId}"]`);
         } else if (rec.op === "upgrade" || rec.op === "delete") {
           ok = await press(`.cs-deck-grid .mini-card[data-uid="${rec.uid}"]`);
           await delay(120);

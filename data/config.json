@@ -62,7 +62,7 @@
   "meeting": { "teamwork": 10 },
   "friendly": {
     "staminaCost": 30,
-    "possessions": 6,
+    "possessions": 10,
     "skillPointsWin": 30,
     "skillPointsLoss": 15,
     "relicChanceOnWin": 0.3
@@ -100,7 +100,7 @@
     "styleDis": 0.8,
     "readBonus": 1.7,
     "missMult": 0.8,
-    "holdMult": 1.0,
+    "holdMult": 0.6,
     "holdVsMidrange": 1.5,
     "holdVsCross": 1.7,
     "minP": 0.1,
@@ -112,8 +112,8 @@
       "shoot": 1.5,
       "midrangeShoot": 0.6,
       "header": 1.5,
-      "tackle": 1.0,
-      "intercept": 1.0,
+      "tackle": 0.6,
+      "intercept": 0.6,
       "save": 1.0,
       "longPass": 2.2
     },

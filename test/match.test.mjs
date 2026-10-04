@@ -127,7 +127,10 @@ test("목표 경기: 동점이면 연장 → 승부차기 → 승자 결정, 무
     if (ms.stage !== "regular") {
       extra++;
       assert.ok(ms.events.some((e) => e.type === "extraTime"));
-      assert.equal(ms.possessionsTotal, 8 + M.extraTimePossessions);
+      // 총 포제션 = 정규 8 + 연장 extraTimePossessions + 마지막 공격 보장(단계당 최대 1, lastAttack 이벤트 수)
+      const lastAttacks = ms.events.filter((e) => e.type === "lastAttack");
+      assert.ok(lastAttacks.length <= 2 && new Set(lastAttacks.map((e) => e.stage)).size === lastAttacks.length, "마지막 공격은 단계당 1회");
+      assert.equal(ms.possessionsTotal, 8 + M.extraTimePossessions + lastAttacks.length);
     }
     if (ms.stage === "penalties") {
       penalties++;

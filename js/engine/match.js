@@ -1983,10 +1983,14 @@ export function computeOdds(state, data, { action, defAction = null, useEffects 
     F("atk", "teamUlt", teamUltA, skillName(data, pfx[atkSide] && pfx[atkSide].teamUlt, "팀 필살기"), null, { group: "team" });
     F("atk", "resonance", Math.max(0, modBonusA), "공명·유물", null, { group: "resonance" });
     // 수비: 기본 (버티기 = 수비 × holdMult, 철벽은 따로 · GK = 수비 × save 계수, 패시브 save 는 따로)
+    //  순수 능력치(stat) = 버티기면 수비 그대로 — holdMult 는 철벽처럼 stat 에서 빼서 계수(coef) 쪽으로 (태클 · 인터셉트 계수와 같은 자리,
+    //  L51: holdMult 0.6 이면 같은 능력치끼리 "능력치 우위 ×1.67" 이 뜨던 표시 버그). baseD (= 배율) 는 그대로 — 표시 전용
     const wall = !isGK && dAction === "hold" ? traitParam(data, defender, "holdMult") : 0;
     const wallMult = wall > 0 ? wall : 1;
+    const holdM = !isGK && dAction === "hold" ? num(m.holdMult, 1) : 1;
+    const holdDiv = holdM > 0 ? holdM : 1;
     const baseD = isGK ? statD * num(m.actionCoef.save, 1) : (statD / wallMult) * coefD;
-    F("def", "base", baseD, "수비 기본", `${ACTION_LABEL[dAction] || "수비"} ${Math.round(baseD)}`, { base: true, stat: isGK ? statD : statD / wallMult, coef: isGK ? num(m.actionCoef.save, 1) : coefD });
+    F("def", "base", baseD, "수비 기본", `${ACTION_LABEL[dAction] || "수비"} ${Math.round(baseD)}`, { base: true, stat: isGK ? statD : statD / wallMult / holdDiv, coef: isGK ? num(m.actionCoef.save, 1) : coefD * holdDiv });
     F("def", "wall", wallMult, traitName(data, "wall"));
     F("def", "style", styleD, styleD > 1 ? "상성 우위" : "상성 불리", null, { group: "style" });
     F("def", "condition", condD, "컨디션", null, { group: "condition" });

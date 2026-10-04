@@ -34,7 +34,7 @@ npm run serve        # python -m http.server 8080  →  http://localhost:8080
 
 ```bash
 npm i                # devDependency(jsdom) 설치 — UI 스모크 테스트용. 없어도 엔진 테스트는 돌아간다
-npm test             # node --test (rng · zones · cards · lesson · lessonRun · manager · cardEffects · lessonRules · passives · run · match · v05 · challenge · layout · orient · stage · lineup · lessonLayout · outgame · lessonUi · ui 스모크 · ultimates, 371 테스트)
+npm test             # node --test (rng · zones · cards · lesson · lessonRun · manager · cardEffects · lessonRules · passives · run · match · v05 · challenge · layout · orient · stage · lineup · lessonLayout · outgame · lessonUi · ui 스모크 · ultimates, 373 테스트)
 npm run lesson-sim   # node tools/lesson_sim.mjs --runs 200 --seed 1  (카드 레슨 런: 감독 AI + 실제 경기, 방침별 스탯 · 승률 · 클리어율 · 부상 · 덱 · TP/SP, 구역 지표 — 기본 훈련 비중 · 고르게 크기 · 벤치 · 일반/특별 점수 p30/p90)
 npm run sim          # node tools/sim.mjs --runs 300 --seed 1  (옛 육성 런: 시즌별 승률·등급 분포·부상·우정 훈련·골 · 박스 연결 · GK 배급 · 마지막 공격 · 대이변)
 node tools/shot.mjs <출력폴더>   # 로컬 Chrome으로 경기(01~34 — 레슨 런의 친선전 · 경계전에서 찾음, 28 = 부상 선수 경기 출전, 29~34 = 새 필살기 종류 · 등급 컷인 · 풍뢰일섬 · 확정 배급)·아웃게임(og_* — 주 · 레슨 · 보상 · 상담 · 준비 · 도전 모드 등) 시나리오 스크린샷 (puppeteer-core, 1280×720). 요약 끝 줄 = 스크롤 · 잘린 글자 · HUD 겹침 · 상태 · 에러 검사에 걸린 시나리오
@@ -49,7 +49,7 @@ node tools/challenge_sim.mjs --write-sample         # 테스트용 샘플 팀(da
 
 ## 도전 모드 (플레이테스트용)
 
-시작 화면 **[🏆 도전 모드]** — 런을 완주하고 등록한 팀(또는 등록 팀이 없어도 쓸 수 있는 **테스트용 샘플 팀**)으로 1~10단계 사다리에 도전한다. 이기면 다음 단계가 열리고, 단계마다 상대의 평균 스탯과 스킬(액티브 → 간파 → 필살 슛 → 필살 세이브 → 캐논 킥)이 늘어난다. 경기는 목표 경기 규칙(8포제션, 연장 · 승부차기)이고 자동 · 개입 · 배속은 런 경기와 같다. 진행은 팀별로 이 브라우저에 저장되며(본편 `soccer.challenge` · `soccer.challengeMatch`, 레슨판 `soccer-lesson.challenge` · `soccer-lesson.challengeMatch`) 런 저장과는 따로다. 경기 중 [나가기]는 기록 없이 저장한 채 시작 화면으로 가고(새로고침도 시작 화면), 시작 화면 [🏆 도전 모드 — 이어하기]로 그 경기를 이어 한다. [포기]는 기권 패로 기록된다. 단계 수치는 `data/challenge.json` — 한 번만 보정했다(B 등급 팀 기준 1단계 95% · 5단계 51% · 10단계 10%). 기획 [GDD 11.7](docs/GDD_v0.5.md), 구현 [ARCHITECTURE §18](docs/ARCHITECTURE.md).
+시작 화면 **[🏆 도전 모드]** — 런을 완주하고 등록한 팀(또는 등록 팀이 없어도 쓸 수 있는 **테스트용 샘플 팀**)으로 1~10단계 사다리에 도전한다. 이기면 다음 단계가 열리고, 단계마다 상대의 평균 스탯과 스킬(액티브 → 간파 → 필살 슛 → 필살 세이브 → 캐논 킥)이 늘어난다. 경기는 목표 경기 규칙(8포제션, 연장 · 승부차기)이고 자동 · 개입 · 배속은 런 경기와 같다. 진행은 팀별로 이 브라우저에 저장되며(본편 `soccer.challenge` · `soccer.challengeMatch`, 레슨판 `soccer-lesson.challenge` · `soccer-lesson.challengeMatch`) 런 저장과는 따로다. 경기 중 [나가기]는 기록 없이 저장한 채 시작 화면으로 가고(새로고침도 시작 화면), 시작 화면 [🏆 도전 모드 — 이어하기]로 그 경기를 이어 한다. [포기]는 기권 패로 기록된다. 단계 수치는 `data/challenge.json` — 2026-10-01 에 보정하고, L51 경기 밸런스(2026-10-05) 뒤 3~10단계 statTarget 을 같은 곡선으로 다시 맞췄다(1단계 95% · 5단계 51% · 10단계 10%). 기획 [GDD 11.7](docs/GDD_v0.5.md), 구현 [ARCHITECTURE §18](docs/ARCHITECTURE.md).
 
 ## 구조
 

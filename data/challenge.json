@@ -1,6 +1,6 @@
 {
   "_comment": "도전 모드 (2026-10-01, 플레이테스트용 — 밸런스 확정 아님). 완성된 팀(등록 팀 · 테스트용 샘플 팀)으로 1~10단계 사다리. 상대 = opponents.json 템플릿 복제 → 전체 스탯을 statTarget(7명 × 5스탯 평균)에 맞춰 배율(10 단위 반올림, 1000 상한 없음) → skillTier 규칙으로 스킬 추가(템플릿 고유 스킬·특성은 유지). 엔진 js/engine/challenge.js, 보정 tools/challenge_sim.mjs.",
-  "_calibration": "2026-10-01 한 번 보정 (tools/challenge_sim.mjs --runs 100 --teams 6, 자동 A안, B 등급 팀 7개): 처음 기하 배치 340/390/450/515/590/680/735/790/850/920 은 6단계(엠버스론 31%)가 7단계(42%)보다 어려워 순서가 뒤집혀 6단계를 낮추고 2·3·7~9단계를 올렸다 → 전체 승률 95/90/81/65/51/39/34/26/18/10%. 이후 미세 조정 없음. 참고: 5·6단계는 템플릿 원래 전력보다 낮춘 값(×0.92 · ×0.90 — 6단계 엠버스론 610 < 런 3시즌 보스 680; 원래 필살기에 2단계 액티브가 더해져 승률은 실제 보스와 비슷한 39%). 단계 간격도 고르지 않다(1→2 +35%, 2→3 +4%) — 승률 순서만 맞췄다. 10단계 캐논 킥은 상대 텐션 전술이 '결승골 상황만'(clutch)이라 자동 진행에서는 거의 쓰이지 않는다 (배지만 보임).",
+  "_calibration": "2026-10-01 한 번 보정 (tools/challenge_sim.mjs --runs 100 --teams 6, 자동 A안, B 등급 팀 7개): 처음 기하 배치 340/390/450/515/590/680/735/790/850/920 은 6단계(엠버스론 31%)가 7단계(42%)보다 어려워 순서가 뒤집혀 6단계를 낮추고 2·3·7~9단계를 올렸다 → 전체 승률 95/90/81/65/51/39/34/26/18/10%. 2026-10-05 다시 보정 (L51 첫 밸런스 — 필드 수비 태클·인터셉트·홀드 ×0.6, 친선 10포제션, 런 목표 경기 상대 스탯 ×0.85~0.88 뒤; 같은 방법 · 같은 팀 7개): 그대로 두면 97/89/84/69/60/44/43/33/23/16% 로 3단계부터 쉬워져서 1·2단계는 그대로 두고 3~10단계 statTarget 480/525/590/610/790/830/875/920 → 500/555/650/660/880/910/950/1100 으로 올렸다 → 전체 승률 97/89/82/65/51/38/34/26/18/11% (샘플 팀 96/86/73/54/39/33/28/18/13/4%), 경기당 총 골(연장 포함 · 승부차기 제외) 3.07/3.62/3.31/3.29/3.55/3.58/3.84/3.28/3.57/3.47 — 모든 단계 3.0 이상. 다른 팀 묶음: --seed 2 96/87/81/67/49/38/31/21/15/11%, --seed 3(약한 팀) 95/83/75/57/40/34/24/21/11/6% — 순서는 유지. 다만 이 두 묶음에서는 총 골이 3.0 아래인 단계가 있다(seed 2 4단계 2.90, seed 3 1·3·4단계 2.89~2.93 — 보정 전에도 같았고 statTarget 으로는 거의 안 움직인다). 참고: 6단계 엠버스론 660 은 5단계 프로스트베일 650 과 거의 같다(템플릿 대비 ×1.14 · ×1.02 — 엠버스론 템플릿은 L51 에서 579 로 낮아졌다; 원래 필살기에 2단계 액티브가 더해져 승률 38%). 단계 간격도 고르지 않다(1→2 +35%, 5→6 +2%, 6→7 +33%, 9→10 +16%) — 승률 순서만 맞췄다. 10단계 최고 스탯 1880(GK, 예전 1580). 10단계 캐논 킥은 상대 텐션 전술이 '결승골 상황만'(clutch)이라 자동 진행에서는 거의 쓰이지 않는다 (배지만 보임).",
   "version": 1,
   "possessions": 8,
   "kind": "goal",
@@ -26,13 +26,13 @@
   "stages": [
     { "stage": 1,  "title": "첫 시험",         "opponentTemplate": "op_f1_riverside",   "statTarget": 340, "skillTier": 0, "teamwork": 25,  "possessions": 8, "kind": "goal" },
     { "stage": 2,  "title": "산맥의 벽",       "opponentTemplate": "op_s1_ironhoof",    "statTarget": 460, "skillTier": 0, "teamwork": 25,  "possessions": 8, "kind": "goal" },
-    { "stage": 3,  "title": "번개 평원",       "opponentTemplate": "op_f2_thunderclaw", "statTarget": 480, "skillTier": 1, "teamwork": 50,  "possessions": 8, "kind": "goal" },
-    { "stage": 4,  "title": "은빛 숲의 지휘",  "opponentTemplate": "op_s2_silverleaf",  "statTarget": 525, "skillTier": 1, "teamwork": 50,  "possessions": 8, "kind": "goal" },
-    { "stage": 5,  "title": "얼음 호수",       "opponentTemplate": "op_f3_frostveil",   "statTarget": 590, "skillTier": 2, "teamwork": 75,  "possessions": 8, "kind": "goal" },
-    { "stage": 6,  "title": "챔피언의 왕좌",   "opponentTemplate": "op_s3_emberthrone", "statTarget": 610, "skillTier": 2, "teamwork": 75,  "possessions": 8, "kind": "goal" },
-    { "stage": 7,  "title": "폭주하는 발톱",   "opponentTemplate": "op_f2_thunderclaw", "suffix": "각성", "statTarget": 790, "skillTier": 3, "teamwork": 85,  "possessions": 8, "kind": "goal" },
-    { "stage": 8,  "title": "깨어난 숲",       "opponentTemplate": "op_s2_silverleaf",  "suffix": "각성", "statTarget": 830, "skillTier": 3, "teamwork": 85,  "possessions": 8, "kind": "goal" },
-    { "stage": 9,  "title": "얼어붙은 심연",   "opponentTemplate": "op_f3_frostveil",   "suffix": "각성", "statTarget": 875, "skillTier": 4, "teamwork": 100, "possessions": 8, "kind": "goal", "tactics": { "tension": "clutch" } },
-    { "stage": 10, "title": "업화의 정점",     "opponentTemplate": "op_s3_emberthrone", "suffix": "각성", "statTarget": 920, "skillTier": 5, "teamwork": 100, "possessions": 8, "kind": "goal" }
+    { "stage": 3,  "title": "번개 평원",       "opponentTemplate": "op_f2_thunderclaw", "statTarget": 500, "skillTier": 1, "teamwork": 50,  "possessions": 8, "kind": "goal" },
+    { "stage": 4,  "title": "은빛 숲의 지휘",  "opponentTemplate": "op_s2_silverleaf",  "statTarget": 555, "skillTier": 1, "teamwork": 50,  "possessions": 8, "kind": "goal" },
+    { "stage": 5,  "title": "얼음 호수",       "opponentTemplate": "op_f3_frostveil",   "statTarget": 650, "skillTier": 2, "teamwork": 75,  "possessions": 8, "kind": "goal" },
+    { "stage": 6,  "title": "챔피언의 왕좌",   "opponentTemplate": "op_s3_emberthrone", "statTarget": 660, "skillTier": 2, "teamwork": 75,  "possessions": 8, "kind": "goal" },
+    { "stage": 7,  "title": "폭주하는 발톱",   "opponentTemplate": "op_f2_thunderclaw", "suffix": "각성", "statTarget": 880, "skillTier": 3, "teamwork": 85,  "possessions": 8, "kind": "goal" },
+    { "stage": 8,  "title": "깨어난 숲",       "opponentTemplate": "op_s2_silverleaf",  "suffix": "각성", "statTarget": 910, "skillTier": 3, "teamwork": 85,  "possessions": 8, "kind": "goal" },
+    { "stage": 9,  "title": "얼어붙은 심연",   "opponentTemplate": "op_f3_frostveil",   "suffix": "각성", "statTarget": 950, "skillTier": 4, "teamwork": 100, "possessions": 8, "kind": "goal", "tactics": { "tension": "clutch" } },
+    { "stage": 10, "title": "업화의 정점",     "opponentTemplate": "op_s3_emberthrone", "suffix": "각성", "statTarget": 1100, "skillTier": 5, "teamwork": 100, "possessions": 8, "kind": "goal" }
   ]
 }

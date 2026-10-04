@@ -176,20 +176,24 @@ test("A안: 성향값 = 스탯 × 계수 × 특성 × 전술 × 체력 규칙, �
 /* 2. 수비 스탯 · 배율                                                    */
 /* ------------------------------------------------------------------ */
 
-test("수비 스탯·배율: 태클 (수비+피지컬)/2 · 인터셉트 (수비+패스)/2 · 버티기 수비, 짝 ×readBonus · 빗나감 ×0.8 · 버티기 ×1.0 · 중거리 ×1.5", () => {
+test("수비 스탯·배율: 태클 (수비+피지컬)/2 × 태클 계수 · 인터셉트 (수비+패스)/2 × 인터셉트 계수 · 버티기 수비 × holdMult, 짝 ×readBonus · 빗나감 ×0.8 · 버티기 짝 없음 ×1.0 · 중거리 ×1.5", () => {
   const ms = mk({}, { DF1: { stats: { defense: 500, physical: 300, pass: 200 } }, DF2: { stats: { defense: 100 } } });
   place(ms, { line: 2, carrier: "h_FW1" });
   ms.duel.defenderId = "a_DF1";
   ms.duel.coverCount = 0;
+  // 필드 수비 세 행동의 계수 (L51: 셋 다 0.6 — 데이터에서 읽는다)
+  const T = 400 * M.actionCoef.tackle;
+  const I = 350 * M.actionCoef.intercept;
+  const H = 500 * M.holdMult;
   const cases = [
-    ["dribble", "tackle", 400 * M.readBonus],
-    ["pass", "tackle", 400 * M.missMult],
-    ["pass", "intercept", 350 * M.readBonus],
-    ["dribble", "intercept", 350 * M.missMult],
-    ["dribble", "hold", 500 * M.holdMult],
-    ["pass", "hold", 500 * M.holdMult],
-    ["shoot", "hold", 500 * M.holdMult * M.holdVsMidrange],
-    ["shoot", "tackle", 400 * M.missMult],
+    ["dribble", "tackle", T * M.readBonus],
+    ["pass", "tackle", T * M.missMult],
+    ["pass", "intercept", I * M.readBonus],
+    ["dribble", "intercept", I * M.missMult],
+    ["dribble", "hold", H],
+    ["pass", "hold", H],
+    ["shoot", "hold", H * M.holdVsMidrange],
+    ["shoot", "tackle", T * M.missMult],
   ];
   for (const [a, d, exp] of cases) near(odds(ms, a, d).def, exp, `${a} vs ${d}`);
   // 공격력: 드리블/패스 ×2.2, 중거리 ×0.6
@@ -197,18 +201,18 @@ test("수비 스탯·배율: 태클 (수비+피지컬)/2 · 인터셉트 (수비
   near(odds(ms, "shoot", "hold").att, 400 * M.actionCoef.midrangeShoot, "중거리 공격");
   // 철벽: 버티기 ×1.15
   ms.away.players.find((p) => p.id === "a_DF1").trait = "wall";
-  near(odds(ms, "dribble", "hold").def, 500 * M.holdMult * 1.15, "철벽");
+  near(odds(ms, "dribble", "hold").def, H * 1.15, "철벽");
   ms.away.players.find((p) => p.id === "a_DF1").trait = null;
   // 효과: 빗나감 페널티 없음 / 간파 ×2.0 / 상대 짝 무효
   const fxD = { ...skills.emptyDuelEffects(), noMissPenalty: true };
-  near(odds(ms, "pass", "tackle", { fxD }).def, 400, "noMissPenalty");
+  near(odds(ms, "pass", "tackle", { fxD }).def, T, "noMissPenalty");
   const rb = { ...skills.emptyDuelEffects(), readMult: 2.0 };
-  near(odds(ms, "dribble", "tackle", { fxD: rb }).def, 800, "readBoost 태클 짝");
-  near(odds(ms, "shoot", "hold", { fxD: rb }).def, 1000, "readBoost 버티기 vs 중거리");
-  near(odds(ms, "pass", "tackle", { fxD: rb }).def, 400 * M.missMult, "readBoost 는 빗나감엔 무관");
+  near(odds(ms, "dribble", "tackle", { fxD: rb }).def, T * 2.0, "readBoost 태클 짝");
+  near(odds(ms, "shoot", "hold", { fxD: rb }).def, H * 2.0, "readBoost 버티기 vs 중거리");
+  near(odds(ms, "pass", "tackle", { fxD: rb }).def, T * M.missMult, "readBoost 는 빗나감엔 무관");
   const ng = { ...skills.emptyDuelEffects(), negateRead: true };
-  near(odds(ms, "dribble", "tackle", { fxA: ng }).def, 400, "negateRead → 짝 ×1.0");
-  near(odds(ms, "shoot", "hold", { fxA: ng }).def, 500, "negateRead → 중거리 버티기 ×1.0");
+  near(odds(ms, "dribble", "tackle", { fxA: ng }).def, T, "negateRead → 짝 ×1.0");
+  near(odds(ms, "shoot", "hold", { fxA: ng }).def, H, "negateRead → 중거리 버티기 ×1.0");
   assert.equal(odds(ms, "dribble", "tackle", { fxA: ng }).read, false);
 });
 
@@ -1178,22 +1182,25 @@ test("짝 표 (2026-09-29): 드리블↔태클 · 패스↔인터셉트 · 크�
   assert.equal(M.holdVsCross, M.readBonus, "기본값 = 짝 배율 readBonus");
   assert.deepEqual(Object.keys(M.boxLink).sort(), ["gkMult"], "autoRatio 폐지 (기대 골 규칙)");
   assert.equal(M.boxLink.gkMult, 0.6);
-  // 수비수 a_DF1: 태클 (500+300)/2 = 400, 인터셉트 (500+200)/2 = 350, 버티기 500
+  // 수비수 a_DF1: 태클 (500+300)/2 = 400, 인터셉트 (500+200)/2 = 350, 버티기 500 — 각각 × 행동 계수 (태클 · 인터셉트 계수 · holdMult, L51 셋 다 0.6)
   const ms = mk({ FW1: { trait: "crosser" } }, { DF1: { stats: { defense: 500, physical: 300, pass: 200 } }, DF2: { stats: { defense: 100 } } });
   place(ms, { line: 2, carrier: "h_FW1" });
   ms.duel.defenderId = "a_DF1";
   ms.duel.coverCount = 0;
+  const T = 400 * M.actionCoef.tackle;
+  const I = 350 * M.actionCoef.intercept;
+  const H = 500 * M.holdMult;
   const cases = [
-    ["cross", "hold", 500 * M.holdVsCross, "read"],
-    ["cross", "intercept", 350 * M.missMult, "miss"],
-    ["cross", "tackle", 400 * M.missMult, "miss"],
-    ["pass", "intercept", 350 * M.readBonus, "read"],
-    ["pass", "tackle", 400 * M.missMult, "miss"],
-    ["pass", "hold", 500, "hold"],
-    ["dribble", "hold", 500, "hold"],
-    ["dribble", "tackle", 400 * M.readBonus, "read"],
-    ["dribble", "intercept", 350 * M.missMult, "miss"],
-    ["shoot", "hold", 500 * M.holdVsMidrange, "read"],
+    ["cross", "hold", H * M.holdVsCross, "read"],
+    ["cross", "intercept", I * M.missMult, "miss"],
+    ["cross", "tackle", T * M.missMult, "miss"],
+    ["pass", "intercept", I * M.readBonus, "read"],
+    ["pass", "tackle", T * M.missMult, "miss"],
+    ["pass", "hold", H, "hold"],
+    ["dribble", "hold", H, "hold"],
+    ["dribble", "tackle", T * M.readBonus, "read"],
+    ["dribble", "intercept", I * M.missMult, "miss"],
+    ["shoot", "hold", H * M.holdVsMidrange, "read"],
   ];
   for (const [a, d, exp, pair] of cases) {
     const o = odds(ms, a, d);
@@ -1204,20 +1211,20 @@ test("짝 표 (2026-09-29): 드리블↔태클 · 패스↔인터셉트 · 크�
   // holdVsCross 는 따로 튜닝 가능
   const d2 = clone(data);
   d2.config.match.holdVsCross = 2.5;
-  near(match.computeOdds(ms, d2, { action: "cross", defAction: "hold" }).def, 500 * 2.5, "holdVsCross 2.5");
-  near(match.computeOdds(ms, d2, { action: "pass", defAction: "intercept" }).def, 350 * M.readBonus, "다른 짝은 그대로");
+  near(match.computeOdds(ms, d2, { action: "cross", defAction: "hold" }).def, H * 2.5, "holdVsCross 2.5");
+  near(match.computeOdds(ms, d2, { action: "pass", defAction: "intercept" }).def, I * M.readBonus, "다른 짝은 그대로");
   // 간파: readBoost → 버티기↔크로스도 ×readMult (다른 짝과 같음), 짝 무효(간파 negateRead · 필살 패스 · 스루 패스) → ×1.0
   const rb = { ...skills.emptyDuelEffects(), readMult: 2.0 };
-  near(odds(ms, "cross", "hold", { fxD: rb }).def, 500 * Math.max(2.0, M.holdVsCross), "readBoost 버티기 vs 크로스");
-  near(odds(ms, "cross", "intercept", { fxD: rb }).def, 350 * M.missMult, "readBoost 는 빗나감엔 무관");
+  near(odds(ms, "cross", "hold", { fxD: rb }).def, H * Math.max(2.0, M.holdVsCross), "readBoost 버티기 vs 크로스");
+  near(odds(ms, "cross", "intercept", { fxD: rb }).def, I * M.missMult, "readBoost 는 빗나감엔 무관");
   const ng = { ...skills.emptyDuelEffects(), negateRead: true };
-  near(odds(ms, "cross", "hold", { fxA: ng }).def, 500, "negateRead → 버티기 짝 ×1.0");
+  near(odds(ms, "cross", "hold", { fxA: ng }).def, H, "negateRead → 버티기 짝 ×1.0");
   assert.equal(odds(ms, "cross", "hold", { fxA: ng }).read, false);
   const wt = data.skills.find((s) => s.id === "sk_wind_thread").ultimate;
-  near(odds(ms, "cross", "hold", { fxA: { ...skills.emptyDuelEffects(), ult: { skillId: "sk_wind_thread", ...wt } } }).def, 500, "필살 패스 짝 무효");
+  near(odds(ms, "cross", "hold", { fxA: { ...skills.emptyDuelEffects(), ult: { skillId: "sk_wind_thread", ...wt } } }).def, H, "필살 패스 짝 무효");
   const tp = { ...skills.emptyDuelEffects() };
   skills.addSkillFx(tp, data.skills.find((s) => s.id === "sk_through_pass"));
-  near(odds(ms, "cross", "hold", { fxA: tp }).def, 500, "스루 패스(패스·크로스 짝 무효)");
+  near(odds(ms, "cross", "hold", { fxA: tp }).def, H, "스루 패스(패스·크로스 짝 무효)");
   // 최선 대응 (간파한 AI · 도구): 스탯이 같으면 크로스 → 버티기, 패스 → 인터셉트, 드리블 → 태클 / 인터셉트 상대 → 크로스(빗나감 + 크로서)
   const eq = mk({ FW1: { trait: "crosser" } });
   place(eq, { line: 2, carrier: "h_FW1" });
@@ -2277,7 +2284,7 @@ test("결정타 칩: factors 곱 → att/def → clamp = 이벤트 p (모든 판
 });
 
 test("결정타 칩 예: 짝 적중 ×1.7 (수비 승) · 제쳐짐 +25% (공격 승) · 대이변 (승자 확률 < 30%) · 필살 ×2", () => {
-  // 모두 같은 스탯 · 같은 스타일: 드리블 880 vs 태클 400 × 1.7 × 커버 1.1
+  // 모두 같은 스탯 · 같은 스타일: 드리블 400 × 2.2 = 880 vs 태클 400 × 태클 계수 × 1.7 × 커버 1.1 (L51 계수 0.6 → 448.8)
   const ms = mk();
   place(ms, { line: 0, carrier: "h_DF1" });
   ms.duel.awayChoice = { ...ms.duel.awayChoice, action: "tackle" };
@@ -2290,10 +2297,16 @@ test("결정타 칩 예: 짝 적중 ×1.7 (수비 승) · 제쳐짐 +25% (공격
   b.duel.awayChoice = { ...b.duel.awayChoice, action: "hold" };
   const { ev: bev } = forced(b, { action: "dribble" }, true);
   assert.deepEqual({ id: bev.decisive.id, t: bev.decisive.text, f: bev.decisive.favours }, { id: "beaten", t: "제쳐짐 +25%", f: "atk" });
-  // 대이변: 약한 드리블(100 × 2.2)이 짝 맞은 태클을 뚫음 (p < 0.3)
-  const u = mk({ DF1: { stats: { dribble: 100 } } });
-  place(u, { line: 0, carrier: "h_DF1" });
-  u.duel.awayChoice = { ...u.duel.awayChoice, action: "tackle" };
+  // 대이변: 약한 드리블이 짝 맞은 태클을 뚫음 (p < upsetP). 드리블 스탯은 계수에 묶지 않고 찾는다 — 100 에서 10씩 내려
+  //  처음으로 p < upsetP − 2%p 가 되는 값 (L51 태클 계수 0.6 → 60: 132 vs 448.8, p ≈ 0.23)
+  let u = null;
+  for (let drb = 100; drb >= 10 && !u; drb -= 10) {
+    const c = mk({ DF1: { stats: { dribble: drb } } });
+    place(c, { line: 0, carrier: "h_DF1" });
+    c.duel.awayChoice = { ...c.duel.awayChoice, action: "tackle" };
+    if (odds(c, "dribble", "tackle").p < M.upsetP - 0.02) u = c;
+  }
+  assert.ok(u, "대이변 시나리오 (드리블 10 ~ 100)");
   const { ev: uev } = forced(u, { action: "dribble" }, true);
   assert.ok(uev.p < M.upsetP, `p ${uev.p}`);
   assert.equal(uev.upset, true);
@@ -2611,6 +2624,85 @@ test("결정타 칩 보완: 규칙 상수(박스 연결 GK ×0.6) 제외 · 능�
   const small = saved({ GK: { trait: "distributor", stats: { pass: 450, physical: 450 } } });
   const sev = forcedDist(small, { action: "long" }, true).ev;
   assert.deepEqual({ id: sev.decisive.id, t: sev.decisive.text }, { id: "distributor", t: "빠른 배급 +25%" });
+});
+
+test("결정타 칩 · 버티기 (L51 표시 수정): holdMult 는 철벽처럼 계수 쪽 — 순수 능력치 = 수비 그대로 · 같은 능력치면 능력치 우위 없음 · 수비가 높으면 수비 쪽 능력치 우위 · 확률 불변", () => {
+  assert.ok(M.holdMult !== 1, "전제: holdMult ≠ 1 (1 이면 이 표시 버그가 보이지 않는다)");
+  const holdAt = (awayOver = {}, d = data) => {
+    const ms = match.createMatch({ data: d, seed: 1, home: team("h"), away: team("a", awayOver), possessions: 8, kind: "goal" });
+    place(ms, { line: 2, carrier: "h_FW1" });
+    ms.duel.defenderId = "a_DF1";
+    ms.duel.coverCount = 0;
+    ms.duel.awayChoice = { ...ms.duel.awayChoice, action: "hold" };
+    return ms;
+  };
+  const baseOf = (factors, side) => factors.find((f) => f.side === side && f.base);
+  // 같은 스탯 400: 드리블 400 × 2.2 vs 버티기 400 × holdMult — 순수 능력치는 400 : 400
+  const eq = holdAt();
+  const x = odds(eq, "dribble", "hold");
+  const y = odds(eq, "dribble", "hold", { explain: true });
+  assert.deepEqual({ att: x.att, def: x.def, p: x.p }, { att: y.att, def: y.def, p: y.p }, "explain 은 확률 불변");
+  near(y.def, 400 * M.holdMult, "버티기 = 수비 × holdMult (판정값은 그대로)");
+  const bD = baseOf(y.factors, "def");
+  near(bD.stat, 400, "순수 능력치 = 수비 그대로 (holdMult 를 뺀 값)");
+  near(bD.coef, M.holdMult, "계수 = holdMult (태클 · 인터셉트 계수와 같은 자리)");
+  near(bD.mult, bD.stat * bD.coef, "기본 배율 = 능력치 × 계수");
+  assert.equal(bD.text, `버티기 ${Math.round(400 * M.holdMult)}`, "수비 기본 문구 = 판정값");
+  near(baseOf(y.factors, "atk").stat, 400, "공격 순수 능력치");
+  // 태클 · 인터셉트도 같은 모양: 능력치 = 스탯 평균, 계수 = 행동 계수
+  for (const d of ["tackle", "intercept"]) {
+    const f = baseOf(odds(eq, "dribble", d, { explain: true }).factors, "def");
+    assert.deepEqual({ s: f.stat, c: f.coef }, { s: 400, c: M.actionCoef[d] }, d);
+  }
+  // 철벽: holdMult 와 철벽 둘 다 능력치에서 빠진다 (철벽은 따로 칩)
+  const wl = holdAt({ DF1: { trait: "wall" } });
+  const yw = odds(wl, "dribble", "hold", { explain: true });
+  const bW = baseOf(yw.factors, "def");
+  near(bW.stat, 400, "철벽 + holdMult: 순수 능력치 400");
+  near(bW.coef, M.holdMult, "철벽 + holdMult: 계수");
+  near(yw.factors.find((f) => f.id === "wall").mult, 1.15, "철벽 칩");
+  near(yw.factors.filter((f) => f.side === "def").reduce((a, f) => a * f.mult, 1), yw.def, "곱 = 판정값");
+  near(yw.def, 400 * M.holdMult * 1.15, "철벽 판정값");
+  // holdMult 를 바꿔도 순수 능력치는 그대로, 계수만 따라간다 (1.0 이면 예전 표시와 같다)
+  for (const hm of [1.0, 0.8]) {
+    const d2 = clone(data);
+    d2.config.match.holdMult = hm;
+    const z = match.computeOdds(holdAt({}, d2), d2, { action: "dribble", defAction: "hold", explain: true });
+    const bZ = baseOf(z.factors, "def");
+    assert.deepEqual({ s: bZ.stat, c: bZ.coef }, { s: 400, c: hm }, `holdMult ${hm}`);
+    near(z.def, 400 * hm, `holdMult ${hm} 판정값`);
+  }
+  // 실제 판정 이벤트: 같은 능력치면 어느 쪽이 이겨도 "능력치 우위" 칩이 없다 (예전: 공격 승 "능력치 우위 ×1.67")
+  for (const success of [true, false]) {
+    const { ev } = forced(eq, { action: "dribble" }, success);
+    assert.equal(ev.defAction, "hold");
+    near(ev.p, x.p, "이벤트 p = computeOdds p");
+    assert.ok(!ev.decisive || ev.decisive.id !== "stat", `같은 능력치 → 능력치 우위 없음 (${ev.decisive && ev.decisive.text})`);
+    assert.ok(!ev.factors.some((f) => f.base && f.side === "def" && Math.abs(f.stat - 400) > 1e-9), "이벤트 수비 기본 능력치 400");
+  }
+  // 수비가 높으면 (수비 600 vs 드리블 400) 수비 승의 결정타 = 수비 쪽 "능력치 우위 ×1.5"
+  //  (예전: 600 × 0.6 = 360 < 400 이라 공격 쪽 능력치로 보여 칩이 없었다)
+  const hi = holdAt({ DF1: { stats: { defense: 600 } } });
+  const { ev: hev } = forced(hi, { action: "dribble" }, false);
+  near(hev.p, odds(hi, "dribble", "hold").p, "이벤트 p = computeOdds p");
+  assert.deepEqual({ id: hev.decisive.id, t: hev.decisive.text, f: hev.decisive.favours }, { id: "stat", t: "능력치 우위 ×1.5", f: "def" });
+});
+
+test("L51 경기 밸런스 1차 (2026-10-05) 데이터: 필드 수비 세 행동 같은 배율 0.6 (태클 · 인터셉트 계수 · 버티기 holdMult) · 친선전 10 포제션", () => {
+  assert.equal(M.actionCoef.tackle, 0.6, "태클 계수");
+  assert.equal(M.actionCoef.intercept, 0.6, "인터셉트 계수");
+  assert.equal(M.holdMult, 0.6, "버티기 holdMult");
+  assert.equal(data.config.friendly.possessions, 10, "친선전 포제션");
+  // 셋이 같은 배율이라 같은 스탯이면 짝 없는 기본 수비값이 같다 (태클 = 인터셉트 = 버티기 = 400 × 0.6)
+  const ms = mk();
+  place(ms, { line: 2, carrier: "h_FW1" });
+  ms.duel.coverCount = 0;
+  const base = (d) => odds(ms, "dribble", d, { explain: true }).factors.find((f) => f.side === "def" && f.base).mult;
+  for (const d of ["tackle", "intercept", "hold"]) near(base(d), 400 * 0.6, `${d} 기본`);
+  // 레슨 런 · 기존 런 친선전은 config.friendly.possessions 를 쓴다
+  const st = run.createRun({ data, seed: "l51" });
+  run.makeFriendlyMatch(st, data, "friendly");
+  assert.equal(st.pendingMatch.possessions, 10);
 });
 
 test("GK 배급 추천 = '상황 따라' 규칙 (확률 ≥ longPassAutoMin, 자동이 쓸 캐논 킥 포함 — 배급 전술과 무관) · 전술 auto 면 자동 선택과 같다", () => {
