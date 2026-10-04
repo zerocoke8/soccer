@@ -76,6 +76,9 @@ import {
   emptyDuelEffects,
   isGaanpaSkill,
   skillCost,
+  validateUltimates,
+  ultMatchesAction,
+  ultPassActions,
 } from "./skills.js";
 
 /* ------------------------------------------------------------------ */
@@ -119,6 +122,10 @@ export const ZONE_NAMES = { 1: "우리 박스", 2: "우리 진영", 3: "중원",
 export const BEAT_TYPES = ["kickoff", "counter", "duel", "turnover", "save", "goal", "penalty", "distribution"];
 /** GK 배급 선택지 (decision.action · tactics.distribution 의 short / long) */
 export const DISTRIBUTION_ACTIONS = ["short", "long"];
+/** 필살기 종류 → 이벤트 문구 (§19.3-9) */
+export const ULT_TYPE_TEXT = {
+  shot: "필살 슛", pass: "필살 패스", save: "필살 세이브", dribble: "필살 드리블", defense: "필살 수비", team: "필살 호령",
+};
 /** 역방향 컷인 문구 (필살기가 막혔을 때 — 표시 전용) */
 export const REVERSE_CUTIN_TEXT = { save: "기적의 세이브!", block: "철벽 블록!", passCut: "필살 패스 차단!" };
 /** 포제션이 끝나면 경기가 끝나는 경우의 문구 (endForecast "end" · "penalties" — 미리보기 · 이벤트 공용, 2026-09-30) */
@@ -327,6 +334,14 @@ function ultCfg(m) {
 }
 
 /**
+ * 필살 패스를 받은 선수의 게이지 증가 (§19.2): ultimate.receiverGauge, 없으면 onReceive (보통 수신과 같다 — 바람의 실은 50을 직접 적는다).
+ * K1 이전 기본값 onUltPassReceive 는 더 읽지 않는다 (§19.19).
+ */
+function receiverGaugeOf(ult, uc) {
+  return num(ult && ult.receiverGauge, uc.onReceive);
+}
+
+/**
  * 박스 연결 설정 (config.match.boxLink): gkMult = 연결 듀얼의 GK 수비 배율 (2026-09-29: 0.6).
  * autoRatio(옛 자동 연결 기준 배율)는 폐지 — 자동은 기대 골 비교 (boxLinkEval). config 에 남아 있어도 읽지 않는다.
  */
@@ -396,11 +411,16 @@ function skillName(data, id, fallback = "스킬") {
   return sk && sk.name ? sk.name : fallback;
 }
 
-/** 팀워크 증폭 배율 (§13.1 teamworkAmp). 주장 특성은 증폭 단계 계산용 팀워크를 더한다 */
+/**
+ * 팀워크 증폭 배율 (§13.1 teamworkAmp). 주장 특성은 증폭 단계 계산용 팀워크를 더한다 —
+ * L46 (§19.9): 주장이 여럿이어도 1명분 (경기장 선수 중 가장 큰 teamworkPlus 하나만).
+ */
 export function teamworkAmp(team, data) {
   const cfg = matchCfg(data).teamworkAmp || {};
   let tw = num(team && team.teamwork, 0);
-  for (const p of (team && team.players) || []) tw += traitParam(data, p, "teamworkPlus");
+  let plus = 0;
+  for (const p of (team && team.players) || []) plus = Math.max(plus, traitParam(data, p, "teamworkPlus"));
+  tw += plus;
   const th = Array.isArray(cfg.thresholds) ? cfg.thresholds : [];
   const mu = Array.isArray(cfg.mult) ? cfg.mult : [];
   let mult = 1;
@@ -418,6 +438,16 @@ export function comboName(data, a, b) {
   const list = data && Array.isArray(data.combos) ? data.combos : DEFAULT_COMBOS;
   const c = list.find((x) => x && x.a === a && x.b === b);
   return c ? c.name : null;
+}
+
+/**
+ * E1 (§19.4): 필살 패스 passSkillId 를 받은 선수의 필살기가 combos.json 에 (a, b)로 등록된 짝이면 그 필살기(b), 아니면 null.
+ * 등록되지 않은 짝은 합체기가 아니다 — 받은 선수는 보통 필살 패스 수신(게이지 · 다음 듀얼 보너스)만 받는다.
+ */
+export function comboSkillFor(data, passSkillId, receiver) {
+  if (!passSkillId || !receiver) return null;
+  const b = getPlayerUltimate(data, receiver);
+  return b && comboName(data, passSkillId, b.id) ? b : null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -516,6 +546,7 @@ export function createMatch({ data, seed, home, away, possessions, kind = "frien
     finished: false,
     result: null,
   };
+  validateUltimates(data); // §19.2 — 팀 선수 스킬 참조 검증(initTeam) 바로 뒤, 잘못된 필살기 데이터면 throw
   pushEvent(state, {
     type: "info",
     side: null,
@@ -698,12 +729,22 @@ function fxPlusSkill(fx, skill) {
   return f;
 }
 
+/**
+ * E0 (§19.3-2): 필살기 효과를 효과 객체 fx 에 적는다 — 미리보기(fxPlusUlt)와 실제 발동(commitUltimate)이 같은 함수.
+ * fx.ult = { skillId, ...ultimate }, fx.combo. 위치를 바꾸는 인자는 fx 플래그로 접는다: pass · dribble 의 extraLine → fx.extraLine
+ * (라인 브레이커와 같은 길 — passPlan · successTransition · outcomesBySkill). 판정 배율은 computeOdds 가 fx.ult 에서 읽는다.
+ */
+function applyUlt(fx, ultSkill, combo) {
+  fx.ult = Object.assign({ skillId: ultSkill.id }, ultSkill.ultimate);
+  fx.combo = combo || null;
+  const u = ultSkill.ultimate || {};
+  if ((u.type === "pass" || u.type === "dribble") && u.extraLine) fx.extraLine = true;
+  return fx;
+}
+
 /** fx + 필살기 효과 (미리보기용 사본) */
 function fxPlusUlt(fx, ultSkill, combo) {
-  const f = cloneFx(fx);
-  f.ult = Object.assign({ skillId: ultSkill.id }, ultSkill.ultimate);
-  f.combo = combo || null;
-  return f;
+  return applyUlt(cloneFx(fx), ultSkill, combo);
 }
 
 /**
@@ -762,7 +803,8 @@ function boostApplies(fx, action) {
 /** 공격 측 "상대 짝 맞힘 무효"가 이 액션에 붙는가 (간파·스루 패스·필살 패스) */
 function negateApplies(fx, action) {
   if (fx.negateRead && (!fx.negateActions || fx.negateActions.includes(action))) return true;
-  return !!(fx.ult && fx.ult.type === "pass" && fx.ult.negateRead && (action === "pass" || action === "cross"));
+  // 필살 패스(actions 안) · 필살 드리블(E4, 드리블)의 짝 무효
+  return !!(fx.ult && (fx.ult.type === "pass" || fx.ult.type === "dribble") && fx.ult.negateRead && ultMatchesAction(fx.ult, action));
 }
 
 /* ------------------------------------------------------------------ */
@@ -845,28 +887,28 @@ function attackOptionsFor(state, data, side, player, line, fx) {
 /**
  * 받는 선수 기본값 판정값 (§13.2-10): 도착 line < 3 → 그 선수의 성향 1위 값(받은 직후), 도착 line 3 → pass: 슈팅 × shoot 계수
  * × (1 + 피니셔), cross: 헤더 값 × (1 + 타깃맨·피니셔). 상대 정보 미사용.
- * combo = 이번 패스가 필살 패스 → 받은 선수가 필살기 보유자면 다음 듀얼에 합체기를 쓸 수 있으므로 그 필살 효과(×comboBonus 포함)를
- * 판정값에 반영한다 (§13.2-9 "필살기 준비·사용 조건 충족 시 필살 효과"의 받는 선수판).
+ * passSkillId = 이번 패스가 필살 패스면 그 스킬 id → 받은 선수의 필살기가 그 필살 패스와 combos.json 에 등록된 짝(E1, comboSkillFor)이면
+ * 다음 듀얼에 합체기를 쓸 수 있으므로 그 필살 효과(×comboBonus 포함)를 판정값에 반영한다 (§13.2-9 "필살기 준비·사용 조건 충족 시
+ * 필살 효과"의 받는 선수판). 등록되지 않은 짝이면 합체기 가치 없음.
  */
-function receiverValue(state, data, side, player, action, arrival, combo = false) {
+function receiverValue(state, data, side, player, action, arrival, passSkillId = null) {
   const m = matchCfg(data);
   const team = state[side];
-  const ult = combo ? getPlayerUltimate(data, player) : null;
-  const ultP = ult && ultTypeUsableAt(ult.ultimate.type, arrival) ? Object.assign({}, ult.ultimate, { combo: true }) : null;
+  const ult = passSkillId ? comboSkillFor(data, passSkillId, player) : null;
+  const ultP = ult && ultTypeUsableAt(ult.ultimate, arrival) ? Object.assign({}, ult.ultimate, { combo: true }) : null;
   if (arrival >= 3) {
     const amp = teamworkAmp(team, data);
     const t = getTrait(data, player);
     const k = ampOf(t, amp);
-    const ultMult = ultP && ultP.type === "shot" ? num(ultP.shoot, 1) * ultCfg(m).comboBonus : 1;
+    const hdr = action === "cross" ? num(ultP && ultP.headerMult, 1) : 1;
+    const ultMult = ultP && ultP.type === "shot" ? num(ultP.shoot, 1) * hdr * ultCfg(m).comboBonus : 1;
     if (action === "cross") {
       const add = (traitParam(data, player, "headerBonus") + traitParam(data, player, "receivedShotBonus")) * k;
       return round6(headerStat(player) * num(m.actionCoef.header, num(m.actionCoef.shoot, 1.5)) * (1 + add) * ultMult);
     }
     return round6(stat(player, "shoot") * num(m.actionCoef.shoot, 1.5) * (1 + traitParam(data, player, "receivedShotBonus") * k) * ultMult);
   }
-  const ultFor = ultP
-    ? (a) => ((ultP.type === "shot" && a === "shoot") || (ultP.type === "pass" && (a === "pass" || a === "cross")) ? ultP : null)
-    : null;
+  const ultFor = ultP ? (a) => (ultMatchesAction(ultP, a) ? ultP : null) : null;
   const vals = attackTendencyAt(state, data, side, player, arrival, { fresh: true, ultFor });
   let best = 0;
   for (const v of Object.values(vals)) if (v > best) best = v;
@@ -882,17 +924,19 @@ function receiverValue(state, data, side, player, action, arrival, combo = false
 function boxReceiverValue(state, data, side, player, action, fx = null) {
   const uc = ultCfg(matchCfg(data));
   const passUlt = !!(fx && fx.ult && fx.ult.type === "pass");
+  const passSkillId = passUlt ? fx.ult.skillId : null;
   const own = getPlayerUltimate(data, player);
-  const shotUlt = !!(own && own.ultimate.type === "shot");
-  const combo = passUlt && shotUlt;
-  let value = receiverValue(state, data, side, player, action, 3, passUlt);
+  const shotUlt = !!(own && own.ultimate.type === "shot" && ultTypeUsableAt(own.ultimate, 3));
+  // E1: 등록된 합체기 짝일 때만 합체기
+  const combo = passUlt && shotUlt && !!comboSkillFor(data, passSkillId, player);
+  let value = receiverValue(state, data, side, player, action, 3, passSkillId);
   let ultReady = combo;
   if (!combo && shotUlt) {
     const g = gaugeOf(state, side, player.id);
-    const gain = passUlt ? num(fx.ult.receiverGauge, uc.onUltPassReceive) : uc.onReceive;
+    const gain = passUlt ? receiverGaugeOf(fx.ult, uc) : uc.onReceive;
     if (g != null && g + gain >= uc.max) {
       ultReady = true;
-      value *= num(own.ultimate.shoot, 1);
+      value *= num(own.ultimate.shoot, 1) * (action === "cross" ? num(own.ultimate.headerMult, 1) : 1);
     }
   }
   return { value: round6(value), ultReady, combo };
@@ -904,8 +948,8 @@ function boxReceiverValue(state, data, side, player, action, fx = null) {
  */
 function defaultFromPlan(state, data, side, action, plan, fx = null) {
   if (plan.box) return bestOf(plan.candidates, (p) => boxReceiverValue(state, data, side, p, action, fx).value);
-  const combo = !!(fx && fx.ult && fx.ult.type === "pass");
-  return bestOf(plan.candidates, (p) => receiverValue(state, data, side, p, action, plan.arrival, combo));
+  const passSkillId = fx && fx.ult && fx.ult.type === "pass" ? fx.ult.skillId : null;
+  return bestOf(plan.candidates, (p) => receiverValue(state, data, side, p, action, plan.arrival, passSkillId));
 }
 
 /**
@@ -1017,8 +1061,11 @@ function attackTendencyAt(state, data, side, player, line, o = {}) {
       if (a === "pass" || a === "cross") v *= tc.lowP;
     }
     if (ult) {
-      if (ult.type === "shot" && a === "shoot") v *= num(ult.shoot, 1);
-      if (ult.type === "pass" && (a === "pass" || a === "cross")) v *= num(ult.attack, 1);
+      // A안 성향 (§19.3-4): 필살 슛 ×shoot (헤더면 ×headerMult 더), 필살 패스 · 필살 드리블 ×attack. 팀 필살기는 모든 액션에 같은
+      // 배율이라 성향을 바꾸지 않는다 (합체기 ×comboBonus 는 그대로).
+      if (ult.type === "shot" && a === "shoot") v *= num(ult.shoot, 1) * (header ? num(ult.headerMult, 1) : 1);
+      if (ult.type === "pass" && ultMatchesAction(ult, a)) v *= num(ult.attack, 1);
+      if (ult.type === "dribble" && a === "dribble") v *= num(ult.attack, 1);
       if (ult.combo) v *= uc.comboBonus;
     }
     vals[a] = round6(v);
@@ -1125,18 +1172,31 @@ function isComboReady(state, side, pid) {
 }
 
 /**
- * 필살 종류가 도착 line 에서 쓸 수 있는가 (합체기 판단용). pass 는 ④ 에서도 박스 연결(컷백·센터링)과 함께 쓸 수 있다 —
- * ② 이하에서 받아 ④ 에 도착한 선수는 이번 포제션 박스 연결을 아직 안 했다 (ultimateUsable 과 같은 규칙).
- * 박스 연결로 받은 선수의 값은 boxReceiverValue(마무리 값)라 여기의 pass 결과를 쓰지 않는다.
+ * 필살기(ultimate 객체)를 공격하는 쪽이 line 에서 쓸 수 있는가 (합체기 · 받는 선수 가치 · 외침 · 다음 슛 판단용 — §19.3-1).
+ * shot: line ≥ minLine(기본 2), pass: line ≤ 3 (④ 박스 연결 포함 — 받아서 ④ 에 도착한 선수는 이번 포제션 박스 연결을 아직 안 했다),
+ * dribble: line ≤ 2, team: 늘, save · defense: 거짓 (받는 선수 = 공격 쪽). 박스 연결로 받은 선수의 값은 boxReceiverValue(마무리 값)라
+ * 여기의 pass 결과를 쓰지 않는다.
  */
-function ultTypeUsableAt(type, line) {
-  if (type === "shot") return line >= 2;
-  if (type === "pass") return line <= 3;
+function ultTypeUsableAt(ult, line) {
+  const t = ult && ult.type;
+  if (t === "shot") return line >= num(ult.minLine, 2);
+  if (t === "pass") return line <= 3;
+  if (t === "dribble") return line <= 2;
+  if (t === "team") return true;
   return false;
+}
+
+/** 패스 필살기 actions 사유 문구 */
+function passActionsReason(ult) {
+  const acts = ultPassActions(ult);
+  if (acts.length === 1) return acts[0] === "cross" ? "크로스와 함께만" : "패스와 함께만";
+  return "패스·크로스와 함께만";
 }
 
 /**
  * 이번 듀얼에서 player 가 필살기를 쓸 수 있는가 (준비·종류·위치·액션). action null 이면 액션 무관 조건만.
+ * 종류별 (§19.3-3, §19.5 ~ §19.7): shot = 공격 · line ≥ minLine · 슛 / pass = 공격 · actions 안 / save = GK 세이브 /
+ * defense = 필드 수비(line ≤ 2) · 수비 3종 / team = 듀얼 참가자 · 팀당 포제션 1번 / dribble = 공격 · line ≤ 2 · 드리블.
  * @returns {{ ok: boolean, reason: string|null, skill: object|null, combo: boolean }}
  */
 export function ultimateUsable(state, data, side, player, role, action = null) {
@@ -1145,34 +1205,57 @@ export function ultimateUsable(state, data, side, player, role, action = null) {
   const line = num(state.ball && state.ball.lineIndex, 0);
   const fx = fxOf(state, side);
   const combo = role === "attack" && isComboReady(state, side, player.id);
-  const t = skill.ultimate.type;
-  if (fx.ult) return { ok: false, reason: "이번 듀얼에 이미 사용", skill, combo };
-  if (!ultimateReady(state, data, side, player.id)) return { ok: false, reason: "게이지 부족", skill, combo };
+  const u = skill.ultimate;
+  const t = u.type;
+  const no = (reason) => ({ ok: false, reason, skill, combo });
+  if (fx.ult) return no("이번 듀얼에 이미 사용");
+  if (!ultimateReady(state, data, side, player.id)) return no("게이지 부족");
   if (t === "shot") {
-    if (role !== "attack" || line < 2) return { ok: false, reason: "파이널 서드·박스 슛에서만", skill, combo };
-    if (action && action !== "shoot") return { ok: false, reason: "슛과 함께만", skill, combo };
+    const minLine = num(u.minLine, 2);
+    if (role !== "attack" || line < minLine) return no(minLine >= 3 ? "박스 슛에서만" : "파이널 서드·박스 슛에서만");
+    if (action && action !== "shoot") return no("슛과 함께만");
   } else if (t === "pass") {
-    if (role !== "attack") return { ok: false, reason: "패스·크로스에서만", skill, combo };
+    if (role !== "attack") return no("패스·크로스에서만");
+    const acts = ultPassActions(u);
     if (line >= 3) {
       // ④ 박스 연결(컷백·센터링)에서도 쓸 수 있다 — 연결이 가능할 때만 (포제션당 1회)
       const opts = attackOptionsFor(state, data, side, player, line, fx);
-      if (!opts.pass && !opts.cross) {
-        return { ok: false, reason: state.ball && state.ball.boxLinkUsed ? "박스 연결은 포제션당 1회" : "연결할 동료 없음", skill, combo };
+      if (!acts.some((a) => opts[a])) {
+        if (state.ball && state.ball.boxLinkUsed) return no("박스 연결은 포제션당 1회");
+        return no(opts.pass || opts.cross ? passActionsReason(u) : "연결할 동료 없음");
       }
+    } else if (!action && Array.isArray(u.actions)) {
+      // actions 를 적은 필살 패스: 지금 그 액션을 할 수 있어야 (예: 크로스 전용은 파이널 서드 크로서만)
+      const opts = attackOptionsFor(state, data, side, player, line, fxPlusUlt(fx, skill, null));
+      if (!acts.some((a) => opts[a])) return no(passActionsReason(u));
     }
-    if (action && action !== "pass" && action !== "cross") return { ok: false, reason: "패스·크로스와 함께만", skill, combo };
+    if (action && !acts.includes(action)) return no(passActionsReason(u));
   } else if (t === "save") {
-    if (role !== "defense" || line < 3) return { ok: false, reason: "GK 세이브에서만", skill, combo };
+    if (role !== "defense" || line < 3) return no("GK 세이브에서만");
+  } else if (t === "defense") {
+    // E2: 필드 수비 듀얼(line ≤ 2)에서 수비 3종 어느 것과도 — line 3 은 GK 세이브
+    if (role !== "defense" || line >= 3) return no("필드 수비에서만");
+    if (action && !ultMatchesAction(u, action)) return no("필드 수비에서만");
+  } else if (t === "team") {
+    // E3: 듀얼 참가자(공 가진 선수 · 막는 선수 · GK)면 역할 · line 상관없이, 팀당 포제션마다 1번
+    const pfx = state.possessionFx && state.possessionFx[side];
+    if (pfx && pfx.teamUlt) return no("이번 포제션에 이미 사용");
+  } else if (t === "dribble") {
+    // E4: 공격 드리블 (line ≤ 2)
+    if (role !== "attack") return no("드리블과 함께만");
+    if (line >= 3) return no("박스에서는 드리블 없음");
+    if (action && action !== "dribble") return no("드리블과 함께만");
   } else {
-    return { ok: false, reason: `알 수 없는 필살기 종류: ${t}`, skill, combo };
+    return no(`알 수 없는 필살기 종류: ${t}`);
   }
   return { ok: true, reason: null, skill, combo };
 }
 
 /**
- * AI 필살기 사용 규칙 (§13.3): 합체기 = 가능하면 항상, 마지막 2포제션 = 준비되면 즉시,
- * shot = line 2~3 슛, pass = 받는 선수가 도착 라인에서 필살기를 쓸 수 있는 보유자이거나 도착이 박스,
- * save = line 3 에서 동점·열세 또는 남은 포제션 ≤ 3 이거나 게이지 가득.
+ * AI 필살기 사용 규칙 (§13.3 + §19.4 ~ §19.7): 합체기 = 가능하면 항상, 마지막 2포제션 = 준비되면 즉시,
+ * shot · dribble = 그 액션을 고르면 준비됐을 때, pass = 도착이 박스이거나 (E1) 받는 선수가 등록된 합체기 짝이고 도착 line 에서
+ * 그 필살기를 쓸 수 있거나, extraLine 필살 패스가 실제로 한 구역을 건너뛸 때 (§19.4 [구현 결정]),
+ * save = line 3 에서 동점·열세 또는 남은 포제션 ≤ 3 이거나 게이지 가득, defense = line 2 수비 (E2), team = 지고 있을 때 (E3).
  */
 export function aiWantsUltimate(state, data, side, player, role, action, receiverId = null, fx = null) {
   const chk = ultimateUsable(state, data, side, player, role, action);
@@ -1180,23 +1263,27 @@ export function aiWantsUltimate(state, data, side, player, role, action, receive
   if (chk.combo) return true;
   const left = possessionsLeft(state);
   if (left <= 2) return true;
-  const t = chk.skill.ultimate.type;
-  if (t === "shot") return true;
+  const u = chk.skill.ultimate;
+  const t = u.type;
+  const line = num(state.ball.lineIndex, 0);
+  if (t === "shot" || t === "dribble") return true;
   if (t === "pass") {
-    const line = num(state.ball.lineIndex, 0);
     const team = state[side];
     const fxU = fxPlusUlt(fx || fxOf(state, side), chk.skill, null);
     const plan = planFor(team, player, action, line, fxU);
     if (plan.arrival >= 3) return true;
+    if (u.extraLine && plan.arrival > Math.min(3, line + 1)) return true;
     const rid = receiverId || (defaultFromPlan(state, data, side, action, plan, fxU) || {}).id;
     const r = findPlayer(team, rid);
-    const ru = r ? getPlayerUltimate(data, r) : null;
-    return !!(ru && ultTypeUsableAt(ru.ultimate.type, plan.arrival));
+    const b = r ? comboSkillFor(data, chk.skill.id, r) : null;
+    return !!(b && ultTypeUsableAt(b.ultimate, plan.arrival));
   }
   if (t === "save") {
     const g = gaugeOf(state, side, player.id);
     return scoreDiffFor(state, side) <= 0 || left <= 3 || g >= ultCfg(matchCfg(data)).max;
   }
+  if (t === "defense") return line === 2;
+  if (t === "team") return scoreDiffFor(state, side) < 0;
   return false;
 }
 
@@ -1215,9 +1302,7 @@ function carrierUltFor(state, data, side, player) {
   const fx = fxOf(state, side);
   if (!fx.ult) return (a) => aiUltFor(state, data, side, player, "attack", a);
   const u = fx.ult;
-  return (a) => ((u.type === "shot" && a === "shoot") || (u.type === "pass" && (a === "pass" || a === "cross"))
-    ? Object.assign({}, u, { combo: !!fx.combo })
-    : null);
+  return (a) => (ultMatchesAction(u, a) ? Object.assign({}, u, { combo: !!fx.combo }) : null);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1249,8 +1334,9 @@ export function boxLinkEval(state, data, side) {
   const own = getPlayerUltimate(data, carrier);
   // 슛: 이미 커밋한 필살 슛(AI 는 판정 전에 먼저 커밋 — 게이지 0), 아니면 AI 규칙상 쓸 필살 슛 (합체기 포함)
   let fxS = fx;
-  let shotUlt = !!(fx.ult && fx.ult.type === "shot");
-  if (!fx.ult && own && own.ultimate.type === "shot" && aiWantsUltimate(state, data, side, carrier, "attack", "shoot")) {
+  let shotUlt = !!(fx.ult && ultMatchesAction(fx.ult, "shoot"));
+  // 슛과 함께 쓰는 자기 필살기: 필살 슛, 또는 팀 필살기 (E3 — AI 규칙상 쓸 때)
+  if (!fx.ult && own && ultMatchesAction(own.ultimate, "shoot") && aiWantsUltimate(state, data, side, carrier, "attack", "shoot")) {
     fxS = fxPlusUlt(fx, own, comboFor(state, data, side, carrier, own));
     shotUlt = true;
   }
@@ -1261,8 +1347,8 @@ export function boxLinkEval(state, data, side) {
     if (!opts[a]) continue;
     const plan = planFor(team, carrier, a, 3, fx);
     let fxA = fx;
-    let ultimate = !!(fx.ult && fx.ult.type === "pass"); // 이미 커밋한 필살 패스
-    if (own && own.ultimate.type === "pass" && !fx.ult) {
+    let ultimate = !!(fx.ult && ultMatchesAction(fx.ult, a)); // 이미 커밋한 필살 패스 (또는 팀 필살기)
+    if (own && ultMatchesAction(own.ultimate, a) && !fx.ult) {
       const fxU = fxPlusUlt(fx, own, null);
       const rU = defaultFromPlan(state, data, side, a, plan, fxU);
       if (aiWantsUltimate(state, data, side, carrier, "attack", a, rU ? rU.id : null)) {
@@ -1303,6 +1389,7 @@ export function boxTendency(ev) {
 /** carrier 가 합체기 대기(필살 패스를 받음)면 그 합체기 { name, passerId, passerSkillId }, 아니면 null */
 function comboFor(state, data, side, player, skill) {
   if (!isComboReady(state, side, player.id) || !state.ball.comboFrom) return null;
+  // 이름 폴백 "합체기" 는 옛 진행 중 경기 저장본의 comboReadyId 용 (E1 이후 새 경기에서는 등록된 짝만 생긴다)
   const from = state.ball.comboFrom;
   return { name: comboName(data, from.skillId, skill.id) || "합체기", passerId: from.playerId, passerSkillId: from.skillId };
 }
@@ -1359,14 +1446,16 @@ function commitUltimate(state, data, side, player, role, action) {
   } else {
     state[side].live[player.id].gauge = 0;
   }
-  fx.ult = Object.assign({ skillId: skill.id }, skill.ultimate);
-  fx.combo = combo;
+  applyUlt(fx, skill, combo); // 미리보기(fxPlusUlt)와 같은 함수 (§19.3-2)
   const st = state.stats[side];
   st.ultimatesUsed += 1;
-  const TYPE_TEXT = { shot: "필살 슛", pass: "필살 패스", save: "필살 세이브" };
+  const u = skill.ultimate;
   pushEvent(state, {
-    type: "cutin", side, playerId: player.id, skillId: skill.id, ultimateType: skill.ultimate.type, combo: !!combo,
-    text: `★ ${player.name}, ${TYPE_TEXT[skill.ultimate.type] || "필살기"} [${skill.name}] 발동!${combo ? " (합체기)" : ""}`,
+    type: "cutin", side, playerId: player.id, skillId: skill.id, ultimateType: u.type, combo: !!combo,
+    // E5: 컷인 대사 · 등급 (데이터에 있을 때만 — 없으면 화면이 대사 없이 SSR 길이로 그린다)
+    ...(u.cutinLine ? { line: u.cutinLine } : {}),
+    ...(u.tier ? { tier: u.tier } : {}),
+    text: `★ ${player.name}, ${ULT_TYPE_TEXT[u.type] || "필살기"} [${skill.name}] 발동!${combo ? " (합체기)" : ""}`,
   });
   if (combo) {
     st.combos += 1;
@@ -1568,7 +1657,9 @@ function negateSourceName(data, fx, action) {
     const sk = data.skills.find((x) => x && x.id === id);
     return sk ? sk.name : null;
   };
-  if (fx.ult && fx.ult.type === "pass" && fx.ult.negateRead && (action === "pass" || action === "cross")) return skName(fx.ult.skillId) || "필살 패스";
+  if (fx.ult && (fx.ult.type === "pass" || fx.ult.type === "dribble") && fx.ult.negateRead && ultMatchesAction(fx.ult, action)) {
+    return skName(fx.ult.skillId) || ULT_TYPE_TEXT[fx.ult.type];
+  }
   if (fx.gaanpa === "ticket") return "간파";
   return skName(fx.usedSkillId) || "간파";
 }
@@ -1769,7 +1860,9 @@ export function computeOdds(state, data, { action, defAction = null, useEffects 
   // --- 공격력 ---
   const ultA = fxA.ult || null;
   const ultShot = !!(ultA && ultA.type === "shot" && action === "shoot");
-  const ultPass = !!(ultA && ultA.type === "pass" && (action === "pass" || action === "cross"));
+  const ultPass = !!(ultA && ultA.type === "pass" && ultMatchesAction(ultA, action));
+  const ultDribble = !!(ultA && ultA.type === "dribble" && action === "dribble");
+  const ultTeamA = !!(ultA && ultA.type === "team");
   const header = action === "shoot" && isGK && ball.receivedVia === "cross";
   const boxShotUlt = ultShot && !!ultA.boxShot;
   const midrange = action === "shoot" && line === 2 && !boxShotUlt;
@@ -1780,13 +1873,19 @@ export function computeOdds(state, data, { action, defAction = null, useEffects 
   const stamA = staminaMultFor(m, stA);
   let skillA = modsA.attack * (boostApplies(fxA, action) ? num(fxA.attackMult, 1) : 1);
   if (action === "shoot") skillA *= modsA.shootPower * num(fxA.shootMult, 1) * (ball.extraLine ? 1.2 : 1);
-  const ultMultA = ultShot ? num(ultA.shoot, 1) : ultPass ? num(ultA.attack, 1) : 1;
-  const comboA = fxA.combo && (ultShot || ultPass) ? uc.comboBonus : 1;
+  // 필살 배율 (§19.3-5): 슛 ×shoot (헤더면 ×headerMult 더) · 패스 ×attack (actions 안) · 드리블 ×attack (E4) · 팀 ×teamMult (E3, 이번 듀얼)
+  const ultMultA = ultShot
+    ? num(ultA.shoot, 1) * (header ? num(ultA.headerMult, 1) : 1)
+    : ultPass || ultDribble ? num(ultA.attack, 1) : ultTeamA ? num(ultA.teamMult, 1) : 1;
+  const ultOnA = ultShot || ultPass || ultDribble || ultTeamA;
+  const comboA = fxA.combo && ultOnA ? uc.comboBonus : 1;
   const bonus = attackBonus(state, data, atkSide, carrier, action, { midrange, header, boxShoot: isGK || boxShotUlt });
   const twTerm = action === "pass" || action === "cross" ? 1 + num(m.teamworkPassBonusPer100, 0.1) * num(atkTeam.teamwork) / 100 : 1;
   const modBonusA = 1 + (action === "shoot" ? bonusOf(atkTeam, "shootPower") : action === "pass" || action === "cross" ? bonusOf(atkTeam, "passAttack") : 0);
   const teamA = num(pfx[atkSide] && pfx[atkSide].teamMult, 1) || 1;
-  const att = statA * coefA * styleA * condA * stamA * skillA * (1 + bonus.capped) * ultMultA * comboA * twTerm * teamA * Math.max(0, modBonusA);
+  // E3: 이번 포제션 팀 필살기 배율 (판정 뒤 possessionFx[side].ultMult — 함성 teamMult 와 곱으로 쌓인다)
+  const teamUltA = num(pfx[atkSide] && pfx[atkSide].ultMult, 1) || 1;
+  const att = statA * coefA * styleA * condA * stamA * skillA * (1 + bonus.capped) * ultMultA * comboA * twTerm * teamA * teamUltA * Math.max(0, modBonusA);
 
   // --- 수비력 ---
   const styleD = styleMult(defender.style, carrier.style, m);
@@ -1794,6 +1893,10 @@ export function computeOdds(state, data, { action, defAction = null, useEffects 
   const stamD = staminaMultFor(m, stD);
   const skillD = modsD.defense * num(fxD.defenseMult, 1);
   const teamD = num(pfx[defSide] && pfx[defSide].teamMult, 1) || 1;
+  const teamUltD = num(pfx[defSide] && pfx[defSide].ultMult, 1) || 1;
+  // 수비 필살 배율: 필살 수비 ×defense (E2, 필드 수비) · 팀 필살기 ×teamMult (E3, 이번 듀얼). 필살 세이브는 gkTerm
+  const ultD = fxD.ult || null;
+  const ultMultD = ultD && ultD.type === "defense" && !isGK ? num(ultD.defense, 1) : ultD && ultD.type === "team" ? num(ultD.teamMult, 1) : 1;
   const negate = negateApplies(fxA, action);
   let statD;
   let coefD;
@@ -1832,19 +1935,19 @@ export function computeOdds(state, data, { action, defAction = null, useEffects 
       pairMult = negate ? 1 : readMult > 0 ? readMult : num(m.readBonus, 1.5);
     } else if (dAction === "tackle" || dAction === "intercept") {
       pair = "miss";
-      pairMult = fxD.noMissPenalty ? 1 : num(m.missMult, 0.8);
+      pairMult = fxD.noMissPenalty || (ultD && ultD.type === "defense" && ultD.noMissPenalty) ? 1 : num(m.missMult, 0.8);
     }
   }
   if (ultShot) gkTerm *= num(ultA.gkMult, 1); // 필살 슛: 막는 쪽(GK·파이널 서드 수비) ×gkMult
   const bonusD = Math.max(0, 1 + bonusOf(defTeam, "defense"));
-  const def = statD * coefD * styleD * condD * stamD * skillD * coverTerm * pairMult * gkTerm * teamD * bonusD;
+  const def = statD * coefD * styleD * condD * stamD * skillD * coverTerm * pairMult * gkTerm * teamD * teamUltD * ultMultD * bonusD;
 
   const raw = att + def > 0 ? att / (att + def) : 0.5;
   const p = clamp(Number.isFinite(raw) ? raw : 0.5, num(m.minP, 0.1), num(m.maxP, 0.9));
   const links = bonus.links.slice();
   if (isGK && ball.oneTouch && !boxLink) links.push("oneTouch");
   if (header) links.push("header");
-  if (fxA.combo && (ultShot || ultPass)) links.push("combo");
+  if (fxA.combo && ultOnA) links.push("combo");
 
   // --- 결정타 칩 (표시 전용): 위 att / def 의 곱셈 항을 그대로 쪼갠 목록 ---
   let factors = null;
@@ -1873,6 +1976,7 @@ export function computeOdds(state, data, { action, defAction = null, useEffects 
     F("atk", "combo", comboA, (fxA.combo && fxA.combo.name) || "합체기", `합체기 ×${fmtMult(comboA)}`);
     F("atk", "teamwork", twTerm, "팀워크");
     F("atk", "team", teamA, rallyName(data), null, { group: "team" });
+    F("atk", "teamUlt", teamUltA, skillName(data, pfx[atkSide] && pfx[atkSide].teamUlt, "팀 필살기"), null, { group: "team" });
     F("atk", "resonance", Math.max(0, modBonusA), "공명·유물", null, { group: "resonance" });
     // 수비: 기본 (버티기 = 수비 × holdMult, 철벽은 따로 · GK = 수비 × save 계수, 패시브 save 는 따로)
     const wall = !isGK && dAction === "hold" ? traitParam(data, defender, "holdMult") : 0;
@@ -1896,7 +2000,9 @@ export function computeOdds(state, data, { action, defAction = null, useEffects 
       if (fxD.ult && fxD.ult.type === "save") F("def", "saveUlt", num(fxD.ult.saveMult, 1), skillName(data, fxD.ult.skillId, "필살 세이브"), `필살 세이브 ×${fmtMult(num(fxD.ult.saveMult, 1))}`);
     }
     if (ultShot) F("def", "ultShotGk", num(ultA.gkMult, 1), skillName(data, ultA.skillId, "필살 슛"), `필살 슛 ${isGK ? "GK" : "수비"} ×${fmtMult(num(ultA.gkMult, 1))}`);
+    F("def", "ultimate", ultMultD, skillName(data, ultD && ultD.skillId, "필살기"), `필살 ×${fmtMult(ultMultD)}`);
     F("def", "team", teamD, rallyName(data), null, { group: "team" });
+    F("def", "teamUlt", teamUltD, skillName(data, pfx[defSide] && pfx[defSide].teamUlt, "팀 필살기"), null, { group: "team" });
     F("def", "resonance", bonusD, "공명·유물", null, { group: "resonance" });
   }
   return {
@@ -2114,7 +2220,7 @@ function pendingAfterSuccess(action, defAction, fxA, fxD) {
   }
   if (action === "pass" || action === "cross") {
     if (num(fxA.nextDuelBonus, 0) > 0 && (!fxA.negateActions || fxA.negateActions.includes(action))) pend.nextBonus += num(fxA.nextDuelBonus, 0);
-    if (fxA.ult && fxA.ult.type === "pass") pend.nextBonus += num(fxA.ult.nextDuelBonus, 0);
+    if (fxA.ult && fxA.ult.type === "pass" && ultMatchesAction(fxA.ult, action)) pend.nextBonus += num(fxA.ult.nextDuelBonus, 0);
   }
   pend.nextBonus = round6(pend.nextBonus);
   return pend;
@@ -2150,7 +2256,8 @@ export function bestAttackResponse(state, data, defAction, { fxA = null, fxD = n
   const fx = fxA || fxOf(state, atkSide);
   let enabled = getAttackActions(state, atkSide, data).filter((a) => a.enabled).map((a) => a.action);
   if (fx.ult) {
-    const ok = enabled.filter((a) => (fx.ult.type === "shot" ? a === "shoot" : fx.ult.type === "pass" ? a === "pass" || a === "cross" : true));
+    // 필살기와 맞는 액션만 (슛 · 패스 actions · 드리블, 팀 필살기 = 전부)
+    const ok = enabled.filter((a) => ultMatchesAction(fx.ult, a));
     if (ok.length) enabled = ok;
   }
   let best = null;
@@ -2193,6 +2300,35 @@ function addTension(state, m, side, base, mods) {
 
 function linkText(links) {
   return links.length ? " " + links.map((l) => LINK_LABELS[l] || l).join(" ") : "";
+}
+
+/**
+ * E3 (§19.6): 판정 뒤 팀 필살기 효과 — 쓴 팀(side, fx.ult.type "team")마다 possessionFx[side].ultMult ×= teamMult (남은 포제션 동안
+ * 그 팀의 모든 판정 — 이번 듀얼은 커밋한 fx 로 이미 곱했다), teamUlt = skillId (포제션당 1번), 팀 전원 체력 +teamStamina (상한 staminaMax).
+ * 상태만 바꾸고 정보 이벤트(type "teamUlt")는 돌려준다 — 판정 이벤트 뒤에 넣는다. 난수 없음.
+ */
+function applyTeamUltAfter(state, data, pairs) {
+  const out = [];
+  const max = num(matchCfg(data).staminaMax, 100);
+  for (const [side, fx] of pairs) {
+    const u = fx && fx.ult;
+    if (!u || u.type !== "team") continue;
+    if (!state.possessionFx) state.possessionFx = { home: { teamMult: 1 }, away: { teamMult: 1 } };
+    const pfx = state.possessionFx[side] || (state.possessionFx[side] = { teamMult: 1 });
+    const mult = num(u.teamMult, 1);
+    pfx.ultMult = round6(num(pfx.ultMult, 1) * mult);
+    pfx.teamUlt = u.skillId;
+    const amount = num(u.teamStamina, 0);
+    const team = state[side];
+    if (amount > 0 && team && team.live) {
+      for (const lv of Object.values(team.live)) lv.stamina = round1(clamp(num(lv.stamina, 0) + amount, 0, max));
+    }
+    out.push({
+      type: "teamUlt", side, skillId: u.skillId, teamMult: mult, teamStamina: amount,
+      text: `${state[side].name} 팀 판정 ×${fmtMult(mult)} (이번 포제션)${amount > 0 ? ` · 체력 +${fmtMult(amount)}` : ""}`,
+    });
+  }
+  return out;
 }
 
 function resolveDuel(state, data) {
@@ -2247,9 +2383,13 @@ function resolveDuel(state, data) {
     const mult = traitParam(data, carrier, "dribbleStaminaMult");
     if (mult > 0) baseA *= mult;
     if (success && fxA.noStamina && boostApplies(fxA, action)) baseA = 0;
+    // E4: 필살 드리블 noStamina — 성공했을 때 드리블 체력 소모 0 (폭발 드리블과 같은 규칙)
+    if (success && fxA.ult && fxA.ult.type === "dribble" && fxA.ult.noStamina) baseA = 0;
   }
   spendStamina(state, m, atkSide, carrier, baseA, odds.modsA);
   spendStamina(state, m, defSide, defender, num(m.staminaCost && m.staminaCost.defend), odds.modsD);
+  // E3: 팀 필살기 — 판정 뒤에 이번 포제션 배율 · 체력 (이번 듀얼은 커밋한 fx 로 이미 곱했다 — 두 번 곱하지 않는다)
+  const teamUltEvents = applyTeamUltAfter(state, data, [[atkSide, fxA], [defSide, fxD]]);
   if (action === "shoot") state.stats[atkSide].shots += 1;
 
   // 한 번 쓰는 상태 소모 (§13.2-6·11·12)
@@ -2305,6 +2445,7 @@ function resolveDuel(state, data) {
         text: `${carrier.name}, ${aLabel}… 골!!! (${pc}%)${readTag}${linkText(odds.links)}  [${state.home.name} ${state.score.home} : ${state.score.away} ${state.away.name}]`,
         ...beatPos(atkSide, line, defSide, kickoffLine(data)),
       });
+      for (const e of teamUltEvents) pushEvent(state, e);
       state.rngState = rng.getState();
       endPossession(state, data, defSide, kickoffLine(data), "kickoff");
       return;
@@ -2342,8 +2483,9 @@ function resolveDuel(state, data) {
       state.ball.receivedFresh = true;
       state.ball.pending = pend;
       const ultPass = !!(fxA.ult && fxA.ult.type === "pass");
-      gain(atkSide, receiver.id, ultPass ? num(fxA.ult.receiverGauge, uc.onUltPassReceive) : uc.onReceive);
-      if (ultPass && getPlayerUltimate(data, receiver)) {
+      gain(atkSide, receiver.id, ultPass ? receiverGaugeOf(fxA.ult, uc) : uc.onReceive);
+      // E1 (§19.4): 받은 선수의 필살기가 combos.json 에 등록된 짝일 때만 합체기 대기
+      if (ultPass && comboSkillFor(data, fxA.ult.skillId, receiver)) {
         state.ball.comboReadyId = receiver.id;
         state.ball.comboFrom = { playerId: carrier.id, skillId: fxA.ult.skillId };
       }
@@ -2357,6 +2499,7 @@ function resolveDuel(state, data) {
         ...beatPos(atkSide, line, atkSide, tr.newLine),
       });
     }
+    for (const e of teamUltEvents) pushEvent(state, e);
     state.rngState = rng.getState();
     setupDuel(state, data);
     return;
@@ -2384,9 +2527,12 @@ function resolveDuel(state, data) {
         : `${defender.name}, ${dLabel}!${tag}${readTag} ${carrier.name}의 ${aLabel} 차단 (${pc}%)${counterTag}`,
     ...beatPos(atkSide, line, defSide, cp.start),
   });
+  for (const e of teamUltEvents) pushEvent(state, e);
   state.rngState = rng.getState();
   if (cp.distribution) {
-    endPossession(state, data, defSide, 0, "distribution", { gkId: defender.id, from: boxLink ? "boxLink" : "save", saveEvent: ev });
+    // 필살 세이브 sureDistribution (§19.3-10): 막은 GK 의 이번 배급 롱패스는 판정 없이 성공
+    const sure = fxD.ult && fxD.ult.type === "save" && fxD.ult.sureDistribution ? { skillId: fxD.ult.skillId } : null;
+    endPossession(state, data, defSide, 0, "distribution", { gkId: defender.id, from: boxLink ? "boxLink" : "save", saveEvent: ev, sure });
     return;
   }
   endPossession(state, data, defSide, cp.start, "counter", { nextBonus: cp.cappedNextBonus });
@@ -2400,7 +2546,8 @@ function reverseCutinOf(fxA, action, isGK, defSide, defender) {
   const u = fxA.ult;
   let kind = null;
   if (u.type === "shot" && action === "shoot") kind = isGK ? "save" : "block";
-  else if (u.type === "pass" && (action === "pass" || action === "cross")) kind = "passCut";
+  else if (u.type === "pass" && ultMatchesAction(u, action)) kind = "passCut";
+  else if (u.type === "dribble" && action === "dribble") kind = "block"; // E4: 필살 드리블이 필드 수비에 막힘 (팀 · 수비 · 세이브는 없음)
   if (!kind) return null;
   return {
     kind, side: defSide, playerId: defender.id, position: defender.position, text: REVERSE_CUTIN_TEXT[kind],
@@ -2535,6 +2682,7 @@ function startDistribution(state, data, side, carry = {}) {
   state.possessionFx = { home: { teamMult: 1 }, away: { teamMult: 1 } };
   state.duel = null;
   state.distribution = { side, gkId: gk.id, from: carry.from || "save", possession: state.possession };
+  if (carry.sure) state.distribution.sure = Object.assign({}, carry.sure); // 확정 롱패스 (§19.3-10 — 이 배급 한 번만)
   state.phase = "distribution";
   if (carry.saveEvent) carry.saveEvent.nextDistribution = true;
 }
@@ -2555,7 +2703,7 @@ function longPassContest(team) {
  * @param {{ skill?: object|null, gkId?: string|null, explain?: boolean }} opts skill = 함께 쓸 배급 스킬 (캐논 킥)
  * @returns {{ p, att, def, gk, contest, bonus, skillMult, factors }}
  */
-export function longPassOdds(state, data, side, { skill = null, gkId = null, explain = false } = {}) {
+export function longPassOdds(state, data, side, { skill = null, gkId = null, explain = false, dist: distOpt = undefined } = {}) {
   const m = matchCfg(data);
   const team = state[side];
   const oppTeam = state[otherSide(side)];
@@ -2570,16 +2718,24 @@ export function longPassOdds(state, data, side, { skill = null, gkId = null, exp
   const att = baseA * (1 + bonus) * skillMult;
   const def = contest ? (stat(contest, "defense") + stat(contest, "physical")) / 2 : 0;
   const raw = att + def > 0 ? att / (att + def) : 0.5;
-  const p = clamp(Number.isFinite(raw) ? raw : 0.5, num(m.minP, 0.1), num(m.maxP, 0.9));
+  // 확정 롱패스 (§19.3-10): 필살 세이브 sureDistribution 으로 막은 GK 의 이번 배급 — 판정 없이 성공 (p = 1)
+  // dist = 배급 대기 상태 (기본 state.distribution — resolveDistribution 은 지우기 전 사본을 넘긴다)
+  const dist = distOpt === undefined ? state.distribution : distOpt;
+  const sure = !!(dist && dist.sure && dist.side === side && dist.gkId === gk.id);
+  const p = sure ? 1 : clamp(Number.isFinite(raw) ? raw : 0.5, num(m.minP, 0.1), num(m.maxP, 0.9));
   let factors = null;
-  if (explain) {
+  if (explain && sure) {
+    factors = [];
+  } else if (explain) {
     factors = [];
     pushFactor(factors, "atk", "base", baseA, "롱패스 기본", `롱패스 ${Math.round(baseA)}`, { base: true, stat: baseA / coef, coef });
     pushFactor(factors, "atk", "distributor", 1 + bonus, traitName(data, "distributor"), `${traitName(data, "distributor")} +${pct(bonus)}%`);
     pushFactor(factors, "atk", "skill", skillMult, skill ? skill.name : "스킬");
     pushFactor(factors, "def", "base", def, "경합 기본", `경합 ${Math.round(def)}`, { base: true, stat: def, coef: 1 });
   }
-  return { p, att, def, gk, contest, bonus, skillMult, coef, factors };
+  const out = { p, att, def, gk, contest, bonus, skillMult, coef, factors };
+  if (sure) Object.assign(out, { sure: true, sureSkillId: dist.sure.skillId || null });
+  return out;
 }
 
 /** 배급 스킬 사용 가능 여부 + 효과 (배급 GK 가 가진 longPassBoost 스킬마다) — 미리보기 · 판정 공용 */
@@ -2655,17 +2811,22 @@ function resolveDistribution(state, data, decision = null) {
     return;
   }
 
-  const lp = longPassOdds(state, data, side, { skill, gkId: gk.id, explain: true });
-  const rng = createRngFromState(state.rngState);
-  const success = rng.chance(lp.p);
-  state.rngState = rng.getState();
-  const chip = chipOf(lp.factors, lp.p, success, m);
+  const lp = longPassOdds(state, data, side, { skill, gkId: gk.id, explain: true, dist: d });
+  let success = true;
+  if (!lp.sure) {
+    // 확정 롱패스(sureDistribution)는 주사위를 굴리지 않는다 — 이 경로에서만 rng 호출이 하나 줄어든다 (§19.3-12)
+    const rng = createRngFromState(state.rngState);
+    success = rng.chance(lp.p);
+    state.rngState = rng.getState();
+  }
+  const chip = lp.sure ? { factors: [], decisive: null, upset: false } : chipOf(lp.factors, lp.p, success, m);
   spendStamina(state, m, side, gk, num(m.staminaCost && m.staminaCost.pass), null);
   if (lp.contest) spendStamina(state, m, opp, lp.contest, num(m.staminaCost && m.staminaCost.defend), null);
   const pc = pct(lp.p);
   const longCommon = {
     ...common, action: "long", p: lp.p, defenderId: lp.contest ? lp.contest.id : null, skillId: skill ? skill.id : undefined,
     factors: chip.factors, decisive: chip.decisive, upset: chip.upset,
+    ...(lp.sure ? { sure: true, sureSkillId: lp.sureSkillId } : {}),
   };
   if (success) {
     addTension(state, m, side, num(m.tension && m.tension.duelWin, 10), null);
@@ -2673,7 +2834,7 @@ function resolveDistribution(state, data, decision = null) {
     const nextBonus = skill ? num(skill.active.params && skill.active.params.nextDuelBonus, 0) : 0;
     pushEvent(state, {
       type: "distribution", side, success: true, receiverId: starter.id, nextBonus: nextBonus || undefined, ...longCommon,
-      text: `${gk.name}, 롱패스! 중원의 ${starter.name}에게 연결 (${pc}%)${skill ? ` [${skill.name}]` : ""}${nextBonus ? ` 첫 듀얼 +${pct(nextBonus)}%` : ""}`,
+      text: `${gk.name}, 롱패스! 중원의 ${starter.name}에게 연결 (${lp.sure ? `확정 — ${skillName(data, lp.sureSkillId, "필살 세이브")}` : `${pc}%`})${skill ? ` [${skill.name}]` : ""}${nextBonus ? ` 첫 듀얼 +${pct(nextBonus)}%` : ""}`,
       ...beatPos(side, 0, side, 1),
     });
     startPossession(state, data, side, 1, "distribution", { nextBonus });
@@ -3067,7 +3228,8 @@ function nextShotP(state, data, side, carrier, tr, action, defAction, fxA, fxD) 
   const gk = state[opp].players.find((p) => p.position === "GK") || bestOf(state[opp].players, (p) => stat(p, "defense"));
   const receiver = tr.receiver;
   const ultPass = !!(fxA.ult && fxA.ult.type === "pass");
-  const recvUlt = ultPass && tr.via ? getPlayerUltimate(data, receiver) : null;
+  // E1: 등록된 합체기 짝일 때만 받은 선수가 합체기 대기
+  const recvUlt = ultPass && tr.via ? comboSkillFor(data, fxA.ult.skillId, receiver) : null;
   const ball2 = Object.assign({}, state.ball, {
     carrierId: receiver.id,
     lineIndex: tr.newLine,
@@ -3082,9 +3244,21 @@ function nextShotP(state, data, side, carrier, tr, action, defAction, fxA, fxD) 
     pending: pendingAfterSuccess(action, defAction, fxA, fxD),
     boxLinkUsed: !!state.ball.boxLinkUsed || isBoxLinkAction(action, num(state.ball.lineIndex, 0)),
   });
+  // E3: 이번 듀얼에 쓰는 팀 필살기는 판정 뒤 그 포제션의 다음 판정(= 이 박스 슛)에도 붙는다
+  let possessionFx = state.possessionFx;
+  const teamFx = [[side, fxA], [opp, fxD]].filter(([, f]) => f && f.ult && f.ult.type === "team");
+  if (teamFx.length) {
+    const pf = state.possessionFx || {};
+    possessionFx = { home: Object.assign({ teamMult: 1 }, pf.home), away: Object.assign({ teamMult: 1 }, pf.away) };
+    for (const [sd, f] of teamFx) {
+      possessionFx[sd].ultMult = round6(num(possessionFx[sd].ultMult, 1) * num(f.ult.teamMult, 1));
+      possessionFx[sd].teamUlt = f.ult.skillId;
+    }
+  }
   const pseudo = Object.assign({}, state, {
     ball: ball2,
     attackingSide: side,
+    possessionFx,
     duel: { defenderId: gk.id, coverCount: 0, baseCover: 0, gaanpaSide: null, effects: { home: emptyDuelEffects(), away: emptyDuelEffects() } },
   });
   let fxS = emptyDuelEffects();
@@ -3098,7 +3272,7 @@ function nextShotP(state, data, side, carrier, tr, action, defAction, fxA, fxD) 
     if (own && own.ultimate.type === "shot" && g0 != null) {
       const uc = ultCfg(matchCfg(data));
       const usedNow = !!fxA.ult && receiver.id === carrier.id;
-      const gain = tr.via ? (ultPass ? num(fxA.ult.receiverGauge, uc.onUltPassReceive) : uc.onReceive) : uc.onDuelWin;
+      const gain = tr.via ? (ultPass ? receiverGaugeOf(fxA.ult, uc) : uc.onReceive) : uc.onDuelWin;
       const g1 = usedNow ? 0 : Math.min(uc.max, g0 + gain);
       if (g1 >= uc.max) fxS = fxPlusUlt(fxS, own, null);
     }
@@ -3452,25 +3626,39 @@ export function aceCallFor(state, data) {
   for (const a of ["pass", "cross"]) {
     if (!opts[a]) continue;
     const plan = planFor(team, carrier, a, line, fx);
-    if (!plan.candidates.length) continue;
     const passReady = !!passSkillId && (fx.ult ? true : ultimateUsable(state, data, side, carrier, "attack", a).ok);
     const fxU = passReady && !fx.ult ? fxPlusUlt(fx, own, null) : fx;
+    // 합체기 외침은 필살 패스를 쓴 계획 (한 구역 더 가는 필살 패스면 도착이 다르다 — §19.3-2), 게이지 외침은 보통 계획
+    const planU = fxU === fx ? plan : planFor(team, carrier, a, line, fxU);
+    if (!plan.candidates.length && !planU.candidates.length) continue;
     const defIds = {
-      combo: passReady ? (defaultFromPlan(state, data, side, a, plan, fxU) || {}).id : null,
+      combo: passReady ? (defaultFromPlan(state, data, side, a, planU, fxU) || {}).id : null,
       gauge: (defaultFromPlan(state, data, side, a, plan, fx) || {}).id,
     };
+    // 받은 뒤 쓸 수 있는 필살기만: 도착 line 에서 쓸 수 있는 종류, 박스 연결로 받으면 연결을 이미 써서 필살 패스는 못 쓴다 (슛만)
+    const usableAfter = (u, pl) => !!u && ultTypeUsableAt(u.ultimate, pl.arrival) && !(pl.box && u.ultimate.type === "pass");
+    const comboIds = new Set();
+    const push = (p, reason, u, cName, pl) => found.push({
+      p, a, reason, u, cName, plan: pl,
+      rank: [reason === "combo" ? 0 : 1, defIds[reason] === p.id ? 0 : 1, team.players.indexOf(p)],
+    });
+    if (passReady) {
+      for (const p of planU.candidates) {
+        const u = getPlayerUltimate(data, p);
+        const cName = usableAfter(u, planU) ? comboName(data, passSkillId, u.id) : null;
+        if (!cName) continue;
+        comboIds.add(p.id);
+        push(p, "combo", u, cName, planU);
+      }
+    }
     for (const p of plan.candidates) {
+      if (comboIds.has(p.id)) continue;
       const u = getPlayerUltimate(data, p);
-      // 받은 뒤 쓸 수 있는 필살기만: 도착 line 에서 쓸 수 있는 종류, 박스 연결로 받으면 연결을 이미 써서 필살 패스는 못 쓴다 (슛만)
-      if (!u || !ultTypeUsableAt(u.ultimate.type, plan.arrival) || (plan.box && u.ultimate.type === "pass")) continue;
-      const cName = passReady ? comboName(data, passSkillId, u.id) : null;
+      if (!usableAfter(u, plan)) continue;
+      // 게이지 외침(①)은 shot · pass 필살기만 (§19.3-11 — 새 종류는 외치지 않는다), 합체기 외침(②)은 등록된 짝만 (comboName)
+      const gaugeType = u.ultimate.type === "shot" || u.ultimate.type === "pass";
       const g = gaugeOf(state, side, p.id);
-      const reason = cName ? "combo" : g != null && g >= uc.aceCall ? "gauge" : null;
-      if (!reason) continue;
-      found.push({
-        p, a, reason, u, cName, plan,
-        rank: [reason === "combo" ? 0 : 1, defIds[reason] === p.id ? 0 : 1, team.players.indexOf(p)],
-      });
+      if (gaugeType && g != null && g >= uc.aceCall) push(p, "gauge", u, null, plan);
     }
   }
   if (!found.length) return null;
@@ -3554,6 +3742,7 @@ function distributionView(state, data, human) {
   const failLabel = endsMatch(failFc)
     ? `롱패스 차단 — ${END_TEXT[failFc]}`
     : `세컨드볼 — ${failWho} 중원 공격${failFc === "lastAttack" ? ` (추가시간 — ${failWho} 마지막 공격)` : ""}`;
+  const sureName = lp.sure ? skillName(data, lp.sureSkillId, "필살 세이브") : null;
   const options = {
     short: {
       action: "short", label: "짧은 패스", p: 1, pct: 100, recommended: rec === "short",
@@ -3566,13 +3755,16 @@ function distributionView(state, data, human) {
     },
     long: {
       action: "long", label: "롱패스", p: round6(lp.p), pct: lpPct, recommended: rec === "long",
-      text: us ? `롱패스 ${lpPct}% — 성공 중원부터 / ${failShort}` : `상대 롱패스 ${lpPct}% — 성공 상대 중원부터 / ${failShort}`,
+      text: lp.sure
+        ? (us ? `롱패스 확정 (${sureName}) — 중원부터` : `상대 롱패스 확정 (${sureName}) — 상대 중원부터`)
+        : us ? `롱패스 ${lpPct}% — 성공 중원부터 / ${failShort}` : `상대 롱패스 ${lpPct}% — 성공 상대 중원부터 / ${failShort}`,
       bonus: lp.bonus || 0,
+      ...(lp.sure ? { sure: true, sureSkillId: lp.sureSkillId, sureName } : {}),
       success: {
         zone: zoneOf(side, 1), attackingSide: side, step: 1, starterId: lStart.id, starterName: lStart.name,
         label: `${who}중원부터 — ${lStart.name} 시작`, short: us ? "성공 중원부터" : "성공 상대 중원부터",
       },
-      fail: Object.assign({
+      fail: lp.sure ? null : Object.assign({
         zone: zoneOf(opp, 1), attackingSide: opp, step: 1, contestId: lp.contest ? lp.contest.id : null,
         label: failLabel, short: failShort,
       }, endsMatch(failFc) ? { matchEnd: failFc } : {}),
@@ -3594,6 +3786,7 @@ function distributionView(state, data, human) {
     auto: { action: auto.action, skillId: auto.skillId || null, p: round6(auto.p) },
     gkZone: gkZoneOf(side),
     skills,
+    ...(lp.sure ? { sure: { skillId: lp.sureSkillId, name: sureName } } : {}),
   };
 }
 
@@ -3734,9 +3927,12 @@ export function getMatchView(state, data, humanSide = undefined) {
       const usable = chk.ok && t !== "save";
       const cName = chk.combo && ball.comboFrom ? comboName(data, ball.comboFrom.skillId, us.id) || "합체기" : null;
       const combo = chk.combo && ball.comboFrom ? { name: cName, passerId: ball.comboFrom.playerId, passerSkillId: ball.comboFrom.skillId } : null;
-      const compatible = actions.filter((a) => a.enabled && (t === "shot" ? a.action === "shoot" : t === "pass" ? a.action === "pass" || a.action === "cross" : false));
+      // 호환 액션: 슛 · 패스 actions · 드리블 · 수비 3종 · 팀 = 전부 (ultMatchesAction)
+      const compatible = actions.filter((a) => a.enabled && ultMatchesAction(us.ultimate, a.action));
       ultimateOptions.push({
         playerId: participant.id, skillId: us.id, name: us.name, type: t, usable,
+        // E5: 등급 · 컷인 대사 (버튼 title — 데이터에 있을 때)
+        tier: us.ultimate.tier || null, cutinLine: us.ultimate.cutinLine || null,
         reason: usable ? null : t === "save" ? "GK 세이브에서 자동 발동" : chk.reason,
         comboName: cName || undefined,
         gauge: gaugeOf(state, human, participant.id),
@@ -3823,7 +4019,8 @@ export function getMatchView(state, data, humanSide = undefined) {
       variants.push([s.skillId, fxPlusSkill(fxH, getSkill(data, s.skillId))]);
     }
     for (const u of ultimateOptions) {
-      if (u.usable && u.type === "pass") variants.push([u.skillId, fxPlusUlt(fxH, getSkill(data, u.skillId), null)]);
+      // 필살 패스(받는 선수 기본값 · 한 구역 더) · 필살 드리블(E4 — 한 구역 더 도착 구역)
+      if (u.usable && (u.type === "pass" || u.type === "dribble")) variants.push([u.skillId, fxPlusUlt(fxH, getSkill(data, u.skillId), null)]);
     }
     for (const [id, fxS] of variants) {
       if (!outcomesBySkill) outcomesBySkill = {};

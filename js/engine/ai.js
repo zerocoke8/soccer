@@ -221,13 +221,18 @@ export function decideAttack(state, data, side) {
     const ult = getPlayerUltimate(data, carrier);
     if (ult && ult.ultimate.type === "pass") {
       const fxU = Object.assign(emptyDuelEffects(), fx || fxOf(state, side), { ult: Object.assign({ skillId: ult.id }, ult.ultimate) });
+      // 한 구역 더 가는 필살 패스(extraLine)는 도착 라인이 바뀐다 — match.applyUlt 와 같은 접기 (§19.3-2)
+      if (ult.ultimate.extraLine) fxU.extraLine = true;
       const rU = defaultReceiverId(state, data, side, action, fxU);
       if (aiWantsUltimate(state, data, side, carrier, "attack", action, rU, fx)) {
         ultimate = true;
         receiverId = rU;
       }
+    } else if (ult) {
+      // 팀 필살기(E3) 등 패스와 함께 쓸 수 있는 다른 종류 — 받는 선수는 바뀌지 않는다
+      ultimate = aiWantsUltimate(state, data, side, carrier, "attack", action, null, fx);
     }
-    if (!ultimate) receiverId = defaultReceiverId(state, data, side, action, fx);
+    if (!ultimate || ult.ultimate.type !== "pass") receiverId = defaultReceiverId(state, data, side, action, fx);
   } else {
     ultimate = aiWantsUltimate(state, data, side, carrier, "attack", action, null, fx);
   }

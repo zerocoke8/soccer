@@ -110,6 +110,14 @@ export function scaleOpponents(opponents, spec) {
 /* ------------------------------------------------------------------ */
 
 const FIELD_BEATS = new Set(["duel", "turnover", "goal", "save"]);
+/** 필살기 종류 · 등급 (LESSON_PROTO_PLAN §19.16 지표 — K1). 등급이 없는 옛 데이터 컷인은 "-" */
+export const ULT_TYPES = ["shot", "pass", "save", "defense", "team", "dribble"];
+export const ULT_TIERS = ["R", "SR", "SSR", "-"];
+/**
+ * 컷인 연출 시간 (1x 기준 초, §19.8 길이표 = 차지 + 컷인): 경기 첫 필살기 / 그 뒤. 등급 없음 = SSR. 합체기 = 두 컷인 1.0초씩 + 이름 1.1초
+ */
+export const CUTIN_SECONDS = { SSR: [1.4, 1.2], SR: [1.1, 0.95], R: [0.8, 0.65] };
+export const COMBO_SECONDS = 3.1;
 
 /** 필살기 보유자 수 (게이지가 있는 선수) */
 function holderCount(team) {
@@ -155,6 +163,12 @@ export function matchMetrics(ms) {
   for (const a of ATK_ACTIONS) o[`atk_${a}`] = 0;
   for (const d of DEF_ACTIONS) o[`def_${d}`] = 0;
   for (const l of LINK_IDS) o[`link_${l}`] = 0;
+  // §19.16 필살기 지표 (K1): 종류 · 등급별 (…H / …A), 쓴 듀얼 수 · 이긴 수, 합체기 이름별, 컷인 연출 초, 팀 필살기 배율 듀얼, 확정 배급
+  for (const t of ULT_TYPES) { o[`ultType_${t}H`] = 0; o[`ultType_${t}A`] = 0; }
+  for (const t of ULT_TIERS) { o[`ultTier_${t}H`] = 0; o[`ultTier_${t}A`] = 0; }
+  Object.assign(o, { ultDuels: 0, ultDuelWins: 0, cutinSeconds: 0, teamUltDuels: 0, sureDist: 0 });
+  let cutins = 0;
+  let teamCutPending = false; // 팀 필살기 컷인 → 다음 판정(그 듀얼)
   let afterLink = null; // 박스 연결 성공 → 같은 포제션의 다음 판정 = 받은 선수의 슛
   let lastBoxPoss = null; // ④ 슈팅 찬스 첫 판정 (포제션당 1회)
   for (const e of ms.events) {
@@ -163,8 +177,27 @@ export function matchMetrics(ms) {
       if (e.ultimateType === "shot") o.ultShot++;
       else if (e.ultimateType === "pass") o.ultPass++;
       else if (e.ultimateType === "save") o.ultSave++;
+      if (`ultType_${e.ultimateType}${sfx}` in o) o[`ultType_${e.ultimateType}${sfx}`]++;
+      const tier = ULT_TIERS.includes(e.tier) ? e.tier : "-";
+      o[`ultTier_${tier}${sfx}`]++;
+      const len = CUTIN_SECONDS[tier === "-" ? "SSR" : tier];
+      o.cutinSeconds += e.combo ? COMBO_SECONDS : len[cutins === 0 ? 0 : 1];
+      cutins++;
+      if (e.ultimateType === "team") teamCutPending = true;
       continue;
     }
+    if (e.type === "combo" && e.name) {
+      const k = `comboName:${e.name}`;
+      o[k] = (o[k] || 0) + 1;
+    }
+    if (Array.isArray(e.factors)) {
+      // 필살기를 쓴 판정 (공격 ultimate · 수비 defUltimate) 과 그 쪽이 이겼는가
+      if (e.ultimate) { o.ultDuels++; if (e.success) o.ultDuelWins++; }
+      if (e.defUltimate) { o.ultDuels++; if (!e.success) o.ultDuelWins++; }
+      if (teamCutPending || e.factors.some((f) => f.id === "teamUlt")) o.teamUltDuels++;
+      teamCutPending = false;
+    }
+    if (e.distribution && e.sure) o.sureDist++;
     if (e.type === "skill" && e.effect === "longPassBoost") o.cannon++;
     if (e.type === "lastAttack") o[`lastAttack${sfx}`]++;
     if (Array.isArray(e.factors)) {
@@ -256,6 +289,14 @@ export function accSummary(acc) {
     ultPerHolderHome: ratio("ultH", "holdersH"), ultPerHolderAway: ratio("ultA", "holdersA"),
     holdersHome: avg("holdersH"), holdersAway: avg("holdersA"),
     combos: avg("comboH") + avg("comboA"), combosHome: avg("comboH"),
+    // §19.16 (K1): 필살기 종류 · 등급별 경기당 (우리 / 상대), 성공률, 합체기 이름별, 컷인 연출 초, 팀 필살기 배율 듀얼, 확정 배급
+    ultTypeHome: Object.fromEntries(ULT_TYPES.map((t) => [t, avg(`ultType_${t}H`)])),
+    ultTypeAway: Object.fromEntries(ULT_TYPES.map((t) => [t, avg(`ultType_${t}A`)])),
+    ultTierHome: Object.fromEntries(ULT_TIERS.map((t) => [t, avg(`ultTier_${t}H`)])),
+    ultTierAway: Object.fromEntries(ULT_TIERS.map((t) => [t, avg(`ultTier_${t}A`)])),
+    ultDuelWinRate: ratio("ultDuelWins", "ultDuels"),
+    comboByName: Object.fromEntries(Object.keys(s).filter((k) => k.startsWith("comboName:")).map((k) => [k.slice(10), avg(k)])),
+    cutinSeconds: avg("cutinSeconds"), teamUltDuels: avg("teamUltDuels"), sureDist: avg("sureDist"),
     gaanpaHome: avg("gaanpaH"), gaanpaAway: avg("gaanpaA"),
     ultShot: avg("ultShot"), ultPass: avg("ultPass"), ultSave: avg("ultSave"),
     ultShotGoalRate: ratio("ultShotGoal", "ultShot"),
@@ -574,6 +615,15 @@ export function matchStatsTable(cols) {
     row("마지막 공격/경기 우리/상대 (골%)", (s) => `${fmt(s.lastAttackHome, 3)}/${fmt(s.lastAttackAway, 3)} (${s.lastAttackHome + s.lastAttackAway ? pct(s.lastAttackGoalRate) : "-"})`),
     row("대이변/경기 (판정 중 %) · 결정타 칩 %", (s) => `${fmt(s.upsetsPerMatch)} (${pct(s.upsetRate)}) · ${pct(s.decisiveRate)}`),
     row("연장 / 승부차기", (s) => `${pct(s.extraTimeRate)} / ${pct(s.penaltyRate)}`),
+    // §19.16 필살기 지표 (K1 — 표 끝에 더해 기존 줄은 그대로)
+    row("필살기 종류/경기 우리 슛·패·세·수·호·드", (s) => ULT_TYPES.map((t) => fmt(s.ultTypeHome[t])).join("·")),
+    row("필살기 종류/경기 상대 슛·패·세·수·호·드", (s) => ULT_TYPES.map((t) => fmt(s.ultTypeAway[t])).join("·")),
+    row("필살기 등급/경기 우리 R·SR·SSR·없음", (s) => ULT_TIERS.map((t) => fmt(s.ultTierHome[t])).join("·")),
+    row("필살기 등급/경기 상대 R·SR·SSR·없음", (s) => ULT_TIERS.map((t) => fmt(s.ultTierAway[t])).join("·")),
+    row("필살기 쓴 듀얼 승률", (s) => (s.ultDuelWinRate ? pct(s.ultDuelWinRate) : "-")),
+    row("합체기 이름별/경기", (s) => Object.entries(s.comboByName).map(([k, v]) => `${k} ${fmt(v, 3)}`).join(" · ") || "-"),
+    row("컷인 연출 초/경기 (1x)", (s) => fmt(s.cutinSeconds, 1)),
+    row("팀 필살기 배율 듀얼/경기 · 확정 배급/경기", (s) => `${fmt(s.teamUltDuels)} · ${fmt(s.sureDist, 3)}`),
   ]);
 }
 

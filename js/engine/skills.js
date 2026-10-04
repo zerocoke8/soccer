@@ -27,8 +27,28 @@ export const MOD_KEYS = ["attack", "defense", "staminaCost", "tensionGain", "sav
 export const ACTIVE_EFFECTS = ["boost", "extraLine", "powerShot", "readBoost", "negateRead", "steal", "rally", "longPassBoost"];
 /** 듀얼이 아니라 GK 배급(match phase "distribution")에서 쓰는 effect */
 export const DISTRIBUTION_EFFECTS = ["longPassBoost"];
-/** 필살기 종류 */
-export const ULTIMATE_TYPES = ["shot", "pass", "save"];
+/**
+ * 필살기 종류 (LESSON_PROTO_PLAN §19.2 — 브랜치 outgame-lesson): shot · pass · save + E2 defense(필살 수비) ·
+ * E3 team(팀 필살기) · E4 dribble(필살 드리블)
+ */
+export const ULTIMATE_TYPES = ["shot", "pass", "save", "defense", "team", "dribble"];
+/** 모든 종류 공통 키 (tier · cutinLine = E5 — 컷인 길이 · 대사) */
+export const ULTIMATE_COMMON_KEYS = ["type", "tier", "cutinLine"];
+/** 종류별 허용 인자 (§19.2 표). 그 밖의 키는 ultimateErrors 오류 */
+export const ULTIMATE_KEYS = {
+  shot: ["shoot", "gkMult", "boxShot", "minLine", "headerMult", "stamina"],
+  pass: ["attack", "actions", "negateRead", "nextDuelBonus", "receiverGauge", "extraLine"],
+  save: ["saveMult", "sureDistribution"],
+  defense: ["defense", "noMissPenalty"],
+  team: ["teamMult", "teamStamina"],
+  dribble: ["attack", "extraLine", "negateRead", "noStamina"],
+};
+export const ULTIMATE_TIERS = ["R", "SR", "SSR"];
+/** 컷인 대사 최대 글자 수 (띄어쓰기 포함) */
+export const CUTIN_LINE_MAX = 24;
+const ULT_MULT_KEYS = ["shoot", "attack", "saveMult", "defense", "teamMult", "headerMult"];
+const ULT_NONNEG_KEYS = ["nextDuelBonus", "teamStamina", "stamina", "receiverGauge"];
+const ULT_BOOL_KEYS = ["boxShot", "negateRead", "extraLine", "noStamina", "noMissPenalty", "sureDistribution"];
 
 /* ------------------------------------------------------------------ */
 /* 스킬 조회                                                            */
@@ -74,6 +94,85 @@ export function getPlayerActiveSkills(data, player) {
 /** 필살기 (kind "unique" 이고 ultimate 객체가 있는 첫 스킬) 또는 null */
 export function getPlayerUltimate(data, player) {
   return getPlayerSkills(data, player).find((sk) => sk.kind === "unique" && sk.ultimate && typeof sk.ultimate === "object") || null;
+}
+
+/**
+ * 필살기 데이터 검증 (§19.2, 순수) → 오류 문구 배열 (없으면 []). 필살기가 아닌 스킬(ultimate 없음)은 [].
+ * type ∈ ULTIMATE_TYPES, 종류별 허용 키 밖이면 오류, 배율 ≥ 1, gkMult ∈ (0, 1], minLine ∈ {2, 3}, actions ⊂ {pass, cross} 비지 않음,
+ * tier ∈ {R, SR, SSR}, cutinLine 1 ~ 24자, nextDuelBonus · teamStamina · stamina · receiverGauge ≥ 0.
+ * tier · cutinLine 은 있을 때만 검사한다 (K1 — 데이터에 아직 없다. 있어야 한다는 검사는 데이터 테스트, §19.19).
+ */
+export function ultimateErrors(skill) {
+  const u = skill && skill.ultimate;
+  if (!u) return [];
+  const id = (skill && skill.id) || "?";
+  const errs = [];
+  if (typeof u !== "object" || Array.isArray(u)) return [`필살기 ${id}: ultimate 는 객체여야 합니다`];
+  const t = u.type;
+  if (!ULTIMATE_TYPES.includes(t)) return [`필살기 ${id}: 알 수 없는 종류 ${t}`];
+  const allowed = new Set([...ULTIMATE_COMMON_KEYS, ...ULTIMATE_KEYS[t]]);
+  for (const k of Object.keys(u)) if (!allowed.has(k)) errs.push(`필살기 ${id}: ${t}에 쓸 수 없는 키 ${k}`);
+  const isNum = (v) => typeof v === "number" && Number.isFinite(v);
+  for (const k of ULT_MULT_KEYS) {
+    if (k in u && allowed.has(k) && !(isNum(u[k]) && u[k] >= 1)) errs.push(`필살기 ${id}: ${k} 는 1 이상이어야 합니다`);
+  }
+  if ("gkMult" in u && allowed.has("gkMult") && !(isNum(u.gkMult) && u.gkMult > 0 && u.gkMult <= 1)) {
+    errs.push(`필살기 ${id}: gkMult 는 0 초과 1 이하여야 합니다`);
+  }
+  if ("minLine" in u && allowed.has("minLine") && !(u.minLine === 2 || u.minLine === 3)) errs.push(`필살기 ${id}: minLine 은 2 또는 3 입니다`);
+  if ("actions" in u && allowed.has("actions")) {
+    const a = u.actions;
+    if (!Array.isArray(a) || !a.length || a.some((x) => x !== "pass" && x !== "cross") || new Set(a).size !== a.length) {
+      errs.push(`필살기 ${id}: actions 는 pass · cross 중 하나 이상 (중복 없음)`);
+    }
+  }
+  for (const k of ULT_NONNEG_KEYS) {
+    if (k in u && allowed.has(k) && !(isNum(u[k]) && u[k] >= 0)) errs.push(`필살기 ${id}: ${k} 는 0 이상이어야 합니다`);
+  }
+  for (const k of ULT_BOOL_KEYS) {
+    if (k in u && allowed.has(k) && typeof u[k] !== "boolean") errs.push(`필살기 ${id}: ${k} 는 true / false 입니다`);
+  }
+  if ("tier" in u && !ULTIMATE_TIERS.includes(u.tier)) errs.push(`필살기 ${id}: tier 는 R · SR · SSR 중 하나`);
+  if ("cutinLine" in u) {
+    const s = u.cutinLine;
+    const n = typeof s === "string" ? [...s].length : 0;
+    if (typeof s !== "string" || n < 1 || n > CUTIN_LINE_MAX) errs.push(`필살기 ${id}: cutinLine 은 1 ~ ${CUTIN_LINE_MAX}자`);
+  }
+  return errs;
+}
+
+const validatedSkills = new WeakSet();
+
+/** data.skills 의 모든 필살기를 검사하고 오류가 있으면 모아서 throw (같은 skills 배열은 한 번만 — 캐시) */
+export function validateUltimates(data) {
+  const list = data && Array.isArray(data.skills) ? data.skills : null;
+  if (!list || validatedSkills.has(list)) return;
+  const errs = [];
+  for (const sk of list) errs.push(...ultimateErrors(sk));
+  if (errs.length) throw new Error(`skills: 필살기 데이터 오류\n${errs.join("\n")}`);
+  validatedSkills.add(list);
+}
+
+/** 패스 필살기가 쓸 수 있는 액션 (actions 없으면 패스 · 크로스) */
+export function ultPassActions(ult) {
+  return ult && Array.isArray(ult.actions) && ult.actions.length ? ult.actions : ["pass", "cross"];
+}
+
+/**
+ * 필살기(ultimate 객체)가 이 액션과 함께 판정에 붙는가 — shot = 슛, pass = actions(기본 패스 · 크로스), dribble = 드리블,
+ * defense = 태클 · 인터셉트 · 버티기, save = 세이브, team = 모든 액션.
+ */
+export function ultMatchesAction(ult, action) {
+  if (!ult) return false;
+  switch (ult.type) {
+    case "shot": return action === "shoot";
+    case "pass": return ultPassActions(ult).includes(action);
+    case "dribble": return action === "dribble";
+    case "defense": return action === "tackle" || action === "intercept" || action === "hold";
+    case "save": return action === "save";
+    case "team": return true;
+    default: return false;
+  }
 }
 
 /** 패스·크로스 negateRead 에 받은 선수 다음 듀얼 보너스(nextDuelBonus)가 붙은 액티브 (스루 패스) — ④ 박스 연결에서도 의미가 있다 */

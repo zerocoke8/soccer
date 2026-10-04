@@ -3977,3 +3977,35 @@ teach: {
 ### 19.19 구현 중 바뀐 것
 
 (K1 ~ K5가 채운다.)
+
+#### K1 · 경기 엔진 E0 ~ E5 · 주장 (2026-10-04)
+
+바꾼 파일: `js/engine/skills.js` · `match.js` · `ai.js` · `tools/sim.mjs` · `package.json` · 새 `test/ultimates.test.mjs`. 데이터 파일 · `rng.js` · `config.json` · `run.js` · `training.js` · `layout.js`는 그대로 (`git diff 78cc0d3`에 없음).
+
+**완료 조건 확인**
+- `npm test` **356개 통과** (332 + `ultimates.test` 24개). 기존 테스트 파일은 하나도 고치지 않았다.
+- **같은 데이터 같은 결과**: K0(`0d33f14`)을 `git worktree`로 따로 돌려 비교 — `node tools/sim.mjs --runs 300 --seed 1` · `node tools/lesson_sim.mjs --runs 40 --seed 1` · `node tools/challenge_sim.mjs`의 기존 지표가 모두 같다 (다른 것은 실행 시간뿐). `sim.mjs`는 표 끝에 새 줄을 더해 열 폭이 넓어졌으므로 공백을 접어서 비교했다.
+- `node tools/shot.mjs <dir> --only 0,1,2` — 경기 01 ~ 28 검사 통과 (17의 스킬 묶음 안쪽 스크롤은 원래 의도). 09 · 13 · 20 · 23 PNG를 열어 봤다 — 지금 데이터에서는 화면이 그대로다.
+
+**도전 모드 전 값 (§19.16 — K0 = K1, `node tools/challenge_sim.mjs`, 7팀 × 100판)**: 단계별 전체 승률 1 ~ 10단계 = 95 / 90 / 81 / 65 / 51 / 39 / 34 / 26 / 18 / 10%.
+**새 지표의 전 값 (K1, 옛 런 sim 300런 전체 경기)**: 필살기 종류 / 경기 우리 슛 1.03 · 패스 0.74 · 나머지 0, 상대 슛 0.15 · 세이브 0.02, 등급은 모두 "없음"(데이터에 `tier`가 아직 없다), 필살기를 쓴 듀얼 승률 81.9%, 합체기 이름별 바람의 유성 0.576, 컷인 연출 3.6초 / 경기 (1x), 팀 필살기 배율 듀얼 0 · 확정 배급 0.
+
+**계획과 다르게 · 계획에 없던 세부로 정한 것**
+1. **`tier` · `cutinLine`은 K1 런타임에서 "있을 때만" 검사한다** — §19.2는 필수 키라고 했지만 K1은 데이터를 바꾸지 않으므로 지금 필살기 4개(`tier` 없음)가 `createMatch`에서 막히면 안 된다. "모든 필살기에 있다"는 K2 데이터 테스트가 본다. 없으면 `cutin` 이벤트 · `ultimateOptions`에 `line` · `tier`가 없다(`ultimateOptions`는 `null`) → 화면은 대사 없이 SSR 길이 (§19.8 옛 저장본 규칙과 같다).
+2. **팀 필살기의 포제션 배율은 `possessionFx[side].ultMult`에 따로 둔다** (§19.6은 `teamMult *= teamMult`). 함성(`rally`)이 `teamMult = max(지금, 함성)`으로 쓰기 때문에 같은 칸에 곱하면 함성이 팀 필살기를 지운다 — "함성과는 곱으로 쌓인다"를 지키려고 칸을 나눴다. `computeOdds`가 `teamMult × ultMult`를 곱하고, 결정타 칩은 `teamUlt`(그룹 "팀 판정") 항목. `teamUlt`(skillId) 표시도 같은 객체에 있다. 포제션이 시작되면 `possessionFx`가 통째로 리셋되므로 둘 다 사라진다.
+3. **팀 필살기 정보 이벤트** `type "teamUlt"` 문구 = "<팀 이름> 팀 판정 ×1.08 (이번 포제션) · 체력 +15", 판정 비트 이벤트 바로 뒤 (다음 듀얼의 AI 컷인보다 앞). 이벤트에 `skillId` · `teamMult` · `teamStamina`.
+4. **`onUltPassReceive`는 더 읽지 않는다** — 받은 선수 게이지는 `ultimate.receiverGauge ?? onReceive` (`receiverGaugeOf`). config 키는 그대로 남겼다 (§19.2 그대로, 기록만).
+5. **actions를 적은 필살 패스는 액션 없이 물어도(`action null`) 그 액션을 지금 할 수 있어야 "쓸 수 있음"** — 크로스 전용(리시엘)이 line 0 · 1에서 버튼만 켜지고 호환 액션이 없는 것을 막는다. `actions`가 없는 필살 패스(바람의 실)는 지금 규칙 그대로.
+6. **외침 ② (합체기)는 필살 패스를 쓴 계획으로 본다** — 한 구역 더 가는 필살 패스(나엘리스 → 브론테 "뇌우")는 도착이 달라서, 보통 계획(도착 line 2, 낙뢰 `minLine 3`)으로는 외칠 수 없었다. 게이지 외침 ①은 보통 계획 그대로. 지금 데이터에서는 두 계획이 같다.
+7. **`ai.decideAttack`**: 패스 · 크로스를 고른 듀얼에서 필살 패스가 아닌 필살기(팀 필살기)도 `aiWantsUltimate`로 판단한다 (전에는 필살 패스만 봤다). AI가 필살 패스 받는 선수를 고를 때 `extraLine`을 접는다 (`match.applyUlt`와 같은 규칙).
+8. **④ `boxLinkEval`**: carrier 자기 필살기는 "그 액션과 맞는 종류"(`ultMatchesAction`)면 넣는다 — 팀 필살기도 슛 · 연결의 기대 골에 들어가 AI가 지고 있을 때 ④에서도 쓴다. 필살 슛 · 필살 패스는 지금 그대로.
+9. **`nextShotP`(line 2 돌파 · ④ 연결의 다음 슛 기대)**: 이번 듀얼에 쓰는 팀 필살기의 포제션 배율을 다음 박스 슛에 넣는다. 팀 체력 회복은 넣지 않았다 (다음 슛 기대 %에만 쓰이는 근사).
+10. **헤더 배율(`headerMult`)** 은 받는 선수 가치(합체기 · 받은 뒤 준비되는 자기 필살 슛)의 센터링 · 크로스 값에도 곱한다 (판정과 같은 규칙).
+11. **합체기 배율(×comboBonus)** 은 쓰인 필살기가 이번 액션에 붙을 때(슛 · 패스 actions · 드리블 · 팀) — 받는 쪽(b)이 새 종류인 합체기도 같은 규칙 (§19.11 데이터 테스트가 b = shot · pass · dribble · team을 허용하므로).
+12. **`getMatchView.outcomesBySkill` · `receiverPreviewBySkill` · `receiversBySkill`** 에 필살 드리블은 `extraLine`이 없어도 넣는다 (도착 구역이 같아도 맵이 있으면 화면이 "필살기 켬" 미리보기를 같은 길로 그린다).
+13. **확정 배급**: `longPassOdds`에 옵션 `dist`(배급 대기 상태)를 더했다 — `resolveDistribution`은 판정 전에 `state.distribution`을 지우므로 지우기 전 사본을 넘긴다. 결과 `{ p: 1, sure: true, sureSkillId }`, 결정타 칩 없음 (`factors []`), 배급 이벤트에 `sure` · `sureSkillId`, 문구 "(확정 — <필살기 이름>)". `view.distribution.sure = { skillId, name }`, `options.long.sure` · `sureName`, 실패 줄 `fail: null`, 문구 "롱패스 확정 (<이름>) — 중원부터". 캐논 킥과 같이 쓰면 확정 + 첫 듀얼 보너스 (AI 캐논 킥 규칙은 그대로).
+14. **수비 쪽 필살 배율 칩**: 필살 수비 · 수비 쪽 팀 필살기는 `F("def", "ultimate", …, "필살 ×1.6")` (공격 쪽과 같은 모양). 필살 세이브는 지금처럼 `saveUlt`.
+15. **필살기 종류 문구** `match.ULT_TYPE_TEXT`를 export (K4 `labels.ULT_TYPE_LABELS`가 같은 값을 쓴다).
+16. **`skills.js` 새 export**: `ULTIMATE_KEYS` · `ULTIMATE_COMMON_KEYS` · `ULTIMATE_TIERS` · `CUTIN_LINE_MAX`(24) · `ultimateErrors` · `validateUltimates`(같은 `skills` 배열은 한 번만 — WeakSet 캐시) · `ultPassActions` · `ultMatchesAction`(종류 ↔ 액션 호환, 엔진 · K4 화면 공용). 불리언 키(`boxShot` · `negateRead` · `extraLine` · `noStamina` · `noMissPenalty` · `sureDistribution`)는 `true / false`만 허용하는 검사를 더했다. `match.js` 새 export: `comboSkillFor`.
+17. **`tools/sim.mjs` 지표**: 경기 표 맨 끝에 8줄 (종류별 우리 / 상대, 등급별 우리 / 상대, 필살기를 쓴 듀얼 승률, 합체기 이름별, 컷인 연출 초, 팀 필살기 배율 듀얼 · 확정 배급). 컷인 초 = §19.8 길이표 (첫 필살기 SSR 1.4 · SR 1.1 · R 0.8초, 그 뒤 1.2 · 0.95 · 0.65초, 등급 없음 = SSR, 합체기 = 3.1초). "필살기를 쓴 듀얼" = 판정 이벤트의 `ultimate`(공격) · `defUltimate`(수비), 이김 = 그쪽이 이긴 판정.
+
