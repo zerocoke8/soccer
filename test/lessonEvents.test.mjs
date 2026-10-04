@@ -143,9 +143,10 @@ test("allEvents · eventById: 파일 7개를 잇고, 없는 파일은 건너뛰�
   d.lesson_ev_coach.events.push({ id: "ev_x1", trigger: "week" });
   assert.equal(LE.allEvents(d).length, n0 + 1);
   assert.equal(LE.eventById(d, "ev_x1").trigger, "week");
+  const dropped = d.lesson_ev_coach.events.length + d.lesson_ev_story.events.length;
   delete d.lesson_ev_coach;
   delete d.lesson_ev_story;
-  assert.equal(LE.allEvents(d).length, n0);
+  assert.equal(LE.allEvents(d).length, n0 + 1 - dropped);
   assert.equal(LE.eventById(d, "ev_x1"), null);
   assert.equal(LE.eventById(d, "ev_local_kids").id, "ev_local_kids");
   assert.deepEqual(LE.allEvents({}), []);
