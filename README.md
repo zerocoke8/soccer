@@ -4,7 +4,7 @@
 아트 없이 시스템만 검증하는 단계이며, 최종 타깃은 가로 모바일 게임(Unity)이다. 이 웹 프로토타입은 데스크톱 브라우저 테스트용.
 
 - **플레이**: https://zerocoke8.github.io/soccer/
-- **카드 레슨 시험판** (이 브랜치 `outgame-lesson`): https://zerocoke8.github.io/soccer/lesson/ — 육성을 카드 레슨 배틀 + 15주 주 선택으로 바꾼 판. 경기 · 도전 모드는 같다
+- **카드 레슨 시험판** (이 브랜치 `outgame-lesson`): https://zerocoke8.github.io/soccer/lesson/ — 육성을 카드 레슨 배틀 + 15주 주 선택으로 바꾼 판. 경기 · 도전 모드는 같은 틀이고, 이 판에만 선수 16명 · 전원 필살기(아래)가 있다
 - **기획서**: [docs/GDD_v0.5.md](docs/GDD_v0.5.md) (이전 버전: v0.1~v0.4) · 카드 레슨 초안 [OUTGAME_LESSON_draft.md](docs/OUTGAME_LESSON_draft.md) · [OUTGAME_CARDS_draft.md](docs/OUTGAME_CARDS_draft.md)
 - **구현 계약(모듈 설계)**: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (카드 레슨 시험판: §20, 구현 계획 [docs/LESSON_PROTO_PLAN.md](docs/LESSON_PROTO_PLAN.md))
 
@@ -15,6 +15,7 @@
 - **코치 지원 · 컷인** (2026-10-04): 레슨마다 몇 턴은 편성 코치가 손패 카드 1장에 **붙는다** (코치 얼굴 칩 · 코치 색 테두리, 그 턴만 강화). 그 카드를 내면 **코치 컷인**(탭하면 넘김)이 뜨고 코치마다 다른 **추가 능력**이 터진다 (하르나 슈팅 구역 ×1.5 · 셀리아 다음 턴 손패 +1 · 오르넬라 팀워크 · 힌트 · 바르바라 실패 없음 …). 작은 원 카드가 8장으로 늘었다 (카드 68장).
 - **고유 카드 모양** (2026-10-04 L40): 선수 고유 카드의 대상 모양을 그 선수의 **연계 특성**이 정한다 — 이어 주기(네리아 토큰을 받을 선수에게 끌기, 받는 쪽 ×1.3) · 둘레 작은 원(실패 없음) · 구역 전원(팀워크 +2) · 연결(고른 쪽 ×1.5) · 자리 옮기기(타리아를 구역으로, ×1.3) · 크로스(슈팅 구역 1명과) · 둘레 중간 원(주인 ×1.5) · 가로지르기(미르카를 다른 구역으로 — 두 구역 스탯). 같은 특성 = 같은 모양이라 선수가 늘어도 특성 수만큼만 설계한다.
 - **부상 · 스킬** (2026-10-04 L42 · L43): 다친 선수는 **레슨만 쉬고 경기(경계전 · 친선전)에는 그대로 나온다** (유스 교체 · 벌칙 없음). **액티브 스킬은 코치가 가르쳐 준다** — 레슨 클리어 · 퍼펙트 · 코치 컷인으로 액티브 힌트가 나오면 보상 화면에서 "루미 코치가 '함성'을 가르쳐 줍니다" → 받을 선수를 고르면 바로 배운다 (포지션 · 3칸 규칙, 가득이면 바꿀 스킬을 고르거나 배우지 않고 SP +20). 상담의 SP 상점은 **패시브만** 판다 (지금은 힌트를 받은 패시브만 진열 — 진열 기준은 기획자 결정 대기).
+- **선수 16명 · 전원 필살기** (2026-10-04 L44 ~ L46, 이 브랜치만): 새 선수 8명(헤르타 · 브론테 · 나엘리스 · 온디나 · 리시엘 · 코니 · 카밀라 · 힐디)과 고유 카드 8장이 더해졌다 (카드 76장). **모든 선수가 자기 필살기**(개인 게이지 · 컷인 · 대사 한 줄)를 갖고, 레어도가 세기와 컷인 길이를 정한다 (R 짧게). 경기에 새 필살기 종류 — 필살 수비 · 팀 필살기(호령) · 필살 드리블 — 가 생겼고, 합체기는 등록된 짝 5개만 나온다 (바람의 유성 · 풍뢰일섬 · 뇌우 · 하늘 과녁 · 뇌명 유성). 주장 두 명을 함께 내보내도 주장 효과는 1명분. 편성 화면 선수 풀은 2줄 × 8장. 옛 고유 스킬 6개는 코치 힌트(패시브 → 상담) · 코치 수업(철의 태클 · 라인 브레이커)으로 얻는다.
 - 감독 AI 추천은 "추천" 배지(카드 · 명단 [벤치] · [턴 끝])와 조준 중 청록 점선 원으로만 보인다. 개발용으로 주소에 `?autolesson=1` 을 붙이면 레슨 화면이 600ms 마다 추천 행동을 낸다.
 - **저장이 본편과 따로다**: 키 앞머리 `soccer-lesson.` (런 · 경기 · 등록 팀 · 도전 진행). 본편(`/soccer/`) 저장은 보이지 않고 바뀌지도 않는다 — 그래서 레슨판 도전 모드는 처음에 샘플 팀만 있다.
 - 1차에는 이벤트가 없고, 밸런스는 맞추지 않았다 (시뮬 결과만 본다).
@@ -33,12 +34,12 @@ npm run serve        # python -m http.server 8080  →  http://localhost:8080
 
 ```bash
 npm i                # devDependency(jsdom) 설치 — UI 스모크 테스트용. 없어도 엔진 테스트는 돌아간다
-npm test             # node --test (rng · zones · cards · lesson · lessonRun · manager · cardEffects · lessonRules · run · match · v05 · challenge · layout · orient · stage · lineup · lessonLayout · outgame · lessonUi · ui 스모크, 332 테스트)
+npm test             # node --test (rng · zones · cards · lesson · lessonRun · manager · cardEffects · lessonRules · run · match · v05 · challenge · layout · orient · stage · lineup · lessonLayout · outgame · lessonUi · ui 스모크 · ultimates, 365 테스트)
 npm run lesson-sim   # node tools/lesson_sim.mjs --runs 200 --seed 1  (카드 레슨 런: 감독 AI + 실제 경기, 방침별 스탯 · 승률 · 클리어율 · 부상 · 덱 · TP/SP, 구역 지표 — 기본 훈련 비중 · 고르게 크기 · 벤치 · 일반/특별 점수 p30/p90)
 npm run sim          # node tools/sim.mjs --runs 300 --seed 1  (옛 육성 런: 시즌별 승률·등급 분포·부상·우정 훈련·골 · 박스 연결 · GK 배급 · 마지막 공격 · 대이변)
-node tools/shot.mjs <출력폴더>   # 로컬 Chrome으로 경기(01~28 — 레슨 런의 친선전 · 경계전에서 찾음, 28 = 부상 선수 경기 출전)·아웃게임(og_* — 주 · 레슨 · 보상 · 상담 · 준비 · 도전 모드 등) 시나리오 스크린샷 (puppeteer-core, 1280×720). 요약 끝 줄 = 스크롤 · 잘린 글자 · HUD 겹침 · 상태 · 에러 검사에 걸린 시나리오
+node tools/shot.mjs <출력폴더>   # 로컬 Chrome으로 경기(01~34 — 레슨 런의 친선전 · 경계전에서 찾음, 28 = 부상 선수 경기 출전, 29~34 = 새 필살기 종류 · 등급 컷인 · 풍뢰일섬 · 확정 배급)·아웃게임(og_* — 주 · 레슨 · 보상 · 상담 · 준비 · 도전 모드 등) 시나리오 스크린샷 (puppeteer-core, 1280×720). 요약 끝 줄 = 스크롤 · 잘린 글자 · HUD 겹침 · 상태 · 에러 검사에 걸린 시나리오
 node tools/shot.mjs <출력폴더> --only og   # 아웃게임만 (--list 로 목록). 레슨 화면만: --only og_lesson,og_lesson_  (레슨 경기장 이름표 · 구역 라벨 겹침, 원 판정 = 그린 원 ↔ 엔진 대상도 검사)
-node tools/lesson_play.mjs <출력폴더>     # 실제 입력(마우스 끌기 · 터치 끌기 · 터치 탭 · 클릭 · 키보드)으로 시즌 1 을 진행하며 행동마다 엔진 · 화면 대상 확인 · 레슨마다 코치 컷인 수 (기획 2~4번) 보고, 보상 화면 코치 수업도 감독 추천대로 선수 칩 → [가르치기] 를 클릭 · 탭 · 키보드로 누르고 엔진(습득 · SP)을 확인 (--until run = 15주, --mobile --touch-only --width 915 --height 412 = 터치 전용 작은 화면, --slot FW2=ch_cat_trickster = 미르카 편성). 고유 카드는 모양마다 입력(주인 토큰 끌기 · 카드를 받는 선수 · 구역으로 · 숫자 키 · 탭 두 번)을 돌아가며 모두 1번 이상 내고, 놓기 직전 화면의 행 = 실제 행인지 본다
+node tools/lesson_play.mjs <출력폴더>     # 실제 입력(마우스 끌기 · 터치 끌기 · 터치 탭 · 클릭 · 키보드)으로 시즌 1 을 진행하며 행동마다 엔진 · 화면 대상 확인 · 레슨마다 코치 컷인 수 (기획 2~4번) 보고, 보상 화면 코치 수업도 감독 추천대로 선수 칩 → [가르치기] 를 클릭 · 탭 · 키보드로 누르고 엔진(습득 · SP)을 확인 (--until run = 15주, --mobile --touch-only --width 915 --height 412 = 터치 전용 작은 화면, --slot FW2=ch_cat_trickster = 미르카 편성 — 여러 번 줄 수 있다, --watch-match = 경기를 ⏭ 없이 4x 자동 진행으로 끝까지 보며 필살기 컷인 수 · 글자 잘림 확인). 고유 카드는 모양마다 입력(주인 토큰 끌기 · 카드를 받는 선수 · 구역으로 · 숫자 키 · 탭 두 번)을 돌아가며 모두 1번 이상 내고, 놓기 직전 화면의 행 = 실제 행인지 본다
 node tools/shot.mjs <출력폴더> --width 1920 --height 1080   # 다른 창 크기에서 스테이지 배율·레터박스 확인
 node tools/challenge_sim.mjs --runs 100 --teams 6   # 도전 모드 단계별 승률 (샘플 팀 + 자동 완주 팀 6개, --targets 로 단계 목표 시험)
 node tools/challenge_sim.mjs --write-sample         # 테스트용 샘플 팀(data/challenge_sample_team.json) 다시 만들기
@@ -54,7 +55,7 @@ node tools/challenge_sim.mjs --write-sample         # 테스트용 샘플 팀(da
 
 ```
 index.html, css/, js/ui/     화면 (고정 스테이지 1280×720 가로, 아트 없음) — css: base · outgame · match · lesson
-js/engine/                   순수 로직: rng, lessonRun(레슨 런 15주) · lesson(카드 배틀) · zones(훈련 구역 기하) · cards(카드 68장) · manager(감독 AI),
+js/engine/                   순수 로직: rng, lessonRun(레슨 런 15주) · lesson(카드 배틀) · zones(훈련 구역 기하) · cards(카드 76장) · manager(감독 AI),
                              run(옛 육성 — 경기 · 평가 함수는 레슨 런이 그대로 쓴다), training, effects, rating, match(경기), ai, skills, challenge(도전 모드)
 data/*.json                  밸런스·콘텐츠 데이터 (Unity로 그대로 이식 예정) — 레슨: cards · lesson · policies
 test/, tools/                엔진 · UI 테스트, 헤드리스 시뮬 (lesson_sim · sim · challenge_sim), 스크린샷 (shot · scenarios · lesson_scenarios), 브라우저 한 판 점검 (lesson_play)

@@ -21,13 +21,14 @@
 //   놓기 직전 화면 (흰 고리 대상 · 놓을 바닥 · 가로지르기 지금 바닥) 에서 읽은 행 (선수:스탯) = 실제 lastFx 행인지 본다 (실패자는 마지막 행 1개).
 //   --slot SLOT=charId = 편성 화면에서 그 슬롯을 눌러 선수를 바꾼 뒤 [런 시작] (미르카 판: --slot FW2=ch_cat_trickster).
 //   아직 안 낸 고유 카드가 낼 수 있으면 감독 추천 대신 먼저 낸다 (덱의 고유 카드 모두 1번 이상 — 끝에 확인). --no-cover = 늘 감독 추천대로.
+// --watch-match (§19 K5) = 경기를 ⏭ 대신 자동 진행 4x 로 끝까지 보며 필살기 컷인(등급 · 합체기 · 역방향)을 세고, 엔진 이벤트 기대 장수 = 화면 장수 · 글자 잘림 없음을 확인한다.
 import fs from "node:fs";
 import path from "node:path";
 import { ROOT } from "./scenarios.mjs";
 import { startServer, findBrowser } from "./shot.mjs";
 
 function parseArgs(argv) {
-  const o = { outDir: null, seed: "play-1", policy: "team", until: "season", lessons: null, width: 1280, height: 720, mobile: false, touchOnly: false, maxMin: 25, slots: {}, coverUniques: true };
+  const o = { outDir: null, seed: "play-1", policy: "team", until: "season", lessons: null, width: 1280, height: 720, mobile: false, touchOnly: false, maxMin: 25, slots: {}, coverUniques: true, watchMatch: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const next = () => argv[++i];
@@ -42,11 +43,12 @@ function parseArgs(argv) {
     else if (a === "--max-min") o.maxMin = Number(next()) || 25;
     else if (a === "--slot") { const [k, v] = String(next() || "").split("="); if (!k || !v) throw new Error("--slot SLOT=charId"); o.slots[k] = v; }
     else if (a === "--no-cover") o.coverUniques = false;
+    else if (a === "--watch-match") o.watchMatch = true;
     else if (a.startsWith("--")) throw new Error(`알 수 없는 옵션: ${a}`);
     else if (!o.outDir) o.outDir = a;
     else throw new Error(`인자가 너무 많습니다: ${a}`);
   }
-  if (!o.outDir) throw new Error("usage: node tools/lesson_play.mjs <outDir> [--seed S] [--policy P] [--until season|lesson|run] [--lessons N] [--width W --height H] [--mobile] [--touch-only] [--slot FW2=ch_cat_trickster] [--no-cover]");
+  if (!o.outDir) throw new Error("usage: node tools/lesson_play.mjs <outDir> [--seed S] [--policy P] [--until season|lesson|run] [--lessons N] [--width W --height H] [--mobile] [--touch-only] [--slot FW2=ch_cat_trickster] [--no-cover] [--watch-match]");
   return o;
 }
 
@@ -69,7 +71,7 @@ async function main() {
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
   const browser = await puppeteer.launch({ executablePath: bi.path, headless: true, args: ["--no-first-run", "--no-default-browser-check", "--disable-extensions", "--lang=ko-KR"] });
   const log = (...a) => console.log(...a);
-  const report = { errors: [], toasts: [], scroll: [], actions: {}, fails: [], fallbacks: [], targetMismatch: [], drift: [], shots: [], phases: {}, lessons: [], teach: [] };
+  const report = { errors: [], toasts: [], scroll: [], actions: {}, fails: [], fallbacks: [], targetMismatch: [], drift: [], shots: [], phases: {}, lessons: [], teach: [], matches: [] };
   let teachN = 0;
   const uniquePlays = {}; // 낸 고유 카드 cardId → { name, kind, chip, n, ways: Set }
   const t0 = Date.now();
@@ -148,6 +150,72 @@ async function main() {
     const phaseNow = () => S(() => ({ screen: window.__soccer.store.screen, phase: window.__soccer.store.run?.phase ?? null, season: window.__soccer.store.run?.season ?? null, turn: window.__soccer.store.run?.turn ?? null }));
     const errToasts = async () => S(() => [...document.querySelectorAll("#toast-root .toast-error")].map((t) => t.textContent.trim()));
     const count = (k) => { report.actions[k] = (report.actions[k] || 0) + 1; };
+
+    // ---- --watch-match (§19 K5): 경기를 ⏭ 없이 자동 진행(4x)으로 끝까지 보며 필살기 컷인을 센다 ----
+    // .m-cutin 에 새로 붙는 카드(.cut)를 MutationObserver 로 모으고, 등급(tier-R · SR · 없음 = SSR) · 합체기 · 역방향 첫 장면을 찍는다.
+    // 끝에 엔진 이벤트(cutin · combo · reverseCutin)에서 기대한 카드 수 = 화면 카드 수인지, 대사 · 이름 줄이 잘리지 않았는지 본다.
+    async function watchMatch(ph) {
+      const tag = `s${ph.season}w${ph.turn}`;
+      await S(() => {
+        const w = window;
+        w.__k5cuts = [];
+        const layer = document.querySelector(".match-screen .m-cutin");
+        if (!layer) return;
+        const clip = (el) => !!el && el.scrollWidth > el.clientWidth + 1;
+        new MutationObserver(() => {
+          for (const el of layer.querySelectorAll(":scope > .cut")) {
+            if (el.__k5) continue;
+            el.__k5 = 1;
+            w.__k5cuts.push({
+              cls: el.className,
+              name: el.querySelector(".cut-txt b")?.textContent ?? el.textContent.slice(0, 40),
+              line: el.querySelector(".cut-line")?.textContent ?? null,
+              clipped: clip(el.querySelector(".cut-line")) || clip(el.querySelector(".cut-txt b")) || clip(el.querySelector(".cut-txt small")),
+            });
+          }
+        }).observe(layer, { childList: true });
+      });
+      for (let k = 0; k < 3; k++) {
+        const sp = await S(() => document.querySelector(".match-screen .speed-btn")?.dataset.speed ?? null);
+        if (sp === "4" || sp == null) break;
+        await press(".match-screen .speed-btn");
+        await delay(150);
+      }
+      const snapped = new Set();
+      const tEnd = Date.now() + 8 * 60 * 1000;
+      let done = false;
+      while (Date.now() < tEnd) {
+        const st = await S(() => {
+          const c = document.querySelector(".match-screen .m-cutin.show > .cut");
+          const kind = !c ? null : c.classList.contains("cut-rev") ? "rev" : c.classList.contains("cut-name") ? "combo" : ([...c.classList].find((x) => x.startsWith("tier-")) || "tier-SSR");
+          const fin = [...document.querySelectorAll("#modal-root button")].some((b) => (b.textContent || "").trim() === "확인" && !b.disabled);
+          return { kind, fin };
+        });
+        if (st.kind && !snapped.has(st.kind)) { snapped.add(st.kind); await snap(`${tag}_match_cut_${st.kind}`); }
+        if (st.fin) { done = true; break; }
+        await delay(120);
+      }
+      if (!done) { report.fails.push(`${tag} 경기가 자동 진행으로 끝나지 않음 (8분)`); return; }
+      const res = await S(() => {
+        const evs = window.__soccer.store.match?.events || [];
+        const cutins = evs.filter((e) => e.type === "cutin").length;
+        const combos = evs.filter((e) => e.type === "combo").length;
+        const revs = evs.filter((e) => e.reverseCutin).length;
+        const tiers = {};
+        for (const e of evs) if (e.type === "cutin") tiers[e.tier || "없음"] = (tiers[e.tier || "없음"] || 0) + 1;
+        const types = {};
+        for (const e of evs) if (e.type === "cutin") types[e.ultimateType] = (types[e.ultimateType] || 0) + 1;
+        const score = window.__soccer.store.match?.score ?? null;
+        return { cutins, combos, revs, tiers, types, score, seen: window.__k5cuts || [] };
+      });
+      // 합체기 1번 = 받은 선수 cutin 1장 → 컷인 2장 + 이름 카드 1장 (+2)
+      const expected = res.cutins + 2 * res.combos + res.revs;
+      const clipped = res.seen.filter((c) => c.clipped);
+      report.matches.push({ tag, ...res, expected, seenN: res.seen.length, clipped: clipped.length, shots: [...snapped] });
+      if (res.seen.length !== expected) report.fails.push(`${tag} 경기 컷인: 엔진 기대 ${expected}장 ≠ 화면 ${res.seen.length}장`);
+      for (const c of clipped) report.fails.push(`${tag} 컷인 글자 잘림: ${c.name} (${c.cls})`);
+      count("경기: 자동 진행 4x 끝까지");
+    }
 
     // ---- 시작 → 편성 (방침) → 기본 편성으로 시작 ----
     await snap("start");
@@ -790,6 +858,7 @@ async function main() {
         await page.waitForSelector(".match-screen .skip-btn", { timeout: 10000 }).catch(() => {});
         await delay(600);
         await snap(`s${ph.season}w${ph.turn}_match`);
+        if (args.watchMatch) await watchMatch(ph);
         for (let k = 0; k < 40 && (await phaseNow()).phase === "match"; k++) {
           if (await boxOf(".match-screen .skip-btn:not([disabled])")) await press(".match-screen .skip-btn:not([disabled])");
           await delay(500);
@@ -830,6 +899,13 @@ async function main() {
   }
   log(`  코치 수업 ${report.teach.length}번 (화면 입력):`);
   for (const t of report.teach) log(`    시즌 ${t.season} ${t.week}주 ${t.step}: ${t.skillId} → ${t.to} (${t.how === "key" ? "키보드" : t.how === "touch" ? "탭" : "클릭"})`);
+  if (args.watchMatch) {
+    log(`  경기 자동 진행 (--watch-match) ${report.matches.length}경기:`);
+    for (const m of report.matches) {
+      const fmtMap = (o) => Object.entries(o).map(([k, n]) => `${k} ${n}`).join(" · ") || "-";
+      log(`    ${m.tag}: ${m.score ? `${m.score.home}:${m.score.away}` : "-"} · 필살기 cutin ${m.cutins} (등급 ${fmtMap(m.tiers)} / 종류 ${fmtMap(m.types)}) · 합체기 ${m.combos} · 역방향 ${m.revs} → 화면 카드 ${m.seenN}/${m.expected} · 잘림 ${m.clipped} · 찍은 장면 ${m.shots.join(", ") || "-"}`);
+    }
+  }
   log(`  런 끝 습득 스킬: ${report.learned ?? "-"}`);
   log(`  편성: ${report.squad ?? "-"}`);
   log("  고유 카드 (모양 · 낸 수 · 입력):");

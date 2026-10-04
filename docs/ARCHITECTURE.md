@@ -2113,6 +2113,8 @@ node tools/challenge_sim.mjs --write-sample [--sample-seed challenge-sample-7] [
 - **UI**: 보상 모달 "코치 수업 n/m" 칸 (`reward.js` `.rw-teach` — 코치 얼굴 · "<코치> 코치가 '<스킬>'을/를 가르쳐 줍니다" (`labels.objParticle`) · 선수 칩 `.rw-teach-pl[data-pid]` 7개 (회색 이유 · 가득 — 바꾸기 · 추천 배지) · 바꿀 스킬 줄 `.rw-teach-rep` · [배우지 않기 · SP +20] `.rw-teach-skip` · [가르치기] `.rw-teach-ok`), 끝난 수업 칩 `.rw-chip.teach`. `actions.resolveTeach`. 상담 "패시브 스킬 (SP)" + 안내 줄, 경기 전 준비 "🚑 부상 n명 — 레슨만 쉬고 경기는 그대로 출전", 미팅 · 준비 슬롯 "🚑 레슨 결장 n".
 - **저장 v3**: `RUN_VERSION` 3, `SAVE_VERSIONS` [1, 2, 3] (store.js 사본 같음). `migrateLessonRun(s, data)` 2 → 3 = 액티브 힌트를 지우고 레벨 × `noHintSp` SP, 수업 필드 채우기, 보상 결과 hints 에서 액티브 빼기 — 레슨 · 보상 중이어도 이행 (멱등). v1 → v2 → v3.
 
+**선수 16명 · 전원 필살기 · 경기 엔진 수정 (L44 ~ L46, 2026-10-04 — 계획 §19, 이 절의 §20.7).** 이 브랜치에만 선수가 16명이고 **모든 선수가 필살기**를 갖는다 (R · SR · SSR이 세기 · 컷인 길이를 정함). 그래서 아래 "경기 쪽 파일 diff 0" 규칙이 이 묶음에서 풀렸다 — 필살기 종류 3개(필살 수비 · 팀 필살기 · 필살 드리블), 합체기는 등록된 짝만, 컷인 대사 · 등급, 주장 1명분. main(본편)은 8명 · 옛 엔진 그대로다.
+
 ### 20.1 주소 · 저장 분리
 
 - **플레이**: `https://zerocoke8.github.io/soccer/lesson/` (본편 `/soccer/` 와 같은 origin). 배포는 main 의 `pages.yml` 이 `outgame-lesson` 브랜치를 `_site/lesson/` 으로 함께 올린다 (계획 §2.3 — D 슬라이스).
@@ -2124,14 +2126,14 @@ node tools/challenge_sim.mjs --write-sample [--sample-seed challenge-sample-7] [
 | 모듈 | 내용 |
 |---|---|
 | `js/engine/zones.js` | 구역 기하 (순수): `ZONE_IDS` · 대형 위치 `huddleOffsets · zonePositions` · 거리 `distU`(u = 필드 폭 1%, 세로는 × aspect 0.405) · `inCircle · nearestWithin · clampPoint · areNeighbors · zoneWeight` · 놓은 점 → 구역 `zoneAt` (L40) · 키보드 · 감독 AI 후보 점 `candidatePoints` |
-| `js/engine/cards.js` | 카드 68장 정의 해석(`resolveCardDef` — base → 유대 80 → 강화판), 대상 모델(kind single · circle · all · owner · none, size, onlyZones) · `targetsFor(state, def, { at, playerId }, data)` · `deadReason`, 고유 카드 모양 (L40) `SHAPE_KINDS · shapeOf · shapePlan · shapeView · validateShapeData`, `mainStatsOf(pos)`, 1인 비용 `costBase · staminaCost`, 데이터 검증 (cards.json version 2) |
+| `js/engine/cards.js` | 카드 76장 정의 해석(`resolveCardDef` — base → 유대 80 → 강화판), 대상 모델(kind single · circle · all · owner · none, size, onlyZones) · `targetsFor(state, def, { at, playerId }, data)` · `deadReason`, 고유 카드 모양 (L40) `SHAPE_KINDS · shapeOf · shapePlan · shapeView · validateShapeData`, `mainStatsOf(pos)`, 1인 비용 `costBase · staminaCost`, 데이터 검증 (cards.json version 2) |
 | `js/engine/lesson.js` | 레슨 카드 배틀 (`startLesson · playCard({ uid, at, playerId }) · benchPlayer · endLessonTurn · getLessonView · previewCard · dropCandidates · lessonResult`), 흩어지기 `scatterZones`(rng) · 기본 훈련 · 벤치, 방침 버프 5종(구역 기준), 코치 지원 · 컷인 (§15), `seq` · `lastFx` (연출 목록 — scatter · base · bench · attach · cutin 포함) |
 | `js/engine/lessonRun.js` | 15주 상태 머신 = 앱의 `ctx.run`. 주 행동 · 레슨 뒤 보상 · 상담 · 경기 전 준비 · 경기 · 유물 · 루트 · 평가. run.js 의 경기 · 평가 함수를 그대로 다시 내보낸다 |
 | `js/engine/manager.js` | 감독 AI (rng 없음): `recommendWeek · recommendCard · recommendReward · recommendConsult · recommendPrep · autoStep` |
-| 데이터 | `data/cards.json`(68장) · `data/lesson.json`(주 · 레슨 · 보상 · 상담 · 코치 지원 `attach` 수치 · `zones.ownerRadius · dropR`) · `data/policies.json`(방침 5) · `data/traits.json` 의 `lesson` 블록 (고유 카드 모양 — 경기 엔진은 읽지 않는다) |
+| 데이터 | `data/cards.json`(76장 — 고유 16장) · `data/lesson.json`(주 · 레슨 · 보상 · 상담 · 코치 지원 `attach` 수치 · `zones.ownerRadius · dropR`) · `data/policies.json`(방침 5) · `data/traits.json` 의 `lesson` 블록 (고유 카드 모양 — 경기 엔진은 읽지 않는다) |
 
 - 옛 `run.js` · `training.js` · `effects.js` · `rating.js` 는 남는다 (`ai.js` 가 run.js 를 import). 옛 파일에는 export 만 더했다 (§5.6, 동작 불변).
-- **경기 쪽 파일은 바이트 하나도 바꾸지 않는다**: `js/engine/match.js · ai.js · skills.js · rng.js`, `js/ui/screens/match.js`, `js/ui/layout.js`, `css/match.css` — `git diff --stat main -- <이 7개>` 가 비어 있어야 한다.
+- ~~경기 쪽 파일은 바이트 하나도 바꾸지 않는다~~ → **L45 (§20.7)부터 이 브랜치에서는 `match.js · ai.js · skills.js` · `screens/match.js` · `css/match.css` · `labels.js` 가 바뀌었다** (필살기 종류 · 합체기 · 컷인 · 주장). 지금도 그대로인 것: `js/engine/rng.js` · `run.js` · `training.js` · `js/ui/layout.js` · `data/config.json` — `git diff --stat 78cc0d3 -- <이 5개>` 가 비어 있어야 한다.
 - 런 흐름: 시즌 3 × 5주 (레슨 · 자유 · 레슨 · 자유 · 대비) → 경기 전 준비 → 경계전 → (유물) → 루트. 1차에는 이벤트가 없다 (`lesson.events.support = false`, 라우팅 · `supportEventCheck` 단계만 남김).
 - 등록 팀 = `run.finalizeRun` 과 같은 모양 + `policy` (`createdTurnIndex` 14). 도전 모드 `buildChallengeTeamSnapshot` 을 그대로 통과한다.
 
@@ -2161,15 +2163,16 @@ node tools/challenge_sim.mjs --write-sample [--sample-seed challenge-sample-7] [
 - **tools/lesson_sim.mjs** (`npm run lesson-sim`): 실제 엔진 + 감독 AI + 실제 match.js 로 방침별 지표 표. 보고만 하고 수치는 바꾸지 않는다 (밸런스는 나중에 한 번에).
 
 ```bash
-node tools/shot.mjs <출력폴더>                      # 경기 01~28 + og_* 전부 (142장)
+node tools/shot.mjs <출력폴더>                      # 경기 01~34 + og_* 전부 (160장)
 node tools/shot.mjs <출력폴더> --only og_lesson,og_lesson_   # 이름이 정확히 같으면 그것만 → 접두어도 함께 준다
 node tools/lesson_play.mjs <출력폴더>                 # 실제 입력(마우스 · 터치 · 키보드)으로 시즌 1 (레슨 3 · 경계전 · 루트)
 node tools/lesson_play.mjs <출력폴더> --until run --policy counter --seed play-2       # 15주 완주
 node tools/lesson_play.mjs <출력폴더> --slot FW2=ch_cat_trickster --seed play-m1    # 미르카 편성 시즌 1 (가로지르기)
 node tools/lesson_play.mjs <출력폴더> --mobile --touch-only --width 915 --height 412  # 터치 전용 작은 가로 화면
+node tools/lesson_play.mjs <출력폴더> --watch-match --slot GK=ch_giant_keeper --slot FW1=ch_spirit_striker  # 새 선수 편성 + 경기를 ⏭ 없이 4x 자동 진행으로 끝까지 보며 컷인 수 확인 (§20.7)
 ```
 
-### 20.5 테스트 (npm test 332)
+### 20.5 테스트 (npm test 332 → §20.7 뒤 365)
 
 - 새 테스트: `zones`(대형 · 거리 · 원 크기 약속 · 후보 점) · `cards`(카드 표 · 대상 모델 · 1인 비용) · `lesson`(흩어지기 · 기본 훈련 · 벤치 · 대상 판정 · 방침 · 66장 퍼즈) · `lessonRun`(15주 흐름 · 보상 · 상담 · 등록 팀 · 저장 v1 → v2) · `manager`(감독 AI 완주, 실제 경기, 추천이 늘 유효한 행동) · `cardEffects`(66장 효과 표, 구역 고정 픽스처) · `lessonRules`(규칙 · 키 매핑) · `lessonLayout`(`pointerToField · circlePx · tokenSpots · fxPlan` — 코치 지원 fx 포함) · `lessonUi`(jsdom: 조준 → 경기장 클릭 · 키보드 후보 · 벤치 · 턴 끝 재배치 · 코치 칩 · 컷인 덮개 넘기기 · 짧은 판 · no-anim 안내 · 보상 · 상담 · 준비). 끌기 · 터치는 jsdom 에 레이아웃이 없어 shot 시나리오(`_drag* _drop* _touch*`)와 `tools/lesson_play.mjs` 로 본다. L40 고유 카드 모양: `cards`(모양 데이터 · 검증 · 8장 표) · `zones`(`zoneAt` · 주인 둘레 원 약속) · `lesson`(모양 7종 미리보기 = 실제 · 옮기기 · 가로지르기 · 피니셔 픽스처 · 68장 퍼즈에 모양 인자) · `manager`(`baseDelta` · 미르카 편성 완주) · `lessonUi`(모양별 조준 → 내기 · 주인 토큰 누르기) — 주인 토큰 끌기 · 패스 선 · 유령은 `og_lesson_u_*` 와 `lesson_play` 로 본다.
 - **ui.smoke 전체 걷기** (I1): 기존 걷기(시작 → 편성 방침 → 주 → 레슨 1장 → 친선전 경기 → 시나리오 주입 경기 01~27 → 도전 모드) 뒤에 — 새 런(역습형, seed `ui-full`) → **15주를 감독 AI 추천대로 앱 actions 로** (주 · 레슨 · 보상 · 상담 · 준비 · 경기 · 유물 · 루트, phase 가 바뀔 때마다 그 화면이 그려졌는지 · 에러 토스트 없음) → 결과 화면(훈련 횟수 없음) → [팀 등록] (policy · createdTurnIndex 14) → 시작 화면 등록 팀 → 도전 모드 팀 목록에 그 팀(기본 선택, 선수 7) → 그 팀으로 도전 경기 생성. 본편 키(`soccer.run` · `soccer.teams`)는 끝까지 그대로.
@@ -2183,3 +2186,58 @@ node tools/lesson_play.mjs <출력폴더> --mobile --touch-only --width 915 --he
 - 큰 원(17u)이 22.7u 이웃 두 구역의 4명 무리 둘을 다 잡는 여유는 0.15u(약 1.5px)라 손 · 터치로는 가장자리 1명이 자주 빠진다 (화면 미리보기는 늘 실제와 같다 — §14.21 ZI).
 - 도전 모드 샘플 팀 · 등급 기준선은 옛 육성 기준 그대로다.
 - 대비 주 카드 미리보기는 `miniCard` 가 아니라 주 화면 안의 작은 카드(`.prep-mini`)다.
+
+### 20.7 선수 16명 · 전원 필살기 · 경기 엔진 수정 (L44 ~ L46, 2026-10-04 — 계획 §19 · §19.19)
+
+이 브랜치만의 묶음이다 (시작 `78cc0d3`, 슬라이스 K0 ~ K5). 기획 결정은 [OUTGAME_LESSON_draft.md](OUTGAME_LESSON_draft.md) L44 ~ L46, 수치 · 이름 · 대사는 모두 [가정] (밸런스는 나중에 한 번에).
+
+**데이터**
+- `characters.json` 16명 (+8: 헤르타 · 브론테 · 나엘리스 · 코니 · 온디나 · 리시엘 · 카밀라 · 힐디 — 초안 그대로). 기존 6명 `innateSkillId` = 새 필살기. 기본 편성(`config.defaultSquad`)은 그대로.
+- `skills.json`: 새 필살기 14개 + 기존 4개(바람의 실 · 메테오 슛 · 보스 2개)에 `ultimate.tier` · `cutinLine`. 옛 고유 6개는 id · 효과 그대로 `learnable: true` — 패시브 4개(밀물의 벽 · 주장의 외침 · 지치지 않는 다리 · 고양이 페인트)는 코치 힌트 → 상담 SP, 액티브 2개(철의 태클 · 라인 브레이커)는 코치 수업 (`supports.json hintSkillIds` 뒤에 하나씩).
+- `combos.json` 5개 (a = 필살 패스 → b = 받은 선수 필살기): 바람의 유성(실루엔 → 그레타) · 풍뢰일섬(실루엔 → 브론테) · 뇌우(나엘리스 → 브론테) · 하늘 과녁(리시엘 → 카밀라) · 뇌명 유성(리시엘 → 그레타).
+- `cards.json` 76장 (고유 16장 — 피니셔 모양에 처음 주인: 브론테 · 힐디). `traits.json` 주장 설명 "(주장이 여럿이어도 1명분)".
+- 바뀌지 않은 것: `rng.js` · `config.json` · `run.js` · `training.js` · `layout.js` · `opponents.json` · `challenge*.json` (도전 모드 샘플 팀은 옛 고유 그대로인 스냅샷).
+
+**필살기 스키마** (`skills.json` `ultimate` — `skills.ULTIMATE_KEYS`, `skills.validateUltimates(data)` 를 `match.createMatch` 가 한 번 부른다)
+
+| 종류 | 키 | 뜻 |
+|---|---|---|
+| `shot` | `shoot` · `gkMult` · `boxShot` · `minLine` · `headerMult` · `stamina` | 슛 ×, 막는 쪽 ×, 쓸 수 있는 최소 line (3 = 박스 슛만), 헤더면 × 더 |
+| `pass` | `attack` · `actions` · `negateRead` · `nextDuelBonus` · `receiverGauge` · `extraLine` | 패스 · 크로스 ×, 쓸 수 있는 액션, 짝 무효, 받은 선수 다음 듀얼 +, 받은 선수 게이지 (기본 `onReceive`), 한 구역 더 |
+| `save` | `saveMult` · `sureDistribution` | 세이브 ×, 막으면 그 배급 롱패스가 판정 없이 성공 (rng 호출이 하나 줄어든다) |
+| `defense` (E2) | `defense` · `noMissPenalty` | 필드 수비 (line ≤ 2) ×, 짝 빗나감 ×0.8 없음. AI = line 2 수비 · 남은 포제션 ≤ 2 |
+| `team` (E3) | `teamMult` · `teamStamina` | 이번 듀얼 × (fx) → 판정 뒤 그 포제션 끝까지 `possessionFx[side].ultMult` (함성 `teamMult` 와 곱), 팀 체력 +. 팀당 포제션 1번. AI = 지고 있을 때 · 남은 ≤ 2. 정보 이벤트 `teamUlt` |
+| `dribble` (E4) | `attack` · `extraLine` · `negateRead` · `noStamina` | 드리블 ×, 성공하면 한 구역 더 · 짝 무효 · 체력 0. 막히면 역방향 컷인 "철벽 블록!" |
+| 공통 | `tier` (R · SR · SSR) · `cutinLine` (1 ~ 24자) | E5 — 컷인 이벤트 `line` · `tier`, `getMatchView().ultimateOptions[].tier · cutinLine` |
+
+- 등급 상한 (데이터 테스트, 런타임 아님): 주 배율 (shot `shoot ÷ gkMult` · pass / dribble `attack` · save `saveMult` · defense `defense` · team `teamMult`) R 1.15 ~ 1.45 (team 1.05 ~ 1.1) · 추가 ≤ 1, SR 1.45 ~ 1.7 · 추가 ≤ 1, SSR ≥ 1.9 (또는 pass + 추가 ≥ 2 — 바람의 실). SSR 필드 선수는 합체기 짝에 1번 이상 (헤르타 GK 예외).
+- **엔진 공통 (E0)**: `ultTypeUsableAt(ult, line)` · `applyUlt(fx, skill, combo)` (미리보기 `fxPlusUlt` 와 실제 `commitUltimate` 가 같은 함수 — `extraLine` 은 `fx.extraLine` 으로 접혀 라인 브레이커와 같은 길) · `ultimateUsable` 종류별 사유 · `computeOdds` 의 공격 `ultMultA` · 수비 `ultMultD` 칩 "필살 ×1.6" · `skills.ultMatchesAction` (종류 ↔ 액션 — 엔진과 화면 `ultCompatible` 공용).
+- **E1 합체기는 등록된 짝만**: `match.comboSkillFor(data, passSkillId, receiver)` — 필살 패스를 받은 선수의 필살기가 `combos.json` 에 짝으로 있을 때만 합체기 대기. 등록 안 된 짝은 보통 수신 (게이지 +`receiverGauge`). AI 필살 패스 = 등록 짝 · 박스로 들어가는 패스 · 한 구역 더 가는 패스. 화면 `boxComboName` 폴백 "합체기" 제거.
+- **L46 주장**: `match.teamworkAmp` 가 주장 `teamworkPlus` 를 합이 아니라 **가장 큰 값 하나**만 더한다. 레슨의 주장 모양 (구역 전원 · 팀워크 +2) 은 카드를 낼 때의 효과라 그대로 [구현 결정 — 기획자 질문 §19.18 Q3].
+- 결정성 · 순수 그대로: 새 규칙은 상태 · 데이터만 읽고, 미리보기 · 뷰 · AI 는 rng 를 쓰지 않는다.
+
+**저장 v4** (`lessonRun.RUN_VERSION` 4, `SAVE_VERSIONS` [1, 2, 3, 4], store.js 사본 같음): `migrateLessonRun(s, data)` 3 → 4 = 선수마다 캐릭터의 `innateSkillId` (옛 고유 → 새 필살기) 로 바꾸고 습득 목록의 새 필살기 id 를 지운다 (rng 없음, 멱등, 로그 "저장본 이행: 고유 스킬 → 필살기 (n명)"). 레슨 · 보상 · 준비 중이어도 이행. 진행 중인 경기 저장본 · 등록 팀 · 도전 모드 저장본은 그대로 (복사해 둔 스냅샷).
+
+**화면**
+- 편성: 선수 풀 **2줄 × 8장** (`lineup.poolOrder` — 필드 선수 슬롯 순 → 벤치 SSR → SR → R), 카드에 필살기 칩 `.lu-ult` "✨ 이름" (등급 색, title = 종류 · 설명 · 대사), 슬롯 카드 ✨ `.ult-mark`, 고르기 모달 `.modal-xl.setup-pick` · `.pick-grid.cols-4` 4열 × 4줄, 주장 2명이면 칩 "©️ 주장 2명 — 팀워크 +10은 1명분" (`labels.captainNote`). 훈련 방침은 전술 패널 안 아래 칸 (`.setup-policy`). 미팅 · 경기 전 준비 슬롯 ✨, 결과 선수 줄 "필살기 X". 헬퍼 `labels.ultimateInfo` · `ULT_TYPE_LABELS` 6종.
+- 경기: 필살기 버튼 `.ult-btn.ut-<type>` 은 공격 · 수비 결정 모두 (호환 액션만 켜짐, % = 엔진 `expectedPct`). 컷인 = "이름 · [종류 칩]" + 큰 이름 + 대사 `.cut-line`, 등급 클래스 `.tier-R` (작고 짧게) · `.tier-SR` · SSR 그대로. 길이 `CUT_TIER`:
+
+  | 등급 | 경기 첫 필살기 (차지 + 컷인) | 그 뒤 |
+  |---|---|---|
+  | SSR | 0.4 + 1.0초 | 0.3 + 0.9초 |
+  | SR | 0.3 + 0.8초 | 0.25 + 0.7초 |
+  | R | 0.2 + 0.6초 | 0.15 + 0.5초 |
+
+  이벤트에 `tier` 가 없으면 (옛 저장본) 대사 없이 SSR 길이. 합체기 이름 카드는 등록 짝만. 필살 드리블 한 구역 더 = 화살표 "· 두 구역 전진", 확정 배급 = 롱패스 카드 "확정" · "실패 없음 (확정)", 팀 필살기 로그 줄 `.ev-teamUlt`, 필살 수비로 막으면 "필살 태클!".
+
+**도구**
+- `tools/sim.mjs`: 필살기 종류 · 등급별 / 경기, 필살기 쓴 듀얼 승률, 합체기 이름별, 컷인 연출 초 / 경기 (1x), 팀 필살기 배율 듀얼 · 확정 배급. 편성 바꾸기 `--set defaultSquad.slots.FW1=ch_spirit_striker`.
+- `tools/lesson_sim.mjs --slot SLOT=charId` (여러 번) — 새 편성 판.
+- `tools/scenarios.mjs`: 장면 29 ~ 34 (`29_ult_defense` · `30_ult_team_cutin` · `31_ult_dribble_extra` · `32_combo_thunder` · `33_save_sure_dist` · `34_cutin_sr_line` · `_away`), 옵션 `slots` · `adjustMatch(ms, data)` · `drive(ms, data)`, `SQUAD_A` export. og 새 장면 `og_setup16 · _132 · og_setup_pick · og_setup_captain2 · og_setup16_touch · og_prep_ult · og_prep_captain2 · og_lesson_u_hand3 · _hand4 · og_lesson_u_finish · og_consult_old_innate`. `shot.mjs` 단계 `{ select }`, `press` · `waitMs` 함수형, 잘림 검사 `.lu-ult · .char-pick.compact · .cap-note · .m-cutin .cut-line` 등. 전체 **160장**.
+- `tools/lesson_play.mjs --watch-match` (K5): 경기를 ⏭ 대신 자동 진행 4x 로 끝까지 보며 `.m-cutin` 카드를 MutationObserver 로 센다 → 엔진 이벤트 기대 장수 (cutin + 2 × combo + reverseCutin) = 화면 장수인지, 대사 · 이름 줄이 잘리지 않았는지, 등급 · 합체기 · 역방향 첫 장면 PNG.
+
+**테스트 (npm test 365)**: 새 `ultimates.test` 30개 (E0 ~ E5 · L46 · 결정성 · 500판 불변식 · 실제 데이터 표 · 등급 상한 · 합체기 · 카드 76장), `lessonRun.test` v3 → v4 이행, `lineup.test` `poolOrder` · 새 편성 A · B 보드 이동, `outgame.test` · `ui.smoke` jsdom 검사 (편성 2줄 · 모달 4열 · 칩 · 주장 칩 · 수비 결정 필살기 버튼 · 팀 · 드리블 필살기 · 컷인 대사 · R 컷인 클래스 · 확정 배급 카드). 기존 테스트는 데이터에 기대던 기대값만 고쳤다 (§19.19 K2).
+
+**시뮬 (K0 → K5, 같은 seed — 보고만, 수치는 조정하지 않음)**: 옛 런 `npm run sim` 목표 경기 승률 80.0 / 59.7 / 38.3% → 77.0 / 56.7 / 36.7%, 우리 필살기 / 경기 1.77 → 3.12 (R 0.11 · SR 1.13 · SSR 1.88), 일반 액티브 3.34 → 0.11 (철의 태클 · 라인 브레이커가 고유에서 빠짐). 레슨 런 `npm run lesson-sim` 경계전 승률 (ace / team / counter / press / poss) 57 / 55 / 56 / 52 / 54% → 58 / 58 / 54 / 52 / 56%, 새 편성 A 48 / 44 / 45 / 44 / 47%. 도전 모드 1 · 5 · 10단계 95 / 51 / 10% → 94 / 50 / 11%. 표 전체는 계획 §19.19 K5.
+
+**남은 것**: 계획 §19.17 원래 K3 일 중 `lesson_sim` 필살기 지표 · 새 고유 8장 위력 보정 · manager.test 새 편성 A 15주 완주, 기획자 질문 §19.18 Q1 ~ Q6 (+ 각 줄 둘째 선수 · R 필살기가 거의 쓰이지 않는 문제 — 듀얼 당사자를 스탯 1위가 맡는다, §19.19 K4).
