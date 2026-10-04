@@ -1110,6 +1110,123 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
     S.actions.resetToStart();
   }
 
+  // §19 (K4) 새 필살기 종류 — 29 필살 수비 · 30 팀 필살기(공격 · 수비) · 31 필살 드리블 화살표 · 32 합체기 이름 · 33 확정 배급 · 34 SR 컷인
+  {
+    // 29 필살 수비: 수비 결정에도 필살기 버튼 → 토글하면 수비 3종 모두 켜짐 · 기대 % = 엔진 ultimateOptions · 결정 { action, ultimate: true }
+    const { scr: s29, view: v29 } = inject("29_ult_defense");
+    const u29 = v29.ultimateOptions.find((x) => x.usable);
+    assert.equal(u29.type, "defense");
+    const ub29 = s29.querySelector(".skill-row .ult-btn.ut-defense");
+    assert.ok(ub29 && !ub29.disabled && ub29.dataset.tier === "SR", "필살 수비 버튼 (SR)");
+    assert.match(ub29.title, /필살 수비 산맥 쐐기 \(SR\)/);
+    assert.match(ub29.title, /“여기서부터는 산이다\.”/, "버튼 title 에 대사");
+    ub29.click();
+    for (const a of ["tackle", "intercept", "hold"]) {
+      const b = s29.querySelector(`button[data-action="${a}"]`);
+      assert.ok(b && !b.disabled && b.classList.contains("ult-on"), `${a}: 필살 수비와 함께`);
+      assert.equal(b.querySelector(".act-pct").textContent, `${u29.expectedPct[a]}%`, `${a} 기대 % (필살 수비)`);
+    }
+    s29.querySelector('button[data-action="tackle"]').click();
+    assert.deepEqual([ui.lastDecision.action, ui.lastDecision.ultimate], ["tackle", true], "결정 { tackle, ultimate: true }");
+    assert.ok(await until(() => s29.querySelector(".m-cutin.show .cut.ut-defense.tier-SR"), 2000), "필살 수비 SR 컷인");
+    assert.match(s29.querySelector(".m-cutin .cut .cut-type").textContent, /필살 수비/);
+    assert.ok(await until(() => !ui.busy, 8000), "연출 끝");
+    S.actions.resetToStart();
+
+    // 팀 필살기 (수비): 같은 장면에서 막는 선수의 필살기를 불꽃 호령으로 바꾸면 수비 결정에도 팀 필살기 버튼 → 수비 3종 모두
+    inject("29_ult_defense");
+    const d29 = S.store.match.home.players.find((p) => p.id === S.store.match.duel.defenderId);
+    d29.skillIds = d29.skillIds.map((id) => (id === "sk_mountain_wedge" ? "sk_flame_command" : id));
+    S.render();
+    const s29t = doc.querySelector(".match-screen");
+    const tb = s29t.querySelector(".skill-row .ult-btn.ut-team");
+    assert.ok(tb && !tb.disabled, "수비 결정의 팀 필살기 버튼");
+    tb.click();
+    for (const a of ["tackle", "intercept", "hold"]) assert.ok(!s29t.querySelector(`button[data-action="${a}"]`).disabled, `${a}: 팀 필살기와 함께`);
+    s29t.querySelector('button[data-action="intercept"]').click();
+    assert.deepEqual([ui.lastDecision.action, ui.lastDecision.ultimate], ["intercept", true], "결정 { intercept, ultimate: true }");
+    assert.ok(await until(() => !ui.busy, 8000));
+    S.actions.resetToStart();
+
+    // 30 팀 필살기 (공격) + R 짧은 컷인: 공격 액션 전부 켜짐 → 컷인 .tier-R · 종류 칩 '필살 호령' · 대사 한 줄 → 로그 줄 (teamUlt)
+    const { scr: s30, view: v30 } = inject("30_ult_team_cutin");
+    const u30 = v30.ultimateOptions.find((x) => x.usable);
+    assert.equal(u30.type, "team");
+    s30.querySelector(".skill-row .ult-btn.ut-team").click();
+    const enabled30 = v30.actions.filter((a) => a.enabled).map((a) => a.action);
+    for (const a of enabled30) assert.ok(!s30.querySelector(`button[data-action="${a}"]`).disabled, `${a}: 팀 필살기와 함께`);
+    s30.querySelector('button[data-action="pass"]').click();
+    assert.equal(ui.lastDecision.ultimate, true);
+    const cut30 = await until(() => s30.querySelector(".m-cutin.show .cut.tier-R"), 2000);
+    assert.ok(cut30 && cut30.classList.contains("ut-team"), "R 컷인 (.tier-R · .ut-team)");
+    assert.equal(cut30.querySelector(".cut-type").textContent, "필살 호령");
+    assert.equal(cut30.querySelector(".cut-line").textContent, "“다들, 아직 안 끝났어!”", "컷인 대사");
+    assert.ok(await until(() => !ui.busy, 8000), "연출 끝");
+    assert.ok(s30.querySelector(".match-log .log-line.ev-teamUlt")?.textContent.includes("팀 판정 ×1.08"), "팀 필살기 로그 줄");
+    S.actions.resetToStart();
+
+    // 31 필살 드리블 extraLine: 토글 → 드리블만 켜짐, 미리보기 화살표 = 두 구역 (① → ③, 끝 글자 "두 구역 전진")
+    const { scr: s31, view: v31 } = inject("31_ult_dribble_extra");
+    assert.equal(v31.ultimateOptions.find((x) => x.usable)?.type, "dribble");
+    const db = () => s31.querySelector('button[data-action="dribble"]');
+    db().dispatchEvent(new window.Event("pointerdown", { bubbles: true }));
+    const x1 = Number(s31.querySelector(".g-arrow line.ar-dribble")?.getAttribute("x2"));
+    db().dispatchEvent(new window.Event("pointerleave"));
+    s31.querySelector(".skill-row .ult-btn.ut-dribble").click();
+    for (const b of s31.querySelectorAll("button[data-action]")) assert.equal(b.disabled, b.dataset.action !== "dribble", `${b.dataset.action}: 필살 드리블과 함께는 드리블만`);
+    db().dispatchEvent(new window.Event("pointerdown", { bubbles: true }));
+    const x2 = Number(s31.querySelector(".g-arrow line.ar-dribble")?.getAttribute("x2"));
+    assert.ok(x2 > x1 + 50, `필살 드리블 화살표가 더 멀리 (${x1} → ${x2})`);
+    assert.match(s31.querySelector(".g-tip text")?.textContent ?? "", /두 구역 전진/);
+    db().dispatchEvent(new window.Event("pointerleave"));
+    S.actions.resetToStart();
+
+    // 32 합체기 이름 (등록된 짝 — 풍뢰일섬): 버튼 · 이름 카드
+    const { scr: s32 } = inject("32_combo_thunder");
+    const cb32 = s32.querySelector(".skill-row .ult-btn.combo");
+    assert.ok(cb32 && cb32.textContent.includes("풍뢰일섬"), "합체기 버튼 = 풍뢰일섬");
+    cb32.click();
+    s32.querySelector('button[data-action="shoot"]').click();
+    const nm32 = await until(() => s32.querySelector(".m-cutin.show .cut-name"), 4000);
+    assert.ok(nm32 && /풍뢰일섬/.test(nm32.textContent) && /실루엔 → 브론테/.test(nm32.textContent), "합체기 이름 카드");
+    assert.ok(await until(() => !ui.busy, 8000));
+    S.actions.resetToStart();
+
+    // 33 확정 배급: 롱패스 % 칸 "확정", 실패 줄 "실패 없음 (확정)", 힌트 = 필살기 이름, 정보 줄 "롱패스 확정 (대지의 손바닥)"
+    const { scr: s33, view: v33 } = inject("33_save_sure_dist");
+    assert.equal(v33.distribution.sure?.name, "대지의 손바닥");
+    const lb33 = s33.querySelector('button[data-action="long"]');
+    assert.ok(lb33.classList.contains("sure"));
+    assert.equal(lb33.querySelector(".act-pct").textContent, "확정");
+    assert.equal(lb33.querySelector(".act-out.ng").textContent, "실패 없음 (확정)");
+    assert.match(lb33.querySelector(".act-hint").textContent, /대지의 손바닥 — 판정 없이 성공/);
+    assert.match(lb33.title, /롱패스 → .* 확정 \(대지의 손바닥\)/);
+    assert.match(s33.querySelector(".m-info").textContent, /롱패스 확정 \(대지의 손바닥\)/);
+    S.actions.resetToStart();
+
+    // 34 SR 컷인: .tier-SR · 종류 칩 '필살 드리블' · 대사
+    const { scr: s34 } = inject("34_cutin_sr_line");
+    s34.querySelector(".skill-row .ult-btn.ut-dribble").click();
+    s34.querySelector('button[data-action="dribble"]').click();
+    const cut34 = await until(() => s34.querySelector(".m-cutin.show .cut.tier-SR"), 2000);
+    assert.ok(cut34 && cut34.classList.contains("ut-dribble") && cut34.classList.contains("side-home"), "SR 컷인 (우리 쪽)");
+    assert.equal(cut34.querySelector(".cut-line").textContent, "“흐르는 물은 못 막아.”");
+    assert.ok(await until(() => !ui.busy, 8000));
+    S.actions.resetToStart();
+
+    // 필살 드리블이 필드 수비에 막히면 역방향 컷인 "철벽 블록!" (엔진 reverseCutin.kind block — E4)
+    const { scr: s34b } = inject("34_cutin_sr_line");
+    const rs34 = findRng({ action: "dribble", ultimate: true }, (evs) => evs.some((e) => e.reverseCutin?.kind === "block"), "dblk");
+    assert.ok(rs34, "필살 드리블이 막히는 주사위");
+    S.store.match.rngState = rs34;
+    s34b.querySelector(".skill-row .ult-btn.ut-dribble").click();
+    s34b.querySelector('button[data-action="dribble"]').click();
+    const rb34 = await until(() => s34b.querySelector(".m-cutin.show .cut.cut-rev.rev-block"), 4000);
+    assert.ok(rb34 && /철벽 블록!/.test(rb34.textContent) && /급류 봉쇄/.test(rb34.textContent), "필살 드리블 → 철벽 블록! 컷인");
+    assert.ok(await until(() => !ui.busy, 8000));
+    S.actions.resetToStart();
+  }
+
   // 17 스킬 묶음 7개 이상: 2열(.many) + 상자 안 스크롤(.over) — 묶음이 필드 위로 자라지 않는다. 일반 액티브 ✦ 비용은 2열에서도 보인다
   {
     const { scr: s17 } = inject("17_skill_row_many");

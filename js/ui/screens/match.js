@@ -54,6 +54,16 @@
 // 2026-10-01 도전 모드: 경기 모드 훅 ctx.matchMode (js/ui/app.js challengeMatchMode). 없으면 런 경기 그대로 (아래 renderMatch 머리).
 //    셋업 · 저장 · 결과 [확인] · 경기 종류 글자만 바꾸고, 도전 모드면 오른쪽 위에 [나가기] [포기] 버튼, 오류 화면에 [도전 경기 버리기]. 규칙 · 연출은 같다.
 //
+// 2026-10-04 §19 (K4 — 브랜치 outgame-lesson, 선수 16명 · 전원 필살기): 필살기 종류 6개 (슛 · 패스 · 세이브 · 드리블 · 수비 · 호령).
+//  - 스킬 줄 필살기 버튼은 공격 · 수비 결정 모두 (.ult-btn.ut-<type>, title = 종류 · 등급 · 설명 · 대사). 호환 액션 ultCompatible =
+//    엔진 skills.ultMatchesAction 과 같은 규칙 (드리블 = 드리블, 수비 = 태클 · 인터셉트 · 버티기, 호령 = 전부, 패스 = ultimate.actions).
+//  - 컷인 (E5): 작은 줄 "이름 · [종류 칩 .cut-type.ut-<type>]", 큰 이름, 대사 한 줄 .cut-line (이벤트 line). 등급 클래스 .tier-R|SR|SSR
+//    (R 띠 · 얼굴 · 이름이 작다), 길이 CUT_TIER (R 0.2+0.6 / SR 0.3+0.8 / SSR 0.4+1.0초, 그 뒤 0.15+0.5 / 0.25+0.7 / 0.3+0.9).
+//    이벤트에 tier · line 이 없으면 (옛 저장본) SSR 길이 · 대사 없음. 합체기는 두 컷인(대사 포함) + 이름 그대로.
+//  - 합체기 이름은 등록된 짝만 (combos.json — "합체기" 폴백 없음). 필살 드리블 한 구역 더 = 드리블 화살표가 도착 단계까지 + "두 구역 전진".
+//  - 확정 배급 (필살 세이브 sureDistribution): 롱패스 카드 % 칸 "확정", 실패 줄 "실패 없음 (확정)", 힌트 = 필살기 이름, 정보 줄 · 화살표도 확정.
+//  - 팀 필살기 로그 줄 (.ev-teamUlt), 결과 한 줄 "필살 태클!" (필살 수비) · "확정 롱패스".
+//
 // 가로 전용 (고정 스테이지 1280×720 — js/ui/stage.js, css/match.css). 세로 경기 화면·방향 전환은 없다 (?orient · 저장값은 무시).
 //  - 필드 좌표(layout.js)는 그대로, 픽셀 변환만 가로 (layout.js fieldToScreen 'land' — home 골 왼쪽, away 골 오른쪽, 필드 x 0 = 위).
 //    화면에 그리는 좌표는 전부 toPx(x, y) 를 거친다.
@@ -66,7 +76,7 @@
 //    미리보기를 가리지 않는다. 구역·선과 토큰이 같은 사각형을 쓴다 (화면 위치 = 규칙 위치). 크기는 논리 px 로 잰다 (스테이지 배율과 무관).
 import { h, avatar, openModal, closeOverlays, bar, statBadge, toast } from '../dom.js';
 import { saveMatch } from '../store.js';
-import { computeLayout, resolvePreview, withJosa, ZONES, fieldToScreen, screenToField } from '../layout.js';
+import { computeLayout, resolvePreview, withJosa, ZONES, SHAPE, fieldToScreen, screenToField } from '../layout.js';
 import * as L from '../labels.js';
 
 const BEAT_FALLBACK = ['kickoff', 'counter', 'duel', 'turnover', 'save', 'goal', 'penalty', 'distribution'];
@@ -77,12 +87,20 @@ const ACTION_BEATS = new Set(['duel', 'turnover', 'save', 'goal', 'penalty', 'di
 // 합체기 = 차지 + 두 컷인 1.0초씩 + 이름 1.1초. 필살기가 막히면 역방향 컷인 0.8초 (경기의 첫 역방향 컷인), 이후 0.7초.
 const T = {
   act: 800, move: 650, result: 950, hold: 250, goal: 900,
-  charge: 400, chargeShort: 300, cutin: 1000, cutinShort: 900, revCut: 800, revCutShort: 700, comboCut: 1000, comboName: 1100,
+  revCut: 800, revCutShort: 700, comboCut: 1000, comboName: 1100, // 필살기 차지 · 컷인 = 아래 CUT_TIER (등급별, §19.8)
   start: 700, idle: 300, longPress: 450,
 };
-// 필살기 연출의 바닥 길이 (ms, 배속 반영 뒤). 4x 에서도 걸리지 않게 둔다 — 4x = 차지 100/75 · 컷인 250/225 · 역방향 컷인 200/175
-// (바닥에 걸리면 "첫 필살기 > 이후"와 배속 비례가 무너진다)
-const CUT_MIN = { charge: 60, card: 170 };
+// §19.8 (E5) 등급별 컷인 길이 (1x ms): 경기 첫 필살기 = charge + cut, 그 뒤 = chargeShort + cutShort. 이벤트에 tier 가 없으면
+// (옛 경기 저장본) SSR 길이. 합체기(두 컷인 + 이름)와 역방향 컷인은 위 T 그대로
+const CUT_TIER = {
+  SSR: { charge: 400, chargeShort: 300, cut: 1000, cutShort: 900 },
+  SR: { charge: 300, chargeShort: 250, cut: 800, cutShort: 700 },
+  R: { charge: 200, chargeShort: 150, cut: 600, cutShort: 500 },
+};
+const tierOf = (ev) => (ev && CUT_TIER[ev.tier] ? ev.tier : null);
+// 필살기 연출의 바닥 길이 (ms, 배속 반영 뒤). 4x 에서도 걸리지 않게 둔다 — 4x = SSR 차지 100/75 · 컷인 250/225, R 차지 50/37.5 ·
+// 컷인 150/125 · 역방향 컷인 200/175 (바닥에 걸리면 "첫 필살기 > 이후"와 배속 비례가 무너진다)
+const CUT_MIN = { charge: 30, card: 120 };
 // 결정타 칩 (클래시 바 1단계 — 사용자 테스트용): false 면 결과 한 줄에 칩 · "대이변!" 을 붙이지 않는다 (css .dchip · .dchip-upset 도 같이 지우면 된다).
 // matchUi.decisiveChip = false 로도 끌 수 있다 (테스트용)
 export const SHOW_DECISIVE_CHIP = true;
@@ -329,11 +347,21 @@ export function renderMatch(root, ctx) {
   function stripRecvHint(hint) {
     return String(hint ?? '').replace(/^→\s*[^·]*·\s*/, '');
   }
+  /**
+   * 필살기와 함께 고를 수 있는 액션 (§19.14 ③ — 엔진 skills.ultMatchesAction 과 같은 규칙): shot = 슛, pass = ultimate.actions 안
+   * (없으면 패스 · 크로스), dribble = 드리블, defense = 태클 · 인터셉트 · 버티기, team = 전부. save 는 버튼이 없다 (GK 세이브 자동)
+   */
   function ultCompatible(u, action) {
     if (!u) return true;
-    if (u.type === 'shot') return action === 'shoot';
-    if (u.type === 'pass') return action === 'pass' || action === 'cross';
-    return false;
+    const ult = skillById(u.skillId)?.ultimate || null;
+    switch (u.type) {
+      case 'shot': return action === 'shoot';
+      case 'pass': return (Array.isArray(ult?.actions) && ult.actions.length ? ult.actions : ['pass', 'cross']).includes(action);
+      case 'dribble': return action === 'dribble';
+      case 'defense': return action === 'tackle' || action === 'intercept' || action === 'hold';
+      case 'team': return true;
+      default: return false;
+    }
   }
   /** 화면에 그릴 미리보기: 사람이 고르는 중이면 토글한 스킬·필살기 변형, 자동 진행 중이면 확정할 수 없는 후보를 뺀다 */
   function shownView(view) {
@@ -352,6 +380,7 @@ export function renderMatch(root, ctx) {
     return { id: picked || defaultId, defaultId, candidates: r.candidates, arrival: r.arrival, picked: !!picked && picked !== defaultId };
   }
   const nameOf = (view, side, id) => (view?.players?.[side] || []).find((p) => p.id === id)?.name ?? '';
+  const skillById = (id) => (Array.isArray(data.skills) ? data.skills.find((s) => s.id === id) : null) || null;
 
   /* ------------------------------------------------------------------ */
   /* 좌표                                                                 */
@@ -962,9 +991,11 @@ export function renderMatch(root, ctx) {
     const contest = d.contest?.name ? `${us ? '상대' : '우리'} ${d.contest.name}` : '';
     const autoA = d.auto?.action === 'long' ? 'long' : 'short';
     const autoSk = d.auto?.skillId ? (d.skills || []).find((s) => s.skillId === d.auto.skillId)?.name || '' : '';
-    const autoTxt = `${L.DIST_LABELS[autoA]}${autoA === 'long' ? ` ${pctOf(d.auto?.p)}%` : ''}${autoSk ? ` + ${autoSk}` : ''}`;
+    const autoTxt = `${L.DIST_LABELS[autoA]}${autoA === 'long' ? (lp?.sure ? ' 확정' : ` ${pctOf(d.auto?.p)}%`) : ''}${autoSk ? ` + ${autoSk}` : ''}`;
     const rule = `배급 전술 "${L.tacticLabel('distribution', d.tactic)}" — 상황 따라 = 롱패스 성공 ${pctOf(d.autoMin)}% 이상이면 길게, 아니면 짧게`;
-    const text = `${us ? '우리' : '상대'} GK ${d.gkName ?? ''} 배급 — 롱패스 ${lp?.pct ?? '-'}%${contest ? ` (경합: ${contest})` : ''}`;
+    // 확정 롱패스 (§19.3-10): "롱패스 확정 (대지의 손바닥)" — 경합 없음
+    const lpTxt = lp?.sure ? `확정 (${lp.sureName || d.sure?.name || '필살 세이브'})` : `${lp?.pct ?? '-'}%`;
+    const text = `${us ? '우리' : '상대'} GK ${d.gkName ?? ''} 배급 — 롱패스 ${lpTxt}${contest && !lp?.sure ? ` (경합: ${contest})` : ''}`;
     const title = [
       text,
       `짧은 패스 = 항상 성공, 빌드업(①)부터 · 롱패스 = 성공하면 중원(②)부터, 막히면 ${us ? '상대' : '우리'}가 중원에서 공격 (세컨드볼)`,
@@ -976,7 +1007,7 @@ export function renderMatch(root, ctx) {
       const chosen = busy && lastDecision && DIST_ACTIONS.includes(lastDecision.action) ? lastDecision : null;
       if (chosen) {
         const csk = chosen.skillId ? (d.skills || []).find((s) => s.skillId === chosen.skillId) || null : null;
-        const cp = chosen.action === 'long' ? ` ${csk ? csk.pct : lp?.pct ?? '-'}%` : '';
+        const cp = chosen.action === 'long' ? (lp?.sure ? ' 확정' : ` ${csk ? csk.pct : lp?.pct ?? '-'}%`) : '';
         const chosenTxt = `${L.DIST_LABELS[chosen.action]}${cp}${csk ? ` + ${csk.name}` : ''}`;
         return { ...none, ico: '🧤', text, title, mine: `우리 선택: ${chosenTxt}`, mineTitle: `우리 GK ${d.gkName ?? ''}의 배급 — 직접 고름\n${rule}` };
       }
@@ -1319,8 +1350,8 @@ export function renderMatch(root, ctx) {
   }
 
   /**
-   * ④ 박스 연결 + 필살 패스: 받는 선수가 필살 슛 보유자면 다음 슛이 합체기 → 합체기 이름 (combos.json, 없으면 "합체기"). 아니면 null.
-   * 엔진 규칙(필살 패스를 받은 선수가 필살기 보유자면 다음 듀얼에 합체기)과 같은 조건 — 박스에서 받은 선수가 쓰는 건 필살 슛뿐
+   * ④ 박스 연결 + 필살 패스: 받는 선수의 필살 슛과 등록된 합체기 짝(combos.json)이면 그 이름, 아니면 null.
+   * 엔진 E1(§19.4 — 합체기는 등록된 짝만)과 같은 조건. 등록되지 않은 짝은 합체기 표시 없음 ("합체기" 폴백 없음)
    */
   function boxComboName(view, u, receiverId) {
     if (!u || u.type !== 'pass' || !receiverId) return null;
@@ -1328,7 +1359,7 @@ export function renderMatch(root, ctx) {
     const skills = Array.isArray(data.skills) ? data.skills : [];
     const shot = (Array.isArray(snap?.skillIds) ? snap.skillIds : []).map((id) => skills.find((s) => s.id === id)).find((s) => s?.ultimate?.type === 'shot');
     if (!shot) return null;
-    return safe(() => match.comboName?.(data, u.skillId, shot.id)) || '합체기';
+    return safe(() => match.comboName?.(data, u.skillId, shot.id)) || null;
   }
 
   function actionButton(view, a, info, { role, rec, pair }) {
@@ -1449,8 +1480,9 @@ export function renderMatch(root, ctx) {
     // 추천: 엔진 recommended (롱패스 확률 ≥ longPassAutoMin → 길게). 캐논 킥을 켰으면 그 확률로
     const rec = sk ? (Number(sk.p) >= Number(d.autoMin) ? 'long' : 'short') : d.recommended;
     setRow('dist', opts.length, !deciding);
+    // 확정 배급 (§19.3-10 — 필살 세이브 sureDistribution 뒤 한 번): 롱패스 % 칸 = "확정 (필살기 이름)" (캐논 킥을 켜도 확정)
     actGrid.replaceChildren(...opts.map((o) => distButton(view, d, o, {
-      deciding, sk, rec: deciding && o.action === rec, pct: o.action === 'long' && sk ? sk.pct : o.pct,
+      deciding, sk, rec: deciding && o.action === rec, pct: o.action === 'long' && sk && !o.sure ? sk.pct : o.pct,
     })));
   }
   function distButton(view, d, o, { deciding, sk, rec, pct }) {
@@ -1462,9 +1494,15 @@ export function renderMatch(root, ctx) {
     const okShort = o.success?.short ?? '';
     const ngShort = o.fail ? o.fail.short : '실패 없음';
     const pctOf = (x) => Math.round((Number(x) || 0) * 100);
+    // 확정 롱패스 (엔진 options.long.sure · sureName): % 칸 "확정 (대지의 손바닥)", 실패 줄은 숨긴다
+    const sure = a === 'long' && !!o.sure;
+    const sureName = sure ? (o.sureName || d.sure?.name || '') : '';
+    // 카드 제목 줄은 받는 선수 이름과 나눠 쓰므로 % 칸은 "확정"만, 필살기 이름은 힌트 줄 맨 앞 (§19.19 K4)
+    const pctText = sure ? '확정' : `${pct}%`;
     // 카드 힌트 한 줄 (좁다 — 2026-09-30): 켠 캐논 킥의 첫 듀얼 보너스를 맨 앞에 짧게, 그다음 경합 선수 · 빠른 배급. 긴 문구는 title
     const hint = a === 'long'
-      ? [sk?.nextDuelBonus ? `${sk.name} 첫 듀얼+${pctOf(sk.nextDuelBonus)}%` : null, d.contest?.name ? `경합 ${d.contest.name}` : null,
+      ? [sure ? `${sureName || '필살 세이브'} — 판정 없이 성공` : null, sk?.nextDuelBonus ? `${sk.name} 첫 듀얼+${pctOf(sk.nextDuelBonus)}%` : null,
+        !sure && d.contest?.name ? `경합 ${d.contest.name}` : null,
         o.bonus ? `빠른 배급 +${pctOf(o.bonus)}%` : null].filter(Boolean).join(' · ') || '상대 MF 와 경합'
       : '항상 성공 · 체력 · 텐션 그대로';
     const hintLong = a === 'long'
@@ -1472,9 +1510,10 @@ export function renderMatch(root, ctx) {
         sk ? `${sk.name}: 성공하면 첫 듀얼 +${pctOf(sk.nextDuelBonus)}%` : null].filter(Boolean).join(' · ') || '상대 MF 와 경합'
       : hint;
     const title = [
-      `${L.DIST_LABELS[a]}${starter ? ` → ${starter}` : ''} ${pct}%${rec && enabled ? ' (추천)' : ''}${autoPick ? ' — 자동 선택' : ''}`,
+      `${L.DIST_LABELS[a]}${starter ? ` → ${starter}` : ''} ${sure && sureName ? `확정 (${sureName})` : pctText}${rec && enabled ? ' (추천)' : ''}${autoPick ? ' — 자동 선택' : ''}`,
       o.success?.label ? `성공: ${o.success.label}` : null,
-      o.fail?.label ? `실패: ${o.fail.label}` : '실패 없음 (짧은 패스는 항상 성공)',
+      sure ? `실패 없음 — ${sureName || '필살 세이브'} 뒤 롱패스 확정 (이 배급 한 번)`
+        : o.fail?.label ? `실패: ${o.fail.label}` : '실패 없음 (짧은 패스는 항상 성공)',
       hintLong,
       deciding && sk && a === 'short' ? `${sk.name}은(는) 롱패스와만 — 스킬을 끄면 고를 수 있다` : null,
       deciding && a === 'long' && sk ? `${sk.name} 사용 (텐션 ${sk.cost ?? sk.tension ?? 0})` : null,
@@ -1489,7 +1528,7 @@ export function renderMatch(root, ctx) {
     const arrow = (fn) => (deciding ? fn : undefined);
     return h('button', {
       class: ['btn', 'act-btn', 'dist-btn', deciding ? (enabled ? 'decide' : 'dim') : 'auto-view', autoPick ? 'auto-pick' : '',
-        rec && enabled ? 'rec' : '', sk && a === 'long' ? 'skill-on' : ''],
+        rec && enabled ? 'rec' : '', sk && a === 'long' ? 'skill-on' : '', sure ? 'sure' : ''],
       type: 'button',
       disabled: !enabled,
       dataset: { action: a, receiver: o.success?.starterId ?? '' },
@@ -1507,9 +1546,9 @@ export function renderMatch(root, ctx) {
         h('span', { class: 'act-ico' }, L.DIST_ICONS[a] ?? ''),
         h('span', { class: 'act-lbl' }, L.DIST_LABELS[a] ?? a),
         starter ? h('span', { class: 'act-rcv' }, h('span', { class: 'act-arrow' }, '→'), h('span', { class: 'act-rname' }, starter)) : null),
-      h('b', { class: ['act-pct', deciding ? '' : 'muted'] }, `${pct}%`)),
+      h('b', { class: ['act-pct', deciding ? '' : 'muted', sure ? 'sure' : ''] }, pctText)),
     h('span', { class: ['act-out', 'ok'] }, h('span', { class: 'txt short' }, okShort), ...chips),
-    h('span', { class: ['act-out', 'ng', o.fail ? 'risk' : 'none'] }, h('span', { class: 'txt short' }, ngShort)),
+    h('span', { class: ['act-out', 'ng', o.fail ? 'risk' : 'none'] }, h('span', { class: 'txt short' }, sure ? '실패 없음 (확정)' : ngShort)),
     h('span', { class: 'act-hint' }, hint));
   }
 
@@ -1611,17 +1650,18 @@ export function renderMatch(root, ctx) {
       const name = u.comboName || u.name;
       const gaugeTxt = `${Math.round(Number(u.gauge) || 0)}%`;
       items.push(h('button', {
-        class: ['btn', 'btn-sm', 'sk-btn', 'ult-btn', u.usable && !isSave ? 'ready' : '', u.comboName ? 'combo' : '', on ? 'active' : ''],
+        class: ['btn', 'btn-sm', 'sk-btn', 'ult-btn', `ut-${u.type}`, u.usable && !isSave ? 'ready' : '', u.comboName ? 'combo' : '', on ? 'active' : ''],
         type: 'button',
         disabled: !canDecide || !u.usable || isSave,
-        dataset: { ultimate: u.skillId },
+        dataset: { ultimate: u.skillId, type: u.type, tier: u.tier ?? '' },
         'aria-pressed': on ? 'true' : 'false',
         title: [
-          `${u.comboName ? `합체기 [${u.comboName}] — ` : ''}${L.ULT_TYPE_LABELS[u.type] ?? '필살기'} ${u.name}`,
+          `${u.comboName ? `합체기 [${u.comboName}] — ` : ''}${L.ULT_TYPE_LABELS[u.type] ?? '필살기'} ${u.name}${u.tier ? ` (${u.tier})` : ''}`,
           u.description,
+          u.cutinLine ? `“${u.cutinLine}”` : null,
           `필살 게이지 ${gaugeTxt}`,
           !u.usable && u.reason ? `(${u.reason})` : null,
-          u.usable && u.type === 'pass' && Number(view?.lineIndex) >= 3 ? '④ 박스 연결(컷백·센터링)과 함께 — 받는 선수가 필살 슛 보유자면 박스 안 합체기' : null,
+          u.usable && u.type === 'pass' && Number(view?.lineIndex) >= 3 ? '④ 박스 연결(컷백·센터링)과 함께 — 받는 선수의 필살 슛과 등록된 짝이면 박스 안 합체기' : null,
           u.usable && !isSave ? '토글한 뒤 액션을 고르면 함께 쓴다' : null,
         ].filter(Boolean).join('\n'),
         onclick: () => {
@@ -1831,6 +1871,13 @@ export function renderMatch(root, ctx) {
       if (action === 'dribble' && Lay.nextBall) {
         to = Lay.nextBall;
         tip = zoneName(out?.success?.zone);
+        // 한 구역 더 (필살 드리블 extraLine · 라인 브레이커 — 엔진 outcome success.step): 화살표를 도착 단계까지 늘리고 "두 구역 전진"
+        const st = Number(out?.success?.step);
+        const from = Number(Lay.attackStep);
+        if (Number.isFinite(st) && Number.isFinite(from) && st > from + 1 && st <= 3 && SHAPE.ball?.[st] != null) {
+          to = { x: Lay.nextBall.x, y: atk === 'home' ? SHAPE.ball[st] : 100 - SHAPE.ball[st] };
+          tip = `${tip ? `${tip} · ` : ''}두 구역 전진`;
+        }
       } else if (action === 'pass' || action === 'cross') {
         // 받는 선수(고른 선수 또는 기본값)까지: 패스 = 점선, 크로스 = 포물선. 이름은 토큰 라벨에 있으므로 도착 구역만
         const rid = recvInfo(view, action)?.id ?? Lay.receiverId;
@@ -1944,7 +1991,8 @@ export function renderMatch(root, ctx) {
     const at = (k) => (curve ? curvePoint(c, r, k) : lerp2(c, r, k));
     if (curve) arrowCurve(c, r, { startGap: rTok, endGap: rTok, color: '#ffd166', marker: 'mah-gold', cls: 'ar-long' });
     else arrowLine(c, r, { startGap: rTok, endGap: rTok, dashed: true, color: '#ffd166', marker: 'mah-gold', cls: 'ar-pass' });
-    arrowTip(at(0.5), curve ? '→ 중원 · 경합' : '→ 빌드업', c, r, lineDots(c, r, curve), [at(0.7), at(0.3)]);
+    const sure = curve && !!distOf(curView)?.options?.long?.sure; // 확정 롱패스: 경합 없음
+    arrowTip(at(0.5), curve ? (sure ? '→ 중원 · 확정' : '→ 중원 · 경합') : '→ 빌드업', c, r, lineDots(c, r, curve), [at(0.7), at(0.3)]);
   }
 
   /** 미리보기 글자 한 줄을 토큰 위 층에: 후보 자리 중 토큰이 없는 첫 자리 (없으면 가장 덜 가리는 자리). extra = 더 피할 박스 (화살표 선의 점) */
@@ -2135,15 +2183,19 @@ export function renderMatch(root, ctx) {
     const out = [];
     let first = !!ctx.first;
     const duel = ctx.duel || null;
-    const chargeFor = (side, pid, isFirst) => {
+    const chargeFor = (side, pid, isFirst, tier = 'SSR') => {
       const foeSide = side === 'home' ? 'away' : 'home';
       const foe = duel ? (side === duel.atk ? duel.defenderId : duel.carrierId) : null;
-      return { kind: 'charge', user: `${side}:${pid}`, foe: foe ? `${foeSide}:${foe}` : null, dur: isFirst ? T.charge : T.chargeShort };
+      const tt = CUT_TIER[tier] || CUT_TIER.SSR;
+      return { kind: 'charge', user: `${side}:${pid}`, foe: foe ? `${foeSide}:${foe}` : null, dur: isFirst ? tt.charge : tt.chargeShort };
     };
     for (const e of evs) {
       if (!e) continue;
       if (e.type === 'cutin') {
-        out.push(chargeFor(e.side === 'away' ? 'away' : 'home', e.playerId, first), { kind: 'cut', ev: e, dur: first ? T.cutin : T.cutinShort });
+        // §19.8: 등급별 길이 (R 짧게) — 이벤트 tier 가 없으면 SSR
+        const tier = tierOf(e) || 'SSR';
+        const tt = CUT_TIER[tier];
+        out.push(chargeFor(e.side === 'away' ? 'away' : 'home', e.playerId, first, tier), { kind: 'cut', ev: e, dur: first ? tt.cut : tt.cutShort });
         first = false;
       } else if (e.type === 'combo') {
         const [sa, sb] = Array.isArray(e.skillIds) ? e.skillIds : [];
@@ -2154,10 +2206,13 @@ export function renderMatch(root, ctx) {
         const j = i > 0 && out[i - 1].kind === 'charge' ? i - 1 : -1;
         const charge = j >= 0 ? out.splice(j, 1)[0] : chargeFor(side, pb, first);
         first = false;
+        // 합체기 컷인 두 장: 길이 · 크기는 그대로 (SSR 판), 대사(E5)는 새 이벤트(받은 선수 cutin 에 line 이 있을 때)만 —
+        // 패스한 선수(a)의 대사는 스킬 데이터에서
+        const lineA = recvCut?.line ? ultLineOf(sa) : null;
         out.push(
           charge,
-          { kind: 'cut', ev: { side, playerId: pa, skillId: sa }, dur: T.comboCut, part: 1 },
-          { kind: 'cut', ev: { side, playerId: pb, skillId: sb, ultimateType: recvCut?.ultimateType }, dur: T.comboCut, part: 2 },
+          { kind: 'cut', ev: { side, playerId: pa, skillId: sa, line: lineA || undefined }, dur: T.comboCut, part: 1 },
+          { kind: 'cut', ev: { side, playerId: pb, skillId: sb, ultimateType: recvCut?.ultimateType, line: recvCut?.line }, dur: T.comboCut, part: 2 },
           { kind: 'name', ev: e, dur: T.comboName });
       }
     }
@@ -2246,15 +2301,24 @@ export function renderMatch(root, ctx) {
             h('span', { class: 'cut-sub' }, [playerSnap(side, pa)?.name, playerSnap(side, pb)?.name].filter(Boolean).join(' → ')))));
     }
     const p = playerSnap(side, ev.playerId) || {};
-    const sk = Array.isArray(data.skills) ? data.skills.find((s) => s.id === ev.skillId) : null;
+    const sk = skillById(ev.skillId);
     const type = ev.ultimateType || sk?.ultimate?.type;
-    return h('div', { class: ['cut', `side-${side}`, `el-${p.element ?? 'none'}`, c.part ? `part-${c.part}` : ''] },
+    // §19.8 (E5): 등급 클래스 tier-R · tier-SR · tier-SSR (R 은 띠 · 얼굴 · 이름이 작다 — css), 이벤트에 tier 가 없으면(옛 저장본 ·
+    // 합체기 두 장) 클래스 없음 = SSR 판. 종류 칩 .cut-type.ut-<type> (색 = 종류), 대사 한 줄 .cut-line (이벤트 line 이 있을 때만)
+    const tier = c.part ? null : tierOf(ev);
+    const typeLabel = L.ULT_TYPE_LABELS[type] ?? '필살기';
+    return h('div', { class: ['cut', `side-${side}`, `el-${p.element ?? 'none'}`, type ? `ut-${type}` : '', tier ? `tier-${tier}` : '', c.part ? `part-${c.part}` : ''],
+      dataset: { type: type ?? '', tier: tier ?? '' } },
       h('div', { class: 'cut-band' },
         h('span', { class: 'cut-face', style: { background: p.portraitColor || '#4b5563' } }, initialOf(p.name)),
         h('div', { class: 'cut-txt' },
-          h('small', {}, `${us ? '' : '상대 '}${p.name ?? ''} · ${L.ULT_TYPE_LABELS[type] ?? '필살기'}${c.part ? ` (${c.part}/2)` : ''}`),
-          h('b', {}, sk?.name ?? ev.skillId ?? '필살기'))));
+          h('small', {}, `${us ? '' : '상대 '}${p.name ?? ''} · `, h('span', { class: ['cut-type', type ? `ut-${type}` : ''] }, typeLabel),
+            c.part ? ` (${c.part}/2)` : ''),
+          h('b', {}, sk?.name ?? ev.skillId ?? '필살기'),
+          ev.line ? h('span', { class: 'cut-line', title: ev.line }, `“${ev.line}”`) : null)));
   }
+  /** 필살기 컷인 대사 (스킬 데이터 ultimate.cutinLine — 합체기 패스한 선수의 컷인용) */
+  const ultLineOf = (id) => skillById(id)?.ultimate?.cutinLine || null;
   const playerSnap = (side, id) => store.match?.[side]?.players?.find?.((p) => p.id === id) || null;
 
   /**
@@ -2667,11 +2731,12 @@ export function renderMatch(root, ctx) {
           const starter = ev.starterId && ev.starterId !== ev.defenderId ? nm(def, ev.starterId) : '';
           return { text: starter ? `${stealer} 롱패스 차단! → ${starter} 세컨드볼` : `${stealer} 롱패스 차단! 세컨드볼 — ${us ? '상대' : '우리'} 중원 공격`, tone: bad };
         }
-        return { text: `${nm(def, ev.defenderId)} ${L.ACTION_LABELS[ev.defAction] ?? '수비'}! ${us ? '공 뺏김' : '공 탈취'}${read}`, tone: bad };
+        // 필살 수비(E2 — 판정 이벤트 defUltimate)로 막았으면 "필살 태클!" 처럼
+        return { text: `${nm(def, ev.defenderId)} ${skillById(ev.defUltimate)?.ultimate?.type === 'defense' ? '필살 ' : ''}${L.ACTION_LABELS[ev.defAction] ?? '수비'}! ${us ? '공 뺏김' : '공 탈취'}${read}`, tone: bad };
       case 'distribution':
         // GK 배급 (2026-09-29): 짧은 패스 = 빌드업부터, 롱패스 성공 = 중원부터
         return ev.action === 'long'
-          ? { text: `${nm(atk, ev.playerId)} 롱패스 → ${nm(atk, ev.receiverId)} · 중원부터${ev.nextBonus ? ` (첫 듀얼 +${Math.round(ev.nextBonus * 100)}%)` : ''}`, tone: good }
+          ? { text: `${nm(atk, ev.playerId)} ${ev.sure ? '확정 ' : ''}롱패스 → ${nm(atk, ev.receiverId)} · 중원부터${ev.nextBonus ? ` (첫 듀얼 +${Math.round(ev.nextBonus * 100)}%)` : ''}`, tone: good }
           : { text: `${nm(atk, ev.playerId)} → ${nm(atk, ev.receiverId)} 짧은 패스 · 빌드업부터`, tone: 'neutral' };
       case 'save':
         // ④ 박스 연결 실패 = GK 가 튀어나와 잡음 (세이브와 같음)

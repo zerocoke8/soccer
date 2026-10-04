@@ -14,6 +14,9 @@
 //   viewport: 기본(1280×720 DPR 1 — 고정 스테이지 1배)이 아닌 창 크기로 찍을 때 { width, height, deviceScaleFactor, isMobile, hasTouch }
 //   adjustRun: 경기 직전 런 상태를 고친다 (예: 부상 주입) — 그 뒤 lessonRun.getMatchSetup 으로 스냅샷을 만든다, 결정적
 //   adjustSetup: 경기 스냅샷을 만들기 전에 고친다 (예: 상대에게 간파 사용권) — 복제본에 적용, 결정적
+//   adjustMatch(ms, data): 경기를 만든 직후 상태를 고친다 (예: GK 필살 게이지 가득) — seed 마다 같게, 결정적
+//   drive(ms, data): 탐색 중 사람(home) 결정을 대신 고른다 → decision | null (null = 우리 AI) — 결정적
+//   slots: 기본 편성의 자리를 다른 캐릭터로 바꾼 레슨 런 (§19 새 8명 — 예 { FW1: "ch_spirit_striker" }, SQUAD_A)
 //   maxSeeds: 찾을 경기 seed 수 (기본 400)
 //   require : 반드시 만족해야 하는 조건 (캡처 시점 상태 확인에도 쓴다)
 //   prefer  : 가능하면 만족시킬 조건 (없으면 require 만 만족하는 첫 상태로 대체)
@@ -58,8 +61,8 @@ export const clone = (x) => JSON.parse(JSON.stringify(x));
  * @param {{ runSeed?: string|number, kind?: "friendly"|"goal", maxSteps?: number }} opts
  * @returns {object} 레슨 RunState (phase "match", pendingMatch.kind === kind)
  */
-export function prepareRun(data, { runSeed = 1, kind = "friendly", maxSteps } = {}) {
-  return prepareLessonMatch(data, { runSeed, kind, maxSteps });
+export function prepareRun(data, { runSeed = 1, kind = "friendly", maxSteps, slots } = {}) {
+  return prepareLessonMatch(data, { runSeed, kind, maxSteps, slots });
 }
 
 export function createFromSetup(data, setup, seed) {
@@ -87,13 +90,15 @@ export function findMatchState(data, runState, scenario, { maxSeeds = 400, maxSt
   let fallback = null;
   for (const seed of seeds) {
     const ms = createFromSetup(data, setup, seed);
+    if (scenario.adjustMatch) scenario.adjustMatch(ms, data); // 경기 시작 상태 주입 (예: GK 게이지 가득) — 결정적
     for (let steps = 0; steps <= maxSteps; steps++) {
       if (scenario.require(ms, ctx)) {
         if (!scenario.prefer || scenario.prefer(ms, ctx)) return { seed, steps, matchState: clone(ms), preferred: true };
         if (!fallback) fallback = { seed, steps, matchState: clone(ms), preferred: false };
       }
       if (ms.finished) break;
-      match.step(ms, data, null);
+      // drive: 사람(home) 결정을 대신 고른다 (null = 우리 AI) — 합체기 짝처럼 AI 가 거의 만들지 않는 장면용, 결정적
+      match.step(ms, data, scenario.drive ? scenario.drive(ms, data) ?? null : null);
     }
   }
   return fallback;
@@ -111,7 +116,7 @@ export function buildScenarioState(data, scenario, { runSeed = 1, maxSeeds, maxS
       storage: b.storage ?? null, summary: b.summary, info: b.info ?? null, // info: 조작 단계 함수(steps(prepared))가 쓰는 값
     };
   }
-  const runState = prepareRun(data, { runSeed, kind: scenario.matchKind || "friendly" });
+  const runState = prepareRun(data, { runSeed, kind: scenario.matchKind || "friendly", slots: scenario.slots });
   if (scenario.adjustRun) scenario.adjustRun(runState, data); // 런 상태 주입 (예: 부상 — 28_injured_plays), 결정적
   const found = findMatchState(data, runState, scenario, { maxSeeds: maxSeeds ?? scenario.maxSeeds, maxSteps });
   if (!found) throw new Error(`[${scenario.name}] 조건을 만족하는 경기 상태를 찾지 못했습니다`);
@@ -562,7 +567,169 @@ export const SCENARIOS = [
     require: (s) => isDuel(s) && s.attackingSide === "home" && s.home.players.length === 7 &&
       !s.home.players.some((p) => p.isYouth) && (!INJURED.id || s.home.players.some((p) => p.id === INJURED.id)),
   },
+  // ---- §19 (K4) 새 필살기 종류 · 등급별 컷인 · 대사 · 합체기 이름 · 확정 배급 ----
+  {
+    // E2 필살 수비: ③ 우리 최종 수비 라인(상대 line 2)에서 도르비나 '✨ 산맥 쐐기' 토글 → 수비 3종 모두 켜짐, 기대 % 에 ×1.6
+    name: "29_ult_defense",
+    title: "필살 수비 — 도르비나 '✨ 산맥 쐐기' 토글, 상대 파이널 서드 수비 결정 (태클 hover: 버튼 · 기대 % · 칩)",
+    matchKind: "friendly",
+    auto: false,
+    require: (s, { data }) => atk(s, "away", 2) && needs(s, "defense") && ultOption(viewOf(s, data))?.type === "defense",
+    prefer: (s) => s.possession >= 2,
+    interact: { type: "steps", steps: [{ click: ".skill-row .ult-btn:not(:disabled)" }, { wait: 150 }, { hover: ["tackle"] }] },
+  },
+  {
+    // E3 팀 필살기 + E5 R 짧은 컷인: 아델린(DF2) 빌드업 공 · '불꽃 호령' 토글 + 패스 → 차지 0.2 + 컷인 0.6초 (경기 첫 필살기)
+    // / 0.15 + 0.5초 (그 뒤) — 480ms 뒤는 두 경우 모두 컷인 한가운데
+    name: "30_ult_team_cutin",
+    title: "팀 필살기 R 컷인 — 아델린 '불꽃 호령' 토글 + 패스 480ms 뒤 (1x): 짧은 띠 · 종류 칩 '필살 호령' · 대사 한 줄",
+    matchKind: "friendly",
+    auto: false,
+    // 빌드업 공은 패스가 가장 높은 DF(도르비나) → 킥오프 선수 전술로 아델린 (엔진 pickStarter tactics.kickoffPlayerId)
+    adjustSetup: (setup) => { setup.home.tactics = { ...(setup.home.tactics || {}), kickoffPlayerId: setup.home.players.find((p) => p.charId === "ch_human_captain")?.id }; },
+    // 빌드업 공을 잡을 때 게이지가 차 있는 일이 드물다 → 경기 시작 때 아델린 게이지 가득 (우리 AI 는 지고 있을 때만 쓴다)
+    adjustMatch: (ms) => {
+      const p = ms.home.players.find((x) => x.charId === "ch_human_captain");
+      if (p && ms.home.live?.[p.id]) ms.home.live[p.id].gauge = 100;
+    },
+    require: (s, { data }) => isDuel(s) && s.attackingSide === "home" && needs(s, "attack") && actionEnabled(s, data, "pass") &&
+      ultOption(viewOf(s, data))?.type === "team",
+    prefer: (s) => !s.events.some((e) => e.type === "cutin"),
+    interact: { type: "steps", steps: [{ click: ".skill-row .ult-btn:not(:disabled)" }, { wait: 120 }, { press: "pass", waitMs: 480 }] },
+    verify: (prev, live) => {
+      if (!live) return "캡처 시점 경기 상태를 읽지 못함";
+      const fresh = (live.events || []).slice((prev.events || []).length);
+      return fresh.some((e) => e.type === "cutin" && e.ultimateType === "team" && e.tier === "R" && e.line)
+        ? true
+        : `팀 필살기 R 컷인 이벤트 없음 (${fresh.map((e) => e.type).join(",") || "-"})`;
+    },
+  },
+  {
+    // E4 필살 드리블 extraLine: 코니(DF1 — 기본 편성의 도르비나 자리) 빌드업 공 '달토끼 도약' 토글 → 드리블 화살표가 ① → ③ (두 구역 전진)
+    name: "31_ult_dribble_extra",
+    title: "필살 드리블 — 코니 '✨ 달토끼 도약' 토글, 빌드업 드리블 hover: 화살표 ① → ③ '두 구역 전진' (기본 편성 DF1 = 코니)",
+    matchKind: "friendly",
+    auto: false,
+    slots: { DF1: "ch_rabbit_fullback" },
+    prefer: (s) => s.possession >= 2 && !(s.lastAttack && s.lastAttack.possession === s.possession),
+    // 빌드업 공은 패스가 가장 높은 DF(아델린) → 킥오프 선수 전술로 코니
+    adjustSetup: (setup) => { setup.home.tactics = { ...(setup.home.tactics || {}), kickoffPlayerId: setup.home.players.find((p) => p.charId === "ch_rabbit_fullback")?.id }; },
+    require: (s, { data }) => atk(s, "home", 0) && needs(s, "attack") && carrierOf(s)?.charId === "ch_rabbit_fullback" &&
+      ultOption(viewOf(s, data))?.type === "dribble",
+    interact: { type: "steps", steps: [{ click: ".skill-row .ult-btn:not(:disabled)" }, { wait: 150 }, { hover: ["dribble"] }] },
+  },
+  {
+    // E1 합체기 (등록된 짝): 실루엔 바람의 실 → 브론테 낙뢰 = 풍뢰일섬 — 13 과 같은 시점 (차지 → 두 컷인 → 이름 카드 한가운데 2.8초)
+    name: "32_combo_thunder",
+    title: "합체기 '풍뢰일섬' — 실루엔 바람의 실을 받은 브론테 낙뢰 (슛 클릭 2.8초 뒤 이름 카드 · 두 이름, 기본 편성 FW1 = 브론테)",
+    matchKind: "friendly",
+    auto: false,
+    slots: { FW1: "ch_spirit_striker" },
+    // 우리 AI 는 실루엔이 ② 에서 박스로 패스할 일이 드물다 → 탐색 중 실루엔 공이면 ② 드리블, ③ 이면 바람의 실 패스 → 브론테 (박스)
+    drive: (s, data) => {
+      if (!isDuel(s) || s.attackingSide !== "home" || !needs(s, "attack") || carrierOf(s)?.charId !== "ch_elf_playmaker") return null;
+      if (s.ball.lineIndex === 1 && actionEnabled(s, data, "dribble")) return { action: "dribble" };
+      const v = viewOf(s, data);
+      const u = ultOption(v);
+      const bronte = s.home.players.find((p) => p.charId === "ch_spirit_striker")?.id;
+      if (s.ball.lineIndex === 2 && u?.skillId === "sk_wind_thread" && v.receivers?.pass?.candidates?.includes(bronte)) {
+        return { action: "pass", ultimate: true, receiverId: bronte };
+      }
+      return null;
+    },
+    maxSeeds: 1000,
+    require: (s, { data }) => isDuel(s) && s.attackingSide === "home" && needs(s, "attack") && comboOption(viewOf(s, data))?.comboName === "풍뢰일섬",
+    interact: { type: "steps", steps: [{ click: ".skill-row .ult-btn:not(:disabled)" }, { wait: 120 }, { press: "shoot", waitMs: 2800 }] },
+    verify: (prev, live) => {
+      if (!live) return "캡처 시점 경기 상태를 읽지 못함";
+      const fresh = (live.events || []).slice((prev.events || []).length);
+      return fresh.some((e) => e.type === "combo" && e.name === "풍뢰일섬") ? true : `풍뢰일섬 이벤트 없음 (${fresh.map((e) => e.type).join(",") || "-"})`;
+    },
+  },
+  {
+    // §19.3-10 확정 배급: 헤르타(GK) 대지의 손바닥 세이브 뒤 배급 결정 — 롱패스 카드 % 칸 "확정 (대지의 손바닥)", 실패 줄 없음 (롱패스 hover)
+    name: "33_save_sure_dist",
+    title: "확정 배급 — 헤르타 '대지의 손바닥' 세이브 뒤 GK 배급 결정: 롱패스 '확정 (대지의 손바닥)' (기본 편성 GK = 헤르타, 롱패스 hover)",
+    matchKind: "friendly",
+    auto: false,
+    slots: { GK: "ch_giant_keeper" },
+    // GK 는 게이지가 거의 차지 않는다 (듀얼 승이 드묾) → 경기 시작 때 헤르타 게이지 가득 (AI 는 동점 · 열세면 필살 세이브)
+    adjustMatch: (ms) => {
+      const gk = ms.home.players.find((p) => p.position === "GK");
+      if (gk && ms.home.live?.[gk.id]) ms.home.live[gk.id].gauge = 100;
+    },
+    require: (s, { data }) => isDistribution(s) && needs(s, "distribution") && !!viewOf(s, data).distribution?.sure,
+    interact: { type: "hover", actions: ["long"] },
+  },
+  {
+    // E5 SR 컷인: 온디나(MF1 — 실루엔 자리) '급류' 토글 + 드리블 → 차지 0.3 + 컷인 0.8초 (첫) / 0.25 + 0.7초 — 650ms 뒤
+    name: "34_cutin_sr_line",
+    title: "SR 컷인 — 온디나 '급류' 토글 + 드리블 650ms 뒤 (1x): 중간 띠 · 종류 칩 '필살 드리블' · 대사 (기본 편성 MF1 = 온디나)",
+    matchKind: "friendly",
+    auto: false,
+    slots: { MF1: "ch_spirit_dribbler" }, // 중원 시작 공 = 드리블 + 패스가 가장 높은 MF → 실루엔 자리에 온디나
+    require: (s, { data }) => isDuel(s) && s.attackingSide === "home" && s.ball.lineIndex <= 2 && needs(s, "attack") &&
+      carrierOf(s)?.charId === "ch_spirit_dribbler" && ultOption(viewOf(s, data))?.type === "dribble",
+    prefer: (s) => !s.events.some((e) => e.type === "cutin"),
+    interact: { type: "steps", steps: [{ click: ".skill-row .ult-btn:not(:disabled)" }, { wait: 120 }, { press: "dribble", waitMs: 650 }] },
+    verify: (prev, live) => {
+      if (!live) return "캡처 시점 경기 상태를 읽지 못함";
+      const fresh = (live.events || []).slice((prev.events || []).length);
+      return fresh.some((e) => e.type === "cutin" && e.skillId === "sk_rapids" && e.tier === "SR" && e.line)
+        ? true
+        : `급류 SR 컷인 이벤트 없음 (${fresh.map((e) => e.type).join(",") || "-"})`;
+    },
+  },
+  {
+    // 34 의 상대 쪽 판 (.cut.side-away — 오른쪽에서 들어오는 띠): 상대 MF 에게 급류 주입. 우리 결정 뒤 상대 AI 가 다음 듀얼에서
+    // 급류를 먼저 커밋 → 결과 한 줄 뒤 컷인 (판정 비트 뒤 컷인). 캡처 시점 = 액션 0.8 (+ 공 뺏김 멈춤 0.25) + 재배치 0.65 + 결과 0.95
+    // + SR 차지 0.3 (첫 필살기) / 0.25 + 컷인 절반 0.4 / 0.35 — awayRapidsPlan 이 누를 액션과 대기 시간을 함께 계산한다
+    name: "34_cutin_sr_line_away",
+    title: "SR 컷인 (상대) — 상대 MF '급류' (주입): 우리 결정 뒤 상대 AI 가 커밋한 컷인 (판정 결과 뒤 컷인 한가운데, 1x)",
+    matchKind: "friendly",
+    auto: false,
+    adjustSetup: (setup) => {
+      for (const p of setup.away.players) if (p.position === "MF") p.skillIds = [...new Set([...(p.skillIds || []), "sk_rapids"])];
+    },
+    require: (s, { data }) => !!awayRapidsPlan(s, data),
+    interact: {
+      type: "steps",
+      steps: [{ press: (ms, data) => awayRapidsPlan(ms, data)?.action, waitMs: (ms, data) => awayRapidsPlan(ms, data)?.waitMs ?? 3100 }],
+    },
+    verify: (prev, live) => {
+      if (!live) return "캡처 시점 경기 상태를 읽지 못함";
+      const fresh = (live.events || []).slice((prev.events || []).length);
+      return fresh.some((e) => e.type === "cutin" && e.side === "away" && e.skillId === "sk_rapids")
+        ? true
+        : `상대 급류 컷인 이벤트 없음 (${fresh.map((e) => e.type).join(",") || "-"})`;
+    },
+  },
 ];
+
+/**
+ * 34_cutin_sr_line_away: 우리 결정(공격 드리블 · 패스 / 수비 태클 · 인터셉트 · 버티기 — 필살기 없이) 하나로 판정 비트가 공 뺏김 · 돌파
+ * (골 · 세이브 · 역방향 컷인 없음)이고, 그 뒤 컷인이 상대 급류 하나뿐인 첫 액션 → { action, waitMs } | null.
+ * waitMs = screens/match.js 연출 길이 (T · CUT_TIER SR)로 계산한 컷인 한가운데 (1x).
+ */
+function awayRapidsPlan(s, data) {
+  if (!isDuel(s) || s.ball.lineIndex > 2) return null;
+  const role = s.attackingSide === "home" ? "attack" : "defense";
+  if (!needs(s, role)) return null;
+  const firstCut = !s.events.some((e) => e.type === "cutin");
+  for (const action of role === "attack" ? ["dribble", "pass"] : ["tackle", "intercept", "hold"]) {
+    if (!actionEnabled(s, data, action)) continue;
+    const { events } = tryDecision(s, data, { action });
+    const i = events.findIndex((e) => ["duel", "turnover", "save", "goal"].includes(e.type));
+    if (i < 0 || !["duel", "turnover"].includes(events[i].type) || events[i].reverseCutin) continue;
+    if (events.slice(0, i).some((e) => e.type === "cutin" || e.type === "combo")) continue;
+    const cuts = events.slice(i + 1).filter((e) => e.type === "cutin" || e.type === "combo");
+    if (cuts.length !== 1 || cuts[0].side !== "away" || cuts[0].skillId !== "sk_rapids") continue;
+    const hold = events[i].type === "turnover" ? 250 : 0;
+    const waitMs = 800 + hold + 650 + 950 + (firstCut ? 300 + 400 : 250 + 350);
+    return { action, waitMs };
+  }
+  return null;
+}
 
 /** 복제 상태에 사람 결정을 넣었을 때 판정 이벤트의 결정타 칩 (없으면 null) */
 function chipFor(s, data, decision) {

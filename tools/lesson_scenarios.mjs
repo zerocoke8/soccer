@@ -55,8 +55,8 @@ export function walkLesson(data, { seed = 1, policy, until, maxSteps = 3000, slo
  * - goal: 감독 AI 그대로 첫 경계전까지 (그 사이 친선전 · 루트 친선전은 실제 match.js 로 치른다)
  * @returns {object} 레슨 RunState (phase "match", pendingMatch.kind === kind)
  */
-export function prepareLessonMatch(data, { runSeed = 1, kind = "friendly", maxSteps = 3000 } = {}) {
-  const state = defaultLessonRun(data, { seed: runSeed });
+export function prepareLessonMatch(data, { runSeed = 1, kind = "friendly", maxSteps = 3000, slots } = {}) {
+  const state = defaultLessonRun(data, { seed: runSeed, slots }); // slots: 기본 편성의 자리를 다른 캐릭터로 (§19 경기 장면 29 ~ 34)
   for (let steps = 0; steps < maxSteps; steps++) {
     if (state.phase === "match" && state.pendingMatch?.kind === kind) return state;
     if (state.phase === "finished") break;

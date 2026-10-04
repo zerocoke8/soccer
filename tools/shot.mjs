@@ -377,6 +377,8 @@ async function runScenario(browser, baseUrl, sc, prepared, opts) {
         ".rw-teach-line", ".rw-teach-desc", ".rw-teach-pl .tp-nm", ".rw-teach-pl .tp-sub", ".rw-teach-rep .rw-rep-btn", ".rw-chip.teach", ".rw-summary", ".cs-active-note", ".po-out .po-out-p",
         // 16명 편성 (§19.14 ⑥, K3): 풀 카드 이름 · 필살기 칩 · 슬롯 카드 이름 · 고르기 모달 줄 · 주장 칩
         ".lu-card-nm", ".lu-ult", ".lu-ult-nm", ".slot-card .slot-nm", ".char-pick.compact .cp-txt > span", ".char-pick.compact .cp-badge", ".cap-note",
+        // 경기 컷인 (§19.8 E5, K4): 대사 한 줄 · 이름 · 작은 줄(이름 · 종류 칩), 배급 카드 받는 선수 이름 (확정 롱패스 "확정" 칸 옆)
+        ".m-cutin .cut-line", ".m-cutin .cut-txt b", ".m-cutin .cut-txt small", ".dist-btn .act-rname",
       ].join(", "))]
         .map((el) => {
           // 말줄임은 소수 픽셀만 넘쳐도 생긴다 → 정수 scrollWidth 대신 글자 Range 크기와 요소 크기(소수)를 비교
@@ -551,10 +553,13 @@ async function enterMatch(page, sc, prepared, opts, out) {
         out.notes.push(r ? `hover+누르기: ${r}` : "hover 할 액션 버튼을 찾지 못함");
         await delay(300);
       } else if (st.press) {
+        // press · waitMs 는 함수일 수 있다 (주입한 경기 상태 → 값: 34_cutin_sr_line_away 처럼 장면마다 누를 액션 · 연출 시점이 다를 때)
+        const press = typeof st.press === "function" ? st.press(prepared.matchState, opts.data) : st.press;
+        const waitMs = (typeof st.waitMs === "function" ? st.waitMs(prepared.matchState, opts.data) : st.waitMs) ?? 250;
         if (opts.freeze) await page.evaluate(() => { window.__shot.frozen = false; });
-        const r = await pressAction(page, [st.press], { click: true });
-        out.notes.push(r ? `클릭: ${r} → ${st.waitMs ?? 250}ms 뒤 캡처` : `'${st.press}' 버튼을 찾지 못함`);
-        await delay(st.waitMs ?? 250);
+        const r = await pressAction(page, [press], { click: true });
+        out.notes.push(r ? `클릭: ${r} → ${waitMs}ms 뒤 캡처` : `'${press}' 버튼을 찾지 못함`);
+        await delay(waitMs);
       } else if (st.wait) {
         await delay(st.wait);
       }

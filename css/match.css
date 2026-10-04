@@ -387,6 +387,8 @@
 .act-btn .act-rname { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .act-btn .act-pct { flex: none; font-size: 15px; font-weight: 900; font-variant-numeric: tabular-nums; color: #fff; }
 .act-btn .act-pct.muted { font-size: 13px; font-weight: 700; color: var(--muted); }
+/* 확정 롱패스 (필살 세이브 sureDistribution 뒤): % 칸 = "확정 (대지의 손바닥)" — 금색, 조금 작게 */
+.act-btn .act-pct.sure { font-size: 13px; color: var(--gold); white-space: nowrap; }
 .act-btn .chip { flex: none; padding: 0 6px; border-radius: 6px; font-size: 10.5px; line-height: 14px; font-weight: 800; }
 .act-btn .chip-rec { background: var(--gold); color: #2a1d00; }
 .act-btn .chip-pair { background: rgba(61, 220, 132, .22); color: var(--good); }
@@ -508,6 +510,7 @@
 .match-log .log-line.ev-skill { color: #c9b6ff; }
 .match-log .log-line.ev-goal { color: var(--good); font-weight: 700; }
 .match-log .log-line.ev-lastAttack { color: var(--gold); font-weight: 700; }
+.match-log .log-line.ev-teamUlt { color: #ffd98a; font-weight: 700; } /* 팀 필살기 (E3): "팀 판정 ×1.08 (이번 포제션) · 체력 +15" */
 
 /* ---- 필살기 컷인 (GDD v0.5 §9.17-5): 스테이지 전체 1.0초 (이후 필살기 0.9초 — 배속 비례, --t-cut), 합체기 = 두 컷인 + 이름,
    필살기가 막히면 막은 선수의 역방향 컷인(.cut-save .cut-rev) 0.8초 (이후 0.7초) — 기적의 세이브! · 철벽 블록! · 필살 패스 차단! ---- */
@@ -540,6 +543,24 @@
 .cut.side-away { animation-name: cut-life-away; }
 @keyframes cut-life-away { 0% { opacity: 0; transform: translateX(60px); } 12% { opacity: 1; transform: translateX(0); } 82% { opacity: 1; transform: translateX(-6px); } 100% { opacity: 0; transform: translateX(-40px); } }
 @keyframes cut-face { 0% { transform: skewY(4deg) scale(.4); } 20% { transform: skewY(4deg) scale(1.12); } 30% { transform: skewY(4deg) scale(1); } }
+/* §19.8 (E5) 컷인 대사 한 줄 · 종류 칩 · 등급별 크기 (R 짧고 작게, SR 중간, SSR = 위 기본 — 이벤트에 tier 가 없으면 클래스 없음 = SSR 판) */
+.cut-line { max-width: 620px; font-size: 16px; font-weight: 700; color: rgba(255, 255, 255, .85); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .65); margin-top: 2px; }
+.cut-type { display: inline-block; padding: 0 6px; border-radius: 4px; line-height: 1.35; color: #1b1424; text-shadow: none; background: rgba(255, 255, 255, .9); }
+/* 종류 색: 슛 = 불꽃 주황, 패스 = 초록, 세이브 = 하늘, 드리블 = 번개 노랑, 수비 = 강철, 호령(팀) = 금 */
+.cut-type.ut-shot { background: #ffb199; }
+.cut-type.ut-pass { background: #9df0c8; }
+.cut-type.ut-save { background: #a9d6ff; }
+.cut-type.ut-dribble { background: #ffe680; }
+.cut-type.ut-defense { background: #d5dde8; }
+.cut-type.ut-team { background: #ffd166; }
+.cut.tier-SR .cut-band { padding: 20px 36px; gap: 16px; }
+.cut.tier-SR .cut-face { width: 76px; height: 76px; font-size: 38px; }
+.cut.tier-SR .cut-txt b { font-size: 30px; }
+.cut.tier-R .cut-band { padding: 14px 32px; gap: 14px; }
+.cut.tier-R .cut-face { width: 64px; height: 64px; font-size: 32px; }
+.cut.tier-R .cut-txt b { font-size: 26px; }
+.cut.tier-R .cut-line { font-size: 15px; }
 /* GK 역방향 컷인: 반대 기울기 · 차가운 색 · 어두운 글자 (들어오는 방향은 GK 팀 쪽 = 필살 슛 컷인의 반대) */
 .cut.cut-save .cut-band { --ec: #cfe6ff; transform: skewY(4deg); }
 .cut.cut-save .cut-face, .cut.cut-save .cut-txt { transform: skewY(-4deg); }
