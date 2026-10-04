@@ -10,8 +10,9 @@
 // 시나리오 추가: 아래 SCENARIOS 배열에 객체 하나. name 이 파일 이름(<name>.png)이자 --only 접두어.
 //   경기 시나리오 (01_… ~): 이 머리말의 형식. 아웃게임 시나리오 (og_…): 파일 아래 "아웃게임 시나리오" 머리말 참고.
 //
-// 경기 시나리오 = { name, title, matchKind, auto, viewport?, speed?, adjustSetup?(setup, data), require(s, ctx), prefer?(s, ctx), interact?, verify? }
+// 경기 시나리오 = { name, title, matchKind, auto, viewport?, speed?, adjustRun?(runState, data), adjustSetup?(setup, data), require(s, ctx), prefer?(s, ctx), interact?, verify? }
 //   viewport: 기본(1280×720 DPR 1 — 고정 스테이지 1배)이 아닌 창 크기로 찍을 때 { width, height, deviceScaleFactor, isMobile, hasTouch }
+//   adjustRun: 경기 직전 런 상태를 고친다 (예: 부상 주입) — 그 뒤 lessonRun.getMatchSetup 으로 스냅샷을 만든다, 결정적
 //   adjustSetup: 경기 스냅샷을 만들기 전에 고친다 (예: 상대에게 간파 사용권) — 복제본에 적용, 결정적
 //   maxSeeds: 찾을 경기 seed 수 (기본 400)
 //   require : 반드시 만족해야 하는 조건 (캡처 시점 상태 확인에도 쓴다)
@@ -111,6 +112,7 @@ export function buildScenarioState(data, scenario, { runSeed = 1, maxSeeds, maxS
     };
   }
   const runState = prepareRun(data, { runSeed, kind: scenario.matchKind || "friendly" });
+  if (scenario.adjustRun) scenario.adjustRun(runState, data); // 런 상태 주입 (예: 부상 — 28_injured_plays), 결정적
   const found = findMatchState(data, runState, scenario, { maxSeeds: maxSeeds ?? scenario.maxSeeds, maxSteps });
   if (!found) throw new Error(`[${scenario.name}] 조건을 만족하는 경기 상태를 찾지 못했습니다`);
   const rs = clone(runState);
@@ -161,6 +163,9 @@ export function describeState(s) {
 /* ------------------------------------------------------------------ */
 /* 시나리오 (파일명 = name)                                                */
 /* ------------------------------------------------------------------ */
+
+/** 28_injured_plays: 주입한 부상 선수 (adjustRun 이 채운다 — 캡처 시점 require 도 같은 값을 본다) */
+const INJURED = { id: null };
 
 const AWAY_SHOT = {
   matchKind: "friendly",
@@ -537,6 +542,21 @@ export const SCENARIOS = [
         ? true
         : `DF 블록(reverseCutin block) 이벤트 없음 (${fresh.map((e) => e.type).join(",") || "-"})`;
     },
+  },
+  {
+    // §18.1 부상은 레슨에만: 시즌 1 경계전 직전 DF2(players[2]) 에 레슨 결장 2 를 주입 — 경기에는 본인이 그대로 나온다
+    // (유스 없음 · 스탯 · 스킬 그대로). 우리 빌드업(① 우리 진영) 자동 진행 장면.
+    name: "28_injured_plays",
+    title: "부상 선수 경기 출전 — DF2 레슨 결장 2 주입, 경계전에 본인 출전 (유스 없음, §18.1)",
+    matchKind: "goal",
+    auto: true,
+    adjustRun: (rs) => {
+      const p = rs.players[2];
+      p.injuredTurns = 2;
+      INJURED.id = p.id;
+    },
+    require: (s) => isDuel(s) && s.attackingSide === "home" && s.home.players.length === 7 &&
+      !s.home.players.some((p) => p.isYouth) && (!INJURED.id || s.home.players.some((p) => p.id === INJURED.id)),
   },
 ];
 

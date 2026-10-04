@@ -12,6 +12,8 @@
 //    입력이 먹지 않으면 실패로 적고 actions 로 대신 진행한다 (요약에 남는다).
 //  - 주 · 보상 · 상담 · 준비 · 경기(⏭ 스킵 → 확인) · 유물 · 루트도 화면 버튼을 눌러 진행한다 (추천대로).
 //  - 화면이 바뀔 때마다 · 터치 끌기 중간 프레임을 PNG 로 남기고, 페이지 에러 · 에러 토스트 · 스크롤을 센다.
+// §18 코치 수업: 보상 모달에 수업이 남아 있으면 recommendTeach 대로 선수 칩 → [가르치기] / [배우지 않기] 를 클릭 · 탭 · 키보드로 돌아가며 누르고,
+//   행동마다 엔진 (learnedSkillIds · SP) 변화를 확인한다.
 // --until season(기본) = 시즌 1 경계전 · 루트까지, lesson = 첫 레슨 끝까지, run = 15주 완주. --lessons N = 레슨 N번 끝나면 멈춤.
 // --mobile = isMobile 뷰포트(터치 전용 기기처럼), --touch-only = 레슨 입력을 터치 방식만.
 // L40 고유 카드 모양 (§16.12 U4): 모양마다 입력을 돌아가며 쓴다 — 이어 주기 = 카드 클릭 · 탭 → 주인 토큰 끌기, 연결 · 크로스 = 카드를 받는 선수 위로,
@@ -67,7 +69,8 @@ async function main() {
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
   const browser = await puppeteer.launch({ executablePath: bi.path, headless: true, args: ["--no-first-run", "--no-default-browser-check", "--disable-extensions", "--lang=ko-KR"] });
   const log = (...a) => console.log(...a);
-  const report = { errors: [], toasts: [], scroll: [], actions: {}, fails: [], fallbacks: [], targetMismatch: [], drift: [], shots: [], phases: {}, lessons: [] };
+  const report = { errors: [], toasts: [], scroll: [], actions: {}, fails: [], fallbacks: [], targetMismatch: [], drift: [], shots: [], phases: {}, lessons: [], teach: [] };
+  let teachN = 0;
   const uniquePlays = {}; // 낸 고유 카드 cardId → { name, kind, chip, n, ways: Set }
   const t0 = Date.now();
   try {
@@ -674,6 +677,56 @@ async function main() {
       if (ph.phase === "reward") {
         await page.waitForSelector("#modal-root .reward-modal", { timeout: 8000 }).catch(() => report.fails.push("보상 모달이 뜨지 않음"));
         await delay(300);
+        // §18 코치 수업 단계 — 수업이 남아 있으면 감독 추천(recommendTeach)대로 선수 칩 → [가르치기] (또는 [배우지 않기]) 를 누른다.
+        //   입력은 돌아가며: 마우스 클릭 · 터치 탭 · 키보드 (focus → Enter). 행동마다 pendingReward.teach 항목이 하나 끝났는지 본다.
+        const teachCur = await S(() => !!window.__soccer.store.run.pendingReward?.teach?.some?.((t) => !t.result));
+        if (teachCur) {
+          const tinfo = await S(() => {
+            const st = window.__soccer.store.run;
+            const done = st.pendingReward.teach.filter((t) => t.result).length;
+            const cur = st.pendingReward.teach.find((t) => !t.result);
+            return { done, total: st.pendingReward.teach.length, skillId: cur?.skillId, learned0: JSON.stringify(st.players.map((p) => p.learnedSkillIds || [])), sp0: st.skillPoints };
+          });
+          const rec = await S(() => window.__soccer.manager.recommendTeach(window.__soccer.store.run, window.__soccer.store.data));
+          const how = args.touchOnly ? "touch" : (["mouse", "touch", "key"])[teachN++ % 3];
+          const hit = async (sel) => {
+            if (how !== "key") return press(sel, how);
+            if (!(await boxOf(sel))) return false;
+            await page.focus(sel).catch(() => {});
+            const focused = await S((s) => document.activeElement === document.querySelector(s), sel);
+            if (!focused) return false;
+            await page.keyboard.press("Enter");
+            return true;
+          };
+          let ok;
+          if (rec.playerId) {
+            ok = await hit(`#modal-root .rw-teach-pl[data-pid="${rec.playerId}"]`);
+            await delay(150);
+            if (ok) {
+              await snap(`s${ph.season}w${ph.turn}_teach${tinfo.done + 1}_pick`);
+              ok = await hit("#modal-root .rw-teach-ok:not([disabled])");
+            }
+          } else ok = await hit("#modal-root .rw-teach-skip");
+          count(`코치 수업 (${how === "key" ? "키보드" : how === "touch" ? "탭" : "클릭"}) — ${rec.playerId ? "가르치기" : "받지 않기"}`);
+          const advanced = ok && await page.waitForFunction((d) => (window.__soccer.store.run.pendingReward?.teach || []).filter((t) => t.result).length > d || window.__soccer.store.run.phase !== "reward", { timeout: 4000, polling: 50 }, tinfo.done).then(() => true, () => false);
+          if (!advanced) {
+            report.fails.push(`코치 수업 입력이 먹지 않음 (${how}, ${tinfo.skillId})`);
+            report.fallbacks.push("코치 수업");
+            await S((r) => window.__soccer.actions.resolveTeach(r), rec);
+          } else {
+            // 엔진 변화 확인: 받은 선수의 learnedSkillIds 에 그 스킬 / 받지 않기면 SP +declineSp
+            const chk = await S((pid, sk) => {
+              const st = window.__soccer.store.run;
+              const p = st.players.find((x) => x.id === pid);
+              return { has: !!p && (p.learnedSkillIds || []).includes(sk), sp: st.skillPoints, name: p?.name ?? null };
+            }, rec.playerId, tinfo.skillId);
+            if (rec.playerId && !chk.has) report.fails.push(`수업 뒤 선수에게 스킬이 없음 (${tinfo.skillId} → ${rec.playerId})`);
+            if (!rec.playerId && !(chk.sp > tinfo.sp0)) report.fails.push(`받지 않기 뒤 SP 가 늘지 않음 (${tinfo.sp0} → ${chk.sp})`);
+            report.teach.push({ season: ph.season, week: ph.turn, skillId: tinfo.skillId, to: rec.playerId ? chk.name : "SP", how, step: `${tinfo.done + 1}/${tinfo.total}` });
+          }
+          await delay(200);
+          continue;
+        }
         const rec = await S(() => window.__soccer.manager.recommendReward(window.__soccer.store.run, window.__soccer.store.data));
         const status = await S(() => window.__soccer.store.run.pendingReward?.result?.status);
         let ok;
@@ -757,6 +810,7 @@ async function main() {
     report.deckUniques = await S(() => [...new Set((window.__soccer.store.run.deck || []).map((e) => e.cardId).filter((id) => id.startsWith("cd_u_")))]);
     report.squad = await S(() => window.__soccer.store.run.players.map((p) => `${p.position}:${p.name}`).join(" "));
     report.lessonsDone = lessonsDone;
+    report.learned = await S(() => window.__soccer.store.run.players.map((p) => `${p.name}[${(p.learnedSkillIds || []).join(",")}]`).join(" "));
     await snap(`end_${fin.phase}`);
   } finally {
     await browser.close().catch(() => {});
@@ -774,6 +828,9 @@ async function main() {
     const mis = report.lessons.filter((l) => l.cutins != null && l.cutins !== l.seenCut);
     if (mis.length) report.fails.push(`엔진 컷인 수 ≠ 화면 컷인 수: ${mis.map((l) => `시즌 ${l.season} ${l.week}주 ${l.cutins}/${l.seenCut}`).join(", ")}`);
   }
+  log(`  코치 수업 ${report.teach.length}번 (화면 입력):`);
+  for (const t of report.teach) log(`    시즌 ${t.season} ${t.week}주 ${t.step}: ${t.skillId} → ${t.to} (${t.how === "key" ? "키보드" : t.how === "touch" ? "탭" : "클릭"})`);
+  log(`  런 끝 습득 스킬: ${report.learned ?? "-"}`);
   log(`  편성: ${report.squad ?? "-"}`);
   log("  고유 카드 (모양 · 낸 수 · 입력):");
   for (const id of report.deckUniques || []) {

@@ -1094,6 +1094,22 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
     S.actions.resetToStart();
   }
 
+  // 28 부상 선수 경기 출전 (§18.1 L42): 레슨 결장 2 를 주입한 DF2 가 경계전에 본인으로 나온다 — 유스 토큰 · 유스 선수 없음, 스탯 · 스킬 = 런 선수 그대로
+  {
+    const { prep: p28, scr: s28 } = inject("28_injured_plays", { auto: true });
+    const hurt = p28.runState.players.find((p) => p.injuredTurns > 0);
+    assert.ok(hurt, "부상 주입 (런 상태)");
+    assert.equal(S.store.match.kind, "goal", "경계전");
+    const mp = S.store.match.home.players.find((p) => p.id === hurt.id);
+    assert.ok(mp && !mp.isYouth && mp.name === hurt.name, "다친 선수 본인 출전");
+    assert.ok(!S.store.match.home.players.some((p) => p.isYouth), "유스 없음");
+    assert.deepEqual(mp.stats, S.run.buildTeamSnapshot({ ...p28.runState, players: p28.runState.players.map((p) => ({ ...p, injuredTurns: 0 })) }, S.store.data).players.find((p) => p.id === hurt.id).stats, "스탯 = 안 다쳤을 때와 같음");
+    assert.equal(s28.querySelectorAll(".tok.home.youth").length, 0, "유스 토큰 없음");
+    assert.equal(s28.querySelectorAll(".tok.home").length, 7, "우리 토큰 7");
+    assert.equal(p28.runState.players.find((p) => p.id === hurt.id).injuredTurns, 2, "경기 전 injuredTurns 그대로");
+    S.actions.resetToStart();
+  }
+
   // 17 스킬 묶음 7개 이상: 2열(.many) + 상자 안 스크롤(.over) — 묶음이 필드 위로 자라지 않는다. 일반 액티브 ✦ 비용은 2열에서도 보인다
   {
     const { scr: s17 } = inject("17_skill_row_many");

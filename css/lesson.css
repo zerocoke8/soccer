@@ -7,6 +7,8 @@
 /* ================================================================== */
 /* 레슨 화면 · 레슨 결과(보상 모달) 동안 토스트는 손패 위, 경기장 아래쪽 (app.js setStageMode('lesson')) */
 .stage[data-mode="lesson"] #toast-root { top: auto; bottom: 236px; }
+/* 보상 모달이 떠 있으면 모달 아래 (화면 맨 아래) — 코치 수업 결과 토스트가 다음 수업의 선수 칩을 가리지 않게 (§18.12 S3) */
+.stage[data-mode="lesson"]:has(#modal-root .reward-modal) #toast-root { bottom: 8px; }
 /* 감독 AI 추천 (manager.recommend*) — 버튼 · 카드 테두리 */
 .og .recommended { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
 /* 카드 계열 색 (§6.3 카드 앞면 위 띠와 같은 색) — 임시 화면은 왼쪽 띠로 */
