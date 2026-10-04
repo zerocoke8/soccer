@@ -1,0 +1,24 @@
+$imagegen
+Generate exactly ONE full-body character illustration for a fantasy soccer gacha game (character card art), portrait orientation (2:3).
+
+THREE ATTACHED IMAGES:
+- Image 1 = the original STYLE reference (2D anime key visual).
+- Images 2 and 3 = two APPROVED finished illustrations of OTHER characters in the exact target style of this game (Silluen the elf playmaker, Neria the water-spirit goalkeeper). Match their style as closely as possible: clean lineart of even weight, flat cel coloring (flat base colors with one hard-edged shadow tone, cool blue-violet shadow tint, very little gradient), simple skin coloring with blush and no shine, hair drawn in clumps with a few crisp highlight streaks, anime eyes with gradient irises and crisp highlights, crisp rim light, flat glowing magic effects with a soft outer glow, simple soft background with a dusk or night sky gradient and flat silhouettes. It must look like a frame from a high-budget 2D anime — not painterly, not semi-realistic, not glossy, not 3D, not a busy background.
+- Do NOT copy the characters, faces, hair, outfits or poses of images 1-3. This is a NEW character.
+
+GAME RULES FOR CHARACTERS: every player is an adult woman. Tall characters have a mature, curvy figure (tasteful, fully clothed, no fan-service framing); short characters look young and cute (still adults) and their figure is NOT emphasized. Each player wears her own element-themed fantasy soccer kit.
+
+CAMERA: eye level or a mild high angle (never from below), full body visible from head to boots, character large in frame, natural relaxed proportions. Hands with five fingers, feet and boots anatomically correct.
+
+CHARACTER: Herta, giant-folk goalkeeper and team captain, earth element, SSR. VERY TALL, big powerful frame with a mature, curvy figure; the big-sister type who watches the whole team from the goal and shouts commands.
+- Giant features: two small crystal-like horns on her head.
+- Hair: long dark navy-blue hair in a thick low ponytail.
+- Eyes: deep blue with crystal-like highlights.
+- Kit: earth goalkeeper kit — long-sleeve goalkeeper jersey in deep navy and slate gray with faceted crystal patterns and thin silver piping, large navy-and-white goalkeeper gloves, gray shorts, navy knee socks with silver bands, sturdy navy boots; a plain silver captain's armband (no letters).
+- Pose: standing in front of the goal with one gloved hand thrust forward pointing ahead, the other arm open wide, mouth open shouting a command to the team; glowing blue crystal shards float around her.
+- Background: a mountain crystal-cave stadium at night — goal net behind her, deep blue night sky, flat mountain silhouettes, faintly glowing blue crystals in the rocks.
+- Palette: navy, slate gray, silver, blue crystal glow.
+
+HARD RULES: no text, no letters, no numbers on the jersey, no logos, no watermark, no signature, no frame, no UI elements. One character only.
+
+Save the final PNG in the current working directory as herta.png. Do not create any other files. Reply with the saved file path only.

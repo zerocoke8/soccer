@@ -1,0 +1,16 @@
+$imagegen
+Generate exactly ONE character illustration, portrait orientation (2:3).
+
+TWO ATTACHED IMAGES:
+- Image 1 = STYLE reference (a 2D anime key visual): match its art style and coloring method.
+- Image 2 = the PREVIOUS VERSION of this exact illustration, which the client approved. Keep its character design, face, hair, outfit, colors, coloring method, lighting and overall look as close as possible. Make ONLY the change described under "CHANGE".
+
+STYLE (same as image 2): drawn as if by the same anime artist and production as image 1 — clean lineart of even weight, flat cel coloring (flat base colors with one hard-edged shadow tone, cool blue-violet shadow tint, very little gradient), simple skin coloring with blush and no shine, hair in clumps with a few crisp highlight streaks, anime eyes with gradient irises and crisp highlights, crisp rim light, flat glowing magic effects with a soft outer glow, simple soft background. It must look like a frame from a high-budget 2D anime — not painterly, not semi-realistic, not glossy, not 3D, not a busy background.
+
+CHARACTER (as in image 2): Neria, an adult woman, water spirit, goalkeeper of a fantasy soccer club, water element. Tall, mature curvy figure (tasteful, fully clothed). Very long straight white hair whose tips turn translucent aqua; water-drop earrings; serene, quiet, nearly expressionless face; pale aqua eyes. Outfit as in image 2: deep sea-blue and white long-sleeve goalkeeper jersey with wave pattern and silver piping, shell ornament at the collar, white-and-aqua goalkeeper gloves, sheer aqua layer over dark blue shorts, white knee socks with silver bands, white-and-blue boots. Pose as in image 2: low ready stance in front of the goal, both gloved hands catching the ball in front of her. Night lakeside pitch, goal net behind her, full moon, calm lake with distant lights and mountain silhouettes, deep blue night sky fading to pink at the horizon.
+
+CHANGE: REMOVE the big wall/wave of water behind her completely. The background behind her is simply the goal net, the night sky with the moon, the lake and the mountains — no water wave, no water wall, no large water splash. (At most a few small floating water droplets near her gloves and hair tips are fine.) Keep everything else — pose, outfit, colors, camera and style — as close to image 2 as possible.
+
+HARD RULES: no text, no letters, no numbers on the jersey, no logos, no watermark, no signature, no frame, no UI elements. One character only. Do not copy the style reference's character, bow or outfit.
+
+Save the final PNG in the current working directory as neria_v4.png. Do not create any other files. Reply with the saved file path only.

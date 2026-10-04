@@ -12,3 +12,6 @@ art/**/reference*.png
 
 # Claude Code 작업 사본 (워크플로 격리 실행)
 .claude/worktrees/
+
+# 일러스트 그림체 시험 (1 ~ 3차 · 수정본) — 확정본은 art/characters/
+art/style_test/ref5/

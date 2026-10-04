@@ -1,0 +1,23 @@
+$imagegen
+Generate exactly ONE full-body character illustration for a fantasy soccer gacha game (character card art), portrait orientation (2:3).
+
+THREE ATTACHED IMAGES:
+- Image 1 = the original STYLE reference (2D anime key visual).
+- Images 2 and 3 = two APPROVED finished illustrations of OTHER characters in the exact target style of this game (Silluen the elf playmaker, Neria the water-spirit goalkeeper). Match their style as closely as possible: clean lineart of even weight, flat cel coloring (flat base colors with one hard-edged shadow tone, cool blue-violet shadow tint, very little gradient), simple skin coloring with blush and no shine, hair drawn in clumps with a few crisp highlight streaks, anime eyes with gradient irises and crisp highlights, crisp rim light, flat glowing magic effects with a soft outer glow, simple soft background with a dusk or night sky gradient and flat silhouettes. It must look like a frame from a high-budget 2D anime — not painterly, not semi-realistic, not glossy, not 3D, not a busy background.
+- Do NOT copy the characters, faces, hair, outfits or poses of images 1-3. This is a NEW character.
+
+GAME RULES FOR CHARACTERS: every player is an adult woman. Tall characters have a mature, curvy figure (tasteful, fully clothed, no fan-service framing); short characters look young and cute (still adults) and their figure is NOT emphasized. Each player wears her own element-themed fantasy soccer kit.
+
+CAMERA: eye level or a mild high angle (never from below), full body visible from head to boots, character large in frame, natural relaxed proportions. Hands with five fingers, feet and boots anatomically correct.
+
+CHARACTER: Taria, human midfielder, a tireless runner, lightning element, R. SHORT and slim with a young, cheerful face; bright, honest, always ready to run.
+- Hair: short messy golden-yellow hair with a lightning-bolt hair pin, a small ahoge.
+- Eyes: golden yellow.
+- Kit: sporty lightning kit — short-sleeve jersey in bright yellow and white with a zigzag lightning stripe and thin black piping, black shorts, white knee socks with yellow bands, yellow-and-white boots; a small messenger's satchel strap across her chest (former courier).
+- Pose: a ready-to-sprint stance — knees slightly bent, one foot a little forward, leaning forward with fists pumped, a big bright grin; small yellow lightning sparks crackle at her boots.
+- Background: an open countryside road beside a pitch in the evening — blue-to-pink sky with a few clouds, flat silhouettes of a signpost and distant hills.
+- Palette: yellow, white, black accents, yellow lightning glow.
+
+HARD RULES: no text, no letters, no numbers on the jersey, no logos, no watermark, no signature, no frame, no UI elements. One character only.
+
+Save the final PNG in the current working directory as taria.png. Do not create any other files. Reply with the saved file path only.
