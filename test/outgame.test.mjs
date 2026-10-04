@@ -59,7 +59,9 @@ test("아웃게임 CSS: vw/vh/dvh 단위 · 창 크기 media query 없음, 옛 4
     assert.ok(!ogNoComments.includes(sel), `outgame.css 에 훈련 전용 ${sel} 없음`);
   }
   assert.match(og, /\.meeting-cols \{[^}]*grid-template-columns: 260px minmax\(0, 1fr\);/, "미팅 2단 (260 | 1fr)");
-  for (const sel of [".week-card", ".week-plan", ".outing-grid", ".mode-chg", ".prep-opp", ".prep-edit"]) assert.ok(lesson.includes(sel), `lesson.css 에 ${sel}`);
+  for (const sel of [".week-card", ".week-plan", ".outing-grid", ".prep-opp", ".prep-edit", ".aim-link", ".tok-ghost", ".aim-ghost", ".cf-ticon.s-link"]) assert.ok(lesson.includes(sel), `lesson.css 에 ${sel}`);
+  // L40 (§16.7): 고유 카드 주 스탯 구역 ×1.5 표시(.wl-owners · .mode-chg)는 지웠다
+  for (const sel of [".wl-owners", ".mode-chg"]) assert.ok(!lesson.includes(sel), `lesson.css 에 ${sel} 없음`);
   const html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
   const links = [...html.matchAll(/href="\.\/css\/([a-z]+)\.css"/g)].map((m) => m[1]);
   assert.deepEqual(links, ["base", "outgame", "match", "lesson"], "CSS 순서: … → match → lesson");
@@ -101,11 +103,9 @@ test("저장 키: 'soccer-lesson.' 앞머리 · loadRun 은 레슨 런 저장본
   }
 });
 
-test("U2 뷰 도우미: lessonRun.mainStatsOf = cards.mainStatsOf (전술 미팅 · 경기 전 준비의 고유 카드 모드 변경 표시)", async () => {
+test("L40: lessonRun 은 mainStatsOf 를 다시 내보내지 않는다 (고유 카드 ×1.5 구역 변경 표시를 지웠다 — §16.7)", async () => {
   const lr = await import(pathToFileURL(path.join(ROOT, "js/engine/lessonRun.js")).href);
-  const cards = await import(pathToFileURL(path.join(ROOT, "js/engine/cards.js")).href);
-  assert.equal(lr.mainStatsOf, cards.mainStatsOf);
-  assert.deepEqual(["GK", "DF", "MF", "FW"].map((p) => lr.mainStatsOf(p)), [["defense", "physical"], ["defense", "physical"], ["dribble", "pass"], ["shoot", "dribble"]]);
+  assert.equal(lr.mainStatsOf, undefined);
 });
 
 test("편성 미니 필드 슬롯 자리: GK 왼쪽 → FW 오른쪽, 같은 줄은 위아래로 고르게", async () => {
@@ -401,14 +401,14 @@ test("jsdom: 아웃게임 화면 전부 스테이지 안에 그려지고 주요 
   assert.equal($(".week-lesson.recommended").dataset.zone, S.manager.recommendWeek(S.store.run, data).zone, "추천 = manager.recommendWeek");
   assert.ok($(".week-lesson.recommended .badge-accent").textContent === "추천", "추천 배지");
   assert.equal($$(".week-lesson .badge-gold").length, wv.lessons.filter((l) => l.special).length, "★ 특별 배지");
-  // 중점 구역 카드 (§14.16): 구역 이름 · "서 있을 확률 ×2 · 상승 ×1.5" · 예상 인원(expected) · 고유 ×1.5 선수(boosted). 턴 수 · 일반 목표는 머리 줄에 한 번, 특별 구역 카드는 자기 목표
+  // 중점 구역 카드 (§14.16): 구역 이름 · "서 있을 확률 ×2 · 상승 ×1.5" · 예상 인원(expected). 턴 수 · 일반 목표는 머리 줄에 한 번, 특별 구역 카드는 자기 목표
   assert.deepEqual($$(".week-lesson").map((e) => e.dataset.zone), wv.lessons.map((l) => l.zone), "레슨 카드: 구역 5");
   assert.ok($$(".week-lesson .wl-name").every((e, i) => e.textContent === OL.ZONE_LABELS[wv.lessons[i].zone]), "레슨 카드: 구역 이름");
   assert.ok($$(".week-lesson .wl-focus").every((e, i) => e.textContent.includes("서 있을 확률 ×2") && e.textContent.includes(wv.lessons[i].special ? "상승 ×2.0" : "상승 ×1.5")), "레슨 카드: 중점 효과");
   assert.deepEqual($$(".week-lesson .wl-exp b").map((e) => Number(e.textContent)), wv.lessons.map((l) => l.expected), "레슨 카드: 예상 인원 = expected");
-  // L40: 고유 카드 주 스탯 구역 ×1.5 가 없어져 뷰의 boosted 를 지웠다 → 얼굴 없음 (.wl-owners 자체를 지우는 것은 U3)
+  // L40: 고유 카드 주 스탯 구역 ×1.5 가 없어져 뷰의 boosted · 레슨 카드의 고유 ×1.5 얼굴(.wl-owners)을 지웠다
   assert.ok(wv.lessons.every((l) => !("boosted" in l)), "주 뷰 lessons[] 에 boosted 없음");
-  assert.deepEqual($$(".week-lesson").map((e) => e.querySelectorAll(".wl-owners .avatar").length), wv.lessons.map(() => 0), "레슨 카드: 고유 ×1.5 얼굴 없음");
+  assert.equal($$(".week-lesson .wl-owners").length, 0, "레슨 카드: 고유 ×1.5 칸 없음");
   const plainL = wv.lessons.find((l) => !l.special);
   assert.ok($(".week-head .week-lhead").textContent.includes(`${plainL.turns}턴`) && Number($(".week-lhead .wlh-target").textContent) === plainL.target && $(".week-lhead").textContent.includes(`퍼펙트 ${plainL.cap}`), "머리 줄: 턴 · 목표 · 퍼펙트 한 번");
   assert.deepEqual($$(".week-lesson .wl-target b").map((e) => Number(e.textContent)), wv.lessons.filter((l) => l.special).map((l) => l.target), "특별 구역 카드: 특별 목표");
@@ -513,17 +513,14 @@ test("jsdom: 아웃게임 화면 전부 스테이지 안에 그려지고 주요 
   await drag(mslot(dorbina.slot), mslot("GK"));
   assert.ok(pidAt("GK") === dorbina.id && pidAt(dorbina.slot) === neria.id, "미팅: 도르비나 GK ⇄ 네리아");
   assert.ok(mslot("GK").textContent.includes(`원래 ${dorbina.slot}`), "미팅: 옮긴 선수에 원래 자리 표시");
-  assert.equal($$("#modal-root .mode-chg").length, 0, "미팅: GK ⇄ DF 는 주 스탯 쌍이 같다 → 고유 카드 ×1.5 구역 그대로");
-  // 탭 경로: DF2(아델린 MF B) 를 누르고 → MF1(실루엔 DF C) 을 누르면 맞바꾸기 → 둘 다 고유 카드 ×1.5 구역 변경
+  // 탭 경로: DF2(아델린 MF B) 를 누르고 → MF1(실루엔 DF C) 을 누르면 맞바꾸기
   const df2 = pidAt("DF2");
   const mf1 = pidAt("MF1");
   mslot("DF2").click();
   assert.ok(mslot("DF2").classList.contains("lu-selected") && mslot("MF1").classList.contains("drop-ok"), "미팅 탭: 고른 선수 기준 색");
   mslot("MF1").click();
   assert.ok(pidAt("DF2") === mf1 && pidAt("MF1") === df2, "미팅 탭: DF2 ⇄ MF1");
-  assert.equal($$("#modal-root .mode-chg").length, 2, "미팅: DF ⇄ MF = 고유 ×1.5 구역 변경 표시 2");
-  assert.equal($(`#modal-root .lu-slot[data-slot="MF1"] .mode-chg`).textContent, "고유 ×1.5 구역 변경", "미팅: 표시 문구");
-  assert.match($(`#modal-root .lu-slot[data-slot="MF1"] .mode-chg`).title, /^고유 카드 ×1.5 구역: 수비 · 피지컬 → 드리블 · 패스$/, "미팅: ×1.5 구역 변경 설명 (주 스탯 쌍)");
+  assert.equal($$("#modal-root .mode-chg").length, 0, "미팅: L40 — 자리를 바꿔도 고유 카드는 바뀌지 않는다 (×1.5 구역 변경 표시 없음)");
   const tacSel = $('#modal-root select[data-tactic="defense"]');
   const newDef = [...tacSel.options].map((o) => o.value).find((v) => v !== mtState.tactics.defense);
   tacSel.value = newDef;
@@ -616,7 +613,7 @@ test("jsdom: 아웃게임 화면 전부 스테이지 안에 그려지고 주요 
   const pdf2 = $('.prep-edit .lu-slot[data-slot="DF2"]').dataset.pid;
   const pmf1 = $('.prep-edit .lu-slot[data-slot="MF1"]').dataset.pid;
   await drag($('.prep-edit .lu-slot[data-slot="DF2"]'), $('.prep-edit .lu-slot[data-slot="MF1"]'));
-  assert.equal($$(".prep-edit .mode-chg").length, 2, "준비: 고유 ×1.5 구역 변경 표시");
+  assert.equal($$(".prep-edit .mode-chg").length, 0, "준비: 고유 ×1.5 구역 변경 표시 없음 (L40)");
   btnByText(/^경기 시작$/, $(".prep-edit")).click();
   assert.equal(S.store.run.phase, "match", "준비: [경기 시작] → 경계전");
   assert.ok($(".match-screen"), "준비: 경기 화면");

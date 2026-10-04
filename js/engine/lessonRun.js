@@ -60,8 +60,6 @@ export {
   getModifier,
 } from "./run.js";
 export { lessonResult } from "./lesson.js";
-// UI 뷰 도우미: 포지션의 주 스탯 쌍 (L40 으로 고유 카드 ×1.5 는 없어졌다 — 미팅 · 준비의 표시 정리는 U3)
-export { mainStatsOf } from "./cards.js";
 
 export const RUN_KIND = "lessonRun";
 export const RUN_VERSION = 2;

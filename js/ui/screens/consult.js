@@ -93,7 +93,7 @@ export function renderConsult(root, ctx) {
       openModal(h('div', { class: 'col cs-confirm' },
         h('h3', {}, '고유 카드를 지울까요?'),
         h('p', { class: 'small' }, owner ? avatar(owner.portraitColor, owner.name, 'xs') : null, ` 「${sel.name}${sel.plus ? '+' : ''}」 — ${owner?.name ?? '선수'}의 고유 카드`),
-        h('p', { class: 'small muted' }, '지우면 이 런에서 되찾을 수 없습니다. 이 선수가 레슨에서 고유 카드(주 스탯 구역 ×1.5 · 캐릭터 효과)를 쓰지 못합니다.'),
+        h('p', { class: 'small muted' }, '지우면 이 런에서 되찾을 수 없습니다. 이 선수가 레슨에서 고유 카드(연계 특성 모양 · 캐릭터 효과)를 쓰지 못합니다.'),
         h('div', { class: 'row end modal-foot' },
           h('button', { class: 'btn', onclick: () => closeOverlays() }, '취소'),
           h('button', { class: 'btn btn-danger cs-confirm-del', onclick: () => actions.consultAction({ op: 'delete', uid: sel.uid }) }, `삭제 ${P.delete} TP`))),

@@ -282,6 +282,145 @@ test("jsdom: 레슨 화면 (구역) — 골격 · 조준 · 키보드 · 벤치 
   assert.equal(S.store.run.lesson.turn, cool.s.lesson.turn, "추가 사용 +1 → 같은 턴");
   noErrorToast("카드 종류별 조준");
 
+  // ---------- 고유 카드 모양 (§16.7, L40): 앞면 칩 · 이어 주기 · 자리 옮기기 · 가로지르기 · 둘레 원 — 판정 = 엔진 (UI 는 점 · 선수 · 구역만) ----------
+  /** 구역 주입 (슬롯 순서) + 손패 첫 장 = cardId (코치 지원은 뗀다) · 이번 턴 2장 */
+  const shapeFix = (base, cardId, zoneList) => {
+    const { s, uid } = withHand(base, cardId, 0);
+    s.lesson.bench = [];
+    s.lesson.zones = Object.fromEntries(s.players.map((p, i) => [p.id, zoneList[i]]));
+    if (s.lesson.attach?.cur?.uid === uid) s.lesson.attach.cur = null;
+    s.lesson.playsLeft = Math.max(2, s.lesson.playsLeft); // 낸 뒤에도 같은 턴 (옮긴 자리 · 대형을 본다)
+    return { s, uid };
+  };
+  const Z_LINK = ["defense", "defense", "physical", "pass", "dribble", "shoot", "shoot"];
+  const Z_MOVE = ["defense", "defense", "physical", "pass", "pass", "shoot", "dribble"];
+  const fxOf = (t) => (S.store.run.lesson?.lastFx || []).filter((e) => e.t === t);
+  // 앞면: 모양 칩 · 아이콘 · 배율 칩 · 비용 "/명"
+  const lk = shapeFix(lesson1, "cd_u_neria", Z_LINK);
+  putRun(lk.s);
+  const lkFace = cardOf(lk.uid);
+  assert.ok(lkFace.classList.contains("sh-link") && lkFace.querySelector(".cf-target.shape .cf-ticon.s-link"), "이어 주기 앞면: 모양 칩 + 아이콘");
+  assert.match(lkFace.querySelector(".cf-target").textContent, /^이어 주기$/);
+  assert.equal(lkFace.querySelector(".cf-pmult.shape").textContent, "받는 쪽 ×1.3", "배율 칩");
+  assert.match(lkFace.querySelector(".cf-cost").textContent, /^체력 −\d+ \/명$/, "두 명이 비용을 낸다 (/명)");
+  assert.equal(lkFace.querySelector(".cf-desc").textContent, "주인 체력 +10", "문구: 칩 · 위력 줄과 겹치는 말은 뺀다");
+  assert.equal($$(".ls-hand .card-face .cf-pmult").filter((e) => /주 스탯/.test(e.textContent)).length, 0, "주 스탯 구역 ×1.5 칩 없음");
+  // 이어 주기 조준: 주인 빛 (끄는 출발점) · 받는 후보 = 엔진 후보 · 안내
+  lkFace.click();
+  const lkCard = view().hand.find((c) => c.uid === lk.uid);
+  const lkOwner = lkCard.ownerId;
+  const lkCands = lessonRun.dropCandidates(S.store.run, data, { uid: lk.uid });
+  assert.ok($(`.tok[data-id="${lkOwner}"]`).classList.contains("shape-src"), "주인 토큰 = 끄는 출발점");
+  assert.deepEqual($$(".tok.cand").map((e) => e.dataset.id).sort(), lkCands.map((c) => c.playerId).sort(), "받는 후보 초록 테 = 엔진 후보");
+  assert.match($(".ls-info").textContent, /네리아에서 받을 선수에게 끌어 놓으세요/, "dock 안내");
+  // 조준 중 주인 토큰 누르기 = 벤치가 아니다 · 내지도 않는다
+  const ownTok = $(`.tok[data-id="${lkOwner}"]`);
+  ownTok.querySelector(".tok-face").dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true, clientX: 10, clientY: 10, button: 0 }));
+  window.dispatchEvent(new window.MouseEvent("pointerup", { bubbles: true, clientX: 10, clientY: 10 }));
+  stubField();
+  const ownAt = view().positions[lkOwner];
+  ownTok.dispatchEvent(new window.MouseEvent("click", { bubbles: true, clientX: (ownAt.x / 100) * 968, clientY: (ownAt.y / 100) * 392 }));
+  assert.equal(S.store.run.lesson.seq, lk.s.lesson.seq, "주인 토큰 누르기 = 내지 않는다");
+  assert.deepEqual(S.store.run.lesson.bench, [], "조준 중 주인 토큰 = 벤치가 아니다");
+  assert.equal(ui.aim?.uid, lk.uid, "조준 유지");
+  // 키보드: → = 첫 받는 후보 → 선 · 대상 2명 · 받는 선수 "+N ×1.3" → Enter
+  key("ArrowRight");
+  assert.equal(ui.aim.playerId, lkCands[0].playerId, "→ = 받는 후보 (playerId)");
+  assert.ok($(".aim-link.on.solid.ok"), "주인 → 받는 선수 선 (이어 주기 = 실선)");
+  const lkPv = lessonRun.previewCard(S.store.run, data, { uid: lk.uid, playerId: lkCands[0].playerId, at: lkCands[0].at });
+  const recvRow = lkPv.targets.find((t) => t.id === lkCands[0].playerId);
+  assert.equal($(`.tok[data-id="${recvRow.id}"] .tok-name`).textContent, `+${recvRow.gain} ×1.3`, "받는 선수 말풍선 +N ×1.3");
+  assert.match($(".ls-info .ls-cand").textContent, /네리아 → /, "후보 라벨 = 주인 → 받는 선수");
+  key("Enter");
+  assert.equal(S.store.run.lesson.seq, lk.s.lesson.seq + 1, "Enter = 내기");
+  assert.deepEqual(fxIds(), [lkOwner, lkCands[0].playerId].sort(), "대상 = 주인 + 받는 선수 (엔진)");
+  assert.deepEqual(fxOf("pass").map((e) => [e.from, e.to]), [[lkOwner, lkCands[0].playerId]], "pass fx");
+  await notBusy();
+  // 받는 선수를 누르면 그 선수에게 (클릭)
+  putRun(lk.s);
+  cardOf(lk.uid).click();
+  stubField();
+  const lkLast = lkCands[lkCands.length - 1];
+  clickField({ x: lkLast.at.x + 0.5, y: lkLast.at.y + 0.8 });
+  assert.equal(S.store.run.lesson.seq, lk.s.lesson.seq + 1, "받는 선수 위 클릭 = 내기");
+  assert.deepEqual(fxIds(), [lkOwner, lkLast.playerId].sort(), "누른 선수가 받는다");
+  await notBusy();
+  noErrorToast("이어 주기");
+
+  // 자리 옮기기 (타리아): 숫자 3 = 슈팅 구역 → 유령 · 화살표 · 바닥 강조 → Enter → move fx · 새 구역
+  const mv = shapeFix(lesson1, "cd_u_taria", Z_MOVE);
+  putRun(mv.s);
+  const mvFace = cardOf(mv.uid);
+  assert.ok(mvFace.querySelector(".cf-ticon.s-move") && /^체력 −\d+$/.test(mvFace.querySelector(".cf-cost").textContent), "자리 옮기기 앞면: 아이콘 · 비용 한 명");
+  mvFace.click();
+  const mvOwner = view().hand.find((c) => c.uid === mv.uid).ownerId;
+  assert.match($(".ls-info").textContent, /타리아를 옮길 구역에 놓으세요/);
+  key("3");
+  assert.equal(ui.aim.zone, "shoot", "3 = 슈팅 구역 (zone)");
+  assert.ok($(".aim-ghost.on") && $(".aim-arrow.on.ok") && $('.zone-pad.aim[data-zone="shoot"]'), "유령 · 화살표 · 놓을 구역 바닥");
+  const mvPv = lessonRun.previewCard(S.store.run, data, { uid: mv.uid, zone: "shoot" });
+  assert.match($(".aim-tag").textContent, new RegExp(`^\\+${mvPv.targets[0].gain} ×1\\.3 · 기본 `), "꼬리표 +N ×1.3 · 기본 ±b");
+  assert.match($(".ls-info .ls-zsum").textContent, /기본 훈련/, "dock: 기본 훈련 변화");
+  key("Enter");
+  assert.equal(S.store.run.lesson.seq, mv.s.lesson.seq + 1, "Enter = 내기");
+  assert.deepEqual(fxOf("move").map((e) => [e.id, e.to]), [[mvOwner, "shoot"]], "move fx");
+  assert.equal(S.store.run.lesson.zones[mvOwner], "shoot", "주인이 슈팅 구역으로");
+  await notBusy();
+  assert.equal(Number($(`.tok[data-id="${mvOwner}"]`).dataset.x), view().positions[mvOwner].x, "토큰 = 옮긴 뒤 자리");
+  // 구역 바닥 클릭 = 그 구역
+  putRun(mv.s);
+  cardOf(mv.uid).click();
+  stubField();
+  clickField(data.lesson.zones.centers.defense);
+  assert.equal(S.store.run.lesson.zones[mvOwner], "defense", "수비 구역 바닥 클릭 = 수비 구역으로");
+  await notBusy();
+  noErrorToast("자리 옮기기");
+
+  // 가로지르기 (미르카 편성): 지금 구역 숫자는 무시 · 다른 구역 → 두 행 (두 스탯)
+  const mkBase = walkLesson(data, { seed: "lesson-ui", slots: { FW2: "ch_cat_trickster" }, until: (s) => s.phase === "lesson" && s.lesson.status === "playing" }).state;
+  const mk = shapeFix(mkBase, "cd_u_mirka", Z_MOVE);
+  putRun(mk.s);
+  cardOf(mk.uid).click();
+  const mkOwner = view().hand.find((c) => c.uid === mk.uid).ownerId;
+  assert.equal(S.store.run.lesson.zones[mkOwner], "dribble");
+  assert.ok($('.zone-pad.from[data-zone="dribble"]'), "지금 구역 바닥 (.from)");
+  key("5");
+  assert.equal(ui.aim.zone ?? null, null, "지금 구역(5 = 드리블) 숫자는 무시");
+  key("3");
+  assert.equal(ui.aim.zone, "shoot");
+  assert.match($(".aim-tag").textContent, /드리블 · \+\d+ 슈팅/, "꼬리표 +a 드리블 · +b 슈팅");
+  key("Enter");
+  assert.deepEqual(S.store.run.lesson.lastFx.filter((e) => e.t === "gain" && e.id === mkOwner).map((e) => e.stat), ["dribble", "shoot"], "두 행 = 두 스탯");
+  assert.equal(S.store.run.lesson.zones[mkOwner], "shoot", "놓은 구역에 선다");
+  await notBusy();
+  noErrorToast("가로지르기");
+
+  // 둘레 작은 원 (도르비나): 카드를 누르는 순간 주인 중심 원 · 대상 = 엔진 · 실패 없음 → 한 번 더 = 내기
+  const wl = shapeFix(lesson1, "cd_u_dorbina", ["defense", "defense", "defense", "pass", "pass", "shoot", "physical"]);
+  putRun(wl.s);
+  cardOf(wl.uid).click();
+  const wlPv = lessonRun.previewCard(S.store.run, data, { uid: wl.uid });
+  assert.ok($(".aim-circle.on.owner.sz-small"), "주인 둘레 작은 원");
+  assert.deepEqual($$(".tok.target").map((e) => e.dataset.id).sort(), [...new Set(wlPv.targets.map((t) => t.id))].sort(), "원 안 = 엔진 대상");
+  assert.equal(wlPv.failRate, 0, "실패 없음");
+  assert.match($(".ls-info").textContent, /실패 없음/);
+  cardOf(wl.uid).click();
+  assert.equal(S.store.run.lesson.seq, wl.s.lesson.seq + 1, "두 번 누르기 = 내기");
+  await notBusy();
+  // 구역 전원 (아델린): 주인 구역 바닥 강조
+  const az = shapeFix(lesson1, "cd_u_adeline", ["defense", "physical", "physical", "physical", "pass", "shoot", "dribble"]);
+  putRun(az.s);
+  cardOf(az.uid).click();
+  assert.ok($('.zone-pad.aim[data-zone="physical"]'), "구역 전원: 주인 구역 바닥");
+  assert.equal($$(".tok.target").length, 3, "그 구역 3명");
+  key("Escape");
+  assert.ok(!$(".zone-pad.aim"), "Esc = 강조 지움");
+  // 크로스: 슈팅 구역에 받을 선수가 없으면 낼 수 없음 띠
+  const cx = shapeFix(lesson1, "cd_u_ulrika", ["defense", "defense", "physical", "pass", "pass", "shoot", "dribble"]);
+  putRun(cx.s);
+  assert.match(cardOf(cx.uid).querySelector(".cf-reason").textContent, /슈팅 구역에 받을 선수가 없습니다/, "크로스: 낼 수 없는 이유");
+  noErrorToast("고유 카드 모양");
+
   // ---------- 벤치: 명단 [벤치] → 벤치 칸 · 토큰 숨김 · 대형 다시 · 칸 누르기 = 복귀 · B 키 · 최대 2명 ----------
   putRun(lesson1);
   const fieldIds = Object.keys(view().positions);

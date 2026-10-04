@@ -113,7 +113,9 @@ test("fxPlan: 합성 lastFx — 카드 · 턴 끝(기본 훈련 · 벤치 회복
   const p = fxPlan(fx);
   assert.deepEqual(p.play.targets, ["p1", "p2"]);
   assert.deepEqual(p.play.cost, { p1: 8, p2: 8 }, "카드 비용 (기본 훈련 체력은 턴 끝으로)");
-  assert.deepEqual(p.play.gain, { p1: { n: 30, sub: 9, stat: "pass", subStat: "dribble" } });
+  assert.deepEqual(p.play.gain, { p1: { n: 30, sub: 9, stat: "pass", subStat: "dribble", rows: [{ n: 30, sub: 9, stat: "pass", subStat: "dribble" }] } });
+  assert.deepEqual(p.play.move, [], "옮기기 없음");
+  assert.deepEqual(p.play.pass, [], "패스 없음");
   assert.deepEqual(p.play.fail, { p2: { n: 5, injured: true, stat: "physical" } });
   assert.deepEqual(p.play.heal, { p3: 20 });
   assert.deepEqual(p.play.buffs, { hojo: 1 });
@@ -286,22 +288,46 @@ test("fxPlan: 실제 엔진 — 새 턴 붙기 attach = 뷰 attach, 붙은 카�
   if (bondAfter !== bondBefore) assert.ok(b && b.n > 0, "유대 fx");
 });
 
+// L40 (§16.3 · §16.7): 고유 카드 모양 fx — move (비용 앞) · pass (비용 뒤 · 상승 앞) · 가로지르기 = 같은 선수 두 행
+test("fxPlan: 고유 카드 모양 — move · pass · 가로지르기 두 행 (rows)", () => {
+  const carry = fxPlan([
+    { t: "move", id: "m", from: "defense", to: "pass" }, { t: "cost", id: "m", n: 10 },
+    { t: "gain", id: "m", stat: "defense", n: 20, sub: 6, subStat: "physical" }, { t: "gain", id: "m", stat: "pass", n: 25, sub: 7, subStat: "dribble" },
+    { t: "buff", key: "extraPlay", from: 0, to: 1 },
+  ]);
+  assert.deepEqual(carry.play.move, [{ id: "m", from: "defense", to: "pass" }], "move = 카드 단계");
+  assert.deepEqual(carry.play.targets, ["m"], "같은 선수 두 행 = 대상 1명");
+  assert.deepEqual(carry.play.cost, { m: 10 }, "비용 1번");
+  assert.equal(carry.play.gain.m.n, 45, "합");
+  assert.deepEqual(carry.play.gain.m.rows.map((r) => [r.stat, r.n]), [["defense", 20], ["pass", 25]], "두 행 — 두 스탯 (두 팝)");
+  assert.equal(carry.turn, null);
+  const link = fxPlan([
+    { t: "cost", id: "o", n: 8 }, { t: "cost", id: "r", n: 8 }, { t: "pass", from: "o", to: "r" },
+    { t: "gain", id: "o", stat: "defense", n: 20 }, { t: "gain", id: "r", stat: "shoot", n: 26 },
+    { t: "base", id: "o", stat: "defense", n: 4 }, { t: "turnEnd", turn: 3 },
+  ]);
+  assert.deepEqual(link.play.pass, [{ from: "o", to: "r" }], "pass = 카드 단계");
+  assert.deepEqual(link.play.move, []);
+  assert.deepEqual(link.play.targets, ["o", "r"]);
+  assert.equal(link.turn.turn, 3);
+});
+
 // 플레이 점검 (2026-10-02) · §14.16: 보상 · 상담 카드 앞면의 비용 = 엔진 1인 비용 (cards.staminaCost — 원 · 전체도 1인당, 인원 계산 없음)
 test("cards.js estimateCost/costText: 보상 · 상담 카드 비용 = 엔진 1인 비용 (기본 위력, 강화판 · 유대 80 은 비용 그대로, 고유 = 1인 비용 — L40)", async () => {
-  const { estimateCost, costText, targetText, powerText, effectDesc } = await import("../js/ui/cards.js");
+  const cardsUi = await import("../js/ui/cards.js");
+  const { estimateCost, costText, targetText, powerText, effectDesc, shapeMultChip, shapeHow, shapeDesc, shapeIconKey } = cardsUi;
   const engineCards = await import("../js/engine/cards.js");
   const data = loadData();
-  // L40: lesson.unique.mainMult 를 지웠다 → 고유 카드 비용은 1인 비용 하나 (범위 없음). 모양별 문구 ("체력 −8 /명") 는 U3
+  // L40: lesson.unique.mainMult 를 지웠다 → 고유 카드 비용은 1인 비용 하나 (범위 없음), 여러 명이 내는 모양은 "/명" (§16.7)
   assert.equal(data.lesson.lesson.unique, undefined);
-  const { uniqueMainMult } = await import("../js/ui/cards.js");
-  assert.equal(uniqueMainMult(data), 1);
+  assert.equal(cardsUi.uniqueMainMult, undefined, "uniqueMainMult 지움");
   let checked = 0;
   for (const raw of data.cards.cards) {
     for (const [plus, bond] of [[false, 0], [true, 0], [false, 100], [true, 100]]) {
       if (plus && !engineCards.canUpgrade(raw)) continue;
       const def = engineCards.resolveCardDef(data, raw, { plus, bond });
       const kind = def.target.kind;
-      const view = { cardId: raw.id, targetKind: kind, target: def.target, power: def.power ?? null, costRate: def.costRate, plus };
+      const view = { cardId: raw.id, targetKind: kind, target: def.target, power: def.power ?? null, costRate: def.costRate, plus, shape: engineCards.shapeView(def, data) };
       const est = estimateCost(view, raw);
       const tag = `${raw.id}${plus ? "+" : ""}${bond ? " 유대80" : ""}`;
       if (kind === "none" || raw.power == null) {
@@ -314,7 +340,9 @@ test("cards.js estimateCost/costText: 보상 · 상담 카드 비용 = 엔진 1�
       assert.equal(powerText(view, raw), `1인 ${def.power}`, `${tag}: 위력 줄`);
       const txt = costText(view, raw, data);
       if (kind === "owner") {
-        assert.equal(txt, `체력 −${est}`, `${tag}: 고유 = 1인 비용 하나 (L40)`);
+        const multi = ["link", "pick", "ownerCircle", "ownerZone"].includes(view.shape.kind);
+        assert.equal(txt, `체력 −${est}${multi ? " /명" : ""}`, `${tag}: 고유 = 1인 비용 하나, 여러 명 모양은 /명 (L40)`);
+        assert.ok(!/~/.test(txt), `${tag}: 범위 표기 없음`);
       } else if (kind === "circle" || kind === "all") {
         assert.equal(txt, `체력 −${est} /명`, `${tag}: 원 · 전체 = 1인당`);
       } else {
@@ -326,7 +354,9 @@ test("cards.js estimateCost/costText: 보상 · 상담 카드 비용 = 엔진 1�
   assert.ok(checked > 100, `비용 확인 ${checked}장`);
   // 손패 뷰는 엔진 cost 를 그대로 (원 · 전체 "/명")
   assert.equal(costText({ cardId: "cd_fw_drill", targetKind: "circle", size: "medium", power: 18, cost: 13 }, null), "체력 −13 /명");
-  assert.equal(costText({ cardId: "cd_u_neria", targetKind: "owner", power: 35, cost: 21 }, null), "체력 −21");
+  assert.equal(costText({ cardId: "cd_u_neria", targetKind: "owner", power: 20, cost: 8, shape: { kind: "link" } }, null), "체력 −8 /명", "이어 주기 = 두 명이 낸다");
+  assert.equal(costText({ cardId: "cd_u_taria", targetKind: "owner", power: 33, cost: 13, shape: { kind: "move" } }, null), "체력 −13", "자리 옮기기 = 한 명");
+  assert.equal(costText({ cardId: "cd_u_mirka", targetKind: "owner", power: 25, cost: 10, shape: { kind: "carry" } }, null), "체력 −10", "가로지르기 = 한 명 (두 행이어도 1번)");
   // 대상 칩
   const raw = (id) => data.cards.cards.find((c) => c.id === id);
   assert.equal(targetText({}, raw("cd_one_two")), "작은 원");
@@ -344,7 +374,32 @@ test("cards.js estimateCost/costText: 보상 · 상담 카드 비용 = 엔진 1�
   // 효과 문구: 대상 · 1인 위력 머리는 칩 · 위력 줄과 겹치므로 뺀다
   assert.equal(effectDesc("중간 원 · 1인 18, 마지막 턴에 ×2"), "마지막 턴에 ×2");
   assert.equal(effectDesc("큰 원 · 1인 15"), "");
-  assert.equal(effectDesc("주인 · 1인 35 (주 스탯 구역 ×1.5), 다음 카드 +40%"), "다음 카드 +40%");
+  // 고유 카드 8장 (§16.6): 머리 = 모양 label · 1인 N → 칩 · 위력 줄이 대신한다. 배율 칩과 같은 마디도 뺀다 (shapeDesc), 남는 말이 없으면 쓰는 법 한 줄
+  const uniq = data.cards.cards.filter((c) => c.family === "unique");
+  assert.equal(uniq.length, 8);
+  const expect = {
+    cd_u_neria: ["이어 주기", "link", "받는 쪽 ×1.3", "주인 체력 +10"],
+    cd_u_dorbina: ["둘레 작은 원", "ownerCircle", null, "실패 없음, GK·DF 체력 +10"],
+    cd_u_adeline: ["구역 전원", "ownerZone", null, "팀워크 +2, 체력 +3"],
+    cd_u_silluen: ["연결", "pick", "고른 쪽 ×1.5", ""],
+    cd_u_taria: ["자리 옮기기", "move", "옮긴 구역 ×1.3", "다음 턴 손패 +1"],
+    cd_u_ulrika: ["크로스", "cross", null, "슈팅 구역 1명과, 팀워크 +1"],
+    cd_u_greta: ["둘레 중간 원", "ownerCircle", "주인 ×1.5", "다음 카드 비용 0"],
+    cd_u_mirka: ["가로지르기", "carry", null, "두 구역 스탯, 추가 사용 +1, 주인 체력 −5"],
+  };
+  for (const c of uniq) {
+    const def = engineCards.resolveCardDef(data, c, {});
+    const sh = engineCards.shapeView(def, data);
+    const [chip, icon, mult, rest] = expect[c.id];
+    assert.ok(c.desc.startsWith(`${sh.label} · 1인 ${c.power}`), `${c.id}: 문구 머리 = 모양 label`);
+    assert.equal(targetText({ shape: sh }, c), chip, `${c.id}: 대상 칩 = 모양 chip`);
+    assert.equal(shapeIconKey(sh), icon, `${c.id}: 아이콘`);
+    assert.equal(shapeMultChip(sh)?.text ?? null, mult, `${c.id}: 배율 칩`);
+    assert.equal(shapeDesc(effectDesc(c.desc), sh), rest, `${c.id}: 칩 · 위력 줄과 겹치지 않는 문구`);
+    assert.ok(shapeHow(sh, "선수").length > 0, `${c.id}: 쓰는 법`);
+  }
+  assert.equal(shapeHow({ kind: "pick", recvMult: 1.5 }, "실루엔"), "실루엔 + 고른 1명");
+  assert.equal(shapeMultChip({ kind: "owner", zoneMult: { zones: ["shoot"], mult: 2 } }).text, "슈팅 ×2", "마무리 (피니셔 — 카드 없음)");
   assert.equal(effectDesc("큰 원 · 1인 12 + 분위기 1당 0.9"), "+ 분위기 1당 0.9");
   assert.equal(effectDesc("공격 구역 단일 · 1인 30, 탈취 스택당 +45%"), "탈취 스택당 +45%");
   assert.equal(effectDesc("분위기 +3"), "분위기 +3", "효과 카드는 그대로");

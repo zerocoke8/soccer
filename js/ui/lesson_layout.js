@@ -85,7 +85,10 @@ export function circlePx(r, aspect, W = FIELD_PX.w, H = FIELD_PX.h) {
  *   턴 끝  base (기본 훈련) · cost(src base) → heal(src bench) → buff (분위기 감소) → turnEnd → (레슨 끝: heal · end) | (scatter → draw)
  *   벤치   bench 하나 (benchPlayer)
  *  - play.targets = 상승 · 실패가 나온 선수 (제자리에서 훈련 동작, 엔진 순서 = 대상 T 순서), play.gain[id] = { n, sub, stat, subStat }, play.fail[id] = { n, injured, stat }
+ *    gain[id].rows = 행마다 [{ n, sub, stat, subStat }] (고유 가로지르기 = 같은 선수 두 행 — 두 스탯, §16.3)
  *  - play.heal = 카드 효과 회복 (선수별 합), play.buffs = 바뀐 버프 키 (마지막 값), play.tw = 팀워크 합
+ *  - play.move = 고유 자리 옮기기 · 가로지르기 [{ id, from, to }] (엔진이 비용 앞에 둔다 — 토큰이 먼저 뛰어간다), 없으면 []
+ *  - play.pass = 고유 이어 주기 · 연결 · 크로스 [{ from, to }] (비용 뒤 · 상승 앞 — 공이 주인 → 받는 선수), 없으면 []
  *  - turn = 턴 끝이 있었으면 { base: { id: n }, baseStat: { id: stat }, baseCost: { id: n }, bench: { id: 회복 }, heal: { id: n }, buffs, turn } (없으면 null)
  *  - scatter = 새 턴 흩어지기 { id: zone } (없으면 null), draw = 새 손패 uid (없으면 null)
  *  - bench = 벤치 행동 [{ id, on }] (없으면 [])
@@ -97,7 +100,7 @@ export function circlePx(r, aspect, W = FIELD_PX.w, H = FIELD_PX.h) {
  * @param {Array<object>} fx
  */
 export function fxPlan(fx) {
-  const play = { targets: [], cost: {}, gain: {}, fail: {}, heal: {}, buffs: {}, tw: 0, bond: [], hints: [], condition: 0 };
+  const play = { targets: [], cost: {}, gain: {}, fail: {}, heal: {}, buffs: {}, tw: 0, bond: [], hints: [], condition: 0, move: [], pass: [] };
   let cutin = null;
   let attach = null;
   let turn = null;
@@ -127,9 +130,19 @@ export function fxPlan(fx) {
       case 'gain': {
         if (!play.targets.includes(e.id)) play.targets.push(e.id);
         const g = play.gain[e.id];
-        play.gain[e.id] = { n: (g?.n || 0) + num(e.n), sub: (g?.sub || 0) + num(e.sub), stat: e.stat ?? g?.stat ?? null, subStat: e.subStat ?? g?.subStat ?? null };
+        const row = { n: num(e.n), sub: num(e.sub), stat: e.stat ?? null, subStat: e.subStat ?? null };
+        play.gain[e.id] = {
+          n: (g?.n || 0) + row.n, sub: (g?.sub || 0) + row.sub, stat: e.stat ?? g?.stat ?? null, subStat: e.subStat ?? g?.subStat ?? null,
+          rows: [...(g?.rows || []), row],
+        };
         break;
       }
+      case 'move':
+        if (seg === 'play') play.move.push({ id: e.id ?? null, from: e.from ?? null, to: e.to ?? null });
+        break;
+      case 'pass':
+        if (seg === 'play') play.pass.push({ from: e.from ?? null, to: e.to ?? null });
+        break;
       case 'fail':
         if (!play.targets.includes(e.id)) play.targets.push(e.id);
         play.fail[e.id] = { n: num(e.n), injured: !!e.injured, stat: e.stat ?? null };

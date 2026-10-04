@@ -19,13 +19,13 @@ export function playMatch(data, setup) {
   return match.getResult(ms);
 }
 
-/** 기본 편성 레슨 런 */
-export function defaultLessonRun(data, { seed = 1, policy } = {}) {
+/** 기본 편성 레슨 런 (slots = 기본 편성의 자리를 다른 캐릭터로 — 미르카 장면 { FW2: "ch_cat_trickster" }) */
+export function defaultLessonRun(data, { seed = 1, policy, slots } = {}) {
   const cfg = data.config;
   return lessonRun.createRun({
     data,
     seed,
-    squad: cfg.defaultSquad && cfg.defaultSquad.slots,
+    squad: cfg.defaultSquad && { ...cfg.defaultSquad.slots, ...(slots || {}) },
     formation: cfg.defaultSquad && cfg.defaultSquad.formation,
     supportIds: cfg.defaultSupports,
     tactics: cfg.defaultTactics,
@@ -39,8 +39,8 @@ export function defaultLessonRun(data, { seed = 1, policy } = {}) {
  * @param {{ seed?, policy?, until: (state) => boolean, maxSteps? }} opts
  * @returns {{ state: object, steps: number } | null}
  */
-export function walkLesson(data, { seed = 1, policy, until, maxSteps = 3000 } = {}) {
-  const state = defaultLessonRun(data, { seed, policy });
+export function walkLesson(data, { seed = 1, policy, until, maxSteps = 3000, slots } = {}) {
+  const state = defaultLessonRun(data, { seed, policy, slots });
   for (let steps = 0; steps <= maxSteps; steps++) {
     if (until(state)) return { state: clone(state), steps };
     if (state.phase === "finished") break;
@@ -242,6 +242,50 @@ const playMid = (prepared, ms) => [
   { click: `.ls-hand .card-face[data-uid="${prepared.info.uid}"]` }, { hoverAt: { sel: FIELD, ...prepared.info.at } },
   { freeze: false }, { clickAt: { sel: FIELD, ...prepared.info.at }, waitMs: 0 }, { wait: ms }, { pauseAnim: true }, { freeze: true },
 ];
+
+// ---- 고유 카드 모양 시나리오 도우미 (§16.7, L40) ----
+/** 미르카 편성 (FW2 = 미르카 — 기본 편성에는 없다) */
+const MIRKA = { FW2: "ch_cat_trickster" };
+/**
+ * 고유 카드 모양 장면: 2턴째 이후 (마지막 턴 아님 · 결장 없음 · 낼 수 있음) 레슨에서 구역을 주입하고 (슬롯 순서 7개) 손패 앞 장들을 cardIds 로 바꾼다.
+ * 코치 지원이 그 자리에 붙어 있으면 뗀다 (모양만 보이게). info = { uid (첫 장), uids, ownerId, pos: 경기장 위치, centers: 구역 중심 }
+ */
+function shapeScene(name, data, runSeed, cardIds, zoneList, { slots } = {}) {
+  const b = walkOrThrow(name, data, {
+    seed: runSeed, slots,
+    until: (s) => playingLesson(s) && s.lesson.turn >= 2 && s.lesson.turn < s.lesson.turns && !s.lesson.out.length && s.lesson.playsLeft >= 1 && s.lesson.hand.length >= cardIds.length,
+  });
+  const st = b.runState;
+  st.lesson.bench = [];
+  if (zoneList) st.lesson.zones = Object.fromEntries(st.players.map((p, i) => [p.id, zoneList[i]]));
+  // 손패에 이미 있는 고유 카드는 그대로 쓰고 (같은 카드가 두 장 보이지 않게), 없는 카드만 남은 앞 칸에 주입한다
+  const cardOfUid = (uid) => st.deck.find((d) => d.uid === uid)?.cardId;
+  const have = new Map(st.lesson.hand.map((uid) => [cardOfUid(uid), uid]));
+  const taken = new Set(cardIds.map((id) => have.get(id)).filter(Boolean));
+  const free = st.lesson.hand.map((uid, i) => (taken.has(uid) ? -1 : i)).filter((i) => i >= 0);
+  const uids = cardIds.map((id) => have.get(id) || withHandCard(st, id, free.shift()));
+  if (st.lesson.attach?.cur && uids.includes(st.lesson.attach.cur.uid)) st.lesson.attach.cur = null;
+  const v = lessonRun.getLessonView(st, data);
+  const card = v.hand.find((c) => c.uid === uids[0]);
+  return {
+    ...b,
+    info: { uid: uids[0], uids, cardId: cardIds[0], ownerId: card?.ownerId ?? null, pos: v.positions, centers: v.zoneCfg.centers },
+    summary: `${b.summary} (손패 = ${cardIds.join(" · ")}${zoneList ? `, 구역 주입: ${zoneList.join(" · ")}` : ""})`,
+  };
+}
+const handSel = (uid) => `.ls-hand .card-face[data-uid="${uid}"]`;
+const ownerFace = (prepared) => `.lesson-screen .tok[data-id="${prepared.info.ownerId}"] .tok-face`;
+/** 경기장 점 = 선수 위치 · 구역 중심 (필드 %) */
+const atPlayer = (prepared, id) => ({ x: prepared.info.pos[id].x, y: prepared.info.pos[id].y });
+const atZone = (prepared, z) => ({ x: prepared.info.centers[z].x, y: prepared.info.centers[z].y });
+/** 장면 배치 (슬롯 순서 GK · DF1 · DF2 · MF1 · MF2 · FW1 · FW2 = 네리아 · 도르비나 · 아델린 · 실루엔 · 타리아 · 울리카 · 그레타/미르카) */
+const Z_LINK = ["defense", "defense", "physical", "pass", "dribble", "shoot", "shoot"];
+const Z_CROSS = ["defense", "defense", "physical", "pass", "shoot", "dribble", "shoot"];
+const Z_CROSS_DEAD = ["defense", "defense", "physical", "pass", "pass", "shoot", "dribble"];
+const Z_WALL = ["defense", "defense", "defense", "pass", "pass", "shoot", "physical"];
+const Z_ZONE = ["defense", "physical", "physical", "physical", "pass", "shoot", "dribble"];
+const Z_POST = ["defense", "defense", "pass", "shoot", "dribble", "shoot", "shoot"];
+const Z_MOVE = ["defense", "defense", "physical", "pass", "pass", "shoot", "dribble"];
 
 // 아웃게임 시나리오 모양은 tools/scenarios.mjs 머리말 (og_*). 진입 = 시작 화면 [이어하기] (레슨 런 저장본)
 export const LESSON_OG_SCENARIOS = [
@@ -558,6 +602,212 @@ export const LESSON_OG_SCENARIOS = [
     ready: ".lesson-screen .aim-circle.on.ok",
     expect: { screen: "run", phase: "lesson", modal: false },
   },
+  // ---- 고유 카드 모양 (§16.7, L40): 모양 칩 · 이어 주기 · 연결 · 크로스 · 둘레 원 · 구역 전원 · 자리 옮기기 · 가로지르기 ----
+  {
+    // 손패 고유 카드 4장 앞면: 모양 칩 · 아이콘 · 배율 칩 · 비용 (/명 · 한 명)
+    name: "og_lesson_u_hand",
+    title: "레슨 — 고유 카드 앞면 (이어 주기 · 자리 옮기기 · 크로스 · 둘레 중간 원)",
+    outgame: true,
+    build: (data, { runSeed }) => shapeScene("og_lesson_u_hand", data, runSeed, ["cd_u_neria", "cd_u_taria", "cd_u_ulrika", "cd_u_greta"], Z_CROSS),
+    ready: ".lesson-screen .card-face.sh-link .cf-ticon.s-link",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 손패 고유 카드 나머지 4장 (미르카 편성): 연결 · 둘레 작은 원 · 구역 전원 · 가로지르기
+    name: "og_lesson_u_hand2",
+    title: "레슨 — 고유 카드 앞면 (연결 · 둘레 작은 원 · 구역 전원 · 가로지르기)",
+    outgame: true,
+    build: (data, { runSeed }) => shapeScene("og_lesson_u_hand2", data, runSeed, ["cd_u_silluen", "cd_u_dorbina", "cd_u_adeline", "cd_u_mirka"], Z_MOVE, { slots: MIRKA }),
+    ready: ".lesson-screen .card-face.sh-carry .cf-ticon.s-carry",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 이어 주기: 조준 → 네리아 토큰을 끌어 슈팅 구역 울리카 위에 (누른 채) — 선 + 공 · 받는 선수 "+N ×1.3" · 꼬리표
+    name: "og_lesson_u_link",
+    title: "레슨 — 이어 주기: 네리아 토큰을 끌어 받는 선수에게 (선 · ×1.3)",
+    outgame: true,
+    build: (data, { runSeed }) => shapeScene("og_lesson_u_link", data, runSeed, ["cd_u_neria"], Z_LINK),
+    steps: (prepared) => [{ click: handSel(prepared.info.uid) }, { drag: { from: ownerFace(prepared), to: FIELD, at: atPlayer(prepared, "p6"), steps: 16 } }],
+    ready: ".lesson-screen.dragging .aim-link.on.solid.ok",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 이어 주기 조준 (끌기 전): 네리아 빛 (끄는 출발점) · 받는 후보 초록 테 · dock 안내 "네리아에서 받을 선수에게 끌어 놓으세요"
+    name: "og_lesson_u_link_aim",
+    title: "레슨 — 이어 주기 조준: 주인 빛 · 받는 후보 · 안내",
+    outgame: true,
+    build: (data, { runSeed }) => shapeScene("og_lesson_u_link_aim", data, runSeed, ["cd_u_neria"], Z_LINK),
+    steps: (prepared) => [{ click: handSel(prepared.info.uid) }],
+    ready: ".lesson-screen .tok.shape-src",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 이어 주기 끄는 중 — 받는 선수가 아닌 빈 자리 (빨강 선 · 이유)
+    name: "og_lesson_u_link_bad",
+    title: "레슨 — 이어 주기 끄는 중: 빈 자리 (빨강 · 받을 선수 위에)",
+    outgame: true,
+    build: (data, { runSeed }) => shapeScene("og_lesson_u_link_bad", data, runSeed, ["cd_u_neria"], Z_LINK),
+    steps: (prepared) => [{ click: handSel(prepared.info.uid) }, { drag: { from: ownerFace(prepared), to: FIELD, at: { x: 50, y: 55 }, steps: 12 } }],
+    ready: ".lesson-screen .aim-link.on.bad",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 연결: 조준 hover 그레타 (슈팅) — 점선 · "+N ×1.5"
+    name: "og_lesson_u_pick",
+    title: "레슨 — 연결: 실루엔 + 고른 선수 (점선 · ×1.5)",
+    outgame: true,
+    build: (data, { runSeed }) => shapeScene("og_lesson_u_pick", data, runSeed, ["cd_u_silluen"], Z_LINK),
+    steps: (prepared) => [{ click: handSel(prepared.info.uid) }, { hoverAt: { sel: FIELD, ...atPlayer(prepared, "p7") } }],
+    ready: ".lesson-screen .aim-link.on.dash.ok",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 크로스: 슈팅 구역 바닥 빛 · 그 밖 선수 흐리게 · 울리카 → 슈팅 구역 그레타 (주황 점선)
+    name: "og_lesson_u_cross",
+    title: "레슨 — 크로스: 슈팅 구역 강조 · 울리카 → 슈팅 구역 선수",
+    outgame: true,
+    build: (data, { runSeed }) => shapeScene("og_lesson_u_cross", data, runSeed, ["cd_u_ulrika"], Z_CROSS),
+    steps: (prepared) => [{ click: handSel(prepared.info.uid) }, { hoverAt: { sel: FIELD, ...atPlayer(prepared, "p7") } }],
+    ready: ".lesson-screen .zone-pad.aim[data-zone=shoot]",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 크로스를 낼 수 없음: 슈팅 구역에 울리카 혼자 — 카드 흐림 + 이유 띠
+    name: "og_lesson_u_cross_dead",
+    title: "레슨 — 크로스 낼 수 없음 (슈팅 구역에 받을 선수 없음)",
+    outgame: true,
+    build: (data, { runSeed }) => shapeScene("og_lesson_u_cross_dead", data, runSeed, ["cd_u_ulrika"], Z_CROSS_DEAD),
+    ready: ".lesson-screen .card-face.dim .cf-reason",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 둘레 작은 원: 카드를 누르는 순간 도르비나 중심 원 · 원 안 선수 +N · 실패 없음
+    name: "og_lesson_u_wall",
+    title: "레슨 — 둘레 작은 원: 도르비나 중심 원 (실패 없음)",
+    outgame: true,
+    build: (data, { runSeed }) => shapeScene("og_lesson_u_wall", data, runSeed, ["cd_u_dorbina"], Z_WALL),
+    steps: (prepared) => [{ click: handSel(prepared.info.uid) }],
+    ready: ".lesson-screen .aim-circle.on.owner.sz-small",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 구역 전원: 아델린 구역 바닥 빛 · 그 구역 전원 +N · 팀워크 +2
+    name: "og_lesson_u_zone",
+    title: "레슨 — 구역 전원: 아델린 구역 바닥 · 팀워크 +2",
+    outgame: true,
+    build: (data, { runSeed }) => shapeScene("og_lesson_u_zone", data, runSeed, ["cd_u_adeline"], Z_ZONE),
+    steps: (prepared) => [{ click: handSel(prepared.info.uid) }],
+    ready: ".lesson-screen .zone-pad.aim",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 둘레 중간 원: 그레타 중심 원 · 그레타 "+N ×1.5"
+    name: "og_lesson_u_post",
+    title: "레슨 — 둘레 중간 원: 그레타 중심 · 주인 ×1.5",
+    outgame: true,
+    build: (data, { runSeed }) => shapeScene("og_lesson_u_post", data, runSeed, ["cd_u_greta"], Z_POST),
+    steps: (prepared) => [{ click: handSel(prepared.info.uid) }],
+    ready: ".lesson-screen .aim-circle.on.owner.sz-medium",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 자리 옮기기: 조준 → 타리아 토큰을 끌어 슈팅 구역에 (누른 채) — 포인터 유령 · 슈팅 바닥 · 화살표 · 옮길 자리 점 · "+N ×1.3 · 기본 +b"
+    name: "og_lesson_u_move",
+    title: "레슨 — 자리 옮기기: 타리아 토큰을 슈팅 구역으로 끄는 중",
+    outgame: true,
+    build: (data, { runSeed }) => shapeScene("og_lesson_u_move", data, runSeed, ["cd_u_taria"], Z_MOVE),
+    steps: (prepared) => [{ click: handSel(prepared.info.uid) }, { drag: { from: ownerFace(prepared), to: FIELD, at: { x: 83, y: 26 }, steps: 16 } }],
+    ready: ".lesson-screen .aim-ghost.on.follow",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 자리 옮기기 — 카드를 끌어 수비 구역에 (누른 채): 같은 표시
+    name: "og_lesson_u_move_card",
+    title: "레슨 — 자리 옮기기: 카드를 수비 구역으로 끄는 중",
+    outgame: true,
+    build: (data, { runSeed }) => shapeScene("og_lesson_u_move_card", data, runSeed, ["cd_u_taria"], Z_MOVE),
+    steps: (prepared) => [{ drag: { from: handSel(prepared.info.uid), to: FIELD, at: atZone(prepared, "defense"), steps: 16 } }],
+    ready: ".lesson-screen.dragging .aim-arrow.on",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 자리 옮기기 조준 + 키 3 (슈팅): 옮긴 자리 유령 · 화살표 · 꼬리표 · dock 기본 훈련 변화
+    name: "og_lesson_u_move_key",
+    title: "레슨 — 자리 옮기기 키보드: 3 = 슈팅 구역 (유령 · 화살표)",
+    outgame: true,
+    build: (data, { runSeed }) => shapeScene("og_lesson_u_move_key", data, runSeed, ["cd_u_taria"], Z_MOVE),
+    steps: (prepared) => [{ click: handSel(prepared.info.uid) }, { hoverAt: { sel: ".ls-dock .ls-info", x: 50, y: 50 } }, { key: "3" }],
+    ready: ".lesson-screen .aim-ghost.on:not(.follow)",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 자리 옮기기를 낸 직후: 타리아가 슈팅 구역으로 뛰어가 두 대형이 다시 모인 뒤 훈련 동작
+    name: "og_lesson_u_move_after",
+    title: "레슨 — 자리 옮기기를 낸 뒤: 옮긴 대형 · 훈련 동작",
+    outgame: true,
+    build: (data, { runSeed }) => shapeScene("og_lesson_u_move_after", data, runSeed, ["cd_u_taria"], Z_MOVE),
+    steps: (prepared) => [
+      { click: handSel(prepared.info.uid) }, { freeze: false }, { clickAt: { sel: FIELD, ...atZone(prepared, "shoot") }, waitMs: 0 }, { wait: 600 }, { pauseAnim: true }, { freeze: true },
+    ],
+    ready: ".lesson-screen .tok.drilling",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 가로지르기 (미르카 편성): 조준 hover 슈팅 구역 — 지금 구역(드리블) 하늘 점선 · 놓을 구역 분홍 · 꼬리표 "+a 드리블 · +b 슈팅"
+    name: "og_lesson_u_carry",
+    title: "레슨 — 가로지르기: 미르카 드리블 → 슈팅 (두 바닥 · 두 스탯)",
+    outgame: true,
+    build: (data, { runSeed }) => shapeScene("og_lesson_u_carry", data, runSeed, ["cd_u_mirka"], Z_MOVE, { slots: MIRKA }),
+    steps: (prepared) => [{ click: handSel(prepared.info.uid) }, { hoverAt: { sel: FIELD, ...atZone(prepared, "shoot") } }],
+    ready: ".lesson-screen .zone-pad.from",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 가로지르기를 지금 구역에: 빨강 "다른 구역에 놓으세요"
+    name: "og_lesson_u_carry_bad",
+    title: "레슨 — 가로지르기를 지금 구역에 (빨강 — 다른 구역에)",
+    outgame: true,
+    build: (data, { runSeed }) => shapeScene("og_lesson_u_carry_bad", data, runSeed, ["cd_u_mirka"], Z_MOVE, { slots: MIRKA }),
+    steps: (prepared) => [{ click: handSel(prepared.info.uid) }, { hoverAt: { sel: FIELD, x: atZone(prepared, "dribble").x + 5, y: atZone(prepared, "dribble").y - 8 } }],
+    ready: ".lesson-screen .zone-pad.bad",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 가로지르기를 낸 뒤: 두 스탯 두 팝 (위아래)
+    name: "og_lesson_u_carry_play",
+    title: "레슨 — 가로지르기를 낸 뒤: 두 구역 스탯 두 팝",
+    outgame: true,
+    build: (data, { runSeed }) => shapeScene("og_lesson_u_carry_play", data, runSeed, ["cd_u_mirka"], Z_MOVE, { slots: MIRKA }),
+    steps: (prepared) => [
+      { click: handSel(prepared.info.uid) }, { freeze: false }, { clickAt: { sel: FIELD, ...atZone(prepared, "shoot") }, waitMs: 0 }, { wait: 900 }, { pauseAnim: true }, { freeze: true },
+    ],
+    ready: ".lesson-screen .ls-pop.row1",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 이어 주기를 낸 직후: 공 호가 네리아 → 울리카로 (중간 프레임)
+    name: "og_lesson_u_link_play",
+    title: "레슨 — 이어 주기를 낸 직후: 공이 받는 선수에게",
+    outgame: true,
+    build: (data, { runSeed }) => shapeScene("og_lesson_u_link_play", data, runSeed, ["cd_u_neria"], Z_LINK),
+    steps: (prepared) => [
+      { click: handSel(prepared.info.uid) }, { freeze: false }, { clickAt: { sel: FIELD, ...atPlayer(prepared, "p6") }, waitMs: 0 }, { wait: 150 }, { pauseAnim: true }, { freeze: true },
+    ],
+    ready: ".lesson-screen .ls-ball",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 이어 주기를 낸 뒤: 받는 선수 "+N ×1.3" 팝 (모양 색)
+    name: "og_lesson_u_link_pop",
+    title: "레슨 — 이어 주기를 낸 뒤: 받는 선수 +N ×1.3",
+    outgame: true,
+    build: (data, { runSeed }) => shapeScene("og_lesson_u_link_pop", data, runSeed, ["cd_u_neria"], Z_LINK),
+    steps: (prepared) => [
+      { click: handSel(prepared.info.uid) }, { freeze: false }, { clickAt: { sel: FIELD, ...atPlayer(prepared, "p6") }, waitMs: 0 }, { wait: 760 }, { pauseAnim: true }, { freeze: true },
+    ],
+    ready: ".lesson-screen .ls-pop.shape",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
   {
     // 전체 카드(기초 훈련)를 낸 직후: 경기장 7명이 제자리에서 훈련 동작 · "+N" 팝 (타이머를 풀고 [내기] → 430ms 뒤 다시 고정)
     name: "og_lesson_mid",
@@ -690,7 +940,8 @@ export const LESSON_OG_SCENARIOS = [
     build: (data, { runSeed }) => {
       // 코치 지원이 붙은 카드는 빼고 (컷인이 먼저라 1.25초 지점이 달라진다). 붙기 rng (§15) 로 seed 1 에서 못 찾으면 seed 를 바꿔 찾는다
       const rangeCard = (s) => lessonHand(data, s).find((c) => isAllCard(c) && c.playable && !c.attach);
-      const cond = (s) => playingLesson(s) && s.lesson.buffs.mood > 0 && s.lesson.playsLeft === 1 && !!rangeCard(s);
+      // 퍼펙트까지 여유가 있어야 턴 끝 연출이 나온다 (카드 한 장으로 퍼펙트면 레슨이 끝난다)
+      const cond = (s) => playingLesson(s) && s.lesson.buffs.mood > 0 && s.lesson.playsLeft === 1 && !!rangeCard(s) && s.lesson.turn < s.lesson.turns && s.lesson.cap - s.lesson.score > 150;
       let found = null;
       for (let k = 0; k < 30 && !found; k++) found = walkLesson(data, { seed: k ? `${runSeed}-turnend-${k}` : runSeed, policy: "team", until: cond });
       if (!found) throw new Error("[og_lesson_turnend] 상태를 찾지 못했습니다");
@@ -763,6 +1014,21 @@ export const LESSON_OG_SCENARIOS = [
     expect: { screen: "run", phase: "reward", modal: ".reward-modal" },
   },
   {
+    // 보상 후보에 고유 카드 강화 (주입 — 후보 첫 장 = 덱의 네리아 고유 카드 강화판): 앞면 모양 칩 · 아이콘 · 배율 칩
+    name: "og_reward_unique",
+    title: "레슨 결과 — 보상 후보에 고유 카드 강화 (모양 칩 · 배율 칩)",
+    outgame: true,
+    build: (data, { runSeed }) => {
+      const b = walkOrThrow("og_reward_unique", data, { seed: runSeed, until: (s) => s.phase === "reward" && s.pendingReward?.result?.status === "clear" && s.pendingReward.offer.length > 0 });
+      const st = b.runState;
+      const e = st.deck.find((d) => d.cardId === "cd_u_neria");
+      st.pendingReward.offer[0] = { cardId: "cd_u_neria", plus: true, kind: "upgrade", uid: e.uid };
+      return { ...b, summary: `${b.summary} (보상 후보 첫 장 = 네리아 고유 카드 강화 주입)` };
+    },
+    ready: "#modal-root .reward-modal .rw-offer .card-face.sh-link",
+    expect: { screen: "run", phase: "reward", modal: ".reward-modal" },
+  },
+  {
     // 클리어 보상에서 카드 1장(추천 카드, 없으면 첫 장)을 고른 상태: 금색 테두리 · 설명 · [확인] 켜짐
     name: "og_reward_pick",
     title: "레슨 결과 — 카드를 고른 상태 (설명 · [확인] 켜짐)",
@@ -807,7 +1073,16 @@ export const LESSON_OG_SCENARIOS = [
     name: "og_reward_fail",
     title: "레슨 결과 — 실패: 결과 머리 + 보상 없음 + [계속]",
     outgame: true,
-    build: (data, { runSeed }) => walkOrThrow("og_reward_fail", data, { seed: runSeed, until: (s) => s.phase === "reward" && s.pendingReward?.result?.status === "fail" }),
+    build: (data, { runSeed }) => {
+      // L39 (목표 20% 낮춤) · L40 보정 뒤로 감독 AI 레슨은 거의 실패하지 않는다 → 마지막 턴 점수를 낮춰 주입하고 [턴 끝] (엔진이 실패로 끝낸다)
+      const found = walkLesson(data, { seed: runSeed, until: (s) => playingLesson(s) && s.lesson.turn === s.lesson.turns });
+      if (!found) throw new Error("[og_reward_fail] 마지막 턴을 찾지 못했습니다");
+      const st = found.state;
+      st.lesson.score = Math.floor(st.lesson.target * 0.6);
+      lessonRun.endLessonTurn(st, data);
+      if (st.phase !== "reward" || st.pendingReward?.result?.status !== "fail") throw new Error("[og_reward_fail] 실패 결과가 아닙니다");
+      return { runState: st, steps: found.steps + 1, preferred: true, summary: `${describeLessonRun(st)} (마지막 턴 점수 주입 → 실패)` };
+    },
     ready: "#modal-root .reward-modal .rw-none",
     expect: { screen: "run", phase: "reward", modal: ".reward-modal" },
   },
@@ -878,13 +1153,13 @@ export const LESSON_OG_SCENARIOS = [
     expect: { screen: "run", phase: "prep", modal: false },
   },
   {
-    // 경기 전 준비 편집: DF2 아델린(MF B)을 끌어 MF1 실루엔(DF C)에 놓기 (맞바꾸기) → 자리 변경 표시 · 고유 카드 모드 변경 알약
+    // 경기 전 준비 편집: DF2 아델린(MF B)을 끌어 MF1 실루엔(DF C)에 놓기 (맞바꾸기) → 자리 변경 표시 ("← 원래")
     name: "og_prep_swap",
-    title: "경기 전 준비 — DF2 ↔ MF1 맞바꾼 뒤 (← 원래 · 고유 카드 모드 변경)",
+    title: "경기 전 준비 — DF2 ↔ MF1 맞바꾼 뒤 (← 원래)",
     outgame: true,
     build: (data, { runSeed }) => walkOrThrow("og_prep_swap", data, { seed: runSeed, until: (s) => s.phase === "prep" }),
     steps: [{ drag: { from: '.prep-edit .lu-slot[data-slot="DF2"]', to: '.prep-edit .lu-slot[data-slot="MF1"]', release: true } }],
-    ready: ".prep-screen .mode-chg",
+    ready: ".prep-screen .lu-slot[data-slot=\"MF1\"] .warn",
     expect: { screen: "run", phase: "prep", modal: false },
   },
   // ---- 이벤트 · 유물 · 루트 · 결과 (레슨 런, I1) ----

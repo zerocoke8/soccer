@@ -27,13 +27,11 @@ import { lineupBoard, reseat, lineupIssues, meetingSwaps } from './lineup.js';
  */
 export function meetingEditor(ctx, o) {
   const data = ctx?.data || {};
-  const runMod = ctx?.run || null;
   const state = o.state || {};
   const runPlayers = Array.isArray(state.players) ? state.players : [];
   const viewById = new Map((Array.isArray(o.players) ? o.players : runPlayers).map((p) => [p.id, p]));
   const runById = new Map(runPlayers.map((p) => [p.id, p]));
   const charById = new Map((data.characters || []).map((c) => [c.id, c]));
-  const cardById = new Map(((data.cards && data.cards.cards) || []).map((c) => [c.id, c]));
   const allIds = runPlayers.map((p) => p.id);
   const tactics = { ...(state.tactics || {}) };
   let formation = state.formation || '2-2-2';
@@ -41,20 +39,6 @@ export function meetingEditor(ctx, o) {
   // 적성: 런 선수의 aptitude (없으면 캐릭터 데이터). 배치 규칙 = 엔진 validateSquad (lineup.js canPlay)
   const aptOf = (pid, pos) => runById.get(pid)?.aptitude?.[pos] ?? charById.get(runById.get(pid)?.charId)?.aptitude?.[pos] ?? '-';
   const nameOf = (pid) => runById.get(pid)?.name ?? pid;
-  // 고유 카드: 덱에 주인 카드가 있는 선수만. ×1.5 구역 = 포지션 주 스탯 쌍(cards.mainStatsOf, §14.10) — 자리를 옮겨 쌍이 바뀌면 표시
-  const deckOwners = new Set((Array.isArray(state.deck) ? state.deck : []).map((e) => cardById.get(e.cardId)).filter((c) => c && c.family === 'unique').map((c) => c.ownerCharId));
-  const mainsOf = (pos) => {
-    try { return typeof runMod?.mainStatsOf === 'function' && pos ? runMod.mainStatsOf(pos) : null; } catch (_) { return null; }
-  };
-  const statText = (arr) => (arr || []).map((k) => L.STAT_LABELS[k] ?? k).join(' · ');
-  function modeChange(pid, slot) {
-    const p = runById.get(pid);
-    if (!p || !deckOwners.has(p.charId)) return null;
-    const before = mainsOf(p.position ?? (p.slot ? L.positionOfSlot(p.slot) : null));
-    const after = mainsOf(L.positionOfSlot(slot));
-    if (!before || !after || before.join() === after.join()) return null;
-    return `고유 카드 ×1.5 구역: ${statText(before)} → ${statText(after)}`;
-  }
 
   const seat = (from) => reseat(from, L.slotsOf(formation), aptOf, { fillAll: true, extraIds: allIds });
   let assign = seat(Object.fromEntries(runPlayers.filter((p) => p.slot).map((p) => [p.slot, p.id])));
@@ -82,7 +66,6 @@ export function meetingEditor(ctx, o) {
         const was = currentSlotOf(pid);
         const injured = Number(p?.injuredTurns) > 0;
         const mains = Array.isArray(p?.mainStats) ? p.mainStats : [];
-        const chg = modeChange(pid, sl);
         return [
           avatar(p?.portraitColor, p?.name, 'sm', injured ? 'dim' : ''),
           h('span', { class: 'grow col' },
@@ -91,7 +74,6 @@ export function meetingEditor(ctx, o) {
               ? h('span', { class: 'tiny warn ellipsis' }, `← 원래 ${was ?? '-'}`)
               : h('span', { class: ['tiny', 'ellipsis', injured ? 'bad' : 'muted'] }, injured ? `결장 · 레슨 ${p.injuredTurns}`
                 : `체력 ${Math.round(Number(p?.stamina) || 0)}${mains.length ? ` · ${mains.map((k) => L.STAT_SHORT[k] ?? k).join('')}` : ''}`)),
-          chg ? h('span', { class: 'mode-chg', title: chg }, '고유 ×1.5 구역 변경') : null,
         ];
       },
       onChange: (next) => { assign = next; draw(); },

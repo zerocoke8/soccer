@@ -24,16 +24,25 @@
 //   화면 전체 덮개 · 코치 타입 색 띠 · 얼굴 · 이름 · 대사 · 능력, 첫 번 attach.cutinMs.first · 다음부터 repeat 짧은 판, 탭 · Enter · Space · Esc = 넘기기)
 //   → 카드 연출 (대상 고리 = 코치 색, 능력 배율이 걸린 "+N ×1.5" 는 코치 색) + 경기장 가운데 능력 알약 (얼굴 · 능력 이름 · 결과 — 유대 · 힌트 · 컨디션).
 //   no-anim(움직임 줄이기)이면 덮개 없이 dock 안내 칸에 "하르나 지원 발동 — …". 새 턴에 붙으면 손패가 들어온 뒤 칩이 튀어나온다.
-// 개발용 ?autolesson=1: 600ms 마다 감독 추천(manager.recommendCard: bench · play { at, playerId } · endTurn)을 그대로 낸다 (컷인도 그대로 — 저절로 닫힌다). inert: 마지막 상태만.
+// 고유 카드 모양 (§16.7, L40 — 판정은 늘 엔진 previewCard 의 shape · targets, UI 는 점 · 선수 id · 구역 id 만 넘긴다):
+//   이어 주기 · 연결 · 크로스 (needs player): 주인 토큰 → 받는 선수 선 (.aim-link — 이어 주기 = 실선 + 공, 연결 · 크로스 = 점선), 받는 후보 초록 테 · 나머지 흐리게,
+//     크로스는 슈팅 구역 바닥이 빛난다. 카드를 받는 선수 위에 끌어 놓거나, 조준 중 받는 선수를 누르거나, **주인 토큰을 끌어** 받는 선수에 놓는다.
+//   자리 옮기기 · 가로지르기 (needs zone): 주인 토큰 유령 (.aim-ghost — 끄는 중에는 포인터, 아니면 옮긴 뒤 자리) · 포인터 밑 구역 바닥 강조 ·
+//     주인 → 옮긴 자리 화살표 (.aim-arrow) · 꼬리표 "+N ×1.3 · 기본 +b" / "+a 수비 · +b 패스". 가로지르기는 지금 구역 바닥도 다른 색 (.zone-pad.from).
+//     구역 바닥을 누르거나 · 숫자 1~5 (가로지르기는 지금 구역 숫자 무시) · 카드나 주인 토큰을 구역에 끌어 놓는다.
+//   둘레 작은 · 중간 원 (ownerCircle): 카드를 집는 순간 주인 중심 원 (.aim-circle.owner) · 구역 전원 (ownerZone): 주인 구역 바닥 · 마무리 (owner): 주인 토큰 빛.
+//     자리를 고르지 않는다 — 카드 두 번 누르기 · [내기] · Enter · 경기장 아무 데나.
+//   연출: fx move → 주인 토큰이 새 자리로 뛰어간다 (두 대형이 다시 모인다) / fx pass → 공 호 (.ls-ball) → 훈련 동작, 받는 선수 "+N ×1.3", 가로지르기 두 팝.
+// 개발용 ?autolesson=1: 600ms 마다 감독 추천(manager.recommendCard: bench · play { at, playerId, zone } · endTurn)을 그대로 낸다 (컷인도 그대로 — 저절로 닫힌다). inert: 마지막 상태만.
 import { h, avatar, bar, openModal, toast } from '../dom.js';
 import * as L from '../labels.js';
-import { cardFace, miniCard, attachTitle } from '../cards.js';
+import { cardFace, miniCard, attachTitle, shapeIconKey, shapeHow, multShort } from '../cards.js';
 import { tokenSpot, pointerToField, circlePx, fxPlan, scoreAfterPlay, handStep, FIELD_PX, TOKEN_PX } from '../lesson_layout.js';
 import { stamCls } from '../hud.js';
 import { uniqueNote } from './reward.js';
 
 /** 연출 시간 (ms): 훈련 동작 · +N 머무르기 · 턴 끝 기본 훈련 · 흩어지기 · 턴 배너 · 레슨 끝 배너 · 자동 진행 간격 · 자동 진행 조준 보여 주기 */
-export const LESSON_T = { act: 280, hold: 560, tick: 650, scatter: 450, turn: 260, end: 1000, auto: 600, aimShow: 320 };
+export const LESSON_T = { act: 280, hold: 560, tick: 650, scatter: 450, turn: 260, end: 1000, auto: 600, aimShow: 320, move: 450, pass: 300 };
 const CARD_W = 176;
 const DRAG_PX = 6;
 /** 코치 컷인 길이 (ms) — data.lesson.attach.cutinMs 가 없을 때 (§15.3: 첫 번 900 · 다음부터 600) */
@@ -66,6 +75,16 @@ const initialOf = (name) => {
 };
 const shortName = (name) => Array.from(String(name ?? '')).slice(0, 2).join('');
 const zoneShort = (z) => L.STAT_LABELS[z] ?? z ?? '';
+/** 받침 있는 글자인가 (조사: 과/와 · 을/를 · 이/가) */
+const hasBatchim = (word) => {
+  const ch = Array.from(String(word ?? '')).pop();
+  const c = ch ? ch.charCodeAt(0) - 0xac00 : -1;
+  return c >= 0 && c <= 11171 && c % 28 !== 0;
+};
+const josa = (word, withB, without) => `${word}${hasBatchim(word) ? withB : without}`;
+const signed = (n) => (n > 0 ? `+${n}` : n < 0 ? `−${-n}` : '±0');
+/** 고유 카드 모양이 놓을 자리를 요구하는가: 'player' (이어 주기 · 연결 · 크로스) · 'zone' (자리 옮기기 · 가로지르기) · null */
+const shapeNeedsOf = (c) => (c && c.shape && c.shape.needs) || null;
 /** 회복 카드 문구의 "체력 +N" (강화판 문구 그대로 — 뷰 desc 는 강화판이면 descPlus) */
 const healAmountOf = (c) => {
   const m = String(c?.desc || '').match(/체력 \+(\d+)/);
@@ -150,12 +169,18 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
   const recCircle = h('div', { class: 'aim-rec' });
   const aimCross = h('div', { class: 'aim-cross' }, h('i', { class: 'ac-h' }), h('i', { class: 'ac-v' }), h('i', { class: 'ac-r' }));
   const aimTag = h('div', { class: 'aim-tag' });
-  const aimLayer = h('div', { class: 'aim-layer', 'aria-hidden': 'true' }, recCircle, aimCircle, aimCross);
+  // 고유 카드 모양 (§16.7): 주인 → 받는 선수 선 · 주인 → 옮긴 자리 화살표 · 옮긴 자리 점 · 주인 토큰 유령
+  const aimLink = h('div', { class: 'aim-link' }, h('i', { class: 'al-ball' }));
+  const aimArrow = h('div', { class: 'aim-arrow' }, h('i', { class: 'aa-head' }));
+  const aimSpot = h('div', { class: 'aim-spot' });
+  const aimGhost = h('div', { class: 'aim-ghost tok-ghost' }, h('span', { class: 'ag-face' }));
+  const aimLayer = h('div', { class: 'aim-layer', 'aria-hidden': 'true' }, recCircle, aimCircle, aimCross, aimLink, aimArrow, aimSpot);
+  const ghostLayer = h('div', { class: 'aim-ghost-layer', 'aria-hidden': 'true' }, aimGhost);
   const tokLayer = h('div', { class: 'tok-layer' });
   const chipLayer = h('div', { class: 'zone-chips', 'aria-hidden': 'true' });
   const popLayer = h('div', { class: 'pop-layer', 'aria-hidden': 'true' }, aimTag);
   const field = h('div', { class: 'm-field', role: 'application', 'aria-label': '경기장 — 카드를 끌어 놓을 자리' },
-    bg, zoneLayer, aimLayer, tokLayer, chipLayer, popLayer);
+    bg, zoneLayer, aimLayer, tokLayer, ghostLayer, chipLayer, popLayer);
   const grass = h('div', { class: 'pitch' }, field);
   const pitchWrap = h('div', { class: 'ls-pitch' }, grass);
 
@@ -236,10 +261,21 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
   const playerOf = (id) => (v.players || []).find((p) => p.id === id);
   const staminaOf = (p) => shown.stamina[p.id] ?? Number(p.stamina) ?? 0;
   const handCard = (uid) => (uid ? (v.hand || []).find((c) => c.uid === uid) || null : null);
-  // L40 고유 카드: 받는 선수 · 구역이 필요한 모양 (shape.needs) 도 놓는 자리가 있는 카드다 (U1 최소 처리 — 모양별 조준 표시는 U3)
-  const shapeNeeds = (c) => !!c && !!c.shape && !!c.shape.needs;
-  const needsPoint = (c) => !!c && (c.targetKind === 'circle' || (c.targetKind === 'single' && !c.heal) || shapeNeeds(c));
+  // L40 고유 카드: 받는 선수 · 구역이 필요한 모양 (shape.needs) 도 놓는 자리가 있는 카드다
+  const shapeNeeds = (c) => !!shapeNeedsOf(c);
   const pointCard = (c) => !!c && (c.targetKind === 'circle' || c.targetKind === 'single' || shapeNeeds(c)); // 놓는 자리가 뜻이 있는 카드 (회복 단일 포함)
+  /** 고유 카드 주인 이름 (뷰 ownerId) */
+  const ownerName = (c) => playerOf(c?.ownerId)?.name ?? '';
+  /** 고유 카드 놓기 안내 (§16.7 dock 안내 칸 — 자리를 고르기 전) */
+  function shapeGuide(c) {
+    const sh = c.shape;
+    const o = ownerName(c);
+    if (sh.kind === 'link') return `${o}에서 받을 선수에게 끌어 놓으세요`;
+    if (sh.kind === 'pick') return sh.onlyZones?.length ? `${L.zonesText(sh.onlyZones)} 구역 선수 위에 놓으세요` : `${josa(o, '과', '와')} 함께할 선수 위에 놓으세요`;
+    if (sh.kind === 'move') return `${josa(o, '을', '를')} 옮길 구역에 놓으세요`;
+    if (sh.kind === 'carry') return `${josa(o, '이', '가')} 가로지를 구역에 놓으세요`;
+    return shapeHow(sh, o);
+  }
 
   /* ------------------------------------------------------------------ */
   /* 구역 바닥 · 라벨                                                      */
@@ -280,11 +316,11 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     if (ui.drag?.kind === 'card') return handCard(ui.drag.uid);
     return ui.aim ? handCard(ui.aim.uid) : null;
   }
-  /** 지금 미리보기 · 낼 인자 { uid, at?, playerId? } (조준 카드가 없으면 null) */
+  /** 지금 미리보기 · 낼 인자 { uid, at?, playerId?, zone? } (조준 카드가 없으면 null). 주인 토큰 끌기(ui.drag.kind 'shape')는 끄는 점 */
   function aimArgs() {
     const c = aimCard();
     if (!c) return null;
-    if (ui.drag?.kind === 'card') {
+    if (ui.drag?.kind === 'card' || ui.drag?.kind === 'shape') {
       const a = { uid: c.uid };
       if (ui.drag.at) a.at = ui.drag.at;
       if (ui.drag.playerId) a.playerId = ui.drag.playerId;
@@ -295,9 +331,12 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     else {
       if (ui.aim.at) a.at = ui.aim.at;
       if (ui.aim.playerId) a.playerId = ui.aim.playerId;
+      if (ui.aim.zone) a.zone = ui.aim.zone;
     }
     return a;
   }
+  /** 놓을 자리를 골랐는가 (점 · 선수 · 구역) */
+  const hasPick = (a) => !!(a && (a.at || a.playerId || a.zone));
   function computePreview() {
     const a = isLive() && !ui.busy ? aimArgs() : null;
     if (!a) { pv = null; return; }
@@ -314,6 +353,14 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
   /** 키보드 후보 라벨 (§14.16): "패스 구역 · 3명" · "네리아" · "패스–드리블 사이 · 4명" */
   function candLabel(cd) {
     const n = (cd.ids || []).length;
+    const sc = handCard(ui.aim?.uid);
+    if (sc?.shape) {
+      // 고유 카드 모양 후보: "네리아 → 실루엔" · "타리아 → 슈팅 구역" · 주인 한 점 "도르비나 둘레 · 3명"
+      const o = ownerName(sc);
+      if (cd.kind === 'player') return `${o} → ${playerOf(cd.playerId)?.name ?? ''}`;
+      if (cd.kind === 'zone') return `${o} → ${L.zoneLabel(cd.zone)}${cd.zone === v.zones?.[sc.ownerId] ? ' (그대로)' : ''}`;
+      return `${shapeHow(sc.shape, o)} · ${n}명`;
+    }
     if (cd.kind === 'zone') return `${L.zoneLabel(cd.zone)} · ${n}명`;
     if (cd.kind === 'player') {
       const p = playerOf(cd.playerId);
@@ -328,24 +375,137 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     return n ? `경기장 전원 · ${n}명` : '경기장';
   }
 
+  /**
+   * 꼬리표 자리: (x, y) 둘레 (rx · ry) 의 바깥 모서리 (오른쪽 위 → 왼쪽 위 → 오른쪽 아래 → 왼쪽 아래 → 아래) 중
+   * 경기장 안이고 구역 라벨 칩과 겹치지 않는 첫 자리
+   */
+  function placeTag(txt, tone, x, y, rx, ry, k) {
+    aimTag.textContent = txt;
+    aimTag.className = ['aim-tag', 'on', ...String(tone || '').split(' ').filter(Boolean)].join(' ');
+    const tw = aimTag.offsetWidth || txt.length * 8;
+    const th = aimTag.offsetHeight || 19;
+    const cands = [
+      [x + rx * k, y - ry * k, 0, 1], [x - rx * k, y - ry * k, 1, 1],
+      [x + rx * k, y + ry * k, 0, 0], [x - rx * k, y + ry * k, 1, 0],
+      [x - tw / 2, y + Math.max(26, ry + 4), 0, 0],
+    ].map(([ax, ay, toL, up]) => ({ l: toL ? ax - tw : ax, t: up ? ay - th : ay }));
+    const chipRects = [...chipLayer.children].map((el) => {
+      const w = el.offsetWidth || 0;
+      const hh = el.offsetHeight || 0;
+      return { l: (parseFloat(el.style.left) || 0) - w / 2, t: (parseFloat(el.style.top) || 0) - hh, w, h: hh };
+    });
+    const fits = (b) => b.l >= 2 && b.t >= 2 && b.l + tw <= W - 2 && b.t + th <= H - 2
+      && !chipRects.some((cr) => cr.w > 0 && b.l < cr.l + cr.w + 3 && b.l + tw + 3 > cr.l && b.t < cr.t + cr.h + 2 && b.t + th + 2 > cr.t);
+    const box = cands.find(fits) || { l: Math.min(W - 2 - tw, Math.max(2, cands[0].l)), t: Math.min(H - 2 - th, Math.max(2, cands[0].t)) };
+    aimTag.style.transform = `translate(${px(box.l)}, ${px(box.t)})`;
+  }
+  /** 필드 두 점 사이 선 (회전한 막대 — 선 · 화살표) */
+  function drawLine(el, base, from, to, cls = []) {
+    const [x1, y1] = toPx(from);
+    const [x2, y2] = toPx(to);
+    const len = Math.hypot(x2 - x1, y2 - y1);
+    el.style.transform = `translate(${px(x1)}, ${px(y1)}) rotate(${round1((Math.atan2(y2 - y1, x2 - x1) * 180) / Math.PI)}deg)`;
+    el.style.width = px(len);
+    el.className = [base, 'on', len < 56 ? 'short' : '', ...cls].filter(Boolean).join(' ');
+  }
+  const placeAt = (el, spot) => {
+    const [x, y] = toPx(spot);
+    el.style.transform = `translate(${px(x)}, ${px(y)})`;
+  };
+  const failTxt = () => (pv?.failRate > 0 ? ` · 실패 ${pctText(pv.failRate)}` : '');
+  const failTone = () => (pv?.failRate > 0 ? (pv.failRate >= 0.25 ? 'risk bad' : 'risk') : 'ok');
+  const distinctN = (targets) => new Set((targets || []).map((t) => t.id)).size;
+  /** 모양 꼬리표 (§16.7): 받는 선수 · 옮긴 구역 · 주인 둘레 옆 */
+  function shapeTag(c, sh, needs, opos, at, dest) {
+    const tr = TOKEN_PX * 0.62;
+    if (needs === 'player') {
+      if (pv?.ok) {
+        const rp = v.positions?.[pv.shape?.receiverId] || at;
+        const [x, y] = toPx(rp);
+        placeTag(`${distinctN(pv.targets)}명 · +${pv.total ?? 0}${failTxt()}`, failTone(), x, y, tr, tr, 0.9);
+        return;
+      }
+      if (at) {
+        const [x, y] = toPx(at);
+        placeTag(pv?.reason || '받을 선수 위에 놓으세요', 'bad', x, y, tr, tr, 0.9);
+        return;
+      }
+      aimTag.className = 'aim-tag';
+      return;
+    }
+    if (needs === 'zone') {
+      // 놓을 구역 바닥 모서리 (대형 토큰과 겹치지 않게), 구역이 없으면 포인터 옆
+      const toZ = pv?.shape?.to || null;
+      const anchor = (toZ && Z.centers[toZ]) || dest || at;
+      if (!anchor) { aimTag.className = 'aim-tag'; return; }
+      const [x, y] = toPx(anchor);
+      const pr = toZ ? circlePx(Z.pad, Z.aspect, W, H) : { rx: tr, ry: tr };
+      const k = toZ ? 0.74 : 0.9;
+      if (!pv?.ok) { placeTag(pv?.reason || '구역 위에 놓으세요', 'bad', x, y, pr.rx, pr.ry, k); return; }
+      let txt;
+      if (sh.kind === 'carry') {
+        txt = (pv.targets || []).map((t) => `+${t.gain} ${zoneShort(t.stat)}`).join(' · ');
+      } else {
+        const t = (pv.targets || [])[0];
+        const m = Number(t?.shapeMult) || 1;
+        const bd = Number(pv.shape?.baseDelta) || 0;
+        txt = `+${t?.gain ?? 0}${m > 1 ? ` ${multShort(m)}` : ''} · 기본 ${signed(bd)}`;
+      }
+      placeTag(txt + failTxt(), failTone(), x, y, pr.rx, pr.ry, k);
+      return;
+    }
+    // 주인 둘레 원 · 주인 구역 · 마무리: 주인 자리 옆
+    if (!opos || !pv?.ok) { aimTag.className = 'aim-tag'; return; }
+    if (sh.kind === 'ownerZone') {
+      const zc = Z.centers[v.zones?.[c.ownerId]] || opos;
+      const pr = circlePx(Z.pad, Z.aspect, W, H);
+      const [x, y] = toPx(zc);
+      placeTag(`${distinctN(pv.targets)}명 · +${pv.total ?? 0}${failTxt()}`, failTone(), x, y, pr.rx, pr.ry, 0.74);
+      return;
+    }
+    if (sh.kind === 'ownerCircle') {
+      const r = sh.r ?? Z.ownerRadius?.[sh.size] ?? 8;
+      const { rx, ry } = circlePx(r, Z.aspect, W, H);
+      const [x, y] = toPx(opos);
+      placeTag(`${distinctN(pv.targets)}명 · +${pv.total ?? 0}${failTxt()}`, failTone(), x, y, rx, ry, 0.74);
+      return;
+    }
+    const t = (pv.targets || [])[0];
+    const m = Number(t?.shapeMult) || 1;
+    const [x, y] = toPx(opos);
+    placeTag(`+${pv.total ?? 0}${m > 1 ? ` ${multShort(m)}` : ''}${failTxt()}`, failTone(), x, y, tr, tr, 0.9);
+  }
+
   function renderAim() {
     const c = isLive() && !ui.busy ? aimCard() : null;
     const a = c ? aimArgs() : null;
+    const sh = c?.shape || null;
+    const needs = shapeNeedsOf(c);
     screen.classList.toggle('aiming', !!c);
     screen.classList.toggle('aim-has', !!(pv && pv.ok && ((pv.targets || []).length || pv.healId)));
+    screen.classList.toggle('aim-shape', !!sh);
     const dragOver = ui.drag?.kind === 'card' ? ui.drag.over : null;
-    const fieldWide = !!c && !pointCard(c) && (ui.drag?.kind !== 'card' || dragOver === 'field');
+    const dragging = ui.drag?.kind === 'card' || ui.drag?.kind === 'shape';
+    const fieldWide = !!c && !sh && !pointCard(c) && (ui.drag?.kind !== 'card' || dragOver === 'field');
     field.classList.toggle('aim-all', fieldWide && c.targetKind === 'all');
     field.classList.toggle('aim-soft', fieldWide && c.targetKind !== 'all');
     // 원 · 십자
     const at = a?.at || null;
     const show = (el, on) => el.classList.toggle('on', !!on);
+    const opos = sh ? v.positions?.[c.ownerId] || null : null;
     if (c && c.targetKind === 'circle' && at) {
       const r = c.radius ?? Z.radius[c.size] ?? 9;
       const { rx, ry } = circlePx(r, Z.aspect, W, H);
       const [x, y] = toPx(at);
       Object.assign(aimCircle.style, { left: px(x - rx), top: px(y - ry), width: px(2 * rx), height: px(2 * ry) });
       aimCircle.className = ['aim-circle', 'on', `sz-${c.size}`, pv?.ok ? 'ok' : 'bad'].join(' ');
+    } else if (sh?.kind === 'ownerCircle' && opos) {
+      // 주인 둘레 원 (§16.7): 카드를 집는 순간 주인 위치 중심 — 반지름 ownerRadius[size] (판정 = 엔진 shape.circle)
+      const cc = pv?.shape?.circle || { x: opos.x, y: opos.y, r: sh.r ?? Z.ownerRadius?.[sh.size] ?? 8 };
+      const { rx, ry } = circlePx(cc.r, Z.aspect, W, H);
+      const [x, y] = toPx(cc);
+      Object.assign(aimCircle.style, { left: px(x - rx), top: px(y - ry), width: px(2 * rx), height: px(2 * ry) });
+      aimCircle.className = ['aim-circle', 'on', 'owner', `sz-${sh.size}`, pv?.ok ? 'ok' : 'bad'].join(' ');
     } else show(aimCircle, false);
     if (c && c.targetKind === 'single' && at) {
       const [x, y] = toPx(at);
@@ -362,8 +522,56 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
       Object.assign(recCircle.style, { left: px(x - rx), top: px(y - ry), width: px(2 * rx), height: px(2 * ry) });
       show(recCircle, true);
     } else show(recCircle, false);
-    // 원 위 꼬리표: "3명 · +36" / 빨강 이유
-    if (c && pointCard(c) && at) {
+    // 이어 주기 · 연결 · 크로스: 주인 → 받는 선수 (아직 없으면 → 포인터) 선
+    if (needs === 'player' && opos) {
+      const ln = pv?.shape?.line || null;
+      const to = ln?.to || at;
+      if (to && distU(opos, to) > 0.8) {
+        drawLine(aimLink, 'aim-link', opos, to, [sh.kind === 'link' ? 'solid' : 'dash', sh.onlyZones?.length ? 'cross' : '', pv?.ok ? 'ok' : 'bad']);
+      } else aimLink.className = 'aim-link';
+    } else aimLink.className = 'aim-link';
+    // 자리 옮기기 · 가로지르기: 주인 → 옮긴 자리 화살표 · 유령 (끄는 중 = 포인터, 아니면 옮긴 자리) · 끄는 중 옮긴 자리 점
+    let dest = null;
+    if (needs === 'zone' && opos) {
+      const toZ = pv?.shape?.to || null;
+      if (toZ) dest = pv.shape.positionsAfter?.[c.ownerId] || (toZ === v.zones?.[c.ownerId] ? opos : Z.centers[toZ]) || null;
+      if (dest && distU(opos, dest) > 1) drawLine(aimArrow, 'aim-arrow', opos, dest, [sh.kind, pv?.ok ? 'ok' : 'bad']);
+      else aimArrow.className = 'aim-arrow';
+      const gpos = dragging && at ? at : dest;
+      if (gpos) {
+        const p = playerOf(c.ownerId);
+        const face = aimGhost.firstChild;
+        face.textContent = initialOf(p?.name);
+        face.style.background = p?.portraitColor || '#4b5563';
+        placeAt(aimGhost, gpos);
+        aimGhost.className = ['aim-ghost', 'tok-ghost', 'on', pv?.ok ? 'ok' : 'bad', dragging ? 'follow' : ''].filter(Boolean).join(' ');
+      } else aimGhost.className = 'aim-ghost tok-ghost';
+      if (dragging && dest && pv?.ok) { placeAt(aimSpot, dest); aimSpot.className = 'aim-spot on'; } else aimSpot.className = 'aim-spot';
+    } else {
+      aimArrow.className = 'aim-arrow';
+      aimGhost.className = 'aim-ghost tok-ghost';
+      aimSpot.className = 'aim-spot';
+    }
+    // 구역 바닥 강조: 크로스 = 슈팅 구역 · 구역 전원 = 주인 구역 · 옮기기 = 놓을 구역 (가로지르기는 지금 구역 .from) · 추천 구역 .rec
+    const padCls = {};
+    const addPad = (z, k) => { if (z) (padCls[z] ||= []).push(k); };
+    if (sh) {
+      for (const z of sh.onlyZones || []) addPad(z, 'aim');
+      if (sh.kind === 'ownerZone') addPad(v.zones?.[c.ownerId], 'aim');
+      if (needs === 'zone') {
+        if (sh.kind === 'carry') addPad(v.zones?.[c.ownerId], 'from');
+        if (pv?.shape?.to) addPad(pv.shape.to, pv.ok ? 'aim' : 'bad');
+      }
+      if (rec?.kind === 'play' && rec.uid === c.uid && rec.zone) addPad(rec.zone, 'rec');
+    }
+    for (const el of zoneLayer.children) {
+      const ks = padCls[el.dataset.zone] || [];
+      for (const k of ['aim', 'from', 'bad', 'rec']) el.classList.toggle(k, ks.includes(k));
+    }
+    // 꼬리표: "3명 · +36" / 빨강 이유 (모양 카드는 받는 선수 · 옮긴 구역 · 주인 둘레 옆)
+    if (sh) {
+      shapeTag(c, sh, needs, opos, at, dest);
+    } else if (c && pointCard(c) && at) {
       const [x, y] = toPx(at);
       const r = c.targetKind === 'circle' ? (c.radius ?? Z.radius[c.size] ?? 9) : Z.pickR;
       const { ry } = circlePx(r, Z.aspect, W, H);
@@ -376,35 +584,15 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
           txt = `${p?.name ?? ''} 체력${n ? ` +${n}` : ' 회복'}`;
           tone = 'heal';
         } else {
-          txt = `${(pv.targets || []).length}명 · +${pv.total ?? 0}`;
-          if (pv.failRate > 0) { txt += ` · 실패 ${pctText(pv.failRate)}`; tone = pv.failRate >= 0.25 ? 'risk bad' : 'risk'; }
+          txt = `${(pv.targets || []).length}명 · +${pv.total ?? 0}${failTxt()}`;
+          tone = failTone();
         }
       } else {
         txt = c.targetKind === 'circle' ? '원 안에 선수가 없습니다' : '선수 위에 놓으세요';
         tone = 'bad';
       }
-      // 꼬리표 자리: 원의 바깥 모서리 (오른쪽 위 → 왼쪽 위 → 오른쪽 아래 → 왼쪽 아래 → 포인터 아래) 중
-      // 경기장 안이고 구역 라벨 칩과 겹치지 않는 첫 자리
       const rx = c.targetKind === 'circle' ? circlePx(r, Z.aspect, W, H).rx : ry;
-      aimTag.textContent = txt;
-      aimTag.className = ['aim-tag', 'on', tone].join(' ');
-      const tw = aimTag.offsetWidth || txt.length * 8;
-      const th = aimTag.offsetHeight || 19;
-      const k = c.targetKind === 'circle' ? 0.74 : 0.9;
-      const cands = [
-        [x + rx * k, y - ry * k, 0, 1], [x - rx * k, y - ry * k, 1, 1],
-        [x + rx * k, y + ry * k, 0, 0], [x - rx * k, y + ry * k, 1, 0],
-        [x - tw / 2, y + 26, 0, 0],
-      ].map(([ax, ay, toL, up]) => ({ l: toL ? ax - tw : ax, t: up ? ay - th : ay }));
-      const chipRects = [...chipLayer.children].map((el) => {
-        const w = el.offsetWidth || 0;
-        const hh = el.offsetHeight || 0;
-        return { l: (parseFloat(el.style.left) || 0) - w / 2, t: (parseFloat(el.style.top) || 0) - hh, w, h: hh };
-      });
-      const fits = (b) => b.l >= 2 && b.t >= 2 && b.l + tw <= W - 2 && b.t + th <= H - 2
-        && !chipRects.some((cr) => cr.w > 0 && b.l < cr.l + cr.w + 3 && b.l + tw + 3 > cr.l && b.t < cr.t + cr.h + 2 && b.t + th + 2 > cr.t);
-      const box = cands.find(fits) || { l: Math.min(W - 2 - tw, Math.max(2, cands[0].l)), t: Math.min(H - 2 - th, Math.max(2, cands[0].t)) };
-      aimTag.style.transform = `translate(${px(box.l)}, ${px(box.t)})`;
+      placeTag(txt, tone, x, y, rx, ry, c.targetKind === 'circle' ? 0.74 : 0.9);
     } else {
       aimTag.className = 'aim-tag';
     }
@@ -465,15 +653,20 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
   }
   /** 조준 표시 정보 (대상 · 실패 · 후보 · 추천 · 회복 대상) */
   function aimInfo() {
-    const out = { target: new Map(), failer: null, cand: new Set(), rec: null, healId: null, owner: null };
+    const out = { target: new Map(), rows: new Map(), failer: null, cand: new Set(), rec: null, healId: null, owner: null, needs: null };
     const c = isLive() && !ui.busy ? aimCard() : null;
     if (!c) return out;
     if (pv?.ok) {
-      for (const t of pv.targets || []) out.target.set(t.id, t);
+      for (const t of pv.targets || []) {
+        if (!out.target.has(t.id)) out.target.set(t.id, t);
+        out.rows.set(t.id, [...(out.rows.get(t.id) || []), t]); // 고유 가로지르기 = 같은 선수 두 행
+      }
       out.failer = pv.failRate > 0 ? pv.failerId : null;
       out.healId = pv.healId || null;
     }
-    if (c.targetKind === 'single') for (const cd of candidates(c.uid)) if (cd.playerId) out.cand.add(cd.playerId);
+    out.needs = shapeNeedsOf(c);
+    if (c.shape) out.owner = c.ownerId || null;
+    if (c.targetKind === 'single' || out.needs === 'player') for (const cd of candidates(c.uid)) if (cd.playerId) out.cand.add(cd.playerId);
     if (rec?.kind === 'play' && rec.uid === c.uid && rec.playerId) out.rec = rec.playerId;
     return out;
   }
@@ -498,6 +691,9 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
       if (info.failer === p.id) cls.push('failer');
       if (info.healId === p.id) cls.push('heal-target');
       if (info.cand.has(p.id) && !t) cls.push('cand');
+      // 고유 카드 모양: 주인 토큰 빛 (이어 주기 · 옮기기 = 끄는 출발점), 받는 선수가 필요한데 후보가 아닌 선수는 흐리게 (크로스 = 슈팅 구역 밖)
+      if (info.owner === p.id) cls.push('shape-owner', info.needs ? 'shape-src' : '');
+      else if (info.needs === 'player' && pos && !info.cand.has(p.id) && !t) cls.push('noncand');
       if (info.rec === p.id) cls.push('rec');
       if (liftId === p.id) cls.push('lifting');
       if (el.classList.contains('drilling')) cls.push('drilling');
@@ -515,7 +711,13 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
       let bub = '';
       let tone = '';
       if (t) {
-        bub = `+${t.gain}`; // 실패율은 원 꼬리표 · dock 안내 (말풍선은 이름표 자리 폭 그대로 짧게), 실패 후보 = 빨간 고리
+        // 실패율은 원 꼬리표 · dock 안내 (말풍선은 이름표 자리 폭 그대로 짧게), 실패 후보 = 빨간 고리.
+        // 고유 모양: 배율이 걸린 행 "+N ×1.3" (받는 선수 · 고른 선수 · 주인), 가로지르기 두 행 = 합
+        const rows = info.rows.get(p.id) || [t];
+        const gsum = rows.reduce((s, r) => s + (Number(r.gain) || 0), 0);
+        const sm = rows.length === 1 ? Number(t.shapeMult) || 1 : 1;
+        bub = sm > 1 ? `+${gsum} ${multShort(sm)}` : `+${gsum}`;
+        if (sm > 1) tone = 'shape';
         if (info.failer === p.id) tone = 'risk';
         else if ((Number(t.attachMult) || 1) > 1) tone = 'att'; // 코치 지원 배율 (하르나 슈팅 구역 · 조이 목표 미만) = 코치 색
       } else if (info.healId === p.id) {
@@ -755,13 +957,13 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
           avatar(c.attach.color, c.attach.short, 'xs'), h('b', {}, ` ${c.attach.short} 지원:`), ` ${c.attach.abilityText ?? ''}`));
       }
       const a = aimArgs();
-      const hasPoint = !!(a && (a.at || a.playerId));
+      const hasPoint = hasPick(a);
       if (pv?.ok && c.heal) {
         const p = playerOf(pv.healId);
         const n = healAmountOf(c);
         lines.push(h('span', { class: 'ls-pv' }, h('span', { class: 'heal' }, `${p?.name ?? ''} 체력${n ? ` +${n}` : ' 회복'}`), h('span', { class: 'muted' }, ` (지금 ${p?.stamina ?? '–'})`)));
       } else if (pv?.ok && (pv.targets || []).length) {
-        const n = pv.targets.length;
+        const n = new Set(pv.targets.map((t) => t.id)).size; // 서로 다른 선수 (고유 가로지르기 = 1명 두 행)
         const costs = pv.targets.map((t) => Number(t.cost) || 0);
         lines.push(h('span', { class: 'ls-pv' },
           `대상 ${n}명 · `, h('span', { class: 'good' }, `합계 +${pv.total}`),
@@ -771,7 +973,9 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
         const byZone = {};
         for (const t of pv.targets) byZone[t.stat] = (byZone[t.stat] || 0) + (Number(t.gain) || 0);
         const zs = Object.entries(byZone).sort((x, y) => y[1] - x[1]);
-        lines.push(h('span', { class: 'small ls-zsum' }, zs.map(([z, g], i) => [i ? ' · ' : '', `${L.ZONE_ICONS[z] ?? ''}${zoneShort(z)} +${g}`])));
+        const bd = pv.shape && pv.shape.baseDelta != null ? Number(pv.shape.baseDelta) || 0 : null; // 자리 옮기기 · 가로지르기: 이번 턴 끝 기본 훈련 변화
+        lines.push(h('span', { class: 'small ls-zsum' }, zs.map(([z, g], i) => [i ? ' · ' : '', `${L.ZONE_ICONS[z] ?? ''}${zoneShort(z)} +${g}`]),
+          bd != null ? h('span', { class: bd > 0 ? 'good' : bd < 0 ? 'warn' : 'muted' }, ` · 기본 훈련 ${signed(bd)}`) : null));
         if (pv.failRate > 0 && pv.failerId) {
           const fp = playerOf(pv.failerId);
           lines.push(h('span', { class: 'tiny muted' }, `실패하면 ${fp?.name ?? ''} ${zoneShort(fp?.zone)} −${LS.failStatLoss ?? 5} (부상 ${pctText(LS.injuryChanceOnFail ?? 0.5)})`));
@@ -781,7 +985,7 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
       } else if (pointCard(c) && hasPoint) {
         lines.push(h('span', { class: 'small bad' }, pv?.reason || '여기에는 낼 수 없습니다'));
       } else if (pointCard(c)) {
-        lines.push(h('span', { class: 'small' }, c.heal ? '회복할 선수 위 · 명단 줄 · 벤치 칸에 놓으세요' : c.targetKind === 'circle' ? '원을 놓을 자리를 고르세요 — 원 안 선수 전원이 대상' : '선수 위에 놓으세요'));
+        lines.push(h('span', { class: 'small' }, c.shape ? shapeGuide(c) : c.heal ? '회복할 선수 위 · 명단 줄 · 벤치 칸에 놓으세요' : c.targetKind === 'circle' ? '원을 놓을 자리를 고르세요 — 원 안 선수 전원이 대상' : '선수 위에 놓으세요'));
       } else if (pv?.reason) {
         lines.push(h('span', { class: 'small bad' }, pv.reason));
       }
@@ -793,13 +997,17 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
         const cd = list[ui.aim.idx];
         if (cd) lines.push(h('span', { class: 'tiny ls-cand' }, `후보 ${ui.aim.idx + 1}/${list.length} · ${candLabel(cd)}`));
       }
-      lines.push(h('span', { class: 'tiny muted' }, dragging
+      const needs = shapeNeedsOf(c);
+      lines.push(h('span', { class: 'tiny muted' }, dragging || ui.drag?.kind === 'shape'
         ? '놓으면 냅니다 · 밖에서 놓거나 Esc = 취소'
-        : pointCard(c) ? '경기장을 눌러 놓기 · ←→ 후보 · 1~5 구역 · Enter 내기 · Esc 취소' : '[내기] · 카드 한 번 더 · Enter = 내기 · Esc = 취소'));
+        : needs === 'player' ? `받을 선수 누르기 · ${ownerName(c)} 끌기 · ←→ 후보 · Enter 내기`
+          : needs === 'zone' ? `구역 누르기 · ${ownerName(c)} 끌기 · 1~5 · ←→ · Enter 내기`
+            : pointCard(c) ? '경기장을 눌러 놓기 · ←→ 후보 · 1~5 구역 · Enter 내기 · Esc 취소' : '[내기] · 카드 한 번 더 · Enter = 내기 · Esc = 취소'));
     }
     infoEl.replaceChildren(...lines);
   }
   function tkText(c) {
+    if (c.shape) return c.shape.chip || c.shape.label || '주인';
     if (c.heal) return '선수 1명 회복';
     if (c.targetKind === 'circle') return L.CIRCLE_SIZE_LABELS[c.size] ?? '원';
     if (c.targetKind === 'single') return c.onlyZones?.length ? `${L.zonesText(c.onlyZones)} 단일` : '단일';
@@ -810,7 +1018,7 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     const live = isLive() && !ui.busy;
     const c = ui.aim ? handCard(ui.aim.uid) : null;
     const a = c ? aimArgs() : null;
-    const ready = !!(c && pv?.ok && (!pointCard(c) || (a && (a.at || a.playerId))));
+    const ready = !!(c && pv?.ok && (!pointCard(c) || hasPick(a)));
     playBtn.disabled = !(live && !ui.drag && ready);
     endBtn.disabled = !(live && v.canEndTurn && !ui.drag);
     endBtn.title = '남은 추가 사용을 버리고 턴을 끝냅니다 — 경기장 선수 기본 훈련 · 벤치 회복';
@@ -871,13 +1079,13 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     if (!c.playable) { toast(`${c.name}: ${c.deadReason || '지금은 낼 수 없습니다'}`, 'info', 2200); return; }
     if (ui.aim?.uid === uid) {
       const a = aimArgs();
-      if (!pointCard(c) || (pv?.ok && a && (ui.aim.at || ui.aim.playerId))) { playAim(); return; } // 전체 · 주인 · 없음, 또는 고른 자리에 = 두 번 누르기로 낸다
+      if (!pointCard(c) || (pv?.ok && a && (ui.aim.at || ui.aim.playerId || ui.aim.zone))) { playAim(); return; } // 전체 · 주인 · 없음, 또는 고른 자리에 = 두 번 누르기로 낸다
       ui.aim = null;
       hoverAt = null;
       renderLive();
       return;
     }
-    ui.aim = { uid, idx: -1, at: null, playerId: null };
+    ui.aim = { uid, idx: -1, at: null, playerId: null, zone: null };
     hoverAt = null;
     renderLive();
   }
@@ -893,9 +1101,17 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     const vPrev = v;
     // 코치 지원 배율이 걸린 대상 (미리보기 — 순수, rng 없음): 연출에서 "+N ×1.5" 를 코치 색으로
     const boost = {};
-    if (handCard(args.uid)?.attach) {
+    // 고유 카드 모양 연출 (§16.7): 배율이 걸린 행 (받는 선수 ×1.3 · 주인 ×1.5 — "+N ×1.3" 팝), 옮긴 뒤 대형 (토큰이 뛰어간다)
+    const shapeFx = { mult: {}, positionsAfter: null };
+    const hc = handCard(args.uid);
+    if (hc?.attach || hc?.shape) {
       try {
-        for (const t of run.previewCard(st(), data, args)?.targets || []) if ((Number(t.attachMult) || 1) > 1) boost[t.id] = Number(t.attachMult);
+        const p0 = run.previewCard(st(), data, args);
+        for (const t of p0?.targets || []) {
+          if ((Number(t.attachMult) || 1) > 1) boost[t.id] = Number(t.attachMult);
+          if ((Number(t.shapeMult) || 1) > 1) shapeFx.mult[t.id] = Number(t.shapeMult);
+        }
+        if (p0?.shape?.positionsAfter) shapeFx.positionsAfter = p0.shape.positionsAfter;
       } catch (_) { /* 미리보기 실패는 연출만 줄인다 */ }
     }
     const r = actions.lessonCall('playCard', args);
@@ -903,7 +1119,7 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     hoverAt = null;
     ui.drag = null;
     if (r === undefined) { refresh(); return; }
-    animate(vPrev, { kind: 'play', uid: args.uid, boost });
+    animate(vPrev, { kind: 'play', uid: args.uid, boost, shapeFx });
   }
   function playAim() {
     if (!isLive() || ui.busy || !ui.aim) return;
@@ -960,7 +1176,16 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
   }
   function onTokPointerDown(e, id, from) {
     if (!isLive() || ui.busy || (e.button != null && e.button > 0) || press) return;
-    if (ui.aim) return; // 조준 중에는 토큰 누르기 = 그 자리에 놓기 (경기장 click)
+    if (ui.aim) {
+      // 조준 중: 받는 선수 · 구역이 필요한 고유 카드의 주인 토큰 = 모양 끌기 (이어 주기 · 자리 옮기기 · 가로지르기 — 선수에서 끌기, §16.7).
+      // 그 밖 토큰 누르기 = 그 자리에 놓기 (경기장 click) — 벤치 끌기는 하지 않는다
+      const c = handCard(ui.aim.uid);
+      if (from === 'field' && shapeNeeds(c) && c.ownerId === id) {
+        press = { kind: 'shape', uid: c.uid, id, from, x0: e.clientX, y0: e.clientY, pointerId: e.pointerId, el: e.currentTarget, started: false };
+        listen(true);
+      }
+      return;
+    }
     press = { kind: 'tok', id, from, x0: e.clientX, y0: e.clientY, pointerId: e.pointerId, el: e.currentTarget, started: false };
     listen(true);
   }
@@ -988,8 +1213,18 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
   function startDrag() {
     press.started = true;
     try { press.el?.setPointerCapture?.(press.pointerId); } catch (_) { /* 이미 놓았으면 무시 */ }
-    ui.aim = null;
     hoverAt = null;
+    if (press.kind === 'shape') {
+      // 주인 토큰 끌기: 조준은 그대로 (놓기에 실패하면 조준 모드로 돌아온다). 포인터 유령 = 주인 얼굴 (경기장 위에서는 모양 표시가 대신)
+      const p = playerOf(press.id);
+      ui.drag = { kind: 'shape', uid: press.uid, id: press.id, at: null, over: null };
+      ghost.className = 'drag-ghost on tok-ghost shape-drag';
+      ghost.replaceChildren(h('span', { class: 'tg-face', style: { background: p?.portraitColor || '#4b5563' } }, initialOf(p?.name)), h('span', { class: 'tg-nm' }, p?.name ?? ''));
+      screen.classList.add('dragging');
+      renderLive();
+      return;
+    }
+    ui.aim = null;
     if (press.kind === 'card') {
       const c = handCard(press.uid);
       ui.drag = { kind: 'card', uid: press.uid, at: null, playerId: null, over: null };
@@ -1001,7 +1236,9 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
         h('span', { class: 'dg-band' }),
         att ? h('span', { class: 'dg-coach', title: attachTitle(att, data) }, initialOf(att.short || att.name)) : null,
         h('b', { class: 'dg-name' }, c?.name ?? '', c?.plus ? [WJ, h('span', { class: att?.upgrade === 'plus' ? 'dg-plus att' : 'dg-plus' }, '+')] : ''), // U+2060: "+" 만 다음 줄로 넘어가지 않게
-        h('span', { class: ['dg-tk', c?.heal ? 'heal' : c?.targetKind, c?.size ? `sz-${c.size}` : ''] }, h('i'), tkText(c || {})),
+        c?.shape
+          ? h('span', { class: ['dg-tk', 'shape'] }, h('i', { class: ['cf-ticon', `s-${shapeIconKey(c.shape)}`, c.shape.size ? `sz-${c.shape.size}` : ''] }), tkText(c))
+          : h('span', { class: ['dg-tk', c?.heal ? 'heal' : c?.targetKind, c?.size ? `sz-${c.size}` : ''] }, h('i'), tkText(c || {})),
         att ? h('span', { class: 'dg-att' }, `${att.short} 지원`) : null,
         c?.power != null ? h('span', { class: 'dg-pw' }, `1인 ${c.power}`) : h('span', { class: 'dg-pw heal' }, c?.heal ? `체력 +${healAmountOf(c) ?? ''}` : '효과'),
       ].filter(Boolean)); // 네이티브 replaceChildren 은 null 을 "null" 글자로 넣는다
@@ -1050,6 +1287,10 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
       }
       ghost.classList.toggle('over-field', overField);
       ghost.classList.toggle('over-row', d.over === 'row');
+    } else if (d.kind === 'shape') {
+      d.over = overField ? 'field' : null;
+      d.at = overField ? { x: fp.x, y: fp.y } : null;
+      ghost.classList.toggle('over-field', overField);
     } else {
       d.over = overField ? 'field' : hit?.closest?.('.ls-bench') ? 'bench' : null;
       ghost.classList.toggle('over-ok', (d.from === 'field' && d.over === 'bench' && v.canBench) || (d.from === 'bench' && d.over === 'field'));
@@ -1083,6 +1324,18 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
       const args = aimArgs();
       endDragUi();
       if (d.over === 'field' || d.over === 'row') {
+        if (pv?.ok && c) { playWith(args); return; }
+        toast(`${c?.name ?? '카드'}: ${pv?.reason || '여기에는 낼 수 없습니다'}`, 'info', 2000);
+      }
+      renderLive();
+      return;
+    }
+    if (d.kind === 'shape') {
+      // 주인 토큰을 받는 선수 · 구역에 놓았다 → 그 점으로 낸다 (판정 = 엔진). 밖이면 조준 모드로 돌아온다
+      const c = handCard(d.uid);
+      const args = aimArgs();
+      endDragUi();
+      if (d.over === 'field') {
         if (pv?.ok && c) { playWith(args); return; }
         toast(`${c?.name ?? '카드'}: ${pv?.reason || '여기에는 낼 수 없습니다'}`, 'info', 2000);
       }
@@ -1140,17 +1393,32 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     if (suppressClick || !isLive() || ui.busy || ui.drag || !ui.aim) return;
     const c = handCard(ui.aim.uid);
     if (!c) return;
-    if (!pointCard(c)) { playAim(); return; } // 전체 · 주인 · 없음: 경기장 아무 데나
+    if (!pointCard(c)) { playAim(); return; } // 전체 · 주인 · 없음 · 주인 둘레 원 · 구역 전원: 경기장 아무 데나
+    // 받는 선수 · 구역이 필요한 고유 카드: 주인 토큰 누르기 = 끌기 출발점 (내지 않는다 — 받는 선수 · 구역을 누르거나 주인을 끌어 놓는다)
+    if (shapeNeeds(c) && e.target?.closest?.('.tok')?.dataset?.id === c.ownerId) return;
     const touch = e.pointerType === 'touch' || e.pointerType === 'pen';
     const raw = lastUp && Math.abs(e.timeStamp - lastUp.t) < 1000 && Math.hypot(lastUp.x - e.clientX, lastUp.y - e.clientY) < 16 ? lastUp : { x: e.clientX, y: e.clientY };
     lastUp = null;
     const fp = pointerToField(raw.x, raw.y, field.getBoundingClientRect());
     if (!fp) return;
     const at = { x: fp.x, y: fp.y };
-    if (touch && !(ui.aim.at && distU(ui.aim.at, at) <= Z.pickR + 1)) {
+    // 같은 자리 다시 탭 = 내기. 고유 모양은 "같은 받는 선수 · 같은 구역" 이면 같은 자리 (엔진 미리보기로 비교 — 순수)
+    const sameSpot = () => {
+      if (!ui.aim.at) return false;
+      if (distU(ui.aim.at, at) <= Z.pickR + 1) return true;
+      const needs = shapeNeedsOf(c);
+      if (!needs) return false;
+      try {
+        const p1 = run.previewCard(st(), data, { uid: c.uid, at: ui.aim.at })?.shape;
+        const p2 = run.previewCard(st(), data, { uid: c.uid, at })?.shape;
+        return needs === 'zone' ? !!p1?.to && p1.to === p2?.to : !!p1?.receiverId && p1.receiverId === p2?.receiverId;
+      } catch (_) { return false; }
+    };
+    if (touch && !sameSpot()) {
       // 터치: 탭 1번 = 그 자리에 놓기, 같은 자리 한 번 더 · [내기] = 내기
       ui.aim.at = at;
       ui.aim.playerId = null;
+      ui.aim.zone = null;
       ui.aim.idx = -1;
       hoverAt = null;
       renderLive();
@@ -1159,6 +1427,7 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     hoverAt = null;
     ui.aim.at = touch ? ui.aim.at : at;
     ui.aim.playerId = null;
+    ui.aim.zone = null;
     computePreview();
     if (pv?.ok) playAim();
     else { toast(`${c.name}: ${pv?.reason || '여기에는 낼 수 없습니다'}`, 'info', 1800); renderLive(); }
@@ -1176,9 +1445,11 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     const i0 = ui.aim.idx;
     const idx = i0 < 0 ? (dir > 0 ? 0 : n - 1) : (i0 + dir + n) % n;
     const cd = list[idx];
+    const needs = shapeNeedsOf(c);
     ui.aim.idx = idx;
     ui.aim.at = cd.at ? { ...cd.at } : null;
-    ui.aim.playerId = cd.playerId && c.targetKind === 'single' ? cd.playerId : null;
+    ui.aim.playerId = cd.playerId && (c.targetKind === 'single' || needs === 'player') ? cd.playerId : null;
+    ui.aim.zone = cd.zone && needs === 'zone' ? cd.zone : null;
     hoverAt = null;
     renderLive();
   }
@@ -1186,7 +1457,11 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     const c = handCard(ui.aim?.uid);
     const z = ZONE_KEY_ORDER[k - 1];
     if (!c || !z || !Z.centers[z] || !pointCard(c)) return;
-    ui.aim.at = { ...Z.centers[z] };
+    const needs = shapeNeedsOf(c);
+    if (needs === 'player') return; // 받는 선수 모양: 숫자 키는 쓰지 않는다 (← → 후보)
+    if (needs === 'zone' && c.shape.kind === 'carry' && v.zones?.[c.ownerId] === z) return; // 가로지르기: 지금 구역 숫자는 무시
+    ui.aim.at = needs === 'zone' ? null : { ...Z.centers[z] };
+    ui.aim.zone = needs === 'zone' ? z : null;
     ui.aim.playerId = null;
     ui.aim.idx = -1;
     hoverAt = null;
@@ -1389,6 +1664,45 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
       if (plan.end) s -= plan.end.heal[p.id] || 0;
       return Math.max(0, Math.min(100, s));
     };
+    const sfx = act.shapeFx || { mult: {}, positionsAfter: null };
+    // 고유 모양 ① 자리 옮기기 · 가로지르기: 주인 토큰이 새 자리로 뛰어간다 (두 대형이 다시 모인다 — 미리보기 positionsAfter)
+    const stepMove = () => {
+      const mv = plan.play.move[0];
+      if (!mv || !sfx.positionsAfter || mv.from === mv.to) { stepPass(); return; }
+      v = {
+        ...v,
+        positions: sfx.positionsAfter,
+        zones: { ...(v.zones || {}), [mv.id]: mv.to },
+        players: (v.players || []).map((p) => (p.id === mv.id ? { ...p, zone: mv.to } : p)),
+      };
+      field.classList.add('scatter');
+      tokEls.get(mv.id)?.classList.add('moving');
+      renderTokens();
+      later(() => {
+        field.classList.remove('scatter');
+        tokEls.get(mv.id)?.classList.remove('moving');
+        stepPass();
+      }, LESSON_T.move);
+    };
+    // 고유 모양 ② 이어 주기 · 연결 · 크로스: 주인 → 받는 선수 공 호
+    const stepPass = () => {
+      const ps = plan.play.pass[0];
+      const a0 = ps ? spotOf(ps.from) : null;
+      const b0 = ps ? spotOf(ps.to) : null;
+      if (!a0 || !b0 || reduced) { stepA(); return; }
+      const ball = h('div', { class: 'ls-ball', 'aria-hidden': 'true' }, h('i'));
+      const [x1, y1] = toPx(a0);
+      const [x2, y2] = toPx(b0);
+      ball.style.transform = `translate(${px(x1)}, ${px(y1)})`;
+      ball.style.setProperty('--t-pass', `${LESSON_T.pass}ms`);
+      ball.style.setProperty('--arc', px(-Math.min(46, 18 + Math.hypot(x2 - x1, y2 - y1) * 0.12)));
+      popLayer.append(ball);
+      void ball.offsetWidth;
+      ball.classList.add('go');
+      ball.style.transform = `translate(${px(x2)}, ${px(y2)})`;
+      setTimeout(() => ball.remove(), LESSON_T.pass + 120);
+      later(stepA, LESSON_T.pass);
+    };
     const stepA = () => {
       if (!targets.length) { stepB(); return; }
       screen.classList.add('drilling-on'); // 훈련하지 않는 선수는 옅게
@@ -1402,16 +1716,24 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
       shown.score = scoreAfterPlay(plan, vNew.score);
       for (const p of vNew.players) shown.stamina[p.id] = afterPlayStamina(p);
       let any = false;
+      // 한 선수 위 팝 쌓기 (가로지르기 두 팝 · 주인 체력 회복): 두 번째부터 위로 한 줄씩 (.row1 · .row2)
+      const rowN = {};
+      const rowOf = (id) => { const k = rowN[id] ?? 0; rowN[id] = k + 1; return k ? `row${Math.min(2, k)}` : ''; };
       for (const id of targets) {
         const g = plan.play.gain[id];
         const f = plan.play.fail[id];
         if (f) { popAt(id, f.injured ? `부상! −${f.n}` : `실패 −${f.n}`, 'bad'); any = true; }
         else if (g && cut && boost[id] > 1) { popAt(id, `+${g.n} ×${round1(boost[id])}`, 'good', 'att'); any = true; } // 코치 능력 배율 = 코치 색
+        else if (g && (g.rows || []).length > 1) {
+          // 가로지르기: 두 구역 스탯 두 팝 (구역 아이콘으로 구분, 위아래로)
+          g.rows.forEach((r) => popAt(id, `${L.ZONE_ICONS[r.stat] ?? ''}${zoneShort(r.stat)} +${r.n}`, 'good', `shape ${rowOf(id)}`));
+          any = true;
+        } else if (g && sfx.mult[id] > 1) { popAt(id, `+${g.n} ${multShort(sfx.mult[id])}`, 'good', 'shape'); any = true; } // 모양 배율 (받는 선수 ×1.3 · 주인 ×1.5)
         else if (g) { popAt(id, g.sub && targets.length <= 2 ? `+${g.n}  (${L.STAT_SHORT[g.subStat] ?? '부'}+${g.sub})` : `+${g.n}`, 'good'); any = true; }
       }
       for (const [id, n] of Object.entries(plan.play.heal)) {
         if (!n) continue;
-        popAt(id, `체력 ${n > 0 ? '+' : ''}${n}`, n > 0 ? 'heal' : 'bad', 'small');
+        popAt(id, `체력 ${n > 0 ? '+' : ''}${n}`, n > 0 ? 'heal' : 'bad', `small ${targets.includes(id) ? rowOf(id) || 'row1' : ''}`);
         any = true;
       }
       if (plan.play.tw) pop({ x: 50, y: 92 }, `팀워크 +${plan.play.tw}`, 'good', 'small tw');
@@ -1475,8 +1797,8 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
       refresh({ deal: !!plan.draw, attached: plan.attach?.uid ?? null });
       if (recap && alive()) { cutRecap = recap; renderInfo(); }
     };
-    if (cut) showCutin(cut, stepA);
-    else stepA();
+    if (cut) showCutin(cut, stepMove);
+    else stepMove();
   }
 
   /* ------------------------------------------------------------------ */
@@ -1493,7 +1815,7 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
       if (r.kind === 'bench') { doBench(r.playerId, true); return; }
       if (r.kind === 'play') {
         // 추천 자리를 잠깐 보여 주고 (원 · 대상 말풍선) 그대로 낸다 — at · playerId 는 manager.autoStep 과 같다
-        ui.aim = { uid: r.uid, idx: -1, at: r.at ? { ...r.at } : null, playerId: r.playerId ?? null };
+        ui.aim = { uid: r.uid, idx: -1, at: r.zone ? null : r.at ? { ...r.at } : null, playerId: r.playerId ?? null, zone: r.zone ?? null };
         hoverAt = null;
         renderLive();
         later(() => {

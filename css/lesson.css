@@ -112,12 +112,6 @@
 .wl-k { text-align: right; }
 .wl-target { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .wl-target b { font-size: 13px; }
-.wl-owners {
-  display: flex; flex-direction: column; align-items: center; gap: 3px; align-self: stretch;
-  margin-top: 4px; padding-top: 5px; border-top: 1px dashed var(--border);
-}
-.wl-owners-k { font-size: 10px; line-height: 1.1; }
-.wl-owners-av { display: flex; align-items: center; justify-content: center; gap: 3px; min-height: 22px; }
 /* 자유 주 행동 카드 */
 .week-act { flex: 0 1 220px; gap: 6px; }
 .week-act .wa-ico, .week-rest .wa-ico { font-size: 42px; line-height: 1.15; margin-top: 4px; }
@@ -178,12 +172,6 @@
 .meeting-tip { line-height: 1.4; }
 /* 미팅 · 준비 보드의 작은 슬롯 카드: "체력 100 · 수피" 한 줄이 잘리지 않게 조금 넓힌다 (4열 간격 ≥ 147px) */
 .meeting-board .lu-pitch.compact .slot-card { width: 134px; }
-/* 자리를 옮기면 고유 카드 강화 모드 종목이 바뀌는 선수: 슬롯 카드 아래 테두리 위 알약 */
-.slot-card .mode-chg {
-  position: absolute; left: 50%; bottom: -8px; transform: translateX(-50%); z-index: 2;
-  padding: 0 7px; border-radius: 999px; font-size: 10px; line-height: 15px; font-weight: 800; white-space: nowrap;
-  background: #e58fd0; color: #2a0b22; box-shadow: 0 2px 5px rgba(0, 0, 0, .4); pointer-events: none;
-}
 
 /* ================================================================== */
 /* 레슨 (.lesson-screen) — U3, screens/lesson.js                          */
@@ -334,6 +322,60 @@
 .lesson-screen .tok.rec .tok-face { outline: 2px dashed #4fe3d0; outline-offset: 5px; }
 .lesson-screen.aim-has .tok:not(.target):not(.heal-target):not(.off) { opacity: .5; }
 .lesson-screen .tok.lifting { opacity: .3; }
+/* 고유 카드 모양 조준 (§16.7, L40) — 모양 색 --shape (분홍): 주인 둘레 원 · 주인 → 받는 선수 선 · 옮기기 화살표 · 유령 · 구역 바닥 강조 */
+.lesson-screen { --shape: #f6b8e8; --shape-a: rgba(240, 166, 224, .35); }
+.aim-circle.owner { border: 2px solid var(--shape); background: rgba(240, 166, 224, .07); }
+.aim-circle.owner.ok { box-shadow: 0 0 0 1px rgba(0, 0, 0, .25), 0 0 18px var(--shape-a), inset 0 0 22px rgba(240, 166, 224, .14); }
+.aim-link, .aim-arrow { position: absolute; left: 0; top: 0; height: 0; display: none; transform-origin: 0 0; pointer-events: none; filter: drop-shadow(0 0 3px rgba(0, 0, 0, .7)); }
+.aim-link.on, .aim-arrow.on { display: block; }
+.aim-link { margin-top: -1.5px; border-top: 3px solid var(--shape); }
+.aim-link.dash { border-top-style: dashed; }
+.aim-link.cross { border-top-color: #ff9466; }
+.aim-link.bad { border-top-color: var(--bad); }
+.al-ball { display: none; position: absolute; right: 22px; top: -8.5px; width: 11px; height: 11px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 2px #1d2230, 0 0 8px rgba(255, 255, 255, .7); }
+.aim-link.solid .al-ball { display: block; }
+.aim-link.short .al-ball { display: none; }
+.aim-arrow { margin-top: -2px; border-top: 4px solid var(--shape); }
+.aim-arrow.carry { border-top-style: dashed; }
+.aa-head { position: absolute; right: 16px; top: -9px; width: 0; height: 0; border-left: 13px solid var(--shape); border-top: 7px solid transparent; border-bottom: 7px solid transparent; }
+.aim-arrow.short .aa-head { right: 0; }
+.aim-arrow.bad { border-top-color: var(--bad); }
+.aim-arrow.bad .aa-head { border-left-color: var(--bad); }
+.aim-spot { position: absolute; left: 0; top: 0; display: none; width: 46px; height: 46px; margin: -23px 0 0 -23px; border-radius: 50%; border: 2px dashed var(--shape); background: rgba(240, 166, 224, .1); }
+.aim-spot.on { display: block; }
+.aim-ghost-layer { position: absolute; inset: 0; pointer-events: none; z-index: 5; }
+.aim-ghost { position: absolute; left: 0; top: 0; width: 0; height: 0; display: none; }
+.aim-ghost.on { display: block; }
+.ag-face {
+  position: absolute; left: -20px; top: -20px; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 50%;
+  font-size: 18px; font-weight: 800; color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, .7); opacity: .78;
+  box-shadow: 0 0 0 2px var(--home), 0 0 0 4px var(--shape), 0 0 18px var(--shape-a), 0 6px 14px rgba(0, 0, 0, .5);
+}
+.aim-ghost.follow .ag-face { opacity: .9; }
+.aim-ghost.bad .ag-face { opacity: .55; box-shadow: 0 0 0 2px var(--home), 0 0 0 4px var(--bad), 0 6px 14px rgba(0, 0, 0, .5); }
+/* 구역 바닥: 놓을 구역 · 주인 구역 · 크로스 슈팅 구역 = 분홍, 가로지르기 지금 구역 = 하늘 점선, 놓을 수 없음 = 빨강, 감독 추천 = 청록 점선 */
+.zone-pad.aim, .zone-pad.bad { animation: none; } /* 특별 중점 바닥의 빛 애니메이션보다 앞선다 */
+.zone-pad.aim { box-shadow: inset 0 0 0 3px var(--shape), 0 0 26px var(--shape-a); background: radial-gradient(circle, rgba(240, 166, 224, .2) 0%, rgba(240, 166, 224, .08) 70%, rgba(0, 0, 0, 0) 100%); }
+.zone-pad.from { outline: 3px dashed #9fd3ff; outline-offset: -5px; }
+.zone-pad.bad { box-shadow: inset 0 0 0 3px var(--bad); background: radial-gradient(circle, rgba(255, 92, 92, .14) 0%, rgba(0, 0, 0, 0) 100%); }
+.zone-pad.rec { outline: 2px dashed #4fe3d0; outline-offset: 3px; }
+/* 주인 토큰: 분홍 고리 (끄는 출발점이면 숨쉬기 + grab), 받는 선수 후보가 아닌 선수는 흐리게 */
+.lesson-screen .tok.shape-owner .tok-face { box-shadow: 0 0 0 2px var(--home), 0 0 0 4px var(--shape), 0 0 16px var(--shape-a); }
+.lesson-screen .tok.shape-owner.failer .tok-face { box-shadow: 0 0 0 2px var(--home), 0 0 0 4px var(--bad), 0 0 14px rgba(255, 92, 92, .6); }
+.lesson-screen .tok.shape-src .tok-face { cursor: grab; animation: src-pulse 1.4s ease-in-out infinite; }
+@keyframes src-pulse { 50% { box-shadow: 0 0 0 2px var(--home), 0 0 0 6px var(--shape), 0 0 24px rgba(240, 166, 224, .8); } }
+.lesson-screen.aiming .tok.noncand { opacity: .4; }
+.lesson-screen .tok.moving { z-index: 7; }
+.lesson-screen .tok-name.bub.shape { background: #ffe0f7; color: #4a0f3c; }
+.drag-ghost.shape-drag.over-field { opacity: 0; }
+/* 연출: 이어 주기 공 호 (.ls-ball) · 모양 배율 팝 · 가로지르기 두 팝 (위아래) */
+.ls-ball { position: absolute; left: 0; top: 0; width: 0; height: 0; z-index: 8; pointer-events: none; transition: transform var(--t-pass, 300ms) linear; }
+.ls-ball i { position: absolute; left: -6px; top: -6px; width: 12px; height: 12px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 2px #1d2230, 0 0 10px rgba(255, 255, 255, .8); }
+.ls-ball.go i { animation: ball-arc var(--t-pass, 300ms) ease-in-out both; }
+@keyframes ball-arc { 50% { transform: translateY(var(--arc, -24px)); } }
+.ls-pop.shape > span { color: #ffc6f0; border-color: rgba(240, 166, 224, .6); }
+.ls-pop.row1 > span { margin-top: -26px; }
+.ls-pop.row2 > span { margin-top: -52px; }
 /* 훈련 동작 (제자리 — 이미 구역에 서 있다): 통통 + 구역 색 고리 */
 .lesson-screen .tok-ring { display: none; position: absolute; left: calc(var(--tok) * -.72); top: calc(var(--tok) * -.72); width: calc(var(--tok) * 1.44); height: calc(var(--tok) * 1.44); border-radius: 50%; border: 3px solid var(--zc, var(--gold)); pointer-events: none; }
 .lesson-screen .tok.drilling { z-index: 6; }
@@ -515,12 +557,43 @@ button.card-face:disabled { cursor: default; }
 .cf-power { margin-top: 2px; font-size: 14px; font-weight: 800; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .cf-pmult { margin-left: 6px; font-size: 10.5px; font-weight: 700; color: var(--gold); }
 .cf-power.muted { font-weight: 700; font-size: 13px; }
+/* 고유 카드 모양 칩 (§16.7, L40): 분홍 칩 + 모양 아이콘 — 이어 주기 = 선 + 공 · 연결 = 점선 두 점 · 크로스 = 호 + 공 · 둘레 원 = 점선 원 + ★ ·
+   구역 전원 = 바닥 + ★ · 자리 옮기기 = → · 가로지르기 = ⇄ · 마무리 = ★ */
+.cf-target.shape { background: rgba(240, 166, 224, .14); color: #f8c8ee; box-shadow: inset 0 0 0 1px rgba(240, 166, 224, .32); }
+.cf-pmult.shape { color: #f8c8ee; }
+.cf-ticon[class*=" s-"] { position: relative; border: 0; border-radius: 0; background: none; box-shadow: none; opacity: 1; font-style: normal; }
+.cf-ticon.s-link { width: 17px; height: 8px; background: linear-gradient(currentColor, currentColor) 0 50% / 12px 2px no-repeat; }
+.cf-ticon.s-link::after { content: ''; position: absolute; right: 0; top: 50%; width: 6px; height: 6px; margin-top: -3px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, .5); }
+.cf-ticon.s-pick { width: 17px; height: 8px; background: repeating-linear-gradient(90deg, currentColor 0 3px, transparent 3px 5px) 3px 50% / 11px 2px no-repeat; }
+.cf-ticon.s-pick::before, .cf-ticon.s-pick::after { content: ''; position: absolute; top: 50%; width: 5px; height: 5px; margin-top: -2.5px; border-radius: 50%; background: currentColor; }
+.cf-ticon.s-pick::before { left: 0; }
+.cf-ticon.s-pick::after { right: 0; background: #fff; }
+.cf-ticon.s-cross { width: 15px; height: 9px; }
+.cf-ticon.s-cross::before { content: ''; position: absolute; left: 0; top: 1px; width: 11px; height: 14px; box-sizing: border-box; border: 2px solid currentColor; border-color: currentColor currentColor transparent transparent; border-radius: 50%; transform: rotate(-20deg); }
+.cf-ticon.s-cross::after { content: ''; position: absolute; right: 0; bottom: 0; width: 5px; height: 5px; border-radius: 50%; background: #ff9466; }
+.cf-ticon.s-ownerCircle { width: 13px; height: 13px; box-sizing: border-box; border: 1.5px dashed currentColor; border-radius: 50%; }
+.cf-ticon.s-ownerCircle.sz-small { width: 11px; height: 11px; }
+.cf-ticon.s-ownerCircle.sz-medium { width: 15px; height: 15px; }
+.cf-ticon.s-ownerCircle::before, .cf-ticon.s-ownerZone::before, .cf-ticon.s-owner::before {
+  content: '★'; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -52%); font-size: 7px; line-height: 1; color: var(--gold);
+}
+.cf-ticon.s-ownerZone { width: 17px; height: 10px; box-sizing: border-box; border: 1.5px solid currentColor; border-radius: 50%; background: rgba(240, 166, 224, .3); }
+.cf-ticon.s-move, .cf-ticon.s-carry { width: auto; height: auto; }
+.cf-ticon.s-move::before { content: '→'; font-size: 14px; font-weight: 900; line-height: 1; }
+.cf-ticon.s-carry::before { content: '⇄'; font-size: 14px; font-weight: 900; line-height: 1; }
+.cf-ticon.s-owner { width: 10px; height: 10px; }
+.cf-ticon.s-owner::before { font-size: 10px; }
+.dg-tk.shape { color: #f8c8ee; }
+.dg-tk.shape i.cf-ticon { width: auto; min-width: 11px; height: 10px; border: 0; border-radius: 0; }
+.dg-tk.shape i.cf-ticon.s-ownerCircle { width: 11px; border: 1.5px dashed currentColor; border-radius: 50%; }
+.dg-tk.shape i.cf-ticon.s-ownerZone { width: 15px; border: 1.5px solid currentColor; border-radius: 50%; }
+.dg-tk.shape i.cf-ticon.s-link, .dg-tk.shape i.cf-ticon.s-pick { width: 15px; }
 .cf-cost { font-size: 12px; font-weight: 700; color: var(--warn); white-space: nowrap; }
 .cf-cost.none { font-weight: 400; color: var(--muted); }
 .cf-desc { margin-top: 2px; font-size: 11.5px; line-height: 1.35; color: #c9d2e0; word-break: keep-all; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .cf-rec, .cf-tag { position: absolute; left: 11px; bottom: 8px; padding: 1px 7px; border-radius: 999px; font-size: 10.5px; font-weight: 800; background: var(--accent); color: #041224; }
 .cf-tag { left: auto; right: 8px; top: 12px; bottom: auto; background: var(--panel-3); color: var(--text); }
-.cf-reason { position: absolute; left: 0; right: 0; bottom: 0; padding: 3px 8px; font-size: 11px; font-weight: 700; text-align: center; background: rgba(255, 92, 92, .88); color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cf-reason { position: absolute; left: 0; right: 0; bottom: 0; padding: 3px 8px; font-size: 11px; line-height: 1.25; font-weight: 700; text-align: center; background: rgba(255, 92, 92, .88); color: #fff; word-break: keep-all; overflow-wrap: anywhere; } /* 긴 이유 ("슈팅 구역에 받을 선수가 없습니다") 는 두 줄 */
 /* 겹친 손패: 앞 카드 그림자로 경계를 보인다. 마우스를 올린 카드는 맨 앞으로 (가려진 오른쪽 글자 보기) */
 .ls-hand.overlap .card-face { box-shadow: -6px 0 12px rgba(0, 0, 0, .45); }
 .ls-hand .card-face:hover { z-index: 30 !important; }

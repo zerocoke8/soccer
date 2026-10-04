@@ -54,13 +54,11 @@ export function renderWeek(root, ctx, { inert = false } = {}) {
   // ---------- 이번 주 ----------
   let cardsRow;
   if (kind === 'lesson' || kind === 'prep') {
-    // 중점 구역 카드 (§14.10 · §14.16): 아이콘 · 구역 이름 · "서 있을 확률 ×2 · 상승 ×1.5" · 예상 인원(expected) · ★특별(×2.0, 목표) · 고유 ×1.5 선수(boosted).
+    // 중점 구역 카드 (§14.10 · §14.16): 아이콘 · 구역 이름 · "서 있을 확률 ×2 · 상승 ×1.5" · 예상 인원(expected) · ★특별(×2.0, 목표).
     // 턴 수 · 일반 목표는 머리 줄에 한 번.
     const weight = focusCfg.weight ?? 2;
     cardsRow = (view.lessons || []).map((ls) => {
       const a = { type: 'lesson', zone: ls.zone };
-      const boosted = new Set(Array.isArray(ls.boosted) ? ls.boosted : []);
-      const owners = players.filter((p) => boosted.has(p.id));
       const mult = ls.special ? (focusCfg.specialMult ?? 2) : (focusCfg.mult ?? 1.5);
       const exp = Number(ls.expected);
       const expText = Number.isFinite(exp) ? exp.toFixed(1) : '?';
@@ -86,10 +84,7 @@ export function renderWeek(root, ctx, { inert = false } = {}) {
       ls.special
         ? h('span', { class: 'wl-target gold tiny' }, '목표 ', h('b', {}, ls.target), ` · 퍼펙트 ${ls.cap}`)
         : ls.prep ? h('span', { class: 'wl-sub tiny' }, prepBoost(ls.zone) ? h('span', { class: 'warn' }, `대비 카드 ${prepBoost(ls.zone)}장 ×1.5`) : h('span', { class: 'muted' }, '대비 카드 배율 없음'))
-          : h('span', { class: 'wl-sub tiny muted' }, '기본 레슨'),
-      h('span', { class: 'wl-owners', title: owners.length ? `이 구역이 주 스탯이라 고유 카드 ×${data.lesson?.lesson?.unique?.mainMult ?? 1.5}인 선수: ${owners.map((p) => p.name).join(' · ')}` : '이 구역에서 ×1.5가 걸리는 고유 카드 없음' },
-        h('span', { class: 'wl-owners-k tiny muted' }, '고유 ×1.5'),
-        h('span', { class: 'wl-owners-av' }, owners.length ? owners.map((p) => avatar(p.portraitColor, p.name, 'xs')) : h('span', { class: 'tiny muted' }, '없음'))));
+          : h('span', { class: 'wl-sub tiny muted' }, '기본 레슨'));
     });
   } else {
     cardsRow = (view.actions || []).map((x) => {
