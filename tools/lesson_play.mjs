@@ -14,13 +14,18 @@
 //  - 화면이 바뀔 때마다 · 터치 끌기 중간 프레임을 PNG 로 남기고, 페이지 에러 · 에러 토스트 · 스크롤을 센다.
 // --until season(기본) = 시즌 1 경계전 · 루트까지, lesson = 첫 레슨 끝까지, run = 15주 완주. --lessons N = 레슨 N번 끝나면 멈춤.
 // --mobile = isMobile 뷰포트(터치 전용 기기처럼), --touch-only = 레슨 입력을 터치 방식만.
+// L40 고유 카드 모양 (§16.12 U4): 모양마다 입력을 돌아가며 쓴다 — 이어 주기 = 카드 클릭 · 탭 → 주인 토큰 끌기, 연결 · 크로스 = 카드를 받는 선수 위로,
+//   자리 옮기기 = 카드를 구역으로, 가로지르기 = 숫자 키, 둘레 원 · 구역 전원 = 카드 탭 두 번 (+ 마우스 · 터치 끌기 · 탭 · 클릭 · 키보드를 섞어서).
+//   놓기 직전 화면 (흰 고리 대상 · 놓을 바닥 · 가로지르기 지금 바닥) 에서 읽은 행 (선수:스탯) = 실제 lastFx 행인지 본다 (실패자는 마지막 행 1개).
+//   --slot SLOT=charId = 편성 화면에서 그 슬롯을 눌러 선수를 바꾼 뒤 [런 시작] (미르카 판: --slot FW2=ch_cat_trickster).
+//   아직 안 낸 고유 카드가 낼 수 있으면 감독 추천 대신 먼저 낸다 (덱의 고유 카드 모두 1번 이상 — 끝에 확인). --no-cover = 늘 감독 추천대로.
 import fs from "node:fs";
 import path from "node:path";
 import { ROOT } from "./scenarios.mjs";
 import { startServer, findBrowser } from "./shot.mjs";
 
 function parseArgs(argv) {
-  const o = { outDir: null, seed: "play-1", policy: "team", until: "season", lessons: null, width: 1280, height: 720, mobile: false, touchOnly: false, maxMin: 25 };
+  const o = { outDir: null, seed: "play-1", policy: "team", until: "season", lessons: null, width: 1280, height: 720, mobile: false, touchOnly: false, maxMin: 25, slots: {}, coverUniques: true };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const next = () => argv[++i];
@@ -33,11 +38,13 @@ function parseArgs(argv) {
     else if (a === "--mobile") o.mobile = true;
     else if (a === "--touch-only") o.touchOnly = true;
     else if (a === "--max-min") o.maxMin = Number(next()) || 25;
+    else if (a === "--slot") { const [k, v] = String(next() || "").split("="); if (!k || !v) throw new Error("--slot SLOT=charId"); o.slots[k] = v; }
+    else if (a === "--no-cover") o.coverUniques = false;
     else if (a.startsWith("--")) throw new Error(`알 수 없는 옵션: ${a}`);
     else if (!o.outDir) o.outDir = a;
     else throw new Error(`인자가 너무 많습니다: ${a}`);
   }
-  if (!o.outDir) throw new Error("usage: node tools/lesson_play.mjs <outDir> [--seed S] [--policy P] [--until season|lesson|run] [--lessons N] [--width W --height H] [--mobile] [--touch-only]");
+  if (!o.outDir) throw new Error("usage: node tools/lesson_play.mjs <outDir> [--seed S] [--policy P] [--until season|lesson|run] [--lessons N] [--width W --height H] [--mobile] [--touch-only] [--slot FW2=ch_cat_trickster] [--no-cover]");
   return o;
 }
 
@@ -61,6 +68,7 @@ async function main() {
   const browser = await puppeteer.launch({ executablePath: bi.path, headless: true, args: ["--no-first-run", "--no-default-browser-check", "--disable-extensions", "--lang=ko-KR"] });
   const log = (...a) => console.log(...a);
   const report = { errors: [], toasts: [], scroll: [], actions: {}, fails: [], fallbacks: [], targetMismatch: [], drift: [], shots: [], phases: {}, lessons: [] };
+  const uniquePlays = {}; // 낸 고유 카드 cardId → { name, kind, chip, n, ways: Set }
   const t0 = Date.now();
   try {
     const page = await browser.newPage();
@@ -145,13 +153,49 @@ async function main() {
     await press(`.policy-btn[data-policy="${args.policy}"]`);
     const seedBox = await boxOf("input.input");
     if (seedBox) { await mouseClickAt(center(seedBox)); await page.keyboard.down("Control"); await page.keyboard.press("A"); await page.keyboard.up("Control"); await page.keyboard.type(String(args.seed)); }
+    const slotList = Object.entries(args.slots);
+    for (const [slot, charId] of slotList) {
+      // 슬롯 누르기 → 선수 고르기 모달 → 그 선수 (실제 입력)
+      const name = await S((cid) => (window.__soccer.store.data.characters || []).find((c) => c.id === cid)?.name ?? null, charId);
+      if (!name) throw new Error(`캐릭터 '${charId}' 없음`);
+      if (!(await press(`.setup-screen .lu-slot[data-slot="${slot}"]`))) { report.fails.push(`편성 슬롯 ${slot}을 누르지 못함`); continue; }
+      await page.waitForSelector("#modal-root .char-pick", { timeout: 4000 }).catch(() => {});
+      const idx = await S((nm) => [...document.querySelectorAll("#modal-root .char-pick")].findIndex((b) => (b.textContent || "").includes(nm) && !b.disabled), name);
+      if (idx < 0) { report.fails.push(`선수 고르기 모달에 ${name} 없음`); continue; }
+      await delay(350); // 모달이 다 뜬 뒤
+      await snap(`setup_pick_${slot}`);
+      await press("#modal-root .char-pick", "mouse", idx);
+      await delay(200);
+      const now = await S((sl) => document.querySelector(`.setup-screen .lu-slot[data-slot="${sl}"]`)?.dataset.pid ?? null, slot);
+      if (now !== charId) report.fails.push(`편성 ${slot} = ${now} (${charId} 아님)`);
+    }
     await snap("setup");
-    await pressText(/기본 편성으로 시작/);
+    if (slotList.length) await pressText(/^런 시작$/);
+    else await pressText(/기본 편성으로 시작/);
     await page.waitForFunction(() => window.__soccer.store.screen === "run" && window.__soccer.store.run?.phase === "week", { timeout: 8000 });
 
     // ---- 레슨 한 행동 ----
     const MOUSE_WAYS = ["mouseDrag", "touchDrag", "touchTap", "mouseClick", "keys"];
     const TOUCH_WAYS = ["touchDrag", "touchTap"];
+    // L40 고유 카드 모양별 입력 (§16.12 U4) — 첫 번째 = 계획의 대표 조작, 나머지는 마우스 · 터치를 섞어 돌아가며
+    const SHAPE_WAYS = {
+      link: ["ownerDragMouse", "ownerDragTouch", "cardTouchDrag", "keys", "tapTwice", "cardMouseDrag"],
+      pick: ["cardMouseDrag", "cardTouchDrag", "tapTwice", "mouseClick", "ownerDragTouch", "keys"],
+      cross: ["cardMouseDrag", "cardTouchDrag", "tapTwice", "ownerDragMouse", "mouseClick", "keys"],
+      move: ["cardMouseDrag", "cardTouchDrag", "ownerDragTouch", "tapTwice", "keys", "ownerDragMouse", "mouseClick"],
+      carry: ["keys", "cardTouchDrag", "ownerDragMouse", "tapTwice", "cardMouseDrag", "ownerDragTouch", "mouseClick"],
+    };
+    const SHAPE_WAY_LABEL = {
+      ownerDragMouse: "카드 클릭 → 주인 토큰 마우스 끌기", ownerDragTouch: "카드 탭 → 주인 토큰 터치 끌기",
+      cardMouseDrag: "카드 마우스 끌기", cardTouchDrag: "카드 터치 끌기", tapTwice: "카드 탭 → 자리 탭 → 한 번 더",
+      mouseClick: "카드 클릭 → 자리 클릭", keys: "카드 클릭 → 숫자 · ←→ → Enter",
+    };
+    // 주인 둘레 원 · 구역 전원 · 마무리 (놓을 자리가 없는 모양) — 첫 번째 = 터치 두 번
+    const OWNER_WAYS = ["touchTap", "mouseDrag", "mouseClick", "touchDrag"];
+    const shapeWayI = {};
+    const shapeShots = new Set();
+    let ownerWayI = 0;
+    const uniquesPlayed = new Set(); // 낸 고유 카드 cardId (이번 판)
     let wayI = 0;
     let lessonsDone = 0;
     let touchShotDone = false;
@@ -171,17 +215,77 @@ async function main() {
     async function lessonStep() {
       await lessonIdle();
       await delay(350); // 새 손패 · 흩어지기 연출이 끝나도록 (사람처럼 한 박자 쉬고)
-      const info = await S(() => {
+      const info = await S((cover) => {
         const { store, manager, run } = window.__soccer;
         const st = store.run;
-        const rec = manager.recommendCard(st, store.data);
-        const v = run.getLessonView(st, store.data);
+        const data = store.data;
+        let rec = manager.recommendCard(st, data);
+        const v = run.getLessonView(st, data);
+        // 고유 카드 모두 1번 이상 (§16.12 U4): 아직 안 낸 고유 카드가 낼 수 있으면 감독 추천 대신 그 카드 — 후보 중 미리보기 상승 합이 가장 큰 자리
+        let forced = false;
+        if (cover && rec.kind !== "bench") {
+          const done = new Set(cover);
+          for (const c of v.hand) {
+            if (!c.shape || !c.playable || done.has(c.cardId)) continue;
+            if (rec.kind === "play" && rec.uid === c.uid) break;
+            const needsZone = c.shape.needs === "zone";
+            let best = null;
+            for (const cd of run.dropCandidates(st, data, { uid: c.uid })) {
+              const a = { uid: c.uid, at: cd.at || undefined, playerId: cd.playerId, zone: needsZone ? cd.zone : undefined };
+              const p = run.previewCard(st, data, a);
+              if (p.ok && (!best || p.total > best.total)) best = { total: p.total, a };
+            }
+            if (best) {
+              rec = { kind: "play", uid: c.uid, score: null };
+              if (best.a.at) rec.at = best.a.at;
+              if (best.a.playerId != null) rec.playerId = best.a.playerId;
+              if (best.a.zone != null) rec.zone = best.a.zone;
+              forced = true;
+              break;
+            }
+          }
+        }
         const card = rec.kind === "play" ? v.hand.find((c) => c.uid === rec.uid) : null;
-        const pv = rec.kind === "play" ? run.previewCard(st, store.data, { uid: rec.uid, at: rec.at, playerId: rec.playerId }) : null;
-        return { rec, card: card ? { uid: card.uid, name: card.name, targetKind: card.targetKind, heal: !!card.heal, size: card.size ?? null, attached: !!card.attach } : null, pvIds: pv ? (pv.targets || []).map((t) => t.id).sort() : null, healId: pv?.healId ?? null };
-      });
+        const pv = rec.kind === "play" ? run.previewCard(st, data, { uid: rec.uid, at: rec.at, playerId: rec.playerId, zone: rec.zone }) : null;
+        // 모양 카드: 놓을 화면 점 (필드 %) — 받는 선수 위치 · 구역 바닥 안에서 토큰과 가장 먼 점 (탭 · 클릭이 토큰 · 주인 위로 가지 않게)
+        let shapeAt = null;
+        let zoneKey = null;
+        if (card?.shape?.needs === "player" && rec.playerId) shapeAt = { ...v.positions[rec.playerId] };
+        if (card?.shape?.needs === "zone" && rec.zone) {
+          const Z = v.zoneCfg;
+          const c0 = Z.centers[rec.zone];
+          const pts = Object.values(v.positions || {});
+          let best = null;
+          for (const r of [0, 2, 4, 6]) {
+            for (let k = 0; k < (r ? 16 : 1); k++) {
+              const ang = (2 * Math.PI * k) / 16;
+              const p = { x: c0.x + r * Math.cos(ang), y: c0.y + (r * Math.sin(ang)) / Z.aspect };
+              if (p.x < 2 || p.x > 98 || p.y < 2 || p.y > 98) continue;
+              const dmin = Math.min(99, ...pts.map((q) => Math.hypot(q.x - p.x, (q.y - p.y) * Z.aspect)));
+              if (!best || dmin > best.d + 1e-9) best = { d: dmin, p };
+            }
+          }
+          shapeAt = best ? best.p : { ...c0 };
+          const key = document.querySelector(`.lesson-screen .zone-chip[data-zone="${rec.zone}"] .zc-key`);
+          zoneKey = key ? key.textContent.trim() : null;
+        }
+        return {
+          rec, forced,
+          card: card ? {
+            uid: card.uid, cardId: card.cardId, name: card.name, targetKind: card.targetKind, heal: !!card.heal, size: card.size ?? null, attached: !!card.attach,
+            shape: card.shape ? { kind: card.shape.kind, needs: card.shape.needs || null, chip: card.shape.chip, cross: !!(card.shape.onlyZones && card.shape.onlyZones.length) } : null,
+            ownerId: card.ownerId ?? null,
+          } : null,
+          pvIds: pv ? [...new Set((pv.targets || []).map((t) => t.id))].sort() : null,
+          pvRows: pv ? (pv.targets || []).map((t) => `${t.id}:${t.stat}`) : null,
+          pvShape: pv?.shape ? { receiverId: pv.shape.receiverId ?? null, to: pv.shape.to ?? null } : null,
+          shapeAt, zoneKey,
+          healId: pv?.healId ?? null,
+        };
+      }, args.coverUniques ? [...uniquesPlayed] : null);
       const before = await lessonSnap();
       const { rec, card } = info;
+      if (info.forced) count("고유 카드 먼저 (아직 안 낸 카드)");
       const ways = args.touchOnly ? TOUCH_WAYS : MOUSE_WAYS;
       const way = ways[wayI++ % ways.length];
       const field = await boxOf(".lesson-screen .m-field");
@@ -189,10 +293,35 @@ async function main() {
       // 내기 직전 화면에 보인 대상 (흰 고리 .tok.target) · 자리 — 끌기 · 탭은 화면 px → 필드 % 라 추천 자리와 조금 다를 수 있다
       let seen = null;
       const readSeen = async () => {
-        seen = await S(() => {
-          const ui = window.__soccer.store.lessonUi;
-          return { ids: [...document.querySelectorAll(".lesson-screen .tok.target")].map((t) => t.dataset.id).sort(), at: ui.drag?.at ?? ui.aim?.at ?? null };
-        });
+        seen = await S((sh, owner) => {
+          const s = window.__soccer.store;
+          const ui = s.lessonUi;
+          const ids = [...document.querySelectorAll(".lesson-screen .tok.target")].map((t) => t.dataset.id).sort();
+          const out = { ids, at: ui.drag?.at ?? ui.aim?.at ?? null };
+          if (!sh) return out;
+          // 모양 카드 — 화면에 보인 행 (선수:구역 스탯): 자리 옮기기 = 놓을 바닥 (.zone-pad.aim), 가로지르기 = 지금 바닥 (.from) + 놓을 바닥,
+          // 그 밖 = 그 선수가 선 구역. 받는 선수 = 선이 닿은 후보 (.tok.target 중 주인 아닌 선수)
+          const pad = (cls) => [...document.querySelectorAll(`.lesson-screen .zone-pad.${cls}`)].map((e) => e.dataset.zone);
+          const aimPads = pad("aim");
+          const fromPads = pad("from");
+          const zones = s.run.lesson.zones || {};
+          const rows = [];
+          for (const id of [owner, ...ids.filter((x) => x !== owner)]) {
+            if (!ids.includes(id)) continue;
+            if (id === owner && sh.kind === "move") rows.push(`${id}:${aimPads[0] ?? "?"}`);
+            else if (id === owner && sh.kind === "carry") rows.push(`${id}:${fromPads[0] ?? "?"}`, `${id}:${aimPads[0] ?? "?"}`);
+            else rows.push(`${id}:${zones[id]}`);
+          }
+          out.rows = rows;
+          out.zone = sh.needs === "zone" ? aimPads[0] ?? null : null;
+          out.receiverId = sh.needs === "player" ? ids.find((x) => x !== owner) ?? null : null;
+          out.ownerZone = zones[owner] ?? null;
+          out.badPad = !!document.querySelector(".lesson-screen .zone-pad.bad");
+          out.line = (document.querySelector(".lesson-screen .aim-link.on")?.className || "").replace(/\s+/g, " ").trim() || null;
+          out.arrow = !!document.querySelector(".lesson-screen .aim-arrow.on");
+          out.ghost = !!document.querySelector(".lesson-screen .aim-ghost.on");
+          return out;
+        }, card?.shape ?? null, card?.ownerId ?? null);
       };
       if (rec.kind === "endTurn") {
         const how = way.startsWith("touch") ? "touch" : "mouse";
@@ -222,6 +351,96 @@ async function main() {
           await press(`.ls-hand .card-face[data-uid="${rec.uid}"]`, how);
           await delay(120);
           await press(`.ls-row[data-pid="${rec.playerId}"]`, how);
+        }
+      } else if (card?.shape?.needs) {
+        // L40 고유 카드 — 받는 선수 · 구역이 필요한 모양 (§16.7). 모양마다 방식을 돌아가며 (첫 번째 = 계획의 대표 조작):
+        //   이어 주기 = 주인 토큰 끌기, 연결 · 크로스 = 카드를 받는 선수 위로, 자리 옮기기 = 카드를 구역으로, 가로지르기 = 숫자 키
+        const sh = card.shape;
+        const kind = sh.cross ? "cross" : sh.kind;
+        let list = SHAPE_WAYS[kind] || SHAPE_WAYS.pick;
+        if (args.touchOnly) list = list.filter((w) => /touch|tap/i.test(w));
+        const wi = shapeWayI[kind] || 0;
+        shapeWayI[kind] = wi + 1;
+        const sway = list[wi % list.length];
+        const cb = await boxOf(`.ls-hand .card-face[data-uid="${rec.uid}"]`);
+        const P = ptIn(field, info.shapeAt);
+        const ownerFace = async () => boxOf(`.lesson-screen .tok[data-id="${card.ownerId}"] .tok-face`);
+        const aimOn = () => S((uid) => window.__soccer.store.lessonUi.aim?.uid === uid, rec.uid);
+        const where = sh.needs === "zone" ? `구역 ${rec.zone}` : `받는 선수 ${rec.playerId}`;
+        const shotKey = `${kind}-${sway}`;
+        const holdShot = !shapeShots.has(shotKey) ? `lesson_${kind}_${sway}` : null;
+        if (holdShot) shapeShots.add(shotKey);
+        const hold = async () => { await readSeen(); if (holdShot) await snap(holdShot); };
+        label = `${sh.chip} (${SHAPE_WAY_LABEL[sway]})`;
+        if (sway === "cardMouseDrag") await mouseDrag(center(cb), P, { onHold: hold });
+        else if (sway === "cardTouchDrag") await touchDrag(center(cb), P, { onHold: hold });
+        else if (sway === "ownerDragMouse" || sway === "ownerDragTouch") {
+          // 조준 먼저 (카드 클릭 · 탭) → 주인 토큰을 받는 선수 · 구역으로 끌기
+          if (sway === "ownerDragMouse") await mouseClickAt(center(cb)); else await tapAt(center(cb));
+          await delay(150);
+          if (!(await aimOn())) report.fails.push(`카드 ${sway === "ownerDragMouse" ? "클릭" : "탭"}에 조준되지 않음 (${card.name})`);
+          const ob = await ownerFace();
+          if (!ob) report.fails.push(`주인 토큰을 찾지 못함 (${card.name})`);
+          else if (sway === "ownerDragMouse") await mouseDrag(center(ob), P, { onHold: hold });
+          else await touchDrag(center(ob), P, { onHold: hold });
+        } else if (sway === "tapTwice") {
+          await tapAt(center(cb));
+          await delay(150);
+          await tapAt(P);
+          await delay(150);
+          const placed = await S(() => { const a = window.__soccer.store.lessonUi.aim; return !!(a && (a.at || a.playerId || a.zone)); });
+          if (!placed) report.fails.push(`터치 탭 1번에 ${sh.needs === "zone" ? "구역" : "받는 선수"}가 정해지지 않음 (${card.name})`);
+          await hold();
+          await tapAt(P);
+        } else if (sway === "mouseClick") {
+          await mouseClickAt(center(cb));
+          await delay(120);
+          await page.mouse.move(P.x, P.y, { steps: 5 });
+          await delay(120);
+          await hold();
+          await page.mouse.click(P.x, P.y);
+        } else {
+          // 키보드: 카드 클릭 → (구역 모양) 숫자 키 / (받는 선수 모양) → 로 후보 돌기 → Enter
+          await mouseClickAt(center(cb));
+          await delay(100);
+          const dock = await boxOf(".ls-dock .ls-info");
+          if (dock) await page.mouse.move(dock.x + 10, dock.y + 10);
+          let ok = false;
+          if (sh.needs === "zone") {
+            if (info.zoneKey) await page.keyboard.press(info.zoneKey);
+            await delay(60);
+            ok = await S((z) => window.__soccer.store.lessonUi.aim?.zone === z, rec.zone);
+            if (!ok) {
+              // 가로지르기는 지금 구역 숫자를 무시한다 · 자리 옮기기 제자리는 숫자 키로 고를 수 있다 — 안 되면 → 로 후보
+              const n = await S((uid) => window.__soccer.run.dropCandidates(window.__soccer.store.run, window.__soccer.store.data, { uid }).length, rec.uid);
+              for (let k = 0; k < n && !ok; k++) {
+                await page.keyboard.press("ArrowRight");
+                await delay(40);
+                ok = await S((z) => window.__soccer.store.lessonUi.aim?.zone === z, rec.zone);
+              }
+              if (ok) report.fails.push(`숫자 키 ${info.zoneKey}로 구역 ${rec.zone}이 골라지지 않아 → 후보로 (${card.name})`);
+            }
+          } else {
+            const n = await S((uid) => window.__soccer.run.dropCandidates(window.__soccer.store.run, window.__soccer.store.data, { uid }).length, rec.uid);
+            for (let k = 0; k < n && !ok; k++) {
+              await page.keyboard.press("ArrowRight");
+              await delay(40);
+              ok = await S((pid) => window.__soccer.store.lessonUi.aim?.playerId === pid, rec.playerId);
+            }
+          }
+          if (!ok) report.fails.push(`키보드로 ${where}를 고르지 못함 (${card.name})`);
+          await delay(60);
+          await hold();
+          await page.keyboard.press("Enter");
+        }
+        count(`모양 ${kind}: ${SHAPE_WAY_LABEL[sway]}`);
+        if (seen) {
+          // 놓기 직전 화면이 고른 받는 선수 · 구역과 같은가 (끌기 · 탭은 화면 px → 필드 % 라 다르면 drift 로)
+          if (sh.needs === "zone" && seen.zone !== rec.zone) report.drift.push(`${card.name} ${label}: 고른 구역 ${rec.zone} → 화면 ${seen.zone}`);
+          if (sh.needs === "player" && seen.receiverId !== rec.playerId) report.drift.push(`${card.name} ${label}: 고른 선수 ${rec.playerId} → 화면 ${seen.receiverId}`);
+          if (seen.badPad) report.fails.push(`놓기 직전 빨간 바닥 (.zone-pad.bad) — ${card.name} ${label}`);
+          if (sh.needs === "player" && !seen.line) report.fails.push(`놓기 직전 패스 선 (.aim-link.on) 없음 — ${card.name} ${label}`);
+          if (sh.needs === "zone" && seen.zone !== seen.ownerZone && !(seen.arrow && seen.ghost)) report.fails.push(`놓기 직전 화살표 · 유령 없음 — ${card.name} ${label}`);
         }
       } else if (card && (card.targetKind === "circle" || card.targetKind === "single")) {
         const cb = await boxOf(`.ls-hand .card-face[data-uid="${rec.uid}"]`);
@@ -271,21 +490,35 @@ async function main() {
           await page.keyboard.press("Enter");
         }
       } else if (card) {
-        // 전체 · 주인 · 없음
+        // 전체 · 주인 · 없음 · (L40) 주인 둘레 원 · 구역 전원 · 마무리 — 고유 카드는 모양별로 돌아가며 (첫 번째 = 터치 두 번)
         const cb = await boxOf(`.ls-hand .card-face[data-uid="${rec.uid}"]`);
-        if (way === "mouseDrag") { label = `${card.targetKind} (마우스 끌기 → 경기장)`; await mouseDrag(center(cb), ptIn(field, { x: 50, y: 50 })); }
-        else if (way === "touchDrag") { label = `${card.targetKind} (터치 끌기 → 경기장)`; await touchDrag(center(cb), ptIn(field, { x: 50, y: 50 })); }
-        else if (way === "touchTap") {
-          label = `${card.targetKind} (카드 탭 두 번)`;
+        const ownerWays = args.touchOnly ? OWNER_WAYS.filter((x) => x.startsWith("touch")) : OWNER_WAYS;
+        const w = card.shape ? ownerWays[ownerWayI++ % ownerWays.length] : way;
+        const tk = card.shape ? card.shape.chip : card.targetKind;
+        const holdShot = card.shape && !shapeShots.has(`${card.shape.kind}-${card.shape.chip}`) ? `lesson_${card.shape.kind}_${w}` : null;
+        if (holdShot) shapeShots.add(`${card.shape.kind}-${card.shape.chip}`);
+        const hold = async () => { await readSeen(); if (holdShot) await snap(holdShot); };
+        if (w === "mouseDrag") { label = `${tk} (마우스 끌기 → 경기장)`; await mouseDrag(center(cb), ptIn(field, { x: 50, y: 50 }), { onHold: card.shape ? hold : null }); }
+        else if (w === "touchDrag") { label = `${tk} (터치 끌기 → 경기장)`; await touchDrag(center(cb), ptIn(field, { x: 50, y: 50 }), { onHold: card.shape ? hold : null }); }
+        else if (w === "touchTap") {
+          label = `${tk} (카드 탭 두 번)`;
           await tapAt(center(cb));
           await delay(150);
           const aimed = await S(() => window.__soccer.store.lessonUi.aim?.uid ?? null);
           if (aimed !== rec.uid) report.fails.push(`카드 탭 1번에 조준되지 않음 (${card.name}: 조준 ${aimed})`);
+          if (card.shape) await hold();
           await tapAt(center(cb));
         }
-        else { label = `${card.targetKind} (카드 클릭 → [내기])`; await mouseClickAt(center(cb)); await delay(120); await press(".ls-btns .ls-play"); }
+        else {
+          label = `${tk} (카드 클릭 → [내기])`;
+          await mouseClickAt(center(cb));
+          await delay(120);
+          if (card.shape) await hold();
+          await press(".ls-btns .ls-play");
+        }
+        if (card.shape) count(`모양 ${card.shape.kind}: ${label.replace(/^.*\(|\)$/g, "")}`);
       }
-      count(label.replace(/ — .*/, ""));
+      if (!card?.shape) count(label.replace(/ — .*/, "")); // 고유 카드는 위에서 "모양 …" 으로 센다
       // 바뀌었는가
       const changed = await page.waitForFunction((b, kind, pid) => {
         const s = window.__soccer.store;
@@ -302,7 +535,7 @@ async function main() {
         await delay(200);
         await S((r) => {
           const a = window.__soccer.actions;
-          if (r.kind === "play") a.lessonCall("playCard", { uid: r.uid, at: r.at, playerId: r.playerId });
+          if (r.kind === "play") a.lessonCall("playCard", { uid: r.uid, at: r.at, playerId: r.playerId, zone: r.zone });
           else if (r.kind === "bench") a.lessonCall("benchPlayer", { playerId: r.playerId, on: true });
           else a.lessonCall("endLessonTurn");
           window.__soccer.render();
@@ -332,7 +565,33 @@ async function main() {
           }
         }
       }
-      if (rec.kind === "play" && card && !card.heal && card.targetKind !== "none") {
+      if (rec.kind === "play" && card?.shape) {
+        uniquesPlayed.add(card.cardId);
+        const u = (uniquePlays[card.cardId] ||= { name: card.name, kind: card.shape.cross ? "cross" : card.shape.kind, chip: card.shape.chip, n: 0, ways: new Set() });
+        u.n++;
+        u.ways.add(label.replace(/^.*\(|\)$/g, "").replace(/ — .*/, ""));
+      }
+      if (rec.kind === "play" && card?.shape) {
+        // L40 행 단위 (§16.12 U4): 실제 행 = lastFx 의 gain · fail (선수:스탯 — 가로지르기는 주인 두 행). 실패자는 마지막 행 1개만 남는다
+        const fx = await S(() => (window.__soccer.store.run.lesson?.lastFx || []).filter((f) => f.t === "gain" || f.t === "fail").map((f) => ({ t: f.t, row: `${f.id}:${f.stat}`, id: f.id })));
+        const actual = fx.map((f) => f.row);
+        const failer = fx.find((f) => f.t === "fail")?.id ?? null;
+        const collapse = (rows) => {
+          if (!failer) return rows;
+          const mine = rows.filter((r) => r.startsWith(`${failer}:`));
+          return rows.filter((r) => !r.startsWith(`${failer}:`) || r === mine[mine.length - 1]);
+        };
+        const norm = (rows) => [...rows].sort().join(",");
+        const exp = collapse(seen?.rows || info.pvRows || []);
+        if (norm(actual) !== norm(exp)) report.targetMismatch.push(`${card.name} ${label}: ${seen ? "화면" : "미리보기"} 행 ${exp.join(",")} / 실제 ${actual.join(",")}`);
+        if (seen?.rows && norm(collapse(seen.rows)) !== norm(collapse(info.pvRows || []))) {
+          report.drift.push(`${card.name} ${label}: 추천 행 ${(info.pvRows || []).join(",")} → 화면 행 ${seen.rows.join(",")}`);
+        }
+        const mv = await S(() => (window.__soccer.store.run.lesson?.lastFx || []).filter((f) => f.t === "move" || f.t === "pass").map((f) => f.t));
+        const k = card.shape.kind;
+        if ((k === "move" && seen?.zone && seen.zone !== seen.ownerZone) || k === "carry") { if (!mv.includes("move")) report.fails.push(`옮기기 fx 없음 — ${card.name} ${label}`); }
+        if ((k === "link" || k === "pick") && !mv.includes("pass")) report.fails.push(`패스 fx 없음 — ${card.name} ${label}`);
+      } else if (rec.kind === "play" && card && !card.heal && card.targetKind !== "none") {
         // 실제 대상 = lastFx 의 gain · fail (카드 몫). 자리를 고르는 카드는 놓기 직전 화면에 보인 대상과, 나머지는 추천 미리보기와 비교
         const ids = await S(() => [...new Set((window.__soccer.store.run.lesson?.lastFx || []).filter((f) => f.t === "gain" || f.t === "fail").map((f) => f.id))].sort());
         const exp = seen ? seen.ids : info.pvIds || [];
@@ -495,6 +754,8 @@ async function main() {
     }
     const fin = await phaseNow();
     report.end = fin;
+    report.deckUniques = await S(() => [...new Set((window.__soccer.store.run.deck || []).map((e) => e.cardId).filter((id) => id.startsWith("cd_u_")))]);
+    report.squad = await S(() => window.__soccer.store.run.players.map((p) => `${p.position}:${p.name}`).join(" "));
     report.lessonsDone = lessonsDone;
     await snap(`end_${fin.phase}`);
   } finally {
@@ -513,6 +774,14 @@ async function main() {
     const mis = report.lessons.filter((l) => l.cutins != null && l.cutins !== l.seenCut);
     if (mis.length) report.fails.push(`엔진 컷인 수 ≠ 화면 컷인 수: ${mis.map((l) => `시즌 ${l.season} ${l.week}주 ${l.cutins}/${l.seenCut}`).join(", ")}`);
   }
+  log(`  편성: ${report.squad ?? "-"}`);
+  log("  고유 카드 (모양 · 낸 수 · 입력):");
+  for (const id of report.deckUniques || []) {
+    const u = uniquePlays[id];
+    log(`    ${id}: ${u ? `${u.name} · ${u.chip} (${u.kind}) · ${u.n}번 · ${[...u.ways].join(" / ")}` : "안 냄"}`);
+  }
+  const missing = (report.deckUniques || []).filter((id) => !uniquePlays[id]);
+  if (args.coverUniques && missing.length) report.fails.push(`덱의 고유 카드 중 안 낸 카드: ${missing.join(", ")}`);
   log(`  화면: ${Object.entries(report.phases).map(([k, n]) => `${k} ${n}`).join(" · ")}`);
   log("  입력:");
   for (const [k, n] of Object.entries(report.actions).sort()) log(`    ${k}: ${n}`);
