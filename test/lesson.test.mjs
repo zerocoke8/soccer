@@ -113,7 +113,7 @@ function checkScore(s, where = "") {
 // 시작 · 흩어지기 · 결정성
 // ---------------------------------------------------------------------------
 
-test("startLesson: 중점 구역 · 목표 430/520 · 턴 수 · 1턴 흩어지기 + 손패 3장, 특별 = 목표 ×1.15 · 상한 ×1.2", () => {
+test("startLesson: 중점 구역 · 목표 344/416 · 턴 수 · 1턴 흩어지기 + 손패 3장, 특별 = 목표 ×1.15 · 상한 ×1.2", () => {
   const s = makeState();
   P(s, "p7").injuredTurns = 1;
   lesson.startLesson(s, data, { zone: "pass" });
@@ -121,7 +121,7 @@ test("startLesson: 중점 구역 · 목표 430/520 · 턴 수 · 1턴 흩어지�
   assert.equal(L.status, "playing");
   assert.equal(L.zone, "pass");
   assert.equal(L.stat, undefined);
-  assert.deepEqual([L.turn, L.turns, L.target, L.cap, L.score], [1, 6, 430, 520, 0]);
+  assert.deepEqual([L.turn, L.turns, L.target, L.cap, L.score], [1, 6, 344, 416, 0]);
   assert.equal(L.hand.length, 3);
   assert.equal(L.hand.length + L.drawPile.length + L.removed.length, s.deck.length);
   assert.equal(L.seq, 0);
@@ -140,13 +140,13 @@ test("startLesson: 중점 구역 · 목표 430/520 · 턴 수 · 1턴 흩어지�
   const sp = makeState();
   sp.season = 3;
   lesson.startLesson(sp, data, { zone: "pass", special: true });
-  assert.deepEqual([sp.lesson.turns, sp.lesson.target, sp.lesson.cap], [8, 690, 876]);
+  assert.deepEqual([sp.lesson.turns, sp.lesson.target, sp.lesson.cap], [8, 552, 701]);
   const s1 = lesson.startLesson(makeState(), data, { zone: "pass", special: true });
-  assert.deepEqual([s1.lesson.target, s1.lesson.cap], [495, 624]);
+  assert.deepEqual([s1.lesson.target, s1.lesson.cap], [396, 499]);
   const s2 = makeState();
   s2.season = 2;
   lesson.startLesson(s2, data, { zone: "pass", special: true });
-  assert.deepEqual([s2.lesson.turns, s2.lesson.target, s2.lesson.cap], [7, 587, 744]);
+  assert.deepEqual([s2.lesson.turns, s2.lesson.target, s2.lesson.cap], [7, 469, 595]);
 
   assert.throws(() => lesson.startLesson(makeState(), data, { zone: "magic" }), /중점 구역/);
   assert.throws(() => lesson.startLesson(makeState(), data, { stat: "pass" }), /중점 구역/);

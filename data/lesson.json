@@ -6,7 +6,7 @@
   "defaultPolicy": "team",
   "lesson": {
     "turns": [6, 7, 8],
-    "targets": [[430, 520], [510, 620], [600, 730]],
+    "targets": [[344, 416], [408, 496], [480, 584]],
     "hand": 3,
     "costRate": 0.6,
     "cardGainScale": 0.64,

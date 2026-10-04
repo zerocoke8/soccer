@@ -373,7 +373,7 @@ test("lesson.json v2 기본 모양 (§14.13)", () => {
   assert.equal(L.weeksPerSeason * data.config.seasons, 15);
   assert.deepEqual(L.weekKinds, ["lesson", "free", "lesson", "free", "prep"]);
   assert.deepEqual(L.lesson.turns, [6, 7, 8]);
-  assert.deepEqual(L.lesson.targets, [[430, 520], [510, 620], [600, 730]]);
+  assert.deepEqual(L.lesson.targets, [[344, 416], [408, 496], [480, 584]]);
   assert.deepEqual(L.lesson.special, { targetMult: 1.15, capMult: 1.2, secondChance: 0 });
   for (const k of ["autoTrainRatio", "autoTrainStamina", "rest"]) assert.equal(L.lesson[k], undefined, k);
   assert.equal(L.teamwork.pair, undefined);

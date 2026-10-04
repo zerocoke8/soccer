@@ -534,7 +534,13 @@ test("jsdom: 레슨 화면 (구역) — 골격 · 조준 · 키보드 · 벤치 
   noErrorToast("퍼펙트 보상");
 
   // ---------- 실패: 보상 없음 · [계속] ----------
-  const failReward = walkLesson(data, { seed: "lesson-ui", until: (s) => s.phase === "reward" && s.pendingReward?.result?.status === "fail" }).state;
+  // 목표치가 낮아 실패 레슨이 드물다 → 실패가 나오는 시드를 찾는다
+  let failWalk = null;
+  for (let i = 0; i < 40 && !failWalk; i++) {
+    failWalk = walkLesson(data, { seed: i ? `lesson-ui-${i}` : "lesson-ui", until: (s) => s.phase === "reward" && s.pendingReward?.result?.status === "fail" });
+  }
+  assert.ok(failWalk, "실패 레슨이 나오는 시드");
+  const failReward = failWalk.state;
   putRun(failReward);
   assert.match($(".rw-status").textContent, /실패/);
   assert.ok($(".rw-none") && $$(".rw-offer").length === 0, "보상 없음");
