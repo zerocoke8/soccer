@@ -34,19 +34,19 @@
     "tactics": { "attack": "pass", "shootTiming": "breakAll", "defense": "balanced", "tension": "save", "duelPicker": "best" },
     "players": [
       { "name": "마르타", "slot": "GK",  "position": "GK", "style": "technique", "element": "water", "trait": "distributor",
-        "stats": { "shoot": 110, "dribble": 130, "pass": 250, "defense": 580, "physical": 520 }, "skillIds": [] },
+        "stats": { "shoot": 100, "dribble": 120, "pass": 230, "defense": 530, "physical": 480 }, "skillIds": [] },
       { "name": "오르비아", "slot": "DF1", "position": "DF", "style": "power", "element": "water",
-        "stats": { "shoot": 140, "dribble": 180, "pass": 270, "defense": 540, "physical": 470 }, "skillIds": [] },
+        "stats": { "shoot": 130, "dribble": 170, "pass": 250, "defense": 500, "physical": 430 }, "skillIds": [] },
       { "name": "셀마",   "slot": "MF1", "position": "MF", "style": "technique", "element": "fire",
-        "stats": { "shoot": 240, "dribble": 310, "pass": 420, "defense": 340, "physical": 320 }, "skillIds": [] },
+        "stats": { "shoot": 220, "dribble": 290, "pass": 390, "defense": 310, "physical": 290 }, "skillIds": [] },
       { "name": "다리아", "slot": "MF2", "position": "MF", "style": "speed", "element": "wind",
-        "stats": { "shoot": 250, "dribble": 330, "pass": 400, "defense": 310, "physical": 330 }, "skillIds": [] },
+        "stats": { "shoot": 230, "dribble": 300, "pass": 370, "defense": 290, "physical": 300 }, "skillIds": [] },
       { "name": "페리나", "slot": "MF3", "position": "MF", "style": "technique", "element": "earth",
-        "stats": { "shoot": 220, "dribble": 280, "pass": 410, "defense": 350, "physical": 330 }, "skillIds": [] },
+        "stats": { "shoot": 200, "dribble": 260, "pass": 380, "defense": 320, "physical": 300 }, "skillIds": [] },
       { "name": "로웨나", "slot": "FW1", "position": "FW", "style": "speed", "element": "lightning", "trait": "runner",
-        "stats": { "shoot": 450, "dribble": 380, "pass": 250, "defense": 190, "physical": 350 }, "skillIds": [] },
+        "stats": { "shoot": 410, "dribble": 350, "pass": 230, "defense": 170, "physical": 320 }, "skillIds": [] },
       { "name": "카샤",   "slot": "FW2", "position": "FW", "style": "power", "element": "earth",
-        "stats": { "shoot": 460, "dribble": 330, "pass": 220, "defense": 200, "physical": 380 }, "skillIds": [] }
+        "stats": { "shoot": 420, "dribble": 300, "pass": 200, "defense": 180, "physical": 350 }, "skillIds": [] }
     ]
   },
   {
@@ -84,19 +84,19 @@
     "tactics": { "attack": "dribble", "shootTiming": "breakAll", "defense": "tackle", "tension": "immediate", "duelPicker": "best" },
     "players": [
       { "name": "라가",   "slot": "GK",  "position": "GK", "style": "power", "element": "water",
-        "stats": { "shoot": 140, "dribble": 210, "pass": 370, "defense": 790, "physical": 750 }, "skillIds": [] },
+        "stats": { "shoot": 120, "dribble": 180, "pass": 320, "defense": 690, "physical": 650 }, "skillIds": [] },
       { "name": "파르가", "slot": "DF1", "position": "DF", "style": "power", "element": "earth",
-        "stats": { "shoot": 220, "dribble": 290, "pass": 410, "defense": 750, "physical": 650 }, "skillIds": [] },
+        "stats": { "shoot": 190, "dribble": 250, "pass": 360, "defense": 650, "physical": 570 }, "skillIds": [] },
       { "name": "스나리", "slot": "DF2", "position": "DF", "style": "speed", "element": "fire",
-        "stats": { "shoot": 240, "dribble": 400, "pass": 340, "defense": 720, "physical": 640 }, "skillIds": [] },
+        "stats": { "shoot": 210, "dribble": 350, "pass": 300, "defense": 630, "physical": 560 }, "skillIds": [] },
       { "name": "키라",   "slot": "MF1", "position": "MF", "style": "speed", "element": "lightning", "trait": "carrier",
-        "stats": { "shoot": 400, "dribble": 580, "pass": 650, "defense": 350, "physical": 360 }, "skillIds": [] },
+        "stats": { "shoot": 350, "dribble": 500, "pass": 570, "defense": 300, "physical": 310 }, "skillIds": [] },
       { "name": "잘리",   "slot": "MF2", "position": "MF", "style": "technique", "element": "wind",
-        "stats": { "shoot": 370, "dribble": 510, "pass": 670, "defense": 370, "physical": 370 }, "skillIds": [] },
+        "stats": { "shoot": 320, "dribble": 440, "pass": 580, "defense": 320, "physical": 320 }, "skillIds": [] },
       { "name": "파냐",   "slot": "FW1", "position": "FW", "style": "speed", "element": "lightning", "trait": "crosser",
-        "stats": { "shoot": 730, "dribble": 540, "pass": 610, "defense": 210, "physical": 370 }, "skillIds": [] },
+        "stats": { "shoot": 640, "dribble": 470, "pass": 530, "defense": 180, "physical": 320 }, "skillIds": [] },
       { "name": "루가",   "slot": "FW2", "position": "FW", "style": "power", "element": "fire", "trait": "targetman",
-        "stats": { "shoot": 710, "dribble": 540, "pass": 370, "defense": 250, "physical": 420 }, "skillIds": [] }
+        "stats": { "shoot": 620, "dribble": 470, "pass": 320, "defense": 220, "physical": 370 }, "skillIds": [] }
     ]
   },
   {
@@ -134,19 +134,19 @@
     "tactics": { "attack": "pass", "shootTiming": "midrange", "defense": "intercept", "tension": "save", "duelPicker": "best" },
     "players": [
       { "name": "니벨라", "slot": "GK",  "position": "GK", "style": "technique", "element": "water",
-        "stats": { "shoot": 230, "dribble": 280, "pass": 530, "defense": 1130, "physical": 1020 }, "skillIds": ["sk_calm_keeper"] },
+        "stats": { "shoot": 160, "dribble": 190, "pass": 370, "defense": 780, "physical": 700 }, "skillIds": ["sk_calm_keeper"] },
       { "name": "글라시아", "slot": "DF1", "position": "DF", "style": "power", "element": "water",
-        "stats": { "shoot": 290, "dribble": 390, "pass": 560, "defense": 1050, "physical": 920 }, "skillIds": [] },
+        "stats": { "shoot": 200, "dribble": 270, "pass": 390, "defense": 720, "physical": 630 }, "skillIds": [] },
       { "name": "오르셀라", "slot": "MF1", "position": "MF", "style": "technique", "element": "water",
-        "stats": { "shoot": 560, "dribble": 710, "pass": 970, "defense": 500, "physical": 440 }, "skillIds": [] },
+        "stats": { "shoot": 390, "dribble": 490, "pass": 670, "defense": 350, "physical": 300 }, "skillIds": [] },
       { "name": "프레야", "slot": "MF2", "position": "MF", "style": "speed", "element": "wind",
-        "stats": { "shoot": 570, "dribble": 750, "pass": 920, "defense": 480, "physical": 470 }, "skillIds": [] },
+        "stats": { "shoot": 390, "dribble": 520, "pass": 630, "defense": 330, "physical": 320 }, "skillIds": [] },
       { "name": "세렌",   "slot": "MF3", "position": "MF", "style": "technique", "element": "water", "trait": "killpass",
-        "stats": { "shoot": 550, "dribble": 700, "pass": 990, "defense": 510, "physical": 430 }, "skillIds": ["sk_chain_master"] },
+        "stats": { "shoot": 380, "dribble": 480, "pass": 680, "defense": 350, "physical": 300 }, "skillIds": ["sk_chain_master"] },
       { "name": "미스티", "slot": "FW1", "position": "FW", "style": "technique", "element": "water", "trait": "crosser",
-        "stats": { "shoot": 1020, "dribble": 840, "pass": 570, "defense": 270, "physical": 530 }, "skillIds": [] },
+        "stats": { "shoot": 700, "dribble": 580, "pass": 390, "defense": 190, "physical": 370 }, "skillIds": [] },
       { "name": "헤일리", "slot": "FW2", "position": "FW", "style": "power", "element": "lightning", "trait": "targetman",
-        "stats": { "shoot": 1040, "dribble": 770, "pass": 550, "defense": 320, "physical": 530 }, "skillIds": [] }
+        "stats": { "shoot": 720, "dribble": 530, "pass": 380, "defense": 220, "physical": 370 }, "skillIds": [] }
     ]
   }
 ]
