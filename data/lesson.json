@@ -73,7 +73,15 @@
   "routeOverrides": {
     "rt_hotspring": { "description": "전원 체력 100·컨디션 최고 단계로 회복. 다음 시즌 첫 주에 주를 쓰지 않는 외출 1번", "freeOuting": 1 }
   },
-  "events": { "support": false },
+  "events": {
+    "support": false,
+    "week": false, "seasonStart": false, "preMatch": false, "route": false, "outing": false,
+    "coach": { "enabled": false, "firstMeet": "account", "gapWeeks": 1 },
+    "surprise": { "enabled": false, "chance": 0.5, "fromTurn": 2 },
+    "speech": { "ch_dwarf_wall": "banmal", "ch_giant_keeper": "banmal", "ch_spirit_striker": "banmal",
+                "ch_spirit_dribbler": "banmal", "ch_human_header": "banmal", "ch_dwarf_finisher": "banmal" },
+    "fallback": { "injuredStamina": -20, "uniquePlusTp": 20, "cardPickTp": 10, "offerSkipTp": 10, "noHintSp": 10 }
+  },
   "attach": {
     "enabled": true,
     "count": { "min": 4, "max": 5 },

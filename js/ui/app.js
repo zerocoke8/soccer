@@ -26,11 +26,14 @@ import { renderRoute } from './screens/route.js';
 import { renderResult } from './screens/result.js';
 import { renderChallenge } from './screens/challenge.js';
 
+// 2차 (LESSON_PROTO_PLAN §24.3.1 · §24.12): 레슨 런 이벤트 7개 (= lessonEvents.EVENT_FILES — test/lessonContent 가 같은 목록인지 본다) · 그림 목록
+const EVENT_FILES = ['lesson_ev_surprise', 'lesson_ev_week', 'lesson_ev_story', 'lesson_ev_fixed', 'lesson_ev_new_a', 'lesson_ev_new_b', 'lesson_ev_coach'];
 const DATA_FILES = ['config', 'characters', 'supports', 'skills', 'events', 'relics', 'opponents', 'routes', 'traits', 'combos',
-  'challenge', 'challenge_sample_team', 'cards', 'lesson', 'policies'];
+  'challenge', 'challenge_sample_team', 'cards', 'lesson', 'policies', ...EVENT_FILES, 'portraits'];
 // v0.3: 없어도 엔진(DEFAULT_TRAITS/DEFAULT_COMBOS)·화면(TRAIT_LABELS)이 같은 기본값으로 동작 → 404 면 건너뛴다
 // 도전 모드: challenge 가 없으면 도전 모드만 못 연다, 샘플 팀이 없으면 팀 목록에서 빠진다
-const OPTIONAL_FILES = new Set(['traits', 'combos', 'challenge', 'challenge_sample_team']);
+// 이벤트 파일 · 그림 목록 (portraits): 없으면 이벤트 없음 · 글자 얼굴로 동작한다
+const OPTIONAL_FILES = new Set(['traits', 'combos', 'challenge', 'challenge_sample_team', ...EVENT_FILES, 'portraits']);
 
 const REQUIRED_FILE_COUNT = DATA_FILES.filter((n) => !OPTIONAL_FILES.has(n)).length;
 

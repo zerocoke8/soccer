@@ -18,6 +18,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { dataFetch } from "./helpers.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const { KEYS } = await import(pathToFileURL(path.join(ROOT, "js/ui/store.js")).href);
@@ -63,13 +64,7 @@ test("jsdom: 레슨 화면 (구역) — 골격 · 조준 · 키보드 · 벤치 
   g.getComputedStyle = window.getComputedStyle.bind(window);
   g.matchMedia = (q) => ({ matches: /reduce/.test(q), addEventListener() {}, removeEventListener() {} }); // 연출 타이머 0ms
   const realFetch = g.fetch;
-  g.fetch = async (url) => {
-    const rel = String(url).replace(/^\.\//, "");
-    const p = path.join(ROOT, rel);
-    if (!fs.existsSync(p)) return { ok: false, status: 404, json: async () => { throw new Error("404"); } };
-    const text = fs.readFileSync(p, "utf8");
-    return { ok: true, status: 200, json: async () => JSON.parse(text) };
-  };
+  g.fetch = dataFetch(ROOT); // data/lesson.json 은 이벤트 기능 스위치를 끈 사본 (§24.15 — 켜려면 dataFetch(ROOT, { events: true }))
   const origConsoleError = console.error;
   const consoleErrors = [];
   console.error = (...a) => { consoleErrors.push(a.map(String).join(" ")); };

@@ -30,21 +30,31 @@ import { fileURLToPath } from "node:url";
 import * as run from "../js/engine/lessonRun.js"; // = 앱의 ctx.run (getMatchSetup 등은 run.js 를 그대로 다시 내보낸다)
 import * as match from "../js/engine/match.js";
 import * as challenge from "../js/engine/challenge.js";
+import { setEventSwitches } from "../js/engine/lessonEvents.js";
 import { KEYS } from "../js/ui/store.js";
 import { LESSON_OG_SCENARIOS, prepareLessonMatch, lessonRegisteredTeam } from "./lesson_scenarios.mjs";
 
 export { run, match, challenge };
 export const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const DATA_FILES = ["config", "characters", "supports", "skills", "events", "relics", "opponents", "routes", "cards", "lesson", "policies"];
-const OPTIONAL_FILES = ["traits", "combos", "challenge", "challenge_sample_team"]; // v0.3 (없으면 엔진 기본값) · 도전 모드 (og_challenge*)
+/** 레슨 런 이벤트 7개 (LESSON_PROTO_PLAN §24.3.1 — lessonEvents.EVENT_FILES 와 같은 목록) */
+const EVENT_FILES = ["lesson_ev_surprise", "lesson_ev_week", "lesson_ev_story", "lesson_ev_fixed", "lesson_ev_new_a", "lesson_ev_new_b", "lesson_ev_coach"];
+const OPTIONAL_FILES = ["traits", "combos", "challenge", "challenge_sample_team", ...EVENT_FILES]; // v0.3 (없으면 엔진 기본값) · 도전 모드 (og_challenge*) · 이벤트
 
-export function loadData(root = ROOT) {
+/**
+ * data/*.json → 엔진 데이터 번들. 장면은 이벤트를 끈 데이터가 기본이다 (§24.15 — lesson.events 기능 스위치를 모두 끈 사본).
+ * `loadData(ROOT, { events: true })` = 데이터 그대로.
+ * @param {string} [root]
+ * @param {{ events?: boolean }} [opts]
+ */
+export function loadData(root = ROOT, { events = false } = {}) {
   const data = {};
   for (const n of DATA_FILES) data[n] = JSON.parse(fs.readFileSync(path.join(root, "data", `${n}.json`), "utf8"));
   for (const n of OPTIONAL_FILES) {
     const f = path.join(root, "data", `${n}.json`);
     if (fs.existsSync(f)) data[n] = JSON.parse(fs.readFileSync(f, "utf8"));
   }
+  if (!events) setEventSwitches(data.lesson, false);
   return data;
 }
 

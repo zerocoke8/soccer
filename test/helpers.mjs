@@ -1,19 +1,48 @@
 // test/helpers.mjs — 테스트 공용: data/*.json 로드, 자동 완주 드라이버
 import fs from "node:fs";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as run from "../js/engine/run.js";
 import * as match from "../js/engine/match.js";
+import { setEventSwitches } from "../js/engine/lessonEvents.js";
 
-const DATA_FILES = ["config", "characters", "supports", "events", "skills", "relics", "opponents", "routes", "traits", "combos", "cards", "lesson", "policies"];
+/** 레슨 런 이벤트 7개 (LESSON_PROTO_PLAN §24.3.1 — lessonEvents.EVENT_FILES 와 같은 목록, test/lessonContent 가 비교). 없으면 건너뛴다 */
+const EVENT_FILES = ["lesson_ev_surprise", "lesson_ev_week", "lesson_ev_story", "lesson_ev_fixed", "lesson_ev_new_a", "lesson_ev_new_b", "lesson_ev_coach"];
+const DATA_FILES = ["config", "characters", "supports", "events", "skills", "relics", "opponents", "routes", "traits", "combos", "cards", "lesson", "policies", ...EVENT_FILES];
+const OPTIONAL_FILES = new Set(EVENT_FILES);
 
-/** data/*.json 13개(v0.3: traits·combos, v0.6-lesson: cards·lesson·policies 포함)를 읽어 엔진 데이터 번들을 만든다 (매 호출마다 새 객체). */
-export function loadData() {
+/**
+ * data/*.json (v0.3: traits·combos, v0.6-lesson: cards·lesson·policies, 2차: 레슨 런 이벤트 7개) 를 읽어 엔진 데이터 번들을 만든다 (매 호출마다 새 객체).
+ * 기존 테스트는 이벤트를 끈 데이터가 기본이다 (§24.15): lesson.events 의 기능 스위치 (week · seasonStart · preMatch · route · outing ·
+ * coach.enabled · surprise.enabled) 를 모두 끈 사본. `loadData({ events: true })` = 데이터 그대로.
+ * @param {{ events?: boolean }} [opts]
+ */
+export function loadData({ events = false } = {}) {
   const data = {};
   for (const name of DATA_FILES) {
     const p = fileURLToPath(new URL(`../data/${name}.json`, import.meta.url));
+    if (OPTIONAL_FILES.has(name) && !fs.existsSync(p)) continue;
     data[name] = JSON.parse(fs.readFileSync(p, "utf8"));
   }
+  if (!events) setEventSwitches(data.lesson, false);
   return data;
+}
+
+/**
+ * jsdom 앱 테스트의 fetch 대역: ROOT 아래 파일을 읽어 준다 (없으면 404). data/lesson.json 은 loadData 와 같게
+ * 이벤트 기능 스위치를 끈 사본으로 준다 — `{ events: true }` 면 그대로.
+ * @param {string} root  저장소 루트 (파일 경로)
+ * @param {{ events?: boolean }} [opts]
+ */
+export function dataFetch(root, { events = false } = {}) {
+  return async (url) => {
+    const rel = String(url).replace(/^\.\//, "");
+    const p = path.join(root, rel);
+    if (!fs.existsSync(p)) return { ok: false, status: 404, json: async () => { throw new Error("404"); } };
+    const text = fs.readFileSync(p, "utf8");
+    const off = !events && rel.replace(/[?#].*$/, "") === "data/lesson.json";
+    return { ok: true, status: 200, json: async () => (off ? setEventSwitches(JSON.parse(text), false) : JSON.parse(text)) };
+  };
 }
 
 export const clone = (x) => JSON.parse(JSON.stringify(x));

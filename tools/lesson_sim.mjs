@@ -29,6 +29,8 @@ import { lessonCardDef } from "../js/engine/lesson.js";
 import { createRng } from "../js/engine/rng.js";
 
 const DATA_FILES = ["config", "characters", "supports", "events", "skills", "relics", "opponents", "routes", "traits", "combos", "cards", "lesson", "policies"];
+/** 레슨 런 이벤트 7개 (LESSON_PROTO_PLAN §24.3.1 — lessonEvents.EVENT_FILES 와 같은 목록). 없으면 건너뛴다. 기능 스위치는 데이터 그대로 */
+const EVENT_FILES = ["lesson_ev_surprise", "lesson_ev_week", "lesson_ev_story", "lesson_ev_fixed", "lesson_ev_new_a", "lesson_ev_new_b", "lesson_ev_coach"];
 const POLICIES = ["ace", "team", "counter", "press", "poss"];
 const STATS = ["shoot", "dribble", "pass", "defense", "physical"];
 const GRADES = ["S", "A", "B", "C", "D", "E", "F", "G"];
@@ -40,6 +42,10 @@ export function loadData() {
   for (const n of DATA_FILES) {
     const p = fileURLToPath(new URL(`../data/${n}.json`, import.meta.url));
     data[n] = JSON.parse(fs.readFileSync(p, "utf8"));
+  }
+  for (const n of EVENT_FILES) {
+    const p = fileURLToPath(new URL(`../data/${n}.json`, import.meta.url));
+    if (fs.existsSync(p)) data[n] = JSON.parse(fs.readFileSync(p, "utf8"));
   }
   return data;
 }

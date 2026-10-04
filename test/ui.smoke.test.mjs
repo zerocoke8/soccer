@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { dataFetch } from "./helpers.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const { KEYS, STORAGE_PREFIX } = await import(pathToFileURL(path.join(ROOT, "js/ui/store.js")).href);
@@ -77,13 +78,7 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
   g.Event = window.Event;
   g.getComputedStyle = window.getComputedStyle.bind(window);
   const realFetch = g.fetch;
-  g.fetch = async (url) => {
-    const rel = String(url).replace(/^\.\//, "");
-    const p = path.join(ROOT, rel);
-    if (!fs.existsSync(p)) return { ok: false, status: 404, json: async () => { throw new Error("404"); } };
-    const text = fs.readFileSync(p, "utf8");
-    return { ok: true, status: 200, json: async () => JSON.parse(text) };
-  };
+  g.fetch = dataFetch(ROOT); // data/lesson.json 은 이벤트 기능 스위치를 끈 사본 (§24.15 — 켜려면 dataFetch(ROOT, { events: true }))
   t.after(() => {
     for (const n of names) {
       try { if (saved[n] === undefined) delete g[n]; else g[n] = saved[n]; } catch { /* ignore */ }
