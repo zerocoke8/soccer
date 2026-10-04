@@ -5,6 +5,7 @@
 > 사용자 결정 (2026-10-02): **A** 별도 브랜치에서 만들고 다른 주소(`/soccer/lesson/`)에 올린다 · 두 번에 나눠 1차 먼저. **C** 콘텐츠 결정은 추천대로 (L31).
 > **2026-10-04 구역 방식 개편 (L32~L36)**: [§14](#14-구역-방식-개편-l32l36)가 §4 · §5 · §6.3 · §9 · §10 · §12의 해당 부분(대상 지정 · 종목 · 쉬기 · 자율 훈련 · 수치)을 대신한다.
 > **2026-10-04 코치 지원 · 컷인 · 작은 원 카드 (L37 · L38)**: [§15](#15-코치-지원--컷인-l37--작은-원-카드-l38) — 레슨당 2~4번 코치가 손패 카드에 붙어 그 턴만 강화되고, 내면 컷인과 코치 능력. 카드 66장 → 68장.
+> **2026-10-05 2차 콘텐츠 · 일러스트 적용 (L24 ~ L31 · L50)**: [§24](#24-2차--이벤트--외출-이야기--코치-연속-이벤트--레전드-메모리-카드--일러스트-적용) — 구현 계획. 주 끝 1개 확정 (코치 연속 이벤트 첫 만남 · 유대 40 · 80 이 슬롯 우선) · 시즌 시작 · 전야 · 루트, 외출 이벤트 (이야기 16명 × 3화 계정 1회 · 일반 6종) · 회상, 레슨 깜짝 말풍선, 레전드 메모리 카드, 얼굴 · 컷인 일러스트 · 새 배경 7장. 레슨 런 이벤트는 새 파일 `data/lesson_ev_*.json` 169개 (옛 `events.json` 그대로), 미리보기 자동, 저장 v5 + 계정 저장. 슬라이스 21개 · 기획자 질문 Q1 ~ Q12 (§24.18).
 > **2026-10-05 레슨 배치 자연스럽게 (L52)**: [§23](#23-레슨-배치-자연스럽게-l52) — 구역 대형을 턴 · 구역마다 돌리고 · 크기를 바꾸고 · 선수마다 조금 비낀다 (해시 — rng 를 쓰지 않는다, 같은 턴 안에서는 그대로). 토큰 간격 ≥ 4.8u · 구역 바닥 안, 이름표는 겹치지 않는 쪽. `zones.jitter: null` = 예전 대형.
 > **2026-10-05 경기 밸런스 1차 (L51)**: [§22](#22-경기-밸런스-1차-l51) — 필드 수비 세 행동 (태클 · 인터셉트 계수 · 버티기 holdMult) 1.0 → 0.6 · 친선전 6 → 10포제션 · 경계전 상대 스탯 ×0.85 ~ 0.88 · 도전 모드 3 ~ 10단계 statTarget 다시 맞춤. 모든 경기 종류 경기당 합계 3골 이상, 경계전 승률 90 / 76 / 60%.
 > **2026-10-05 키퍼 게이지 규칙 (L49)**: [§21](#21-키퍼-게이지-규칙-l49) — 동료 필드 선수가 수비 듀얼을 이기면 우리 키퍼 게이지 +35. 키퍼 필살기 경기당 0.02 ~ 0.04 → 약 0.45번.
@@ -4579,3 +4580,726 @@ p_i = (돌린 예전 대형 i) × R / huddle[n] + (nudge 원 안 한 점 — has
 - **체력 바 가림**: 붐비는 구역에서 아래 이웃의 얼굴이 위 선수의 체력 바 (얼굴 아래 3 ~ 7px) 를 가렸다 (1280×720 붐비는 400 상태 중 23). `minGap` 을 늘리면 `maxR + minGap/2 ≤ pad` 를 못 지켜 7명 대형이 안 들어가므로, 그리기 순서로 고쳤다 — 위쪽 선수를 앞에 (`--zy` = 500 − y × 4, 훈련 동작 · 옮기는 중 토큰은 600 · 700 으로 그 위).
 - `jitter.minGap` 아래 한계 `MIN_TOKEN_GAP` 4.6u (얼굴 + 테 44px) — 그보다 작으면 데이터 오류. 배치 오류 문구 머리 "레슨 배치 (zones.jitter)".
 - 남은 것 (아주 드묾): 한 구역 6 ~ 7명 + 실패 배지일 때 이름표가 배지에 조금 걸리는 배치 0.28%, 같은 턴에 ⚠ 배지가 생기면 이름표가 반대쪽으로 옮겨 가는 경우 0.9%. 철벽(도르비나) 작은 둘레 원이 주인만 잡는 일이 잦아졌다 (대상 2.5 → 2.1명, 런당 사용 3.3 ~ 3.9 → 2.1 ~ 2.7) — 밸런스 때.
+
+## 24. 2차 — 이벤트 · 외출 이야기 · 코치 연속 이벤트 · 레전드 메모리 카드 · 일러스트 적용
+
+> 상태: 구현 계획 · 2026-10-05 · 브랜치 `outgame-lesson` (시작 = `9013725`). 기획자 요청 (2026-10-05): ① 코치 8명 일러스트 — **끝남** (`art/coaches/*.png`, `9013725`) ② **2차 콘텐츠 전부** — 주 끝 랜덤 · 고정 이벤트 (시즌 시작 · 경계전 전야 · 루트), 코치 연속 이벤트 (L50), 레슨 깜짝 이벤트 (L29), 일반 외출 이벤트 6종 + 선수 외출 이야기 (L30 — **16명 전원**), 레전드 메모리 카드 (L26 · L27) ③ UI 에서 그림이 필요한 곳은 새로 그려서 바꾼다 ④ 컷인에 일러스트 일부를 넣는다.
+> 기준: [OUTGAME_LESSON_draft.md](OUTGAME_LESSON_draft.md) L24 ~ L31 · L44 · L48 · L50 · 1장 · 6.2 · 6.3, [OUTGAME_CONTENT_draft.md](OUTGAME_CONTENT_draft.md) (초안 103개 · 0장 규칙). §1 의 "2차 이후" 칸과 §7 D1 ("1차에는 이벤트가 없다") 을 이 절이 채운다.
+> **바꾸지 않는 파일**: `js/engine/rng.js` · `run.js` · `training.js` · `effects.js` · `js/ui/layout.js` · `data/config.json` · `data/events.json` · `data/supports.json` · `data/routes.json`. 옛 런과 옛 테스트가 이 파일들을 읽는다 (`run.test` 는 `events.json` 의 모든 선택지를 옛 `effects.js` 로 돌린다). 레슨 런 이벤트는 **새 파일**에 둔다 (§24.3).
+> **경기 화면 freeze (§0 · §3.4) 는 슬라이스 U2 에서만 풀린다.** 범위는 `js/ui/screens/match.js` · `css/match.css` 의 컷인 · 토큰 얼굴 부분뿐이다 (요청 ④). `layout.js` 는 그대로 둔다 (ARCHITECTURE §20.2 diff 검사).
+> **main 은 건드리지 않는다.** main 의 배포 (`pages.yml`) 가 레슨판에서 `/art/` 를 빼므로, 화면용 그림은 `img/` 에 작게 만든 사본으로 커밋한다 (§24.12).
+> 표기는 §14 ~ §23 과 같다. 수치 · 글은 모두 [가정]. 밸런스는 고치지 않고 시뮬 전 / 후만 보고한다. [가정] · [구현 결정] · 기획자 질문은 §24.18 에 모았다.
+
+### 24.0 한눈에
+
+| 무엇 | 지금 (1차) | 2차 |
+|---|---|---|
+| 이벤트 데이터 | `data/events.json` 37개 — 옛 런 전용. 레슨 런은 꺼 둠 (`lesson.json events.support: false`) | 새 파일 `data/lesson_ev_*.json` 7개, 레슨 런 전용 169개. 옛 파일은 그대로 |
+| 주 끝 | 이벤트 없음 | 매주 1개 확정 (L24). 준비된 코치 연속 이벤트가 있으면 그것, 아니면 주 끝 랜덤. 외출한 주는 외출 이벤트가 그 자리를 쓴다 |
+| 고정 | 없음 | 시즌 시작 3 · 경계전 전야 3 · 루트 3 |
+| 코치 | 유대 60 이벤트 (꺼 둠) | 코치마다 3개 — 첫 만남 (계정 1회) · 유대 40 · 유대 80 (L50) |
+| 외출 | 기본 효과만 | 기본 효과 + 외출 이벤트 1개. 안 본 이야기가 남았으면 다음 화 확정 (16명 × 3화, 계정 1회), 아니면 일반 6종 (런 안에서 겹치지 않게) |
+| 회상 | 없음 | 시작 화면 [회상] — 본 이야기를 다시 읽는다 |
+| 레슨 | 깜짝 이벤트 없음 | 레슨당 50%. 2턴 끝 ~ 마지막 앞 턴 끝에 말풍선 1개 (L29), 28개 |
+| 메모리 · 레전드 | 없음 | 팀 등록 때 덱에서 1장을 남긴다 → 다음 런 편성에서 레전드 2명 (코치와 따로) → 그 카드가 시작 덱에 (L26 · L27). 인자는 없음 |
+| 미리보기 | 손으로 쓴 문자열 | **효과에서 자동으로 만든다** (조사 · 이미 결장 · 이미 강화판 · 남은 레슨 없음까지 반영) |
+| 이벤트 글 | `{player}` 만 바꾼다 | `{선수\|이/가}` 조사 · `{코치}` · 반말판 (`alt.banmal`) |
+| 얼굴 | 색 원 + 첫 글자 | 일러스트 얼굴 (`img/portraits/*.webp`). 그림이 없는 상대 · 유스는 지금처럼 |
+| 컷인 | 108 / 88px 원 | 레슨 코치 컷인 = 반신. 경기 필살기 = SSR 반신 · SR 흉상 · R 얼굴, 역방향 · 합체기 = 흉상 |
+| 저장 | `lessonRun.version` 4 | **5** (이행 있음) + 런 밖의 계정 저장 `soccer-lesson.account` |
+
+### 24.1 파일 지도
+
+| 파일 | 슬라이스 | 바꾸는 것 |
+|---|---|---|
+| `js/engine/lessonText.js` (새) | E1 | 조사 · 자리표시 · 말투 (`fillText` · `josa`) |
+| `js/engine/lessonEvents.js` (새) | E1 → E2 ~ E4 | E1: 데이터 읽기 · 검사. E2: 주인공 · 띄우기 · 뷰 · 고르기. E3: 흐름 자격. E4: 코치 · 이야기 |
+| `js/engine/lessonEffects.js` (새) | E1 → E2 | E1: 효과 스키마. E2: 적용 · 미리보기 글 |
+| `js/engine/lessonCommon.js` (새) | E2 | `lessonRun` 안의 덱 · 유대 · 수업 · 보상 후보 도우미를 옮긴다 (동작 그대로) |
+| `js/engine/lessonSurprise.js` (새) | E5 | 깜짝 이벤트 조건 · 후보 · 주인공 (순수) |
+| `js/engine/lessonRun.js` | E2 ~ E6 | 이벤트 뷰 · 고르기 교체, `cardOffer` 단계, 저장 v5, 주 끝 queue, 외출 이벤트, 코치 기록, 계정 스냅샷, 깜짝 래퍼, 레전드 |
+| `js/engine/lesson.js` · `js/engine/cards.js` | E4 · E5 | E4: 코치 만남 기록. E5: 깜짝 계획 · 턴 기록 · 해결 · 레슨 안 효과 · 쉬는 선수 |
+| `js/engine/manager.js` | E2 ~ E6 | 이벤트 · 카드 3택1 · 깜짝 선택, 외출 상대, 메모리 카드 추천 |
+| `data/lesson_ev_*.json` (새 7개) | E1 (빈 틀) · C1 ~ C7 | 이벤트 169개 |
+| `data/lesson.json` | E1 · E2 · E4 · E5 · I1 | `events` 키 (기능 스위치 · 말투 표 · 대체값), `bond.eventSteps`. I1 이 스위치를 켠다 |
+| `tools/portraits.mjs` (새) · `art/portraits.json` (새) · `img/` (새, 생성물) · `data/portraits.json` (새, 생성물) | A1 · A2 | 그림 자르기 · WebP · 목록 |
+| `art/scenes/` (새) | A2 | 사람 없는 배경 7장 (Codex) |
+| `js/ui/art.js` (새) · `js/ui/dom.js` · 화면 · CSS | U1 ~ U5 | 얼굴 · 컷인 · 이벤트 모달 · 결과 카드 · 카드 고르기 · 3택1 · 외출 이야기 표시 · 회상 · 깜짝 말풍선 · 레전드 · 메모리 카드 |
+| `js/ui/store.js` | E2 (버전 사본) · U3 · U5 | 버전 5, 계정 저장 키, 편성 레전드 |
+| `js/ui/app.js` | E1 · U3 ~ U5 | 데이터 목록, 라우팅 (`cardOffer` · 회상), 계정 동기화, 새 행동 |
+| `test/helpers.mjs` · `tools/lesson_sim.mjs` · `tools/scenarios.mjs` | E1 (+ E3 ~ E6 은 `lesson_sim` 지표만) | 새 데이터 파일 등록. 테스트는 이벤트를 끈 데이터가 기본 |
+| `tools/lesson_scenarios.mjs` · `tools/shot.mjs` · `tools/lesson_play.mjs` | E2 (`og_event` 만) · U1 ~ U5 · I1 | 새 장면, 그림 기다리기, 브라우저 판 이벤트 처리 |
+| `tools/events_doc.mjs` (새) · `docs/LESSON_EVENTS.md` (생성물) | E1 · I1 | 데이터 → 검토용 한국어 문서 |
+| 새 테스트 6개 | E1 (빈 틀 등록) | `lessonEvents` · `lessonContent` · `lessonSurprise` · `legends` · `portraits` · `eventsUi` |
+
+### 24.2 런 흐름 — 이벤트가 뜨는 자리
+
+```
+편성 ─ createRun ─ [시즌 시작 s1] ─ 1주
+매주  ┬ 레슨(→ 보상) · 휴식 · 전술 미팅 · 상담 · 친선전 → [주 끝 슬롯] → (5주면 [경계전 전야]) → 다음 주 / 경기 전 준비
+      ├ 외출 (자유 주)            → [외출 이벤트] → 다음 주            (외출 이벤트가 그 주의 슬롯)
+      └ 무료 외출 (온천 뒤 1주)   → [외출 이벤트] → 같은 주로 (offer 그대로)
+레슨 안 ─ 시작할 때 50% → 2턴 끝 ~ 마지막 앞 턴 끝에 [깜짝] 말풍선 1개
+경계전 ─ 루트 고르기 ─ [루트 이벤트] ─ (원정) 친선전 ─ [시즌 시작 s2 · s3] ─ 1주
+```
+
+- **주 끝 슬롯은 1개 확정이다 (L24).** 준비된 코치 연속 이벤트가 있으면 그것을 띄운다 — 편성 순 · 낮은 단계 먼저 · 한 주에 1개 · **2주 연속은 안 된다** (§24.6). 없으면 주 끝 랜덤 1개. [구현 결정] 코치 이벤트가 슬롯을 차지하므로 런 길이는 L24 그대로다.
+- 레슨 주는 레슨 결과 · 보상 다음에 주 끝 슬롯이 뜬다 (초안 5.0 순서: 레슨 → 보상 → 코치 → 주 끝 랜덤 → 전야).
+
+| 때 | `state.queue` (지금 → 2차) |
+|---|---|
+| `createRun` | `["beginWeek"]` → `["seasonStartEvent", "beginWeek"]` |
+| 주 끝 (레슨 보상 · 휴식 · 미팅 · 상담 끝 · 친선전) | `WEEK_END` 상수 → `weekEndQueue(state, data)` = `["weekSlot", (마지막 주면) "preMatchEvent", "advanceWeek"]` |
+| 외출 | `WEEK_END` → `["outingEvent:<playerId>", "advanceWeek"]` |
+| 무료 외출 | (queue 없이 phase week) → `["outingEvent:<playerId>", "resumeWeek"]`. `resumeWeek` 는 phase 만 week 로 바꾼다 (offer 를 다시 굴리지 않는다, rng 없음) |
+| 루트 고른 뒤 | `[routeFriendly?, "beginWeek"]` → `["routeEvent:<routeId>", routeFriendly?, "seasonStartEvent", "beginWeek"]` |
+| 옛 저장본의 `"supportEventCheck"` | = `"weekSlot"` (별칭) |
+
+- 이벤트 단계는 띄울 것이 없으면 그냥 지나간다. 기능 스위치 (`lesson.json events.*`) 를 끄면 그 단계는 아무것도 하지 않는다. **모두 끄면 1차와 같은 흐름 · 같은 rng** 다 (테스트로 확인).
+- `continueFlow` 의 queue 끝 검사 (멈추는 phase 없이 비면 throw) 는 그대로 둔다. 모든 queue 가 `beginWeek` · `advanceWeek` · `resumeWeek` 로 끝난다.
+
+**런당 이벤트 수 (어림 — I1 시뮬로 확인)**
+
+| 종류 | 런당 | 근거 |
+|---|---|---|
+| 주 끝 슬롯 (코치 + 랜덤) | 약 12 ~ 13 | 15주 − 외출 주 |
+| 그중 코치 | 첫 런 약 8 · 다음 런부터 약 4 ~ 5 | 첫 만남 6 (계정 1회) + 유대 40 약 3 ~ 4 + 유대 80 약 1 |
+| 외출 | 약 2 ~ 3 (+ 무료 외출 0 ~ 1) | 자유 주 6번 중 외출 2 ~ 3번 |
+| 시즌 시작 · 전야 · 루트 | 3 · 3 · 2 | |
+| 깜짝 | 약 3 ~ 4.5 | 레슨 9번 × 50% (조건이 안 맞으면 덜) |
+| **합계** | **약 25 ~ 29** (깜짝을 빼면 22 ~ 25) | L24 (20 ~ 24) + L29 (4 ~ 5) |
+
+### 24.3 데이터
+
+#### 24.3.1 파일 (`data/lesson_ev_*.json`, 레슨 런 전용)
+
+`data/events.json` (옛 런) 은 그대로 둔다. 파일은 **쓰는 슬라이스마다 하나**라서 콘텐츠 슬라이스가 동시에 작업해도 겹치지 않는다. 엔진은 7개를 이어 붙여 한 목록으로 본다 (`lessonEvents.allEvents`). id 는 7개 파일 전체에서 하나뿐이어야 한다.
+
+| 파일 | 슬라이스 | 내용 | 개수 |
+|---|---|---|---|
+| `lesson_ev_surprise.json` | C1 | 깜짝 (초안 1장) | 20 |
+| `lesson_ev_week.json` | C2 | 주 끝 랜덤 (초안 2 · 3장). E1 이 `ev_local_kids` 1개를 본보기로 먼저 넣는다 | 42 |
+| `lesson_ev_story.json` | C3 | 외출 이야기 — 옛 8명 × 3화 (초안 4장) | 24 |
+| `lesson_ev_fixed.json` | C4 | 시즌 시작 3 · 전야 3 · 루트 3 (초안 5.2 ~ 5.4) + 일반 외출 6종 (새 글) | 15 |
+| `lesson_ev_new_a.json` | C5 | 헤르타 · 브론테 · 나엘리스 · 온디나 — 이야기 12 · 깜짝 4 · 주 끝 단독 4 · 짝 2 | 22 |
+| `lesson_ev_new_b.json` | C6 | 리시엘 · 코니 · 카밀라 · 힐디 — C5 와 같은 묶음 | 22 |
+| `lesson_ev_coach.json` | C7 | 코치 연속 이벤트 8 × 3 (유대 60 다시 쓰기 8 + 새 16) | 24 |
+| | | **합계** | **169** |
+
+파일 모양: `{ "version": 1, "notes": { "<charId 또는 supportId>": { "arc": "이야기 줄기 한 줄", "setting": ["새 설정 [가정]", …] } }, "events": [ … ] }`. `notes` 는 검토 문서에만 쓴다.
+
+#### 24.3.2 이벤트 한 개
+
+```jsonc
+{
+  "id": "ev_night_training",            // 영문 소문자 · 숫자 · _ , 파일 7개 전체에서 하나
+  "trigger": "week",                    // week | seasonStart | preMatch | route | outing | story | coach | surprise
+  "title": "야간 특훈",
+  "text": "{선수|이/가} …\n\"…\"",       // 장면 2 ~ 4줄 (깜짝은 1 ~ 2줄), 줄바꿈은 \n
+  "who": { "pick": "random", "pos": ["FW", "MF"] },   // 주인공 ({선수}) — §24.3.4
+  "chars": ["ch_wolf_winger", "ch_giant_striker"], "charMode": "all",   // 편성 조건 (결장 아님) — all | any
+  "coach": "sp_mountain_monk",          // 코치 편성 조건 ({코치} = 이 코치)
+  "weeks": [1, 14],                     // 주 번호 (turnIndex 0 ~ 14) 범위. 또는 "weekList": [0, 1, 5, 6, 10, 11]
+  "seasons": [1, 2, 3],
+  "once": "run",                        // run (기본) | season | false (반복 — 바로 다음 주에는 다시 뜨지 않는다)
+  "weight": 2,
+  "weightIf": { "cond": { "anyInjured": true }, "weight": 3 },
+  "cond": { "avgStaminaBelow": 50 },    // §24.3.3
+  "scene": "ground",                    // 배경 그림 — §24.12.5
+  "choices": [                          // 늘 2개
+    { "label": "\"오늘 밤은 네 날이다.\"",               // 감독의 결정 (말 또는 행동)
+      "effects": [ { "type": "random", "chance": 0.7,
+                     "then": [ { "type": "stat", "target": "player", "stat": "shoot", "amount": 30 } ],
+                     "else": [ { "type": "stat", "target": "player", "stat": "shoot", "amount": 30 },
+                               { "type": "stamina", "target": "player", "amount": -40 },
+                               { "type": "injury", "target": "player" } ] } ],
+      "result": { "then": "…", "else": "…" } },        // 확률이 있으면 갈래마다, 없으면 문자열 하나
+    { "label": "…", "effects": [ { "type": "condition", "amount": 1 } ], "result": "…" }
+  ],
+  "alt": { "banmal": { "text": "…", "results": ["…", { "then": "…", "else": "…" }] } }   // 반말판 (§24.3.5)
+}
+```
+
+트리거별 키:
+
+| trigger | 꼭 있는 키 | 쓸 수 있는 키 | 뜻 |
+|---|---|---|---|
+| `week` | — | who · chars · coach · weeks/weekList · seasons · once · weight · weightIf · cond | 주 끝 랜덤 |
+| `seasonStart` · `preMatch` | `seasons` (하나) | who | 시즌 시작 / 경계전 전야 |
+| `route` | `routeId` | who | 루트를 고른 뒤 (반복) |
+| `outing` | — | weight | 일반 외출 6종 (`who.pick` = `partner` 고정) |
+| `story` | `story: { charId, ep }` | — | 외출 이야기 (ep 1 ~ 3, 계정 1회, 주인공 = 그 선수) |
+| `coach` | `chain: { supportId, step }` · `bondAtLeast` | — | 코치 연속 이벤트 (step 1 = 첫 만남 0, 2 = 유대 40, 3 = 유대 80). 주인공 `coachTarget` 고정 |
+| `surprise` | `cond` | who · chars · policy · weight · seasons | 레슨 깜짝 (§24.8). 레슨 안 효과도 쓸 수 있다 |
+
+#### 24.3.3 조건 `cond` (week · weightIf)
+
+| 키 | 뜻 |
+|---|---|
+| `anyStaminaBelow: n` | 편성 7명 중 체력 n 미만인 (결장 아닌) 선수가 있다 |
+| `avgStaminaBelow: n` | 7명 평균 체력 n 미만 |
+| `anyInjured: true` | 결장 중인 선수가 있다 |
+| `teamworkBelow: n` · `conditionBelow: n` · `conditionAtLeast: n` | 팀 값 |
+
+- 모든 조건은 AND 로 묶는다.
+- 선수 전용 (`chars`) · 짝 이벤트는 그 선수(들)가 편성돼 있고 **결장이 아닐 때만** 뜬다 (초안 6.2). 지금 `run.eventCommonOk` 는 결장을 보지 않으므로 새로 짠다.
+
+#### 24.3.4 주인공 `who.pick`
+
+| pick | 누구 | 트리거 |
+|---|---|---|
+| `none` | 없음 (`{선수}` 를 쓰면 검사 오류) | 모두 |
+| `random` | 결장 아닌 선수 중 무작위. `pos: [..]` (배치 포지션) · `zone: ".."` (레슨 안 — 지금 서 있는 구역) 로 좁힌다. 좁혀서 아무도 없으면 전원 중 무작위 | 모두 |
+| `char` | `who.charId` | 모두 |
+| `lowestStamina` · `highestStamina` | 체력이 가장 낮은 / 높은 선수 (같으면 무작위). `pos` · `zone` 가능 | 모두 |
+| `partner` | 외출 상대 (결장이어도) | outing · story |
+| `coachTarget` | 이번 런에 그 코치 카드의 대상이 가장 많이 된 선수 → 같으면 코치 종목이 주 스탯인 선수 → 그래도 같으면 7명 중 무작위 (결장 제외, 초안 5.0) | coach |
+| `turnFailer` · `streaker` · `coachCardTarget` · `multiTarget` · `mostTargeted` | 이번 턴 실패한 선수 · 연속 대상 선수 · 이번 턴 코치 카드 대상 중 무작위 · 3명 이상 원 카드 대상 중 무작위 · 이번 레슨 대상 최다 | surprise |
+
+#### 24.3.5 글 — 자리표시 · 조사 · 반말판
+
+- **자리표시**: `{선수}` · `{코치}` (칭호까지, 예: 무희 셀리아) · `{시즌}`.
+- **조사**: `{선수|이/가}` · `|은/는` · `|을/를` · `|과/와` · `|으로/로` · `|아/야` · `|이랑/랑` · `|이에요/예요` (`{코치|…}` 도 같다).
+  - `lessonText.josa` 가 이름 끝 글자의 받침으로 고른다 (`(code − 0xAC00) % 28`).
+  - `으로/로` 는 ㄹ 받침이면 `로` 를 쓴다.
+  - 끝 글자가 한글이 아니면 `이(가)` 꼴로 둘 다 적는다.
+  - 데이터에서는 역슬래시 없이 쓴다 (초안 표의 `\|` 는 Markdown 표 때문에 붙인 것).
+- 특정 선수 전용 · 짝 · 이야기 글은 실제 이름과 맞는 조사를 그대로 쓴다.
+- **반말판** (초안의 "도르비나판"을 넓힌 것): 주인공이 감독에게 반말을 쓰는 선수면 `alt.banmal` 의 본문 · 결과 문구를 쓴다 (없으면 기본 글). 말투는 `lesson.json events.speech` 표에서 읽고, 표에 없는 선수는 존댓말로 본다.
+
+  | 반말 [가정] | 존댓말 [가정] |
+  |---|---|
+  | 도르비나 (감독을 "감독"이라 부른다) · 헤르타 (짧은 호령) · 브론테 (짧고 빠르다) · 온디나 (장난스럽다) · 카밀라 (자신만만) · 힐디 (장인 고집) | 네리아 · 아델린 (~습니다) · 실루엔 · 타리아 · 울리카 · 그레타 · 미르카 · 나엘리스 (계산하는 존댓말) · 리시엘 (짧은 해요) · 코니 (더듬는 해요) |
+
+  반말판 글은 **누구에게나 맞게** 쓴다. 도르비나의 광산 · 망치 같은 개인 소재는 넣지 않는다.
+- **문체** (초안 0.1): 감독 시점 · 담백한 서술 + 짧은 대사. 감독은 초상화 없이 듣는 쪽이다. 선수 · 코치는 **전원 성인 여성**이고, 몸매 · 외모를 성적으로 묘사하지 않는다.
+
+#### 24.3.6 `data/lesson.json` `events`
+
+```jsonc
+"events": {
+  "week": false, "seasonStart": false, "preMatch": false, "route": false, "outing": false,   // I1 이 true 로
+  "coach": { "enabled": false, "firstMeet": "account", "gapWeeks": 1 },
+  "surprise": { "enabled": false, "chance": 0.5, "fromTurn": 2 },
+  "speech": { "ch_dwarf_wall": "banmal", "ch_giant_keeper": "banmal", "ch_spirit_striker": "banmal",
+              "ch_spirit_dribbler": "banmal", "ch_human_header": "banmal", "ch_dwarf_finisher": "banmal" },
+  "fallback": { "injuredStamina": -20, "uniquePlusTp": 20, "cardPickTp": 10, "offerSkipTp": 10, "noHintSp": 10 }
+}
+```
+
+- 옛 `"support": false` 는 E2 가 지운다. 레슨 런은 옛 유대 60 이벤트를 더는 읽지 않는다.
+- `bond.eventAt: 60` 은 그대로 두고 (`lesson_sim` 표시용), E4 가 `bond.eventSteps: [40, 80]` 을 더한다.
+
+#### 24.3.7 검사 `lessonEvents.validateLessonEvents(data)`
+
+E1 이 만들고, E2 부터 `createRun` 이 부른다. 오류를 모두 모아 한 번에 던진다 ("레슨 이벤트 데이터: …").
+- **모양**: 파일 모양 (`version` · `events` 배열), id 형식 · 파일 7개 전체에서 하나, trigger 값, 트리거별 꼭 있는 키, 모르는 키 없음.
+- **글**:
+  - title · text · 선택지 label · result 가 비어 있지 않다.
+  - 자리표시 · 조사 꼴은 §24.3.5 표에 있는 것만 쓴다.
+  - `who.pick: none` 이면 `{선수}` 가 없다.
+  - `{코치}` 는 coach 트리거 · `coach` 키 · 깜짝 `coachCardOkThisTurn` 조건일 때만 쓴다.
+  - result 가 갈래 (`{ then, else }`) 면 그 선택지 맨 위에 `random` 이 하나 있다.
+  - `alt.banmal.results` 길이 = 선택지 수.
+- **선택지**: 정확히 2개, 효과 스키마 (§24.4 — 트리거마다 쓸 수 있는 효과가 다르다). `random` 은 선택지 맨 위에 하나까지 (안에 `random` 없음). 한 선택지에 `relic` 과 `rewardOffer` 를 같이 쓰지 않는다.
+- **참조**:
+  - 캐릭터 · 코치 · 카드 · 스킬 · 루트 id 가 있다.
+  - `playerHint.skillId` 는 패시브다. 주인공이 정해진 이벤트 (`char` · `story` · 짝) 면 그 선수 `passiveIds` 안에 있다.
+  - `teach.skillId` 는 액티브다.
+  - `cardAdd` 는 고유 · 대비 카드가 아니다.
+  - `modifier.key` 는 `effects.MODIFIER_KEYS` 안, `duration` 은 season | run.
+- **금지 (옛 효과)**: `summonTicket` · 옛 `hint` (무작위 풀) · 1차 이전의 훈련 칸 키.
+- **이야기**: 캐릭터마다 ep 1 · 2 · 3 이 하나씩. 그 캐릭터 이야기가 하나도 없으면 오류가 아니다 (콘텐츠가 들어오는 중).
+- **코치**: 코치마다 step 1 · 2 · 3 이 하나씩, `bondAtLeast` 는 0 · 40 · 80. 하나도 없으면 오류가 아니다.
+- `scene` 은 §24.12.5 목록 안.
+
+### 24.4 효과 어휘
+
+#### 24.4.1 런에 남는 효과 (모든 트리거)
+
+| type | 키 | 미리보기 (자동) | 규칙 |
+|---|---|---|---|
+| `stat` | target (`player` · `team` · `char:<id>`) · stat (`shoot` · `dribble` · `pass` · `defense` · `physical` · `main` · `main2` · `random`) · amount | "그레타 슈팅 +15" · "7명 패스 +6" · "그레타 주 스탯 2개 (슈팅 · 피지컬) +10씩" | `main2` = `cards.mainStatsOf(배치 포지션)` 2개. 상한 `config.statCap` |
+| `stamina` | target · amount 또는 full | "7명 체력 +10" · "네리아 체력 완전 회복" | 0 ~ 100 |
+| `condition` | amount | "컨디션 +1" | 0 ~ 4 |
+| `goalCondition` | amount | "다음 경계전 1회만 컨디션 +1" | modifier `goalMatchCondition`, 이번 시즌 (시즌마다 경계전 1번) |
+| `teamwork` · `sp` · `tp` | amount | "팀워크 +5" · "SP +15" · "TP +20" | SP 에는 `skillPointGain` 보정 |
+| `bond` | target (`all` = 편성 코치 전원 · `coach` = 그 이벤트의 코치 · `<supportId>`) · amount | "편성 코치 전원 유대 +5" · "하르나 유대 +15" | 0 ~ 100, `bondGain` 보정 |
+| `injury` | target (`player` · `randomPlayer` · `char:<id>`) | "타리아 다음 레슨 1회 결장" | **레슨만** 빠진다 (§18.1 — 경기는 나온다). 이미 결장 중이면 결장 대신 **체력 −20** (미리보기도) |
+| `heal` | target (`player` · `all`) | "결장 중인 선수 전원 결장 해제" | |
+| `relic` | — | "유물 3택1" | `pendingRelicChoices` → phase relic (지금 길) |
+| `modifier` | key · amount · duration | "이번 시즌 레슨 상승 +10%" · "이번 경계전 간파 사용권 1" · "런 동안 경기 슛 위력 +5%" | 옛 `events.json` 과 같은 꼴 (`amount` 0.1 = +10%, 간파 사용권 1). `state.modifiers` 에 `{ key, amount, untilSeason }`. 전야 이벤트의 `season` = 바로 그 경계전 |
+| `cardAdd` | cardId · plus? | "덱에 「원투 패스」 추가" (코치 카드면 ", 하르나 유대 +15" 를 붙인다) | `addToDeck` + `acquireBond` (코치 카드 유대 +15, 초안 6.3 #5) |
+| `cardPick` | op (`upgrade` · `delete`) | "덱의 카드 1장 강화 (고른다)" | 고를 카드가 없으면 TP +10 (미리보기도). 강화 = 상담과 같은 조건 (강화판 · 대비 카드가 아님), 삭제 = 덱 5장 이상일 때 |
+| `cardUpgradeRandom` | — | "덱의 카드 1장 무작위 강화" | |
+| `rewardOffer` | — | "보상 카드 3택1" | `pendingCardOffer` → phase `cardOffer` (§24.5.3) |
+| `uniquePlus` | target | "네리아 고유 카드 「물결 세이브 루틴」 이번 런 동안 강화판" | 이미 강화판이거나 덱에 없으면 **TP +20** (미리보기도) |
+| `teach` | skillId · supportId? | "코치 수업: 파워 슛 (다음 레슨 보상에서 가르칠 선수를 고른다)" | `pendingTeach` 에 넣는다. supportId 가 없으면 그 액티브를 가르치는 편성 코치가 맡고, 그런 코치가 없으면 `coachHint` 로 바꾼다. **남은 레슨이 없으면 SP** (`declineSp`, 미리보기도) |
+| `coachHint` | from (`fielded` · `coach` · `<supportId>`) | "코치 수업 1 (편성 코치 액티브 중 무작위)" | `drawHint` · `drawHintFrom` (§18.3). 후보가 없으면 SP +10 |
+| `playerHint` | target · skillId? | "울리카 · 측면 질주 힌트 1" | 그 선수 패시브 목록 3개 안에서 (§20, L48). skillId 가 없으면 `passives.drawPlayerHint`. 이미 Lv3 이면 SP +10 |
+| `random` | chance · then · else | "70%: … / 30%: …" | 선택지 맨 위에 1개. 갈래마다 결과 문구 |
+
+- **미리보기는 데이터에 쓰지 않는다.** `lessonEffects.describe(state, data, effects, ctx)` 가 뷰를 만들 때 지금 상태로 쓴다 (이름 · 조사 · 대체값 · 남은 레슨 없음). 그래서 효과와 미리보기가 어긋날 수 없다.
+- 효과는 적힌 순서대로 적용한다. 같은 선택지의 효과는 모두 같은 주인공을 가리킨다 (`ctx.playerId` · `ctx.supportId` · `ctx.charIds`).
+
+#### 24.4.2 레슨 안 효과 (깜짝 전용)
+
+| type | 키 | 미리보기 | 엔진 |
+|---|---|---|---|
+| `nextPct` | pct (±) | "다음 카드 위력 +40%" | `L.buffs.nextPct += pct / 100` (음수 가능) |
+| `nextNoFail` | — | "다음 카드 실패 판정 없음" | 지금 있는 버프 |
+| `drawNext` | n | "다음 턴 손패 +1" | 지금 있는 `drawNext` |
+| `extraPlayNext` | n | "다음 턴 카드 1장 더 낼 수 있다" | 새 `L.nextExtraPlay` → 다음 `beginTurn` 의 `playsLeft` 에 더한다 |
+| `score` | amount | "이번 레슨 점수 +40" | 점수에만 더한다 (L31). 상한을 넘으면 퍼펙트로 끝난다 |
+| `buff` | n | "집중 +1" (방침 버프 이름) | 지금 방침의 `applyBuffEffect` 한 단위 |
+| `restRemaining` | target · stamina | "타리아 이번 레슨 남은 턴 쉼 (대상 제외, 체력 +20)" | 새 `L.rested`. 벤치 2칸과 따로 센다 [구현 결정]. 쉬는 동안 기본 훈련도 빠진다 |
+| `injureNow` | target | "울리카 결장 (이번 레슨 남은 턴도)" | `lesson.injure` (지금 내부 함수) |
+
+깜짝에서도 `stamina` · `teamwork` · `condition` · `bond` (`coach` = 방금 낸 코치 카드의 코치) · `coachHint` · `playerHint` · `tp` · `random` 을 쓸 수 있다. 뜻은 런 효과와 같다.
+
+### 24.5 엔진
+
+#### 24.5.1 모듈 (모두 순수 — DOM · Date · Math.random · localStorage 없음)
+
+- **`lessonText.js`** (E1): `hasBatchim` · `josa(name, pair)` · `fillText(text, { player, coach, season })` · `speechOf(data, charId)` · `pickText(ev, charId, data)` (반말판 고르기).
+- **`lessonEvents.js`**:
+  - E1: `EVENT_FILES` (파일 7개 이름 — app · helpers · 도구가 같은 목록인지 테스트로 본다), `allEvents(data)`, `eventById(data, id)`, `TRIGGERS` · `WHO_PICKS` · `COND_KEYS` · `SURPRISE_COND_KEYS` · `SCENE_IDS`, `validateLessonEvents(data)`.
+  - E2: `pickProtagonist(state, data, ev, ctx, rng)` · `fireEvent(state, data, ev, ctx)` (`currentEvent = { eventId, playerId, supportId, charIds, kind, ctx }` · `usedEventIds` · phase event) · `getEventView(state, data)` · `resolveEvent(state, data, choiceIndex, { uid })` · `choiceScore(state, data, view, i)` (감독 AI 용 기대값 — §24.11).
+  - E3: `eligible(state, data, trigger, opts)` · `pickWeekEvent` · `pickOutingEvent`.
+  - E4: `coachReady(state, data)` · `storyNext(state, data, charId)` · `storyList(data)` (회상 — 화면이 쓴다) · `accountMerge(account, state)` (화면이 저장한 뒤 부른다).
+- **`lessonEffects.js`**: E1 이 `EFFECTS` 스키마 표 · `effectErrors(eff, where)` 를 만든다. E2 가 `applyEffects(state, data, effects, ctx, rng)` · `describe(state, data, effects, ctx)` → `{ text, lines }` 를 만든다. 옛 `effects.js` 는 부르지 않고, 같은 범위 · 보정 규칙을 따라 다시 쓴다 [구현 결정 — 레슨 런은 결장 · 힌트 · 덱의 뜻이 달라 옛 함수에 맡기면 예외가 더 많다].
+- **`lessonCommon.js`** (E2): `lessonRun.js` 의 `addToDeck` · `acquireBond` · `deckEntry` · `upgradable` · `coachSkillList` · `hintCandidate` · `drawHint` · `drawHintFrom` · `teachEntry` · `rollRewardOffer` · `declineSpOf` 를 옮긴다. `lessonRun` 은 그것을 import 하고 동작은 그대로다 (`lesson_sim` 숫자가 같다). `lessonEffects` 가 `lessonRun` 을 부르는 순환 import 를 막으려고 옮긴다.
+- **`lessonSurprise.js`** (E5): `planSurprise(L, data, rng)` · `turnLogBlank()` · `condTrue(state, data, ev)` · `candidates(state, data)` · `pickSurpriseProtagonist` · `surpriseView`.
+
+#### 24.5.2 `lessonRun.js` 공개 API (바뀜 · 새로)
+
+| API | 슬라이스 | 뜻 |
+|---|---|---|
+| `getEventView(state, data)` | E2 | `run.getEventView` 다시 내보내기 → `lessonEvents.getEventView`. 지금 `screens/event.js` 가 그대로 읽을 수 있는 모양 (title · text · player · support · choices[{ text, preview }]) + `kind` · `badge` · `scene` · `art { charIds, supportId }` · `players` (짝) · choices[].`lines` · `.needs { op, candidates[{ uid, name, plus }] }` · `.recommended` |
+| `resolveEvent(state, data, choiceIndex, { uid } = {})` | E2 | 고르는 선택지면 `uid` 가 꼭 있어야 한다 (검사를 먼저 하고 그 뒤에 바꾼다). `state.lastEvent = { seq, eventId, title, choice, branch, result, lines }` (화면의 결과 카드용) |
+| `getCardOfferView` · `resolveCardOffer(state, data, { pick })` | E2 | phase `cardOffer` (pick = 0 ~ 2, null = 건너뛰기 TP +10) |
+| `getWeekView().players[].story` | E4 | `{ next: 1 ~ 3 \| null, total: 3 }` — 외출 모달의 "이야기 2/3화" |
+| `createRun({ …, account, legends })` | E4 · E6 | 계정 스냅샷 `{ stories: { [charId]: 0 ~ 3 }, coachMet: { [supportId]: true } }` · 레전드 (§24.9). 둘 다 없으면 빈 값 |
+| `resolveSurprise(state, data, { choice })` | E5 | 레슨 깜짝 (`lesson.resolveSurprise` + `afterIfEnded`) |
+| `memoryCardOptions(state, data)` · `validateLegends(data, legends)` | E6 | 메모리 카드 후보 · 레전드 검사 |
+
+- **phase**: `STOP_PHASES` 에 `cardOffer` 를 더한다. `continueFlow` 는 들어갈 때 유물 후보 다음으로 `pendingCardOffer` 를 본다.
+- **남은 수업 → SP** (E2): 마지막 시즌 `seasonEnd` (phase finished) 때 `pendingTeach` 가 남았으면 하나에 `declineSpOf` 씩 SP 로 바꾸고 로그를 남긴다. 이벤트 미리보기에도 "남은 레슨 없음 → SP +N" 이 뜬다.
+- **코치 대상 기록** (E4): `playCard` 래퍼가, 낸 카드가 코치 카드면 `L.targeted` 앞뒤를 비교해 `state.coachTargets[supportId][playerId] += 1`.
+
+#### 24.5.3 카드 고르기 · 3택1
+
+- **"카드 1장 강화 · 삭제 (고른다)"** 는 새 단계 없이 한 번의 호출로 끝낸다. 뷰가 선택지에 `needs { op, candidates }` 를 붙이고, 화면이 덱 고르기를 연 뒤 `resolveEvent(i, { uid })` 를 부른다. 후보 · 검사는 상담과 같다 (`upgradable` · 덱 최소 5장).
+- **"보상 카드 3택1"** 은 후보가 무작위라 고르기 전에 보여야 한다. 그래서 `state.pendingCardOffer = { cards: [{ cardId, plus }], src: eventId }` + phase `cardOffer` 를 쓴다. 레슨 보상 phase 는 빌려 쓰지 않는다 — `resolveReward` 가 queue 를 `weekEnd` 로 덮어써서 남은 이벤트 queue 가 사라진다.
+
+#### 24.5.4 rng 를 쓰는 곳 (§8 에 더한다)
+
+- **쓰는 곳**: 주 끝 랜덤 · 일반 외출 이벤트 고르기 (가중치), 주인공 무작위 · 같은 값 깨기, 효과 `random` 갈래 · `randomPlayer` · `stat random` · `coachHint` · `playerHint` · `rewardOffer` · `cardUpgradeRandom`, 깜짝 계획 (레슨 시작 때 2번 — **켜져 있을 때만**) · 깜짝 고르기.
+- **쓰지 않는 곳**: 뷰 · 미리보기 · 감독 AI · `resumeWeek`.
+- 바꾸는 함수는 들어갈 때 rng 를 한 번 열고 나갈 때 저장한다 (rng 를 쓰는 다른 함수를 부르기 전에 먼저 저장).
+- 계정 진행 (이야기 · 코치 첫 만남) 은 `createRun` 옵션 스냅샷으로만 들어오므로 엔진은 순수하다. 그래서 **"다시 하기 (같은 seed)" 도 계정 진행이 바뀌었으면 다른 런이 될 수 있다** [구현 결정].
+
+### 24.6 코치 연속 이벤트 (L50)
+
+| 단계 | 조건 | 보상 방향 [가정] |
+|---|---|---|
+| 1 첫 만남 | 그 코치가 레슨에 처음 나온 주 (지원 컷인 · 코치 카드 사용 · 같은 종목 클리어 유대) · **계정에서 1회** | 작게 — 유대 +5 ~ 10 · {선수} 1스탯 +10 · 팀워크 +5 |
+| 2 유대 40 | 유대 ≥ 40 · 1단계를 봤다 (이번 런 또는 계정) | 옛 유대 60 이벤트를 다시 쓴다. 그 코치 수업 액티브 1 (`teach`) + {선수} 스탯 +15 ~ 20, 또는 코치 카드 추가 (유대 +15) + 작은 덤 |
+| 3 유대 80 | 유대 ≥ 80 · 2단계를 이번 런에 봤다 | 가장 크게. 수업 1 + 스탯 +25, 또는 7명 스탯 +6 · 컨디션. 코치 카드 강화판 · 파티 패시브 강화를 이야기로 받는다 (카드를 직접 강화하지 않는다, 초안 5.5) |
+
+- **슬롯**: 주 끝 슬롯에 준비된 단계가 있으면 그것이 그 주의 이벤트다 (편성 순 · 낮은 단계 먼저 · 주당 1개). `events.coach.gapWeeks: 1` = 바로 앞 주 슬롯이 코치 이벤트였으면 이번 주는 주 끝 랜덤. 그래서 주 끝 랜덤이 런마다 최소 절반은 보인다.
+- **첫 만남은 계정 1회** [구현 결정 · 기획자 확인 Q2]: 같은 첫 만남이 런마다 6개씩 되풀이되지 않게 한다. 계정에 본 기록이 있으면 1단계는 본 것으로 치고 건너뛰어 유대 40부터 시작한다. `events.coach.firstMeet: "run"` 이면 런마다 본다.
+- **"레슨에 나왔다"**: 레슨이 끝날 때 (`afterLesson`) 그 레슨에서 지원 컷인 · 코치 카드 사용 · 같은 종목 클리어 유대 중 하나라도 있었으면 `state.coachSeen[supportId] = true`.
+- **주인공** = `coachTarget` (§24.3.4). 코치 이벤트에서 {선수} 의 직접 대사는 간접 화법으로 쓴다 (초안 5.0 — 반말 · 존댓말이 갈리므로). 코치 대사는 그 코치의 말투.
+- 옛 `ev_sp_*_60` · `supports.json eventIds` 는 옛 런 몫으로 그대로 둔다. 새 id 는 `ev_coach_<slug>_<1|2|3>` (slug = 코치 카드 id 의 뒷부분 — harr · celia · ornella · barbara · hanna · lumi · joy · irene).
+
+### 24.7 외출 · 이야기 · 회상 (L25 · L30)
+
+- **외출** = 기본 효과 (그 선수 체력 +20 · 7명 +10 · 컨디션 +1) **다음에** 외출 이벤트 1개:
+  1. 그 선수의 다음 화 = `min(3, 계정에서 본 수 + 이번 런에 본 수) + 1`. 이 값이 3 이하이고 데이터에 있으면 **그 화가 확정**으로 뜬다.
+  2. 아니면 일반 외출 6종 중 이번 런에 안 본 것에서 무작위 (6종을 다 보면 처음부터). 주인공 = 외출 상대.
+- 무료 외출 (온천 다음 시즌 1주) 도 같다. 이벤트 뒤 같은 주로 돌아온다 (§24.2).
+- **계정 진행**: 이야기 화는 **고른 순간 (resolve)** 에 본 것으로 센다 — 모달이 떠 있는 동안 새로 고침해도 잃지 않는다.
+  - 엔진은 `state.storySeen` (이번 런에 본 이야기 id) 만 쌓는다.
+  - 화면이 엔진 호출마다 저장한 뒤 계정 저장소에 합친다 (`accountMerge` — `stories[charId] = max(지금 값, 이번 런에 본 가장 큰 화)`, 여러 번 불러도 같다). 코치 첫 만남 (`coachMet`) 도 같은 길로 합친다.
+- **계정 저장** (`js/ui/store.js`): `KEYS.account = 'soccer-lesson.account'` → `{ version: 1, stories: { [charId]: 0 ~ 3 }, coachMet: { [supportId]: true } }`. `clearRunSaves` · 저장 삭제 · 다시 하기는 이 키를 지우지 않는다. 읽기에 실패하거나 모양이 틀리면 빈 값으로 본다.
+- **회상** (시작 화면 [회상]): 16명 × 3화 칸.
+  - 본 화는 열 수 있다 — 흉상 · 배경 · 본문 · 두 선택지와 결과 문구. 효과 없이 읽기만 한다.
+  - 안 본 화는 실루엣 · "?" 로 보인다. 다음 화에만 "외출하면 볼 수 있다" 를 적는다.
+  - 진행 n/48. 엔진 상태와 상관없다 (데이터 + 계정 저장만 읽는다).
+- **외출 모달**: 선수 줄마다 "이야기 n/3화" 배지 (다 봤으면 "일반 외출"). 감독 AI 는 안 본 화가 남은 선수 중 체력이 가장 낮은 선수를 먼저 외출 상대로 고른다 [구현 결정].
+
+### 24.8 레슨 깜짝 이벤트 (L29)
+
+규칙 (초안 0.3 · 1장): 레슨 시작 때 50% 로 "이번 레슨에 있다" 가 정해진다. 2턴 끝 ~ 마지막 바로 앞 턴 끝 중 **조건이 처음 맞는 턴 끝** (조건 이벤트) 또는 **정해 둔 무작위 턴 끝** (무작위 이벤트) 에 뜬다. 레슨당 최대 1개, 런당 같은 이벤트는 1번. 화면 전환 없는 말풍선이고, 효과는 대부분 이번 레슨 안이다.
+
+- **계획** (`startLesson`, `planAttachTurns` 다음 — 켜져 있을 때만 rng): `L.surprise = { planned: rng.chance(0.5), randTurn: rng.int(fromTurn, turns − 1), pending: null, fired: null }`. 꺼져 있으면 rng 를 쓰지 않는다 → 1차와 같은 흐름 [구현 결정 — 해시 대신 rngState 를 쓴다. 켜면 레슨 뽑기 순서가 밀려 시뮬 기준선이 옮겨 간다].
+- **턴 기록** `L.turnLog`: `beginTurn` 에서 비우고 `playCard` · `drawOne` · `benchPlayer` 가 쓴다. 담는 것 — 대상 (카드 · 모양 · 성공 · 실패), 실패 선수, 코치 카드 성공, 원 카드 3명 이상 모두 성공, 다시 섞기, 벤치, 자리 옮긴 선수, 턴 시작 때 빈 구역. 레슨 단위로 `L.streak` (단일 · 주인 카드 연속 대상 — 벤치에 앉으면 0) 도 센다.
+- **띄우기** (`endTurn` 안. 마지막 턴 · 상한 검사 **뒤**, `L.turn += 1` **앞**):
+  1. `planned && !fired && turn ≥ fromTurn` 일 때만 본다.
+  2. 후보 = 조건이 지금 참인 조건 이벤트 + (turn = randTurn 이면) 무작위 이벤트.
+  3. 거르기 = 런 1회 · 방침 · 편성 · 결장 · 쉼.
+  4. 가중치로 고르고 주인공을 정해 `L.surprise.pending` 과 fx `{ t: "surprise" }` 를 남긴다.
+  5. **다음 턴을 시작하지 않고 멈춘다.**
+- **해결** `lesson.resolveSurprise(state, data, { choice })`: rng 열기 → 효과 → fx `{ t: "surpriseResult", text }` → `pending` 비움 → 점수 ≥ 상한이면 레슨 끝, 아니면 `L.turn += 1` · `beginTurn` → seq · lastFx · rng 저장.
+- 기다리는 동안 `playCard` · `benchPlayer` · `endLessonTurn` 은 throw 한다 (`assertPlaying`). 뷰는 `surprise: { … }` 를 싣고 `canEndTurn: false` · `canBench: false`.
+- **조건** `cond` (깜짝 — 모두 AND):
+
+| 키 | 뜻 |
+|---|---|
+| `randomTurn: true` | 정해 둔 무작위 턴에만 (`special` · `zoneIn` 같은 레슨 조건과 함께 쓴다) |
+| `turnMin` · `turnsLeftMax` · `halfway: true` | 턴 범위 (기본 범위 2 ~ 마지막 앞은 늘 걸린다), 절반이 지난 턴 (시즌 1 = 3턴 · 시즌 2 · 3 = 4턴) |
+| `special: true` · `zoneIn: [..]` | 특별 레슨 · 중점 구역 |
+| `buffAtLeast: { key, n }` · `buffEquals: { key, n }` | 방침 버프 (이벤트 최상위 `policy` 와 함께) |
+| `scoreToTargetMax` · `scoreBelowTargetFrac` · `capLeftMax` · `notCleared` · `notPerfect` | 점수 |
+| `anyStaminaBelow` | 결장 · 쉼 아닌 선수 |
+| `failedThisTurn` · `coachCardOkThisTurn` · `multiOkThisTurn: n` · `reshuffledThisTurn` · `benchedThisTurn` · `targetStreak: n` | 턴 기록 |
+| `char: { id, staminaMin, staminaMax, targetedMin, targetedMax, untargetedTurnsMin, zone, zoneCountMin, aloneInZone, movedThisTurn, targetedThisTurn, ownCardThisTurn }` | 선수 전용 (그 선수가 편성 · 결장 아님 · 쉼 아님은 늘 걸린다) |
+| `zoneEmptyAtTurnStart: "<zone>"` | 그 턴 시작 때 빈 구역 (리시엘 — L47) |
+
+- 새 8명 깜짝 (C5 · C6) 은 이 표의 키로만 쓴다. 표에 없는 조건이 꼭 필요하면 슬라이스 보고에 적고 I1 에서 정한다.
+- **화면** (U4): 주인공 토큰 위 말풍선 (본문 1 ~ 2줄) + 아래에 선택지 2개 (미리보기 · 추천 배지). 손패 · 벤치 · [턴 끝] 은 잠근다. 고르면 결과 한 줄이 2.5초 뜬다.
+
+### 24.9 레전드 · 메모리 카드 (L26 · L27)
+
+- **남기기 (팀 등록)**: 결과 화면 [팀 등록] 옆에 "메모리 카드" 고르기 줄을 둔다.
+  - 후보 = 이번 런 덱에서 고유 · 대비 · **코치** 카드를 뺀 것 (같은 카드 · 같은 강화는 한 칸) [구현 결정 — 코치 카드는 그 코치가 다음 편성에 없으면 고유 카드처럼 쓸모가 없다. 기획자 확인 Q5].
+  - 감독 추천 (`manager.recommendMemoryCard` — 값이 높은 카드 · 강화판 먼저) 이 처음부터 골라져 있다.
+  - 등록 팀에 `memoryCard: { cardId, plus }` 를 남긴다. 덱 전체는 여전히 저장하지 않는다 (D44). 옛 등록 팀은 메모리 카드가 없다.
+- **데려가기 (편성)**: 코치 6장과 **따로** 레전드 칸 2개.
+  - 등록 팀 목록 (최신순 · 이름 · 평가 · 메모리 카드 · 7명 얼굴) 에서 선수를 누르면 칸에 들어간다.
+  - 같은 선수를 이번 런 선수로도 편성할 수 있다.
+  - 같은 팀에서 둘을 데려가면 카드는 1장이다 (화면에 적는다).
+  - 등록 팀이 없으면 칸을 잠근다.
+- **엔진**: `createRun({ legends: [{ teamId, teamName, charId, name, memoryCard }] })`.
+  - 화면이 등록 팀에서 **사본**을 넘긴다 (나중에 등록 팀이 50개 상한으로 지워져도 상관없다). 팀 id = `challenge.teamIdOf(team)`.
+  - 검사: 2명까지 · 캐릭터 · 카드가 있다 · 카드가 고유 · 대비 · 코치 카드가 아니다.
+  - 팀 id 로 중복을 빼고, 메모리 카드를 시작 덱 (고유 카드 뒤) 에 `{ uid, cardId, plus, src: "memory" }` 로 넣는다. `state.legends` 에 남긴다.
+- **인자 없음**: 레전드의 스탯 · 힌트 · 적성 인자는 넣지 않는다 (초안 6.3 "나중에"). 레전드는 경기 · 평가에 아무것도 하지 않는다.
+- 덱 화면 (상담 · 보상 · 덱 보기) 의 메모리 카드에는 작은 "메모리" 띠를 붙인다.
+
+### 24.10 저장 v5 · 결정성
+
+- `RUN_VERSION` 4 → **5**, `SAVE_VERSIONS` [1 ~ 5], `js/ui/store.js` 사본도 같이 바꾼다 (E2 — `outgame.test` 가 비교한다).
+- `migrateV4toV5` (rng 없음 · 멱등) 는 2차 전체가 쓰는 필드를 **E2 에서 한 번에** 더한다:
+  - 런: `storySeen: []` · `outingSeen: []` · `coachTargets: {}` · `coachSeen: {}` · `coachSteps: {}` (코치마다 이번 런에 본 단계) · `lastCoachTurnIndex: null` · `lastWeekEventId: null` · `usedEventSeasons: {}` (시즌 1회) · `account: { stories: {}, coachMet: {} }` · `legends: []` · `pendingCardOffer: null` · `lastEvent: null` · `eventSeq: 0`.
+  - queue 의 `"supportEventCheck"` 는 별칭이라 그대로 둔다.
+  - `currentEvent` 의 id 가 레슨 이벤트에 없으면 버린다 (v4 는 옛 `data.events` 를 썼다 — 꺼져 있어 실제로는 없다). phase 가 event 였으면 `continueFlow`.
+  - 진행 중인 레슨: `L.surprise = { planned: false, … }` (그 레슨의 rng 흐름 그대로) · `L.turnLog` 빈 값 · `L.rested = []` · `L.nextExtraPlay = 0`.
+- 결정성 규칙 (§8) 은 그대로다. 같은 seed · 같은 입력 · **같은 계정 스냅샷** → 같은 런. 새 상태는 모두 JSON 이다.
+
+### 24.11 감독 AI · 도구
+
+- **`manager`** (rng 없음):
+  - `recommendEventChoice(state, data)` — 선택지 기대값이 큰 쪽, 같으면 0번. 기대값은 `lessonEvents.choiceScore` [가정]: 스탯 1점 = 1 · 체력 1 = 0.3 (체력이 낮을수록 ×2) · 컨디션 1 = 25 · 팀워크 1 = 3 · SP 1 · TP 1.5 · 유대 1 · 수업 40 · 패시브 힌트 20 · 카드 추가 30 · 강화 25 · 삭제 15 · 3택1 35 · 유물 50 · 결장 −40 · 레슨 점수 1 · 다음 카드 위력 1% = 0.8 · 실패 없음 15 · 손패 +1 = 30 · 추가 사용 = 80 · 버프 1 = 30. 확률이 걸리면 기대값. 고르는 선택지면 `recommendConsult` 와 같은 규칙으로 uid 를 고른다.
+  - `autoStep`: event (추천 선택지) · `cardOffer` (보상 추천과 같은 규칙) · 레슨 깜짝 (뷰에 `surprise` 가 있으면 `resolveSurprise`) · 외출 상대 (§24.7).
+  - `recommendMemoryCard(state, data)`.
+- **`tools/lesson_sim.mjs`**: `--events on|off` (기본 = 데이터), `--account fresh|carry` (fresh = 런마다 빈 계정, carry = 시뮬 안에서 계정이 쌓인다), `--legends <n>` (앞 런의 등록 팀에서 레전드). 새 지표는 §24.16.
+- **`tools/lesson_play.mjs`** (실제 브라우저): event · `cardOffer` · 깜짝 · 외출 이야기 · 레전드 편성을 처리한다 (I1).
+- **`tools/events_doc.mjs`** (E1): 이벤트 데이터 → `docs/LESSON_EVENTS.md`. 한국어, 초안과 같은 꼴 (트리거 줄 · 주인공 · 본문 · 선택지 표 — 미리보기는 `describe` 를 예시 주인공으로 · 반말판 · notes). 기획자는 이 문서로 글을 검토한다. **생성물이라 손으로 고치지 않는다** (I1 이 마지막에 만든다).
+
+### 24.12 일러스트
+
+#### 24.12.1 파이프라인 (A1, 새 npm 패키지 없음)
+
+- **원본**: `art/characters/<slug>.png` 16장 · `art/coaches/<slug>.png` 8장 (1024×1536). `art/` 는 배포에서 빠지므로 원본으로만 쓴다.
+- **자르기 명세** `art/portraits.json` (손으로 고친다, 배포 안 됨): 캐릭터마다 얼굴 중심 x · y · 머리 높이 head. 프리셋은 head 의 배수다.
+
+  ```json
+  { "version": 1, "sourceSize": [1024, 1536],
+    "presets": { "face": { "w": 1.8, "h": 1.8, "top": 0.85, "out": [256, 256], "quality": 0.85 },
+                 "bust": { "w": 3.6, "h": 4.5, "top": 1.3, "out": [384, 480], "quality": 0.82 },
+                 "half": { "w": 4.4, "h": 6.6, "top": 1.4, "out": [512, 768], "quality": 0.8 } },
+    "chars":   { "ch_spirit_keeper": { "file": "characters/neria.png", "x": 380, "y": 240, "head": 130 } },
+    "coaches": { "sp_coach_harr":    { "file": "coaches/harr.png", "x": 0, "y": 0, "head": 0 } },
+    "scenes":  { "ground": { "file": "scenes/ground.png", "out": [1280, 853], "quality": 0.8 } } }
+  ```
+
+  자르는 칸 = `w·head × h·head`. 가운데가 x, 위 끝이 `y − top·head`. 원본 밖으로 나가면 안으로 밀어 넣는다 (빈 칸을 채우지 않는다). 프리셋마다 `dx` · `dy` · `scale` 로 덮어쓸 수 있다.
+- **`tools/portraits.mjs`**:
+  - `tools/shot.mjs` 의 `startServer` · `findBrowser` + `puppeteer-core` 로 원본을 같은 origin 에서 열고, canvas 로 잘라 `toBlob('image/webp', q)` 로 저장한다.
+  - 출력: `img/portraits/<dataId>.<face|bust|half>.webp` · `img/scenes/<id>.webp`, 목록 `data/portraits.json` (`{ version, presets, chars: { id: { v } }, coaches, scenes }`). v = sha1 앞 8자 — 주소 뒤 `?v=` 로 붙여 Pages 캐시 (약 10분) 를 피한다.
+  - `--sheet <png>` = 검토용 한 장 (얼굴 128 · 64 · 40 · 22 원형 + 흉상 + 반신).
+  - Chrome 이 필요해 `npm test` 밖에서 돌리고, 결과물을 커밋한다.
+- **선수 시작값** (조사 때 한 번 맞춘 값 — 브론테 · 헤르타 · 미르카 · 온디나는 검토 한 장에서 한 번 더 본다):
+
+  | 파일 | charId | x | y | head |
+  |---|---|---|---|---|
+  | adeline | ch_human_captain | 520 | 225 | 130 |
+  | bronte | ch_spirit_striker | 430 | 240 | 130 |
+  | camila | ch_human_header | 500 | 215 | 130 |
+  | connie | ch_rabbit_fullback | 534 | 474 | 150 |
+  | dorbina | ch_dwarf_wall | 440 | 200 | 150 |
+  | greta | ch_giant_striker | 480 | 180 | 130 |
+  | herta | ch_giant_keeper | 430 | 225 | 130 |
+  | hildi | ch_dwarf_finisher | 470 | 285 | 150 |
+  | mirka | ch_cat_trickster | 395 | 215 | 150 |
+  | naelis | ch_elf_regista | 450 | 190 | 130 |
+  | neria | ch_spirit_keeper | 380 | 240 | 130 |
+  | ondina | ch_spirit_dribbler | 410 | 300 | 150 |
+  | risiel | ch_elf_archer | 470 | 190 | 130 |
+  | silluen | ch_elf_playmaker | 500 | 205 | 130 |
+  | taria | ch_human_runner | 360 | 205 | 150 |
+  | ulrika | ch_wolf_winger | 480 | 205 | 130 |
+
+- **코치 8명**은 A1 이 같은 방법으로 처음 맞춘다 (키 = 서포트 id: harr = `sp_coach_harr` · celia = `sp_wind_dancer` · ornella = `sp_elder_sage` · barbara = `sp_iron_captain` · hanna = `sp_mountain_monk` · lumi = `sp_bard_lumi` · joy = `sp_street_striker` · irene = `sp_river_scholar`).
+- **크기**: 선수 16 × 3 ≈ 1.45MB, 코치 포함 약 2.2MB, 배경 7장 약 1MB.
+
+#### 24.12.2 화면 도우미 (U1, `js/ui/art.js` 새)
+
+- `portraitUrl(data, id, preset)` → `./img/portraits/<id>.<preset>.webp?v=…`. **목록에 없으면 null** (상대 팀 · 유스 · 그림 없는 것). 파일 이름을 짐작해 불러 보지 않는다 — `tools/shot.mjs` 는 404 를 오류로 센다. `sceneUrl(data, id)` 도 같다.
+- `dom.avatar(color, name, size, cls, { art })`: 지금처럼 색 원 + 첫 글자를 만들고, art 가 있으면 그 위에 `<img class="pt" alt="" draggable="false" decoding="async">` 를 얹는다 (절대 위치 · `object-fit: cover` · `border-radius: inherit` · `pointer-events: none` · `-webkit-user-drag: none`). **글자는 남긴다** — 그림이 늦거나 실패해도 글자가 보이고, `textContent` 를 읽는 테스트도 그대로 통과한다.
+- `charIdOf(ctx, playerId)`: `charId` 가 없는 뷰 (레슨 · 이벤트 · 미팅 · 보상) 는 `store.run.players` 에서 찾는다 (엔진 뷰는 고치지 않는다). 경기는 `store.match[side].players` (스냅샷에 `charId` 가 있다, `layout.js` 는 그대로).
+- `preloadArt(urls)`: 컷인 그림을 화면이 열릴 때 미리 불러 `decode()` 한다 (`decode` 가 없으면 건너뛴다 — jsdom 은 그림을 불러오지 않는다). 그림을 기다리느라 그리기를 미루지 않는다.
+- 끌기 안전: 그림은 `.tok-face` · `.lu-card` · 벤치 칸의 pointer 끌기를 가로채지 않는다 (위 `pointer-events` · `draggable`). 이벤트 리스너는 지금처럼 span 에 둔다.
+
+#### 24.12.3 얼굴 자리 (U1)
+
+| 화면 | 자리 (지금 크기 px) | 그림 |
+|---|---|---|
+| 편성 | 필드 칸 카드 (30 → 44) · 선수 풀 16장 (22) · 선수 고르기 모달 (30) · 코치 칩 (22) · 끌기 유령 (30, `lineup` 에 `faceOf`) | 얼굴 |
+| 주 · HUD | 명단 (22) · 코치 유대 줄 (22) · 외출 모달 (40) | 얼굴 (외출 모달 흉상은 U3) |
+| 레슨 | 경기장 토큰 `.tok-face` (40 — 크기 그대로, 겹침 검사가 이 상자를 쓴다) · 조준 유령 · 끌기 유령 (40) · 벤치 (26) · 명단 (22) · 선수 정보 (30 → 48) · 카드 코치 칩 (14) · 지원 줄 (18) · 능력 알약 (28) · 고유 카드 앞면 주인 색 띠 (작은 얼굴) | 얼굴 |
+| 보상 · 수업 | 힌트 칩 (16) · 선수 결과 (30) · 수업 선수 고르기 (30) · 가르치는 코치 (52 → 흉상 64×80) | 얼굴 · 흉상 |
+| 상담 · SP 상점 · 경기 전 준비 | 고유 카드 삭제 확인 (22) · 상점 줄 (30 · 22) · 파티 패시브 (18) · 결장 배지 (22) · 미팅 칸 (30) | 얼굴 |
+| 경기 (**U2** — 경기 화면 파일은 U2 만 고친다) | 토큰 `.tok-face` (44 — 우리 팀 · 도전 모드 상대만, 그림 없는 상대는 글자) · 선수 미니 카드 (40) | 얼굴 |
+| 결과 | 선수 줄 (40 → 흉상 56×70) | 흉상 |
+| 이벤트 (지금 모달) | 등장 인물 (40) | 얼굴 (새 모달은 U3) |
+
+30px 이하 자리는 얼굴 그림을 `transform: scale(1.2)` 로 조금 당긴다 (22px 에서는 머리색으로 읽힌다).
+
+#### 24.12.4 컷인 (U2 — 요청 ④)
+
+- **레슨 코치 컷인** `.ls-cutin` (`screens/lesson.js` `showCutin`, `css/lesson.css`):
+  - 띠 왼쪽 3분의 1 에 코치 **반신** (약 240×360). 아래 끝은 띠 아래 테두리에 맞추고, 머리 · 어깨가 띠 위로 120 ~ 190px 솟는다. 띠의 −4° 기울기를 따르는 `clip-path`.
+  - `.short` 컷인은 흉상.
+  - `.lc-face` 는 DOM 에 남긴다 (테스트가 글자를 읽는다). 그림이 있으면 그 칸이 그림을 담는다.
+  - 글 (`.lc-txt b` · `.lc-sub` · `.lc-line`) 이 잘리지 않게 한다 (`shot.mjs` 잘림 검사). 줄인 움직임 설정에서는 지금처럼 컷인을 건너뛴다.
+- **경기 필살기 컷인** `.m-cutin` (`screens/match.js` `cutCard`, `css/match.css`):
+  - SSR = 반신 약 260×390 이 자기 편 쪽에서 미끄러져 들어와 띠에 겹친다 (머리가 띠 위로). SR = 흉상 180×225 창 (띠 위로 50px). R = 지금 64 원에 얼굴.
+  - **역방향 컷인** (세이브 · 블록 · 패스 끊기) = 수비 선수 흉상 (기울기 +4°).
+  - **합체기 이름 카드** = 패스한 선수 · 받은 선수 흉상을 양쪽에.
+  - 원정 쪽은 스냅샷에 `charId` 가 있고 그림이 있을 때만 (도전 모드). 아니면 지금 글자 칸.
+  - 그림을 **좌우로 뒤집지 않는다** (머리핀 · 비대칭 장식이 뒤집힌다). `object-position` 으로 맞춘다. 줄인 움직임 설정에서는 그림도 멈춘다.
+- **지키는 클래스 · 글**: `.cut.part-2` · `.cut-save` · `.cut-rev.rev-block` · `rev-passCut` · `.ut-defense.tier-SR` · `.tier-R` · `.cut-type` · `.cut-line` (ui.smoke), `.cut-line` 최대 폭 620, `shot.mjs` 잘림 검사 (`.m-cutin .cut-line` · `.cut-txt b` · `.cut-txt small`).
+- **미리 불러오기**: 화면이 열릴 때 컷인 그림을 불러 둔다 (레슨 = 편성 코치 6명 반신 · 흉상, 경기 = 양 팀 필살기 보유자 반신 · 흉상 · 얼굴). 컷인이 0.6 ~ 1.0초라 그때 불러오면 빈 띠가 보인다.
+
+#### 24.12.5 새로 그릴 그림 (A2 — 요청 ③, 7장만)
+
+사람이 없는 **배경**만 그린다 [구현 결정 — 여러 캐릭터를 한 장에 그리면 확정 외형이 어긋나기 쉽다. 사람은 이미 확정한 일러스트를 잘라 겹친다]. 1536×1024 가로, 확정 그림체 (셀 채색 · 단순한 배경 · 저녁 하늘 그라데이션), 글자 · 로고 · 문장 무늬 없음.
+
+| id | 장소 | 쓰는 곳 |
+|---|---|---|
+| `title` | 노을 진 신생 클럽 경기장 전경 (조명탑 · 빈 관중석 · 잔디) | 시작 화면 키 아트 배경 (+ 선수 반신 5명을 CSS 로 겹친다) |
+| `ground` | 낮 훈련장 (콘 · 골대 · 클럽하우스 벽) | 주 끝 기본 · 둘만의 특훈 · 코치 이벤트 기본 · 명문 캠프 루트 |
+| `clubhouse` | 밤 숙소 안 (대전쟁 막사를 고친 숙소 · 난로 · 긴 식탁) | 고민 상담 · 밤 · 숙소 이벤트 |
+| `town` | 낮 마을 장터 거리 (노점 · 빵집 · 등불) | 맛집 탐방 · 쇼핑 · 마을 이벤트 |
+| `stands` | 경기장 관중석과 선수 입장 터널 (경기 전 저녁) | 시즌 시작 · 경계전 전야 · 경기 관전 · 소식지 |
+| `nature` | 오후 물가 언덕 (호수 · 들판 · 먼 산) | 이야기 기본 · 원정 루트 · 바깥 이벤트 |
+| `onsen` | 산속 온천 (김 · 바위 · 나무 난간) | 온천 루트 · 휴식 이벤트 |
+
+- 이벤트에 `scene` 이 없으면 트리거 기본값을 쓴다 (week · coach = ground, story · outing = nature, seasonStart · preMatch = stands, route = 루트마다 — camp ground · expedition nature · hotspring onsen). 그림이 아직 없으면 CSS 그라데이션.
+- **만드는 법** (메모리 `art-pipeline-tools`): `codex exec --skip-git-repo-check --ephemeral -s workspace-write -C <dir> -m gpt-6-astra -c 'model_reasoning_effort="xhigh"' -i art/characters/silluen.png -i art/characters/neria.png --json -o last.txt - < prompt.txt` (프롬프트 첫 줄 `$imagegen`, 배경 그림체 참고로 확정 두 장을 넣는다). 프롬프트는 `art/scenes/prompts/` 에 남기고, `art/scenes/README.md` 에 목록 · 검토 메모를 적는다.
+- **나중 (이번 범위 밖)**: 이야기 3화 CG (16장 → 48장), 상대 팀 주장 · 문장, 카드 앞면 그림, 루트 · 유물 · 주 행동 아이콘 (지금 이모지).
+
+### 24.13 화면 (1280×720 · 915×412 터치, 스크롤 · 잘림 없음)
+
+- **이벤트 모달** (U3, `screens/event.js` 를 다시 짠다):
+  - 위 = 배경 띠 (scene, 약 200px). 그 위에 제목 · 종류 배지 ("주 끝" · "시즌 시작" · "경계전 전야" · "루트" · "외출" · "이야기 2/3화" · "코치 · 첫 만남 / 유대 40 / 유대 80").
+  - 왼쪽 = 흉상 (주인공 · 코치 · 짝이면 둘). 오른쪽 = 본문 + 선택지 2개 (감독의 결정 · 미리보기 줄 · 감독 추천 배지).
+  - 고르는 선택지는 덱 고르기 (상담 덱 칸과 같은 카드 앞면) → 확인.
+  - **결과 카드**: 고른 뒤 같은 자리에 결과 문구 + 받은 효과 줄 + [계속]. 화면 전용이고 엔진 단계가 아니다 (`state.lastEvent` 로 그린다 — 새로 고침하면 보이지 않는다).
+- **카드 3택1** (U3): phase `cardOffer`. 보상 모달의 카드 칸 · [건너뛰기 (TP +10)] 를 빌려 쓴다. 배경은 주 화면 (조작 불가).
+- **외출 모달** (U3): 선수 줄 = 흉상 + 이름 + 체력 + "이야기 n/3화" 또는 "일반 외출".
+- **회상** (U3): 시작 화면 [회상] → 새 화면 (`store.screen = 'recollection'`). 4 × 4 얼굴 칸 (진행 n/3) → 고르면 3화 목록 → 읽기 모달.
+- **시작 화면 키 아트** (U3): `.hero` 792×688 (지금 CSS 경기장 + ⚽) 를 `title` 배경 + 선수 반신 5명 (CSS 겹침) 으로.
+- **깜짝 말풍선** (U4): §24.8. 터치 화면에서 말풍선이 필드 밖으로 나가면 필드 위쪽 가운데로 옮긴다.
+- **레전드 · 메모리** (U5): 편성 화면 코치 패널 머리에 [레전드 n/2] → 모달. 고른 레전드 칸 2개 (얼굴 · 이름 · 팀 · 메모리 카드 · ✕). 결과 화면에 메모리 카드 고르기 줄. 덱의 "메모리" 띠.
+- **라우팅** (`app.js`): `cardOffer` → 배경 + 3택1 모달, `recollection` 화면. `actions.resolveEvent(i, { uid })` · `resolveCardOffer` · `resolveSurprise` · `registerTeam({ memory })`. `startRun` 이 `account: loadAccount()` · `legends` 를 넘기고, `engine()` 이 저장한 뒤 `accountMerge`.
+- **이벤트 배경** (`renderBackdrop` = 주 화면 비활성): 시즌 시작 이벤트 때는 `weekOffer` 가 아직 없다. `getWeekView` 가 이것을 받아 주는지 확인한다 (지금 `state.weekOffer || { kind }`).
+
+### 24.14 콘텐츠 작업
+
+#### 24.14.1 초안 → 데이터 옮기기 규칙 (C1 ~ C4 · C7 — 초안 뒤에 바뀐 규칙 L32 ~ L52 를 반영)
+
+| # | 초안 | 데이터 |
+|---|---|---|
+| R1 | "결장 (그 사이 친선전 · 경계전도)" | `injury` — 레슨 1회만 (§18.1). 경기 결장 문구를 지운다 |
+| R2 | "힌트 1 (편성 코치 스킬 중 무작위)" | 코치 쪽 장면 → `coachHint { from: "fielded" }` (= 코치 수업). 선수 쪽 장면 (외출 · 선수 이벤트) → `playerHint` (그 선수 패시브) |
+| R3 | "○○ 힌트" — 패시브 | `playerHint { skillId }` — 주인공 목록 안일 때만. 일반 {선수} 이벤트는 skillId 없이 (그 선수 목록에서). 목록 밖을 지정했으면 그 선수 고유 패시브로 (예: 타리아 1화 마지막 힘 → 지치지 않는 다리) |
+| R4 | "○○ 힌트 (2)" — 액티브 | 코치 이벤트 · 코치 편성 조건 이벤트 → `teach { skillId, supportId }` (수업 1번. "힌트 2" 는 수업 1 + 스탯 +5 ~ 10). 선수 전용이 아닌 일반 이벤트 → `teach { skillId }` (supportId 없이 — 가르치는 편성 코치를 엔진이 찾는다). 선수 전용 이벤트 · 이야기 → 그 선수 패시브 힌트나 스탯으로 바꾼다 (액티브는 코치에게서, L48) |
+| R5 | "라인 · 공격진 · 수비진 카드" | 원 카드 3명 이상 모두 성공 (`multiOkThisTurn: 3`) |
+| R6 | "쉬기 턴" | 벤치를 쓴 턴 (`benchedThisTurn`). `ls_hot_hand` 의 연속 대상은 단일 · 주인 카드만 센다 (`targetStreak`) |
+| R7 | "수비 · 피지컬 레슨" · "패스 · 드리블 레슨" | 중점 구역 `zoneIn` |
+| R8 | 방침 이벤트 주인공 "GK · DF 중" · "MF · FW 중" | 구역 기준 — `who { pick: "highestStamina", zone: "defense" }` 처럼 (탈취 = 수비 구역, 점유 = 패스 구역) |
+| R9 | "자율 훈련" 언급 | 기본 훈련 (L34) |
+| R10 | "다음 경계전 1회만 컨디션 +1" · "이번 경계전 간파 · 슛 위력" · "이번 시즌 레슨 상승 +10%" | `goalCondition` · `modifier` (season) |
+| R11 | "보상 카드 3택1" · "카드 1장 강화 / 삭제 (고른다)" · "무작위 1장 강화" · "덱에 「…」 추가" | `rewardOffer` · `cardPick` · `cardUpgradeRandom` · `cardAdd` (원투 패스 `cd_one_two` · 아이싱 `cd_icing` · 전술 보드 `cd_tactics_board` · 코치 카드 `cd_c_*`) |
+| R12 | "도르비나판" | `alt.banmal` — 누구에게나 맞는 반말로 다듬는다 (§24.3.5) |
+| R13 | 조사 `{선수\|이/가}` | 역슬래시를 뺀다 |
+| R14 | 손으로 쓴 미리보기 | 버린다 (자동으로 만든다). 수치는 효과로 옮긴다 |
+| R15 | `ev_kit_tailholes` "울리카 또는 미르카" | `chars` (any) 에 코니 (솜꼬리) 를 더한다 |
+| R16 | `ev_wandering_healer` 가중치 3 조건 | "결장 중인 선수가 있으면" (`weightIf anyInjured`) [가정 · Q7] |
+| R17 | `ev_summon_letter` 등 1차 이전 효과 | 호출권 · 훈련 칸은 없다 (검사가 막는다) |
+| R18 | 아델린을 "그" 주장으로 쓴 글 (L46 — 주장이 둘) | 아델린 전용 글은 그대로 둔다. 일반 글에서는 "주장" 을 한 사람으로 가리키지 않는다 |
+
+#### 24.14.2 새로 쓰기 (C4 일반 외출 6 · C5 · C6 · C7)
+
+- **형식 · 문체 · 조사 · 반말판** = 초안 0장 · §24.3.5. 이야기는 장면 3 ~ 4줄, 일반 · 코치는 2 ~ 4줄, 깜짝은 1 ~ 2줄. 선택지의 따옴표 = 감독이 건네는 말.
+- **이야기 (새 8명 24화)** — 초안 4.0 그대로:
+  - 보상은 1화 < 2화 < 3화. 3화 A = `uniquePlus` + 작은 덤, 3화 B = 스탯 합 24 ~ 40 + 팀워크 · 카드 · 경계전 1회 컨디션.
+  - 위험한 선택지는 한 사람에 1개까지. 런 시점 (몇 주째 · 몇 번째 경계전) 에 기대지 않게 쓴다.
+  - 깨닫는 장면은 이야기에만 둔다 (깜짝과 주제가 겹치지 않게).
+  - 캐릭터마다 `notes` 에 "이야기 줄기" 1줄 + "새 설정 [가정]" 을 먼저 정한다.
+- 패시브 힌트는 그 선수 목록 (`characters.json passiveIds`) 에서만, 액티브는 주지 않는다 (R4).
+- **설정 충돌 정리** [가정 — 기획자 확인 Q10]:
+  - 주장 둘: 헤르타 = 골문 뒤에서 팀을 부르는 맏언니 (산맥 수정굴 경기장 주장 출신, 은색 완장). 아델린 = 필드의 주장 (붉은 천 완장 · 「내 탓」 노트). 두 사람이 한 장면에 나오는 이벤트는 이번에 쓰지 않는다.
+  - 대장장이 집안 둘: 힐디 (대장간 집 막내) 와 도르비나 (광산촌 대장장이 어머니) 는 같은 산맥의 다른 마을 출신이고, 서로 이름만 아는 사이. 짝 이벤트 (C6) 에서 처음 만난다.
+  - 정령: "물가를 오래 떠나면 몸이 무거워진다" 는 물의 정령 (네리아 · 온디나) 만. 번개 정령 브론테는 "맑은 날이 길면 몸이 근질거린다".
+  - 엘프 셋은 서로 다른 사회 — 숲 (실루엔) · 바다 (나엘리스, 남쪽 군도) · 고원 (리시엘, 폭풍 고원 궁수). 실루엔 2화의 숲 설정과 섞지 않는다.
+  - 조약 기관 출신 둘 (나엘리스 = 조약 함대 항해사 · 타리아 = 조약 사무소 전령) 은 아는 사이로 쓰지 않는다.
+  - 거인 둘: 그레타 1화의 "거인은 원래 다 이렇게 신어요" 는 그레타의 농담이다. 헤르타 글에서 거인 축구화 소재를 다시 쓰지 않는다.
+  - 외형은 일러스트 기준 (`art/characters/README.md`): 헤르타 남색 낮은 포니테일 · 작은 수정 뿔 · 은색 완장, 브론테 보랏빛 번개 줄무늬 머리, 나엘리스 조개 땋은 머리 · 놋쇠 나침반, 온디나 끝이 물로 변하는 머리 (단신), 리시엘 하늘색 높은 포니테일 · 활 팔 보호대, 코니 한쪽 접힌 귀 · 솜꼬리 · 당근 머리핀 (단신), 카밀라 진분홍 머리 · 닻 머리핀, 힐디 구릿빛 양갈래 · 대장장이 고글 · 공구 주머니 (단신).
+- **새 8명 깜짝** (한 명에 1개, §24.8 조건 표로) — 제안:
+  - 헤르타 = 자기 구역에 3명 이상 (`char.zoneCountMin: 3`, 호령)
+  - 브론테 = 슈팅 구역에 서서 2턴째 대상이 안 됨 (`char.zone: "shoot"` + `untargetedTurnsMin: 2`)
+  - 나엘리스 = 자기 고유 카드가 성공한 턴 (`ownCardThisTurn`)
+  - 온디나 = 자리 옮기기 · 가로지르기로 구역을 바꾼 턴 (`movedThisTurn`)
+  - 리시엘 = 턴 시작에 슈팅 구역이 비었다 (`zoneEmptyAtTurnStart: "shoot"`)
+  - 코니 = 혼자 한 구역에 있다 (`aloneInZone`)
+  - 카밀라 = 같은 구역에 3명 이상 + 슈팅 구역
+  - 힐디 = 체력 30 미만 (`char.staminaMax: 29`, 가중치 3 — `ls_running_on_empty` 와 같은 턴이면 힐디 전용이 먼저 뽑히기 쉽게)
+- **새 8명 주 끝 단독 4 + 짝 2 (슬라이스마다)**:
+  - 단독 소재 예: 헤르타 수정굴 · 호령 / 브론테 번개 치는 밤 / 나엘리스 함대에서 온 해도 / 온디나 밀물 장난 (미르카 장난과 다르게) / 리시엘 과녁 연습 / 코니 굴 · 겁 / 카밀라 등대 · 공중볼 / 힐디 대장간 "작품".
+  - 짝: C5 = 실루엔 × 브론테 (합체기 풍뢰일섬) · 네리아 × 온디나 (물 정령). C6 = 리시엘 × 카밀라 (합체기 하늘 과녁) · 도르비나 × 힐디 (드워프).
+- **코치 연속 이벤트 24** (C7):
+  - 단계 · 보상은 §24.6 표. 코치 설정: 하르나 득점왕 · 셀리아 바람 축제 무희 · 오르넬라 조약 리그 초대 전술가 · 바르바라 은퇴한 철벽 · 한나 산사 · 루미 떠돌이 음유시인 (피지컬 코치, L28) · 조이 항구 3번 부두 · 이레네 강변 서고 학자. 외형은 `art/coaches/README.md`.
+  - 옛 유대 60 의 어긋난 보상은 고친다: 하르나 B 막판 집중 · 오르넬라 A 연계의 달인 · 한나 B 큰 경기 체질 · 조이 B 언더독 = 패시브 → 수업이나 주인공 패시브 힌트로. "힌트 2" → 수업 1.
+  - 1단계는 코치의 됨됨이를 보여 주는 짧은 장면, 3단계는 그 코치 이야기의 마무리 (파티 패시브가 한 단계 오르는 것과 잇는다).
+- **일반 외출 6종** (C4): OUTGAME_LESSON_draft 6.2 표의 효과 그대로 — 맛집 탐방 · 쇼핑 · 둘만의 특훈 (B 의 "50%: 힌트 1 (편성 코치 스킬)" 은 선수 쪽 장면이라 R2 에 따라 `playerHint`) · 고민 상담 · 경기 관전 · "{선수}의 이야기". {선수} 는 아무 선수나 될 수 있으므로 개인 소재 없이 쓰고, 반말판을 붙인다.
+
+### 24.15 테스트
+
+- **새 파일** (E1 이 빈 틀로 `package.json` 에 등록하고, 슬라이스가 채운다):
+  - `lessonEvents.test` (E1 ~ E4)
+  - `lessonContent.test` (E1 · E2 · E5) — **실제 데이터**: 검사 통과 · 모든 선택지가 만든 상태 위에서 오류 없이 적용 · 깜짝 효과 · 이야기 · 코치 단계 개수 · 반말판 길이
+  - `lessonSurprise.test` (E5) · `legends.test` (E6)
+  - `portraits.test` (A1) — 목록 ↔ 파일 ↔ 캐릭터 · 코치 id, 파일 크기 한도, `js` · `css` · `index.html` 에 `art/` 경로 없음
+  - `eventsUi.test` (U3 ~ U5, jsdom)
+- **기존 테스트는 이벤트를 끈 데이터가 기본이다.** `test/helpers.mjs loadData()` 는 `lesson.events` 를 모두 끈 사본을 돌려준다 (`loadData({ events: true })` = 데이터 그대로). jsdom 앱 테스트의 fetch 도 같은 옵션을 갖는다 (E1). 그래서 I1 이 데이터 스위치를 켜도 기존 흐름 테스트가 흔들리지 않는다. 이벤트 테스트는 켠 데이터 + **테스트 안의 고정 이벤트**를 쓴다 (실제 콘텐츠에 기대지 않는다).
+- **꼭 볼 것**:
+  - 스위치를 모두 끄면 1차와 같은 최종 상태 (같은 seed 15주 완주 비교).
+  - 같은 seed → 같은 이벤트, JSON 왕복, Math.random · Date 없음.
+  - v1 ~ v4 → v5 (주 · 레슨 중 · 보상 · 상담 · 경기 · 이벤트 중), 멱등.
+  - 무료 외출 뒤 offer 그대로, 외출 주에는 주 끝 랜덤 없음, 시즌 시작 · 전야 · 루트 순서.
+  - 코치 단계 순서 · 간격, 계정 스냅샷 (이야기 다음 화 · 첫 만남 건너뛰기), 남은 수업 → SP.
+  - 깜짝 계획 rng (끄면 rng 그대로), 기다리는 동안 카드 내기 throw.
+  - 레전드 검사 · 같은 팀이면 카드 1장.
+- `npm test` 는 지금 385 (§23). 늘어난 수는 슬라이스마다 보고한다.
+
+### 24.16 시뮬 · 스크린샷
+
+- **시뮬** (밸런스는 고치지 않는다): `node tools/lesson_sim.mjs --runs 200 --seed 1`, 방침 5개. **전 = E1 시작점 (이벤트 없음)**, **뒤 = I1 (스위치 켬)**. 계정은 fresh · carry 둘 다.
+  - 표: 런당 이벤트 수 (종류별) · 런 시간 어림 (이벤트 하나 12초) · 코치 단계 도달 (1 · 2 · 3) · 이야기 화 / 런 · 깜짝 / 런 (id 별) · 이벤트로 얻은 스탯 · TP · SP · 수업 · 카드 · 유물 · 결장 · 남은 수업 → SP · 레슨 점수 · 퍼펙트율 · 성장 · 평가 점수 · A 비율 · 경계전 승률.
+  - 레전드 (`--legends 2`) 한 줄.
+  - 엔진 슬라이스 (E2 ~ E6) 마다 "스위치를 끄면 앞 슬라이스와 숫자가 같다" 를 확인한다.
+- **스크린샷** (`node tools/shot.mjs <dir> --only og` + 경기 장면):
+  - 새 장면: `og_event_week` · `og_event_banmal` · `og_event_pair` · `og_event_coach1` · `og_event_coach3` · `og_event_story` · `og_event_pick` · `og_event_result` · `og_card_offer` · `og_outing_story` · `og_season_start` · `og_recollection` · `og_recollection_read` · `og_lesson_surprise` · `og_lesson_surprise_result` · `og_lesson_cutin_art` · `og_lesson_cutin_short` · `og_setup_legends` · `og_setup_legend_pick` · `og_result_memory` · `og_start_keyart`.
+  - 터치 915×412: `og_event_week_touch` · `og_lesson_surprise_touch` · `og_recollection_touch`.
+  - 경기 13 (합체기) · 27 (수비 블록) · 30 (팀 필살기) · 34 (SR 대사) 는 그림이 든 채로 다시 찍는다.
+  - 모든 장면 오류 0 · 스크롤 0 · 잘림 0 · 겹침 0 · 404 0. PNG 를 직접 연다.
+- `shot.mjs` 는 찍기 전에 `document.images` 가 모두 `complete` 이고 `decode()` 될 때까지 기다린다 (최대 3초, U1).
+
+### 24.17 구현 슬라이스 (순서대로, 슬라이스 하나 = 에이전트 하나)
+
+공통 완료 조건:
+- 브랜치 `outgame-lesson` 그대로. 브랜치를 바꾸지 않고, 커밋 · 푸시 · stash 하지 않는다 (커밋은 오케스트레이터가 한다). main 은 건드리지 않는다.
+- `npm test` 통과 (지금 385).
+- `git diff --stat 9013725 -- js/engine/rng.js js/engine/run.js js/engine/training.js js/engine/effects.js js/ui/layout.js data/config.json data/events.json data/supports.json data/routes.json` 이 비어 있다. `js/ui/screens/match.js` · `css/match.css` 는 U2 만 고친다.
+- 줄 끝은 파일 그대로 (저장소 `.gitattributes` = `eol=lf`). UI 문구 · 이벤트 글은 한국어.
+- 엔진은 순수 · 결정적 (§8 · §24.5.4).
+- 바뀐 점 · [구현 결정] 은 끝 보고에 적는다. 문서 (§24.19 · ARCHITECTURE · README · 초안) 는 **I1 만** 고친다.
+- 파일 주인: 슬라이스의 "파일" 밖은 고치지 않는다. 같이 달리는 슬라이스끼리 같은 파일을 만지지 않게 나눴다.
+
+| 갈래 | 슬라이스 | 앞 슬라이스 | 같이 달릴 수 있는 것 |
+|---|---|---|---|
+| 기반 | E1 | — | 없음 (맨 처음) |
+| 그림 | A1 → A2 | E1 | 엔진 · 콘텐츠 · U1 · U2 |
+| 콘텐츠 | C1 · C2 · C3 · C4 · C5 · C6 · C7 | E1 | 서로 · 엔진 · 그림 · 화면 (자기 데이터 파일만 고친다) |
+| 엔진 | E2 → E3 → E4 → E5 → E6 | E1 | 그림 · 콘텐츠 · U1 · U2 |
+| 화면 | U1 → U2 → U3 → U4 → U5 | U1 ← A1, U3 ← E4 · A2, U4 ← E5, U5 ← E6 | U1 · U2 는 엔진과 같이 |
+| 통합 | I1 | U5 · C1 ~ C7 (모두) | — |
+
+**E1 · 기반 — 데이터 틀 · 검사 · 글자 처리 · 등록**
+- 파일: `js/engine/lessonText.js` · `lessonEvents.js` · `lessonEffects.js` (새, §24.5.1 의 E1 부분), `data/lesson_ev_*.json` 7개 (빈 틀 + `lesson_ev_week.json` 에 본보기 `ev_local_kids` 1개), `data/lesson.json` (`events` — 모두 끔), `js/ui/app.js` (`DATA_FILES` · `OPTIONAL_FILES` 에 7개 + `portraits`), `test/helpers.mjs` · `tools/lesson_sim.mjs` · `tools/scenarios.mjs` (파일 목록 · 이벤트 끈 데이터 기본), jsdom 앱 테스트의 fetch 도우미, `tools/events_doc.mjs` (새), `package.json` (새 테스트 6개), `test/lessonEvents.test.mjs` · `test/lessonContent.test.mjs` (새) + 빈 틀 4개.
+- 완료: 검사가 잘못된 본보기 20개 이상을 문구와 함께 막는다, 조사 표 (받침 · ㄹ · 한글 아님), 파일 목록 4곳이 `EVENT_FILES` 와 같다, `lesson_sim --runs 40 --seed 1` 이 E1 전과 같다.
+
+**E2 · 효과 층 · 이벤트 뷰 · 고르기 · 3택1 · 저장 v5** — `lessonCommon.js` (옮기기), `lessonEffects.js` 적용 · 미리보기, `lessonEvents.js` 주인공 · 띄우기 · 뷰 · 고르기, `lessonRun.js` (뷰 · 고르기 교체, `cardOffer`, 남은 수업 → SP, v5 이행, `supportEventCheck` → 아무것도 안 함, `createRun` 이 검사), `data/lesson.json` (`support` 키 지움), `js/ui/store.js` (버전 사본 두 줄만), `manager.js` (이벤트 · 3택1), `tools/lesson_scenarios.mjs` (`og_event` 만 — 레슨 이벤트로 주입), 테스트 (`lessonEvents` · `lessonContent` 의 "모든 선택지 적용" · `lessonRun` 의 유대 60 테스트 다시 쓰기 · `manager`).
+
+**E3 · 흐름 — 주 끝 슬롯 · 고정 · 외출 이벤트** — §24.2 queue 전부 (코치 · 이야기 빼고), 자격 · 가중치 · 시즌 1회 · 연속 금지, 무료 외출 `resumeWeek`, 스위치, `lesson_sim` 지표 (`--events`). 파일: `lessonRun.js` · `lessonEvents.js` · `manager.js` · `tools/lesson_sim.mjs` · 엔진 테스트.
+
+**E4 · 코치 연속 이벤트 · 외출 이야기 · 계정 스냅샷** — §24.6 · §24.7 엔진 부분, `coachTargets` · `coachSeen` (`lesson.js` 의 만남 신호), 주 뷰 `story`, `storyList` · `accountMerge`, 외출 상대 AI, `bond.eventSteps`, `lesson_sim --account`. 파일: `lessonRun.js` · `lessonEvents.js` · `lesson.js` · `manager.js` · `data/lesson.json` · `tools/lesson_sim.mjs` · 엔진 테스트.
+
+**E5 · 레슨 깜짝 이벤트** — §24.8 전부 (엔진). 파일: `lessonSurprise.js` (새) · `lesson.js` · `cards.js` (쉬는 선수) · `lessonRun.js` · `lessonEffects.js` (레슨 안 효과 미리보기) · `manager.js` · `data/lesson.json` · `tools/lesson_sim.mjs` · `test/lessonSurprise.test.mjs` · `test/lesson.test.mjs` · `test/lessonContent.test.mjs`.
+
+**E6 · 레전드 · 메모리 카드 (엔진)** — §24.9 엔진 부분. 파일: `lessonRun.js` · `manager.js` · `tools/lesson_sim.mjs` · `test/legends.test.mjs`.
+
+**A1 · 초상화 파이프라인** — §24.12.1. 파일: `tools/portraits.mjs` · `art/portraits.json` · `img/portraits/` · `data/portraits.json` · `test/portraits.test.mjs`. 완료: 24명 × 3 프리셋, 검토 한 장을 열어 얼굴이 가운데 · 잘리지 않음.
+
+**A2 · 새 배경 7장** — §24.12.5. 파일: `art/scenes/` (그림 · 프롬프트 · README) · `art/portraits.json` 의 `scenes` · `img/scenes/` · `data/portraits.json`. 완료: 7장 모두 사람 · 글자 · 로고 없음, 그림체가 확정 그림과 같다, 각 300KB 이하 WebP.
+
+**C1 ~ C7 · 콘텐츠** (§24.14, 각자 자기 파일 하나만) — C1 깜짝 20 · C2 주 끝 42 · C3 이야기 24 · C4 고정 9 + 일반 외출 6 · C5 새 A 22 · C6 새 B 22 · C7 코치 24. 초안은 스크래치에서 쓰고, 검사를 통과한 판만 `data/` 에 넣는다 (같은 작업 트리에서 다른 슬라이스의 `npm test` 를 깨지 않게). 완료: `npm test` (`lessonContent`) 통과, `node tools/events_doc.mjs <스크래치 경로>` 로 만든 문서를 다시 읽고 글 · 조사 · 반말판 · 수치를 확인.
+
+**U1 · 얼굴 그림** — §24.12.2 · §24.12.3. 파일: `js/ui/art.js` (새) · `dom.js` · `hud.js` · `lineup.js` · `ui/cards.js` · `meeting.js` · `ui/passives.js` · `screens/setup.js` · `week.js` · `lesson.js` · `reward.js` · `consult.js` · `prep.js` · `result.js` · `event.js` · `css/base.css` · `outgame.css` · `lesson.css` · `tools/shot.mjs` (그림 기다리기) · `test/lessonUi.test.mjs` · `test/outgame.test.mjs`. 경기 화면 · `lesson_scenarios.mjs` · `art/` · `img/` 는 고치지 않는다 (자르기 문제는 보고).
+
+**U2 · 컷인 일러스트** — §24.12.4. 파일: `screens/lesson.js` · `css/lesson.css` · `screens/match.js` · `css/match.css` (이 슬라이스만) · `test/ui.smoke.test.mjs` · `test/lessonUi.test.mjs` · 필요하면 `tools/scenarios.mjs` 경기 장면.
+
+**U3 · 이벤트 화면 · 3택1 · 외출 이야기 · 회상 · 키 아트 · 계정 저장** — §24.13 의 U3 부분. 파일: `screens/event.js` · `screens/cardOffer.js` (새) · `screens/recollection.js` (새) · `week.js` · `start.js` · `app.js` · `store.js` · CSS · `tools/lesson_scenarios.mjs` · `test/eventsUi.test.mjs` · `test/outgame.test.mjs`. `art/portraits.json` 자르기 수정은 이 슬라이스부터 할 수 있다.
+
+**U4 · 깜짝 말풍선** — §24.8 화면. 파일: `screens/lesson.js` · `css/lesson.css` · `app.js` · `tools/lesson_scenarios.mjs` · `test/eventsUi.test.mjs` · `test/lessonUi.test.mjs`.
+
+**U5 · 레전드 · 메모리 카드 화면** — §24.9 화면. 파일: `screens/setup.js` · `screens/result.js` · `app.js` · `store.js` · `ui/cards.js` · CSS · `tools/lesson_scenarios.mjs` · `test/eventsUi.test.mjs` · `test/outgame.test.mjs`.
+
+**I1 · 통합 · 문서** — `data/lesson.json` 스위치를 켠다. `tools/lesson_play.mjs` 이벤트 처리 · 실제 브라우저 15주 완주 (1280×720 · 915×412), 스크린샷 전체, 시뮬 전 / 후 (§24.16), `docs/LESSON_EVENTS.md` 생성, 문서 (ARCHITECTURE §20 · README · OUTGAME_LESSON_draft 결정 L53 · OUTGAME_CONTENT_draft 머리말 · §24.19). 깨진 것은 고치되 밸런스는 고치지 않는다.
+
+### 24.18 [가정] · [구현 결정] · 기획자 질문
+
+**[가정]**
+- 모든 이벤트 수치 · 글 (초안 103개 + 새로 쓰는 66개), 새 8명 말투 표 (§24.3.5), 설정 충돌 정리 (§24.14.2), 새 8명 깜짝 조건 제안.
+- 코치 단계 문턱 0 · 40 · 80 과 보상 크기 (§24.6), 일반 외출 6종 효과 (OUTGAME_LESSON_draft 6.2 그대로).
+- 대체값: 이미 결장 → 체력 −20 · 이미 강화판 / 고유 카드 없음 → TP +20 · 고를 카드 없음 → TP +10 · 3택1 건너뛰기 → TP +10 · 힌트 후보 없음 → SP +10.
+- 감독 AI 기대값 표 (§24.11), 이벤트 하나 12초 (시간 어림).
+- `ev_wandering_healer` 가중치 3 = 결장 선수가 있을 때.
+- 배경 7장의 장소 · 쓰는 곳 (§24.12.5).
+
+**[구현 결정]**
+- 레슨 런 이벤트는 새 파일 7개 (슬라이스마다 하나), 옛 `events.json` · `effects.js` 는 그대로. 레슨 효과 층은 새로 쓴다.
+- 미리보기는 효과에서 자동으로 만든다 (데이터에 쓰지 않는다).
+- 주 끝 슬롯 1개를 코치 · 랜덤이 나눠 쓴다 (코치 우선 · 2주 연속 금지), 외출한 주는 외출 이벤트가 슬롯.
+- 코치 첫 만남 = 계정 1회, "레슨에 나왔다" = 지원 컷인 · 코치 카드 사용 · 같은 종목 클리어 유대.
+- 이야기는 고른 순간에 본 것으로 센다. 계정 진행은 `createRun` 스냅샷으로만 들어온다 (같은 seed 다시 하기가 달라질 수 있다).
+- 무료 외출 이벤트 뒤에는 같은 주로 돌아온다 (`resumeWeek`, offer 그대로).
+- "카드 고르기" 는 한 번의 호출, "3택1" 은 새 phase `cardOffer`.
+- 남은 수업은 런 끝에 SP 로 바꾼다.
+- 깜짝 계획은 rngState (켤 때만), 깜짝 중 "남은 턴 쉼" 은 벤치 칸과 따로.
+- 메모리 카드에서 코치 카드도 뺀다. 레전드는 팀 사본으로 넘긴다.
+- 그림은 `img/` 사본 + 목록 `data/portraits.json` (목록에 없으면 글자). 그림 위에 글자를 남긴다. 그림을 좌우로 뒤집지 않는다. 새 그림은 사람 없는 배경 7장만.
+- 기존 테스트는 이벤트를 끈 데이터가 기본. 문서는 I1 만 고친다.
+
+**기획자 질문** (번호로 답해 주시면 됩니다)
+- **Q1. 코치 이벤트 박자**: 주 끝 슬롯을 차지하고 (주당 최대 1 · 2주 연속 안 됨) 런 길이를 그대로 둘까요, 아니면 주 끝 랜덤에 **더해서** 띄울까요 (런당 이벤트 약 +5 ~ 8)?
+- **Q2. 코치 첫 만남**: 계정에서 한 번만 보고 다음 런부터는 유대 40부터 시작할까요, 아니면 런마다 볼까요?
+- **Q3. 외출한 주**: 외출 이벤트가 그 주의 주 끝 이벤트를 대신해도 될까요 (주당 이벤트 1개)?
+- **Q4. 새 8명의 말투**: 반말 = 헤르타 · 브론테 · 온디나 · 카밀라 · 힐디, 존댓말 = 나엘리스 · 리시엘 · 코니 — 이대로 할까요?
+- **Q5. 메모리 카드**: 코치 카드도 남길 수 없게 해도 될까요? (L26 은 고유 · 대비만 뺀다)
+- **Q6. 깜짝 이벤트**: "남은 턴 쉼" 은 벤치 2칸을 쓰지 않는다 · "다음 턴 추가 사용 +1" 은 그대로 둔다 (초안 6.3 #7) — 이대로 할까요?
+- **Q7. `ev_wandering_healer`**: 가중치 3 조건을 "결장 선수가 있으면" (2.1) 으로 할까요, "체력 40 미만 선수가 있으면" (6.3) 으로 할까요?
+- **Q8. 마지막 레슨 뒤 수업**: 전야 · 코치 이벤트에서 마지막 레슨 뒤에 얻은 코치 수업은 SP 로 바꿔 줄까요?
+- **Q9. 힌트 바꾸기**: 이벤트의 "힌트 1 (편성 코치 스킬)" 은 코치 수업 (액티브) 으로, 선수 이야기의 힌트는 그 선수 패시브 힌트로 — 이대로 할까요?
+- **Q10. 설정**: 두 주장 (헤르타 = 골문의 맏언니 · 아델린 = 필드의 주장, 이번에는 한 장면에 넣지 않음) · 힐디와 도르비나 (같은 산맥 다른 마을, 이름만 아는 사이) · 정령 · 엘프 · 조약 기관 정리 (§24.14.2) 를 받아들일까요?
+- **Q11. 새 그림**: 사람 없는 배경 7장 (키 아트 배경 포함) 만 새로 그리고, 이야기 CG · 카드 그림 · 아이콘은 나중으로 미룰까요?
+- **Q12. 같은 seed 다시 하기**: 계정 진행 (본 이야기) 이 바뀌면 같은 seed 라도 다른 런이 될 수 있습니다. 괜찮을까요?
+
+### 24.19 구현 중 바뀐 것
+
+(I1 이 슬라이스 보고를 모아 채운다.)
