@@ -16,6 +16,7 @@
 //   런당 코치별 컷인 (능력 발동) · 컷인 힌트 · 컨디션 +1 · 컷인 유대.
 // 코치 수업 · 부상 지표 (§18.9): 런당 수업 · 습득 / 바꾸기 / 받지 않음 / 받을 선수 없음 · 수업 SP · 런 끝 선수당 액티브 · 패시브 ·
 //   다친 선수의 경기 출전 (§18 전에는 유스 출전). 감독 AI 는 수업을 빈 슬롯에만 받는다 (§18.8).
+// 원 카드 지표 (L52 · §23.6): 원 카드 크기별 대상 / 장 · 낸 수 / 런, 고유 주인 둘레 원 (작은 · 중간) 대상 / 장 — 흔들린 대형의 "운" 을 본다.
 // 결과는 보고만 한다. 수치는 바꾸지 않는다 (밸런스는 나중에).
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -23,7 +24,7 @@ import * as LR from "../js/engine/lessonRun.js";
 import * as M from "../js/engine/manager.js";
 import * as match from "../js/engine/match.js";
 import { formationSlots } from "../js/engine/run.js";
-import { mainStatsOf, deadReason, getCard } from "../js/engine/cards.js";
+import { mainStatsOf, deadReason, getCard, shapeOf } from "../js/engine/cards.js";
 import { lessonCardDef } from "../js/engine/lesson.js";
 import { createRng } from "../js/engine/rng.js";
 
@@ -124,6 +125,8 @@ export function simulateOne(data, { seed, policy, formation, slots = {}, playMat
     coachAcquired: 0, targeted: Object.fromEntries(state.players.map((p) => [p.id, 0])),
     actionsPerLesson: [], steps: 0, consultBuys: 0, consultUpgrades: 0, consultDeletes: 0, skillsBought: 0, rewardSkips: 0,
     uniq: {},
+    // L52 원 카드 대상 수: 크기별 [낸 장 수, 대상 합] (circle small · medium · large + 고유 주인 둘레 원 owner-small · owner-medium)
+    circ: {},
     // §18 코치 수업 · 부상 (레슨에만): 수업 수 · 습득 / 바꾸기 / 받지 않음 / 받을 선수 없음 · 수업 SP · 다친 선수 경기 출전 (예전 유스)
     teach: 0, teachLearned: 0, teachReplaced: 0, teachDeclined: 0, teachNone: 0, teachSp: 0, injuredPlays: 0,
   };
@@ -159,6 +162,7 @@ export function simulateOne(data, { seed, policy, formation, slots = {}, playMat
     }
     if (r.phase === "lesson" && r.action.kind === "play") {
       uniquePlay(state, data, m.uniq, r.action, uniqFrom);
+      circlePlay(state, data, m.circ, r.action);
       if (policy === "press") {
         m.pressSum += pressBefore;
         m.pressN += 1;
@@ -293,6 +297,27 @@ function uniqueTurnStart(state, data, u, keys) {
   }
 }
 
+/** L52: 원 카드 1장을 낸 행동 — 대상 수 = lastFx (턴 끝 앞까지) 의 상승 · 실패 선수 (서로 다른 id) */
+function circlePlay(state, data, circ, action) {
+  let def;
+  try { def = lessonCardDef(state, data, action.uid); } catch (_) { return; }
+  let key = null;
+  if (def.target && def.target.kind === "circle") key = def.target.size;
+  else {
+    const sh = def.family === "unique" ? shapeOf(data, def.id) : null;
+    if (sh && sh.kind === "ownerCircle") key = `owner-${sh.size}`;
+  }
+  if (!key) return;
+  const ids = new Set();
+  for (const f of state.lesson.lastFx) {
+    if (f.t === "turnEnd") break;
+    if (f.t === "gain" || f.t === "fail") ids.add(f.id);
+  }
+  const a = (circ[key] ||= [0, 0]);
+  a[0] += 1;
+  a[1] += ids.size;
+}
+
 /** 고유 카드를 낸 행동 1번: lastFx (턴 끝 앞까지) 에서 직접 상승 · 실패 · 비용, 옮긴 구역 · 받는 선수 포지션 */
 function uniquePlay(state, data, u, action, zonesBefore) {
   const e = state.deck.find((x) => x.uid === action.uid);
@@ -329,6 +354,8 @@ function uniquePlay(state, data, u, action, zonesBefore) {
   a.distinct += ids.size;
 }
 
+/** L52 원 카드 대상 지표 순서 */
+const CIRC_KEYS = ["small", "medium", "large", "owner-small", "owner-medium"];
 const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
 /** 분위수 (정렬 뒤 floor(q × (n − 1)) 번째 — zone_sim 과 같다) */
 const pctl = (a, q) => {
@@ -407,6 +434,11 @@ export function summarize(data, args, policy) {
   return {
     policy, runs: N, ms: Math.round(performance.now() - t0),
     uniq: rs.reduce((a, r) => uniqAdd(a, r.uniq), {}),
+    circ: CIRC_KEYS.map((k) => {
+      const plays = rs.reduce((a, r) => a + ((r.circ[k] || [0, 0])[0]), 0);
+      const tgts = rs.reduce((a, r) => a + ((r.circ[k] || [0, 0])[1]), 0);
+      return { key: k, plays: plays / N, perPlay: plays ? tgts / plays : NaN };
+    }),
     attach,
     avgStat: mean(rs.map((r) => r.avgStat)),
     teamwork: mean(rs.map((r) => r.teamwork)),
@@ -527,6 +559,9 @@ function printTable(sums, args) {
     ["런당 벤치 (띠 2~10) · 벤치 있는 턴 · 2회 이상 런", (s) => `${f1(s.benches)} · ${pc(s.benchTurnPct)} · ${pc(s.benchRuns2)}`],
     ["런당 주 휴식", (s) => f1(s.weekRests)],
     ["선수별 대상 횟수 최소~최대", (s) => `${f1(s.targetedMin)}~${f1(s.targetedMax)}`],
+    ["[L52] 원 카드 대상/장 작은 · 중간 · 큰", (s) => s.circ.slice(0, 3).map((c) => f2(c.perPlay)).join(" · ")],
+    ["[L52] 원 카드 낸 수/런 작은 · 중간 · 큰", (s) => s.circ.slice(0, 3).map((c) => f1(c.plays)).join(" · ")],
+    ["[L52] 고유 둘레 원 대상/장 작은 · 중간 (낸 수/런)", (s) => s.circ.slice(3).map((c) => `${f2(c.perPlay)} (${f2(c.plays)})`).join(" · ")],
     ["코치 카드 획득 / 런 끝 덱 안", (s) => `${f1(s.coachAcquired)} / ${f1(s.coachInDeck)}`],
     ["유대 60 / 80 도달 코치 수", (s) => `${f1(s.bond60)} / ${f1(s.bond80)}`],
     ["힌트 수", (s) => f1(s.hints)],

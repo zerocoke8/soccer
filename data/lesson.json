@@ -27,6 +27,7 @@
       "physical": { "x": 35, "y": 72 }, "dribble": { "x": 65, "y": 72 }
     },
     "huddle": [0, 3.5, 4.5, 5.5, 6.5],
+    "jitter": { "rotate": true, "radiusScale": [0.85, 1.25], "nudge": 1.2, "minGap": 4.8, "maxR": 6.6 },
     "radius": { "small": 4.2, "medium": 9, "large": 17 },
     "ownerRadius": { "small": 8, "medium": 15 }, "dropR": 12,
     "weights": {

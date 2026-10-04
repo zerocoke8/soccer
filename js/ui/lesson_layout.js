@@ -6,6 +6,7 @@
 //   tokenSpots(view)              경기장 선수 토큰 자리 = 엔진 뷰 positions (구역 대형). 벤치 · 결장은 null
 //   pointerToField(cx, cy, rect)  포인터(client px) → 필드 % { x, y, inside } (rect = .m-field getBoundingClientRect — 무대 scale 포함)
 //   circlePx(r, aspect, W, H)     원 반지름 r(u) → 그리기용 { rx, ry } px (화면에서 동그랗다)
+//   labelPlan(toks, opts)         L52: 토큰 이름표 · 실패율 표 자리 (겹치지 않는 쪽 — 흔들린 대형) · labelWidth(name, stam) 이름표 폭 추정
 //   fxPlan(lastFx)                엔진 lastFx(§14.13 · §15.4) → 연출 단계 (코치 컷인 · 카드 · 턴 끝 기본 훈련 · 벤치 회복 · 흩어지기 · 새 손패 · 코치 붙기 · 레슨 끝)
 //   playerStatInfo(state, id, view, thresholds)  레슨 중 선수 1명의 스탯 5개 (현재 값 · 등급 · 이번 레슨 상승 · 성장률) — 명단 줄 · 선수 정보 팝오버 (§17)
 import { slotSpot } from './lineup.js';
@@ -80,6 +81,101 @@ export function circlePx(r, aspect, W = FIELD_PX.w, H = FIELD_PX.h) {
   const rr = Math.max(0, Number(r) || 0);
   const a = Number(aspect) > 0 ? Number(aspect) : FIELD_PX.h / FIELD_PX.w;
   return { rx: r2((rr * W) / 100), ry: r2(((rr / a) * H) / 100) };
+}
+
+/**
+ * 이름표 폭 추정 (논리 px, css/lesson.css .tok-name: 글자 12px 굵게 · 좌우 여백 6px · 체력 숫자 앞 4px).
+ * 한글 12.5px · 그 밖 7.5px — 실제보다 조금 넓게 잡는다 (겹침 판정이 안전한 쪽).
+ * @param {string} name 이름표 글자 (이름 또는 앞 2글자)
+ * @param {string} [stam] 체력 숫자 (없으면 '')
+ */
+export function labelWidth(name, stam = '') {
+  const w = (s) => Array.from(String(s ?? '')).reduce((a, ch) => a + (/[ᄀ-ᇿ㄰-㆏가-힯]/.test(ch) ? 12.5 : 7.5), 0);
+  return Math.ceil(12 + w(name) + (stam ? 4 + w(stam) : 0));
+}
+
+/** 실패율 표 (⚠25%) 폭 추정 (논리 px — 글자 10px 굵게 · 여백 3px) */
+export const WARN_PX = 40;
+
+/**
+ * 토큰 이름표 · 실패율 표 자리 고르기 (L52 — 흔들린 대형 §23). 다른 토큰 얼굴(테 · 체력 막대 포함) · 앞서 놓은 이름표 · 실패율 표 ·
+ * 구역 라벨(obstacles) · 필드 밖과 겹치는 넓이가 가장 작은 쪽, 같으면 바깥쪽을 먼저 고른다.
+ *   이름표: 'below' (얼굴 아래, 기본) · 'right' (lp-r) · 'left' (lp-l) · 'above' (lp-u, 마지막) — 옆으로 벌어진 선수는 옆(바깥), 나머지는 아래가 먼저.
+ *   실패율 표: 얼굴 바깥쪽 위 모서리 (구역 중심보다 왼쪽이면 왼쪽 = wl) → 반대쪽 위 → 아래 모서리 (wd). 자기 이름표와도 겹치지 않게.
+ * 자리가 적은(얼굴에 막힌 쪽이 많은) 토큰부터 놓는다. DOM 이 없는 순수 함수 — 같은 입력이면 같은 결과.
+ * @param {Array<{ id: string, x: number, y: number, cx: number, cy: number, w: number, warn?: boolean }>} toks
+ *   x · y = 토큰 중심 px, cx · cy = 그 구역 중심 px (바깥쪽 판정 — 혼자면 토큰과 같아도 된다), w = 이름표 폭 px, warn = 실패율 표가 켜졌나
+ * @param {{ W?: number, H?: number, tok?: number, obstacles?: Array<{ left: number, top: number, right: number, bottom: number }>, margin?: number }} [opts]
+ * @returns {Record<string, { side: 'below'|'right'|'left'|'above', warnLeft: boolean, warnDown: boolean, overlap: number }>} overlap = 남은 겹침 넓이 (여유 포함, 0 이면 깨끗)
+ */
+export function labelPlan(toks, { W = FIELD_PX.w, H = FIELD_PX.h, tok = TOKEN_PX, obstacles = [], margin = 3 } = {}) {
+  const list = Array.isArray(toks) ? toks.filter((t) => t && Number.isFinite(t.x) && Number.isFinite(t.y)) : [];
+  const r = tok / 2;
+  const rect = (l, t, rr, b) => ({ left: l, top: t, right: rr, bottom: b });
+  const cut =(a, b) => Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+  const grow = (o, m) => rect(o.left - m, o.top - m, o.right + m, o.bottom + m);
+  const outside = (o) => {
+    const area = (o.right - o.left) * (o.bottom - o.top);
+    return area - cut(o, rect(0, 0, W, H));
+  };
+  // 얼굴 (2px 테) + 체력 막대 (얼굴 아래 3 ~ 7px)
+  const body = (t) => rect(t.x - r - 2, t.y - r - 2, t.x + r + 2, t.y + r + 7);
+  const labelRect = (t, side) => {
+    if (side === 'right') return rect(t.x + r + 4, t.y - 8, t.x + r + 4 + t.w, t.y + 8);
+    if (side === 'left') return rect(t.x - r - 4 - t.w, t.y - 8, t.x - r - 4, t.y + 8);
+    if (side === 'above') return rect(t.x - t.w / 2, t.y - r - 23, t.x + t.w / 2, t.y - r - 7);
+    return rect(t.x - t.w / 2, t.y + r + 7, t.x + t.w / 2, t.y + r + 23);
+  };
+  // 실패율 표 (css: 위 = top −0.66·tok, 옆 0.3·tok / 아래 wd = top 0.33·tok, 옆 0.42·tok)
+  const warnRect = (t, left, down) => {
+    const top = down ? t.y + tok * 0.33 : t.y - tok * 0.66;
+    const off = down ? tok * 0.42 : tok * 0.3;
+    return left ? rect(t.x - off - WARN_PX, top, t.x - off, top + 13) : rect(t.x + off, top, t.x + off + WARN_PX, top + 13);
+  };
+  const prefs = (t) => {
+    const dx = t.x - t.cx;
+    const dy = t.y - t.cy;
+    const out = dx >= 0 ? 'right' : 'left';
+    const inn = out === 'right' ? 'left' : 'right';
+    if (Math.abs(dx) > 0.5 && Math.abs(dx) > Math.abs(dy) * 1.2) return [out, 'below', inn, 'above'];
+    return ['below', out, inn, 'above'];
+  };
+  const faces = list.map((t) => ({ id: t.id, r: grow(body(t), margin) }));
+  const fixed = (obstacles || []).map((o) => grow(o, margin));
+  const placed = []; // { id, r }
+  const score = (t, box) => {
+    let s = outside(box) * 2;
+    for (const f of faces) if (f.id !== t.id) s += cut(box, f.r);
+    for (const o of fixed) s += cut(box, o);
+    for (const p of placed) s += cut(box, grow(p.r, margin)); // 자기 실패율 표도 (이름표와 겹치지 않게)
+    return s;
+  };
+  // 자리가 적은 토큰부터 (얼굴 · 구역 라벨만 보고 깨끗한 이름표 쪽 수 — 같으면 입력 순서)
+  const freeCount = (t) => ['below', 'right', 'left', 'above'].filter((side) => {
+    const b = labelRect(t, side);
+    return outside(b) === 0 && faces.every((f) => f.id === t.id || cut(b, f.r) === 0) && fixed.every((o) => cut(b, o) === 0);
+  }).length;
+  const order = list.map((t, i) => ({ t, i, free: freeCount(t) })).sort((a, b) => a.free - b.free || a.i - b.i);
+  const plan = {};
+  // ① 실패율 표 (얼굴에 붙은 작은 표 — 이름표보다 먼저 자리를 잡는다)
+  for (const { t } of order) {
+    if (!t.warn) continue;
+    const outLeft = t.x - t.cx < -0.5;
+    const cands = [[outLeft, false], [!outLeft, false], [outLeft, true], [!outLeft, true]]
+      .map(([left, down], k) => ({ left, down, k, s: score(t, warnRect(t, left, down)) }));
+    cands.sort((a, b) => a.s - b.s || a.k - b.k);
+    plan[t.id] = { side: 'below', warnLeft: cands[0].left, warnDown: cands[0].down, overlap: 0 };
+    placed.push({ id: t.id, r: warnRect(t, cands[0].left, cands[0].down) });
+  }
+  // ② 이름표
+  for (const { t } of order) {
+    const cands = prefs(t).map((side, k) => ({ side, k, s: score(t, labelRect(t, side)) }));
+    cands.sort((a, b) => a.s - b.s || a.k - b.k);
+    const best = cands[0];
+    plan[t.id] = { side: best.side, warnLeft: plan[t.id]?.warnLeft ?? (t.x - t.cx < -0.5), warnDown: !!plan[t.id]?.warnDown, overlap: r2(best.s) };
+    placed.push({ id: t.id, r: labelRect(t, best.side) });
+  }
+  return plan;
 }
 
 /**

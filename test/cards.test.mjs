@@ -3,9 +3,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { loadData, clone, run } from "./helpers.mjs";
 import * as cards from "../js/engine/cards.js";
-import { ZONE_IDS } from "../js/engine/zones.js";
+import { ZONE_IDS, distU, inCircle } from "../js/engine/zones.js";
 
 const data = loadData();
+/** L52 배치 흔들림을 끈 데이터 (예전 정직한 대형 — 원 판정 약속을 정확한 좌표로 본다) */
+const data0 = clone(data);
+data0.lesson.zones.jitter = null;
 const ALL = data.cards.cards;
 const byId = (id) => ALL.find((c) => c.id === id);
 const def = (id, opts) => cards.resolveCardDef(data, id, opts);
@@ -303,7 +306,9 @@ test("지운 export: 탭 · 모드 · 범위 ÷ 인원 (§14.6 · §14.8)", () =
   }
 });
 
-test("targetsFor: 원 = 원 안의 경기장 선수 (경계 포함) · 0명이면 throw · 벤치 · 결장 제외", () => {
+test("targetsFor: 원 = 원 안의 경기장 선수 (경계 포함) · 0명이면 throw · 벤치 · 결장 제외 (jitter null = 예전 대형)", () => {
+  const data = data0;
+  const posOf = (s) => cards.fieldPositions(s, data0);
   const s = layoutState();
   const pos = posOf(s);
   assert.deepEqual(pos.p1, { x: 16.5, y: 30 });
@@ -335,6 +340,27 @@ test("targetsFor: 원 = 원 안의 경기장 선수 (경계 포함) · 0명이�
   // 전체 = 경기장 선수 전원
   assert.deepEqual(cards.targetsFor(layoutState({ bench: ["p3"], out: ["p7"] }), def("cd_basic"), {}, data), ["p1", "p2", "p4", "p5", "p6"]);
   assert.deepEqual(cards.targetsFor(s, def("cd_hojo_up"), {}, data), []);
+});
+
+test("L52 targetsFor: 흔들린 대형에서도 원 판정 = 엔진 위치 (원 안 전원) · 중간 원 구역 중심 = 그 구역 전원 · 작은 원 한 명 위 = 1명", () => {
+  const Z = data.lesson.zones;
+  const medium = def("cd_fw_drill");
+  const small = def("cd_one_two");
+  const large = def("cd_defense_org");
+  for (let turn = 1; turn <= 12; turn++) {
+    const s = layoutState();
+    s.lesson.turn = turn;
+    s.lesson.layoutSeed = 1000 + turn * 7;
+    const pos = posOf(s);
+    assert.ok(distU(pos.p1, Z.centers.defense, Z.aspect) <= Z.jitter.maxR + 1e-9, "구역 바닥 안");
+    assert.deepEqual(cards.targetsFor(s, medium, { at: Z.centers.defense }, data), ["p1", "p2"]);
+    assert.deepEqual(cards.targetsFor(s, medium, { at: Z.centers.pass }, data), ["p4", "p5"]);
+    for (const id of Object.keys(pos)) assert.deepEqual(cards.targetsFor(s, small, { at: pos[id] }, data), [id], `turn ${turn} ${id}`);
+    const at = { x: 27.5, y: 51 };
+    const got = cards.targetsFor(s, large, { at }, data);
+    assert.deepEqual(got, inCircle(pos, at, Z.radius.large, Z.aspect));
+    assert.ok(!got.includes("p4") && !got.includes("p5"), "큰 원 수비–피지컬 가운데: 패스 구역은 들어오지 않는다");
+  }
 });
 
 test("targetsFor: 단일 = pickR 안 가장 가까운 후보 · onlyZones · 회복 단일은 7명 (결장 · 벤치 포함) · 주인", () => {
@@ -607,6 +633,16 @@ test("L40 모양 검증: 모르는 shape · 남는 키 · 배율 · size · only
   bad((d, T) => { T("finisher").lesson.zoneMult = { zones: ["shoot"], mult: 0.5 }; }, /zoneMult 가 잘못됐습니다/);
   bad((d) => { delete d.lesson.zones.ownerRadius; }, /ownerRadius/);
   bad((d) => { d.lesson.zones.dropR = 0; }, /dropR/);
+  // L52 배치 흔들림 (zones.jitter — null 이면 통과)
+  bad((d) => { d.lesson.zones.jitter.minGap = 0; }, /레슨 배치: lesson.zones.jitter.minGap/);
+  bad((d) => { d.lesson.zones.jitter.radiusScale = [1.2, 0.9]; }, /레슨 배치: lesson.zones.jitter.radiusScale/);
+  bad((d) => { d.lesson.zones.jitter.maxR = 8; }, /레슨 배치: .*pad/);
+  bad((d) => { d.lesson.zones.jitter.wobble = 1; }, /레슨 배치: .*알 수 없는 키 'wobble'/);
+  {
+    const d = clone(data);
+    d.lesson.zones.jitter = null;
+    assert.equal(cards.validateShapeData(d), true, "jitter null = 예전 대형 (통과)");
+  }
   bad((d, T) => { delete T("finisher").lesson; }, /특성 'finisher'.lesson: 레슨 모양이 없습니다/); // 주인 없는 특성도
   bad((d, T) => { delete T("captain").lesson; }, /카드 'cd_u_adeline': 주인 특성 'captain' 에 레슨 모양/);
   bad((d) => { d.characters.find((c) => c.id === "ch_human_captain").trait = "nope"; }, /특성 'nope' 이\(가\) traits 에 없습니다/);

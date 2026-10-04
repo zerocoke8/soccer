@@ -3,7 +3,7 @@
 //   ┌ HUD: ➡️ 패스 중점 ★특별 ×2.0 │ 턴 ●●●○○○ 4/6 │ 점수 [████▌··|···] 286 / 목표 495 · 퍼펙트 624 │ 버프 칩 ─────────────┐
 //   │ ┌ 경기장 (.pitch > .m-field, 968×392) ──────────────────────────────┐ ┌ 옆 252 ───────────────────┐ │
 //   │ │  구역 바닥 5 (.zone-pad) + 라벨 칩 (.zone-chip, 바닥 바로 위)        │ │ 벤치 (턴 끝 +15 · 최대 2) │ │
-//   │ │  토큰 = 뷰 positions (구역 대형) · 이름표는 대형 바깥쪽 / 4명부터 짧게 │ │ 명단 7: 구역 · 체력 · 실패 · [벤치] │ │
+//   │ │  토큰 = 뷰 positions (구역 대형, L52 턴마다 흔들림) · 이름표는 겹치지 않는 쪽 (labelPlan) / 4명부터 짧게 │ │ 명단 7: 구역 · 체력 · 실패 · [벤치] │ │
 //   │ │  조준: 원(점선) · 십자 · 전체 빛 · 추천 원(청록) · 대상 말풍선       │ │ 팀워크 · 방침              │ │
 //   │ └──────────────────────────────────────────────────────────────────┘ └──────────────────────────┘ │
 //   ├ dock: [덱][버림] │ 손패 (끌어서 경기장에) │ 안내 · 미리보기 합계 · 노트 │ [내기][턴 끝] ┤
@@ -43,7 +43,7 @@
 import { h, avatar, bar, gradeBadge, openModal, toast } from '../dom.js';
 import * as L from '../labels.js';
 import { cardFace, miniCard, attachTitle, shapeIconKey, shapeHow, multShort } from '../cards.js';
-import { tokenSpot, pointerToField, circlePx, fxPlan, scoreAfterPlay, handStep, playerStatInfo, FIELD_PX, TOKEN_PX } from '../lesson_layout.js';
+import { tokenSpot, pointerToField, circlePx, fxPlan, scoreAfterPlay, handStep, playerStatInfo, labelPlan, labelWidth, FIELD_PX, TOKEN_PX } from '../lesson_layout.js';
 import { stamCls } from '../hud.js';
 import { uniqueNote } from './reward.js';
 
@@ -243,6 +243,7 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
   let cutRecap = null;    // no-anim: 방금 발동한 지원 (연출이 0ms 라 컷인 대신 다음 조작 전까지 안내 칸에 남긴다)
   let infoPop = null;     // 선수 정보 팝오버 { id, src: 'tok' | 'row' | 'btn', pinned } (§17) — pinned = 누르기 · 키로 연 것 (hover 는 떠나면 닫힌다)
   let hoverTid = null;    // hover 로 여는 짧은 지연 타이머
+  let chipRectsCache = null; // 구역 라벨 칩 사각형 { w, h, rects } (이름표 자리 고르기 장애물 — renderZones 가 비운다)
   const thresholds = data.config?.rating?.thresholds;
   let shown = { score: v.score, stamina: {} }; // 연출 중 보여 주는 값 (점수 · 체력 · 턴)
 
@@ -319,6 +320,7 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     });
     zoneLayer.replaceChildren(...pads);
     chipLayer.replaceChildren(...chips);
+    chipRectsCache = null; // 이름표 자리 고르기의 칩 장애물은 다음 renderTokens 에서 다시 잰다
   }
 
   /* ------------------------------------------------------------------ */
@@ -657,21 +659,45 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     el.dataset.x = String(round1(spot.x));
     el.dataset.y = String(round1(spot.y));
   }
+  /** 구역 라벨 칩 사각형 (필드 px — 칩은 바닥 바로 위, 가운데 정렬) — 이름표 자리 고르기의 장애물. 칩을 다시 그릴 때 (renderZones) 까지 재사용 */
+  function zoneChipRects() {
+    if (chipRectsCache && chipRectsCache.w === W && chipRectsCache.h === H) return chipRectsCache.rects;
+    const pr = circlePx(Z.pad, Z.aspect, W, H);
+    const out = [];
+    for (const el of chipLayer.children) {
+      const c = Z.centers[el.dataset.zone];
+      if (!c) continue;
+      const [x, y] = toPx(c);
+      const w = el.offsetWidth || (el.classList.contains('focus') ? 170 : 110); // jsdom (레이아웃 없음) = 추정
+      const bottom = y - pr.ry - 5;
+      out.push({ left: x - w / 2, top: bottom - 20, right: x + w / 2, bottom });
+    }
+    chipRectsCache = { w: W, h: H, rects: out };
+    return out;
+  }
   /**
-   * 이름표 자리: 대형 바깥쪽 — 옆으로 벌어진 선수는 옆(바깥), 나머지는 아래 (위 선수의 아래 = 대형 가운데 빈 곳).
-   * 실패율 표(⚠)는 얼굴 위 바깥쪽 모서리 (대형 왼쪽 선수 = 왼쪽 위) — 가운데로 내려오는 이름표와 겹치지 않게.
-   * @returns {string[]} 클래스
+   * 이름표 · 실패율 표 자리 (L52 §23 — lesson_layout.labelPlan): 흔들린 대형에서 다른 토큰 얼굴 · 이름표 · 실패율 표 · 구역 라벨 ·
+   * 필드 밖과 겹치지 않는 쪽 (같으면 바깥쪽 — 옆으로 벌어진 선수는 옆, 나머지는 아래). 폭은 평소 이름표 (조준 중 말풍선도 같은 자리)
+   * 로 잡아서 조준해도 이름표가 옮겨 다니지 않는다. 실패율 표도 평소 기준 (fr ≥ 10%).
+   * @returns {Record<string, string[]>} 선수 id → 클래스 (lp-r · lp-l · lp-u · wl · wd)
    */
-  function labelSide(id, n) {
-    const pos = v.positions?.[id];
-    const c = Z.centers[v.zones?.[id]];
-    if (!pos || !c || n <= 1) return [];
-    const dx = ((pos.x - c.x) / 100) * W;
-    const dy = ((pos.y - c.y) / 100) * H;
-    const out = dx < -0.5 ? ['wl'] : [];
-    if (Math.abs(dx) > Math.abs(dy) * 1.2) out.push(dx > 0 ? 'lp-r' : 'lp-l');
-    // 3명 대형의 위 선수: 아래 이름표가 아래 두 선수 얼굴 사이에 끼어 닿는다 → 오른쪽 옆으로
-    else if (n === 3 && dy < 0) out.push('lp-r');
+  function labelSides(counts) {
+    const toks = [];
+    for (const p of v.players) {
+      const pos = v.positions?.[p.id];
+      if (!pos) continue;
+      const n = p.zone ? counts[p.zone] || 0 : 0;
+      const [x, y] = toPx(pos);
+      const [cx, cy] = toPx(Z.centers[v.zones?.[p.id]] || pos);
+      // 체력은 늘 세 자리 폭 (100) 으로 잡는다 — 체력이 바뀌어도 이름표가 옮겨 다니지 않게
+      const w = n >= 4 ? labelWidth(shortName(p.name)) : labelWidth(p.name, '100');
+      toks.push({ id: p.id, x, y, cx, cy, w, warn: (Number(p.failRate) || 0) >= 0.1 });
+    }
+    const plan = labelPlan(toks, { W, H, tok: TOKEN_PX, obstacles: zoneChipRects() });
+    const out = {};
+    for (const [id, s] of Object.entries(plan)) {
+      out[id] = [{ right: 'lp-r', left: 'lp-l', above: 'lp-u' }[s.side] || '', s.warnLeft ? 'wl' : '', s.warnDown ? 'wd' : ''].filter(Boolean);
+    }
     return out;
   }
   /** 조준 표시 정보 (대상 · 실패 · 후보 · 추천 · 회복 대상) */
@@ -699,6 +725,7 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     const counts = {};
     for (const id of Object.keys(v.positions || {})) { const z = v.zones?.[id]; if (z) counts[z] = (counts[z] || 0) + 1; }
     const liftId = ui.drag?.kind === 'tok' ? ui.drag.id : null;
+    const sides = labelSides(counts);
     for (const p of v.players) {
       const el = tokenEl(p);
       const pos = v.positions?.[p.id] || null;
@@ -709,7 +736,7 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
       if (p.zone) cls.push(`z-${p.zone}`);
       if (!pos) cls.push('off');
       if (n >= 4) cls.push('short');
-      if (pos) cls.push(...labelSide(p.id, n));
+      if (pos) cls.push(...(sides[p.id] || []));
       if (t) cls.push('target');
       if (info.failer === p.id) cls.push('failer');
       if (info.healId === p.id) cls.push('heal-target');

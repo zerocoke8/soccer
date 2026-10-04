@@ -4,11 +4,14 @@ import assert from "node:assert/strict";
 import { loadData } from "./helpers.mjs";
 import {
   ZONE_IDS, distU, clampPoint, huddleOffsets, zonePositions, inCircle, nearestWithin,
-  areNeighbors, zoneWeight, candidatePoints, zoneAt,
+  areNeighbors, zoneWeight, candidatePoints, zoneAt, hash32, layoutSeedOf, jitterOf, jitterErrors,
 } from "../js/engine/zones.js";
 
 const data = loadData();
-const cfg = data.lesson.zones;
+/** L52: 데이터 그대로 (흔들린 대형) */
+const cfgJ = data.lesson.zones;
+/** 흔들림을 끈 예전 정직한 대형 (jitter null) — 대형 · 원 약속 표 (§14.2 · §16.2 ②) 를 정확한 좌표로 본다 */
+const cfg = { ...cfgJ, jitter: null };
 const A = cfg.aspect;
 const W = 968, H = 392, TOKEN_R = 20; // 레슨 경기장 픽셀 · 토큰 반지름 (§14.2)
 const px = (p) => [(p.x / 100) * W, (p.y / 100) * H];
@@ -49,6 +52,8 @@ test("데이터: lesson.json 구역 키 (ZE1 추가분) · 구역 5곳 = STATS �
   assert.equal(L.unique, undefined, "L40: 고유 카드 주 스탯 구역 ×1.5 (lesson.unique.mainMult) 는 지웠다");
   assert.deepEqual(cfg.ownerRadius, { small: 8, medium: 15 }, "L40 주인 둘레 원 반지름 [가정]");
   assert.equal(cfg.dropR, 12, "L40 구역 놓기 반경 [가정]");
+  assert.deepEqual(cfgJ.jitter, { rotate: true, radiusScale: [0.85, 1.25], nudge: 1.2, minGap: 4.8, maxR: 6.6 }, "L52 자연스러운 배치");
+  assert.deepEqual(jitterErrors(cfgJ), []);
   assert.equal(L.special.capMult, 1.2);
 });
 
@@ -76,7 +81,7 @@ test("구역 중심 거리 표 (§14.2) · 이웃", () => {
   assert.equal(neigh.length, 4, "패스 = 허브 (4곳과 이웃)");
 });
 
-test("대형: n = 1~7 이 모든 구역에서 필드 안 · 토큰이 겹치지 않는다", () => {
+test("대형 (jitter null = 예전 대형): n = 1~7 이 모든 구역에서 필드 안 · 토큰이 겹치지 않는다", () => {
   assert.deepEqual(huddleOffsets(1, cfg), [{ dx: 0, dy: 0 }]);
   assert.deepEqual(huddleOffsets(2, cfg), [{ dx: -3.5, dy: 0 }, { dx: 3.5, dy: 0 }]);
   assert.equal(huddleOffsets(0, cfg).length, 0);
@@ -98,7 +103,7 @@ test("대형: n = 1~7 이 모든 구역에서 필드 안 · 토큰이 겹치지 
   }
 });
 
-test("zonePositions: 슬롯 순서 · 벤치 · 구역 없는 선수(결장) 제외 · 남은 인원으로 대형", () => {
+test("zonePositions (jitter null): 슬롯 순서 · 벤치 · 구역 없는 선수(결장) 제외 · 남은 인원으로 대형", () => {
   const { players, lesson } = fixture({ defense: 3, pass: 2, shoot: 1, physical: 1 });
   players.push({ id: "out" }); // 결장 = zones 에 없음
   const all = zonePositions(lesson, players, cfg);
@@ -130,7 +135,7 @@ test("distU · inCircle · nearestWithin: 경계 포함, 세로는 aspect 로", 
   assert.throws(() => clampPoint(null));
 });
 
-test("작은 원 (4.2u): 같은 구역 이웃 두 명 사이 = 2명 · 한 명 위 = 1명 · 3명 이상 대형 중심 = 0명", () => {
+test("작은 원 (4.2u, jitter null): 같은 구역 이웃 두 명 사이 = 2명 · 한 명 위 = 1명 · 3명 이상 대형 중심 = 0명", () => {
   const r = cfg.radius.small;
   for (const z of ZONE_IDS) for (let n = 1; n <= 7; n++) {
     const { players, lesson } = fixture(spread(z, n));
@@ -149,7 +154,7 @@ test("작은 원 (4.2u): 같은 구역 이웃 두 명 사이 = 2명 · 한 명 �
   }
 });
 
-test("중간 원 (9u): 구역 중심 → 그 구역 전원, 이웃 구역 0명", () => {
+test("중간 원 (9u, jitter null): 구역 중심 → 그 구역 전원, 이웃 구역 0명", () => {
   const r = cfg.radius.medium;
   for (const z of ZONE_IDS) for (let n = 1; n <= 7; n++) {
     const { players, lesson } = fixture(spread(z, n));
@@ -158,7 +163,7 @@ test("중간 원 (9u): 구역 중심 → 그 구역 전원, 이웃 구역 0명",
   }
 });
 
-test("큰 원 (17u): 22.7u 이웃 두 구역 가운데 → 두 무리 전원(무리당 4명까지), 세 번째 구역 0명", () => {
+test("큰 원 (17u, jitter null): 22.7u 이웃 두 구역 가운데 → 두 무리 전원(무리당 4명까지), 세 번째 구역 0명", () => {
   const r = cfg.radius.large;
   const pairs = [];
   for (let i = 0; i < ZONE_IDS.length; i++) for (let j = i + 1; j < ZONE_IDS.length; j++) {
@@ -179,7 +184,7 @@ test("큰 원 (17u): 22.7u 이웃 두 구역 가운데 → 두 무리 전원(무
   }
 });
 
-test("candidatePoints: 원 — 대상 집합이 겹치지 않고, 점마다 대상 ≥ 1, 순서 구역 → 선수 → 가운데", () => {
+test("candidatePoints (jitter null): 원 — 대상 집합이 겹치지 않고, 점마다 대상 ≥ 1, 순서 구역 → 선수 → 가운데", () => {
   for (const size of ["small", "medium", "large"]) {
     const counts = { defense: 3, physical: 1, pass: 2, shoot: 1 };
     const { players, lesson } = fixture(counts);
@@ -215,7 +220,7 @@ test("candidatePoints: 원 — 대상 집합이 겹치지 않고, 점마다 대�
   assert.throws(() => candidatePoints(pos2, cfg, { kind: "circle" }));
 });
 
-test("candidatePoints: 단일 · 전체/주인/없음", () => {
+test("candidatePoints (jitter null): 단일 · 전체/주인/없음", () => {
   const { players, lesson } = fixture({ shoot: 1, pass: 2, defense: 2 });
   const pos = zonePositions(lesson, players, cfg);
   const single = candidatePoints(pos, cfg, { kind: "single" });
@@ -258,7 +263,7 @@ test("zoneAt: 중심이 가장 가까운 구역 · dropR 경계 포함 · 가운
   assert.throws(() => zoneAt(C.pass, { ...cfg, dropR: 0 }), /dropR/);
 });
 
-test("주인 둘레 원 약속 (§16.2 ②): n = 1~7 대형에서 small 8u = 주인 + 바로 옆 ≤ 2명 · 다른 구역 0명, medium 15u = 주인 구역 전원", () => {
+test("주인 둘레 원 약속 (§16.2 ②, jitter null): n = 1~7 대형에서 small 8u = 주인 + 바로 옆 ≤ 2명 · 다른 구역 0명, medium 15u = 주인 구역 전원", () => {
   const rs = cfg.ownerRadius.small;
   const rm = cfg.ownerRadius.medium;
   for (const z of ZONE_IDS) {
@@ -280,6 +285,211 @@ test("주인 둘레 원 약속 (§16.2 ②): n = 1~7 대형에서 small 8u = 주
           for (const id of members) assert.ok(medium.includes(id), `${z} n=${n} medium: 주인 구역 전원`);
         }
       }
+    }
+  }
+});
+
+// ---------------------------------------------------------------------------
+// L52 자연스러운 배치 (§23): zones.jitter — 해시 흔들림 · 겹침 없음 · 결정적 · null = 예전 대형
+// ---------------------------------------------------------------------------
+
+const J = cfgJ.jitter;
+/** 여러 런 · 주의 배치 씨앗 */
+const SEEDS = Array.from({ length: 40 }, (_, i) => layoutSeedOf(`seed-${i}`, i % 15));
+const at = (lesson, turn, layoutSeed) => ({ ...lesson, turn, layoutSeed });
+/** 7명을 구역에 나누는 모든 방법 (구역별 인원 [shoot, dribble, pass, defense, physical], 합 7) */
+function allCounts(total = 7, k = ZONE_IDS.length) {
+  if (k === 1) return [[total]];
+  const out = [];
+  for (let i = 0; i <= total; i++) for (const rest of allCounts(total - i, k - 1)) out.push([i, ...rest]);
+  return out;
+}
+/** 흔들린 배치 검사: 서로 minGap 이상 (다른 구역끼리도) · 구역 중심에서 maxR 이하 (토큰이 바닥 안) · 필드 안 · 소수 1자리 */
+function checkLayout(pos, lesson, label) {
+  const ids = Object.keys(pos);
+  for (const id of ids) {
+    const p = pos[id];
+    const d = distU(p, cfgJ.centers[lesson.zones[id]], A);
+    assert.ok(d <= J.maxR + 1e-9, `${label}: ${id} 구역 바닥 안 (${d.toFixed(2)}u)`);
+    const [x, y] = px(p);
+    assert.ok(x >= TOKEN_R && x <= W - TOKEN_R && y >= TOKEN_R && y <= H - TOKEN_R, `${label}: ${id} 필드 안`);
+    assert.ok(p.x === Math.round(p.x * 10) / 10 && p.y === Math.round(p.y * 10) / 10, `${label}: 소수 1자리`);
+  }
+  for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) {
+    const d = distU(pos[ids[i]], pos[ids[j]], A);
+    assert.ok(d >= J.minGap - 1e-9, `${label}: ${ids[i]}·${ids[j]} 간격 ${d.toFixed(2)}u < ${J.minGap}`);
+  }
+}
+
+test("L52 데이터: jitter 블록 · 토큰 크기에서 나온 간격 (40px 얼굴 + 2px 테 = 44px = 4.55u < minGap 4.8u) · 바닥 안 (maxR + minGap/2 ≤ pad)", () => {
+  assert.equal(jitterOf(cfgJ), J);
+  assert.equal(jitterOf(cfg), null);
+  assert.equal(jitterOf({ ...cfgJ, jitter: undefined }), null);
+  const tokU = ((TOKEN_R * 2 + 4) / W) * 100; // 1280×720 무대: 필드 968px · 915×412 도 무대가 통째로 줄어 같은 u
+  assert.ok(J.minGap > tokU && J.minGap > cfg.radius.small, `minGap ${J.minGap} > 토큰 ${tokU.toFixed(2)}u · 작은 원 ${cfg.radius.small}u`);
+  assert.ok(J.maxR + J.minGap / 2 <= cfg.pad + 1e-9);
+  assert.ok(J.maxR >= cfg.huddle.at(-1), "예전 대형이 그대로 들어간다 (돌아갈 자리)");
+  assert.deepEqual(jitterErrors(cfg), [], "null = 통과");
+  // 검사가 잡는 것
+  const err = (j) => jitterErrors({ ...cfgJ, jitter: { ...J, ...j } }).join(" / ");
+  assert.match(err({ rotate: 1 }), /rotate/);
+  assert.match(err({ radiusScale: [0, 1] }), /radiusScale/);
+  assert.match(err({ radiusScale: [1.3, 1.1] }), /radiusScale/);
+  assert.match(err({ nudge: -1 }), /nudge/);
+  assert.match(err({ minGap: 6 }), /기본 대형 n=7/);
+  assert.match(err({ maxR: 7.5 }), /pad/);
+  assert.match(err({ maxR: 6 }), /기본 대형 n=5/);
+  assert.match(err({ extra: 1 }), /알 수 없는 키 'extra'/);
+  assert.match(jitterErrors({ ...cfgJ, jitter: [1] }).join(), /객체나 null/);
+  assert.match(jitterErrors({ ...cfgJ, centers: { ...cfgJ.centers, pass: { x: 30, y: 30 } } }).join(), /'pass' · 'defense' 중심 거리/);
+  assert.match(jitterErrors({ ...cfgJ, centers: { ...cfgJ.centers, shoot: { x: 95, y: 30 } } }).join(), /'shoot' 구역 바닥이 필드 밖/);
+});
+
+test("L52 흔들린 대형: n = 1~7 · 모든 구역 · 씨앗 40 × 턴 6 — 겹치지 않는다 (minGap) · 구역 바닥 안 · 필드 안", () => {
+  for (const z of ZONE_IDS) for (let n = 1; n <= 7; n++) {
+    const fx = fixture({ [z]: n });
+    for (const seed of SEEDS) for (let turn = 1; turn <= 6; turn++) {
+      const L = at(fx.lesson, turn, seed);
+      const pos = zonePositions(L, fx.players, cfgJ);
+      assert.equal(Object.keys(pos).length, n);
+      checkLayout(pos, L, `${z} n=${n} seed ${seed} turn ${turn}`);
+    }
+  }
+});
+
+test("L52 흔들린 대형: 7명 전체 배치 (구역 나누기 330가지 × 씨앗 4 × 턴 3) — 다른 구역 토큰끼리도 겹치지 않는다 · 벤치를 빼도", () => {
+  const counts = allCounts();
+  assert.equal(counts.length, 330);
+  for (const cs of counts) {
+    const fx = fixture(Object.fromEntries(ZONE_IDS.map((z, i) => [z, cs[i]])));
+    for (const seed of SEEDS.slice(0, 4)) for (let turn = 1; turn <= 3; turn++) {
+      const L = at(fx.lesson, turn, seed);
+      checkLayout(zonePositions(L, fx.players, cfgJ), L, `${cs.join("")} seed ${seed} turn ${turn}`);
+      const Lb = { ...L, bench: ["p1", "p4"] };
+      checkLayout(zonePositions(Lb, fx.players, cfgJ), Lb, `${cs.join("")} 벤치 2`);
+    }
+  }
+});
+
+test("L52 결정적: 같은 상태 = 같은 자리 · JSON 왕복 · Math.random · Date 를 쓰지 않는다 · 턴 · 씨앗이 바뀌면 바뀐다 · 다른 구역 사람이 움직여도 그대로", () => {
+  const fx = fixture({ defense: 3, pass: 2, shoot: 1, physical: 1 });
+  const L = at(fx.lesson, 3, SEEDS[5]);
+  const pos = zonePositions(L, fx.players, cfgJ);
+  assert.deepEqual(zonePositions(JSON.parse(JSON.stringify(L)), JSON.parse(JSON.stringify(fx.players)), cfgJ), pos, "JSON 왕복");
+  const rnd = Math.random, now = Date.now;
+  Math.random = () => { throw new Error("Math.random"); };
+  Date.now = () => { throw new Error("Date.now"); };
+  try {
+    assert.deepEqual(zonePositions(L, fx.players, cfgJ), pos);
+  } finally {
+    Math.random = rnd;
+    Date.now = now;
+  }
+  // 다른 턴 · 다른 씨앗 → (거의) 모두 다른 자리
+  let moved = 0, total = 0, seedMoved = 0;
+  for (const seed of SEEDS) for (let turn = 1; turn <= 5; turn++) {
+    const a = zonePositions(at(fx.lesson, turn, seed), fx.players, cfgJ);
+    const b = zonePositions(at(fx.lesson, turn + 1, seed), fx.players, cfgJ);
+    const c = zonePositions(at(fx.lesson, turn, seed + 1), fx.players, cfgJ);
+    for (const id of Object.keys(a)) {
+      total += 1;
+      if (a[id].x !== b[id].x || a[id].y !== b[id].y) moved += 1;
+      if (a[id].x !== c[id].x || a[id].y !== c[id].y) seedMoved += 1;
+    }
+  }
+  assert.ok(moved / total > 0.97, `턴이 바뀌면 자리가 바뀐다 (${moved}/${total})`);
+  assert.ok(seedMoved / total > 0.97, `씨앗이 바뀌면 자리가 바뀐다 (${seedMoved}/${total})`);
+  // 자리 옮기기 (L40): p7 피지컬 → 패스. 수비 · 슈팅 구역은 그대로, 두 구역은 다시 모인다 (겹침 없음)
+  assert.equal(L.zones.p7, "physical");
+  const moveL = { ...L, zones: { ...L.zones, p7: "pass" } };
+  const after = zonePositions(moveL, fx.players, cfgJ);
+  for (const id of Object.keys(pos).filter((id) => !["pass", "physical"].includes(L.zones[id]))) assert.deepEqual(after[id], pos[id], `${id} 그대로`);
+  checkLayout(after, moveL, "옮긴 뒤");
+  assert.deepEqual(zonePositions(JSON.parse(JSON.stringify(moveL)), fx.players, cfgJ), after, "옮긴 뒤도 결정적");
+  // 씨앗이 없는 옛 저장본 (layoutSeed · turn 없음) 도 결정적
+  assert.deepEqual(zonePositions(fx.lesson, fx.players, cfgJ), zonePositions({ ...fx.lesson }, fx.players, cfgJ));
+  assert.equal(hash32("abc"), hash32("abc"));
+  assert.notEqual(hash32("abc"), hash32("abd"));
+  assert.equal(layoutSeedOf("s", 3), layoutSeedOf("s", 3));
+  assert.notEqual(layoutSeedOf("s", 3), layoutSeedOf("s", 4));
+});
+
+test("L52 jitter null = 예전 대형 그대로 (huddleOffsets · 소수 1자리)", () => {
+  for (const z of ZONE_IDS) for (let n = 1; n <= 7; n++) {
+    const fx = fixture({ [z]: n });
+    const c = cfg.centers[z];
+    const offs = huddleOffsets(n, cfg);
+    const want = Object.fromEntries(fx.players.map((p, i) => [p.id, { x: Math.round((c.x + offs[i].dx) * 10) / 10, y: Math.round((c.y + offs[i].dy / A) * 10) / 10 }]));
+    for (const seed of [0, SEEDS[1]]) for (const turn of [1, 4]) {
+      assert.deepEqual(zonePositions(at(fx.lesson, turn, seed), fx.players, cfg), want, `${z} n=${n}`);
+      assert.deepEqual(zonePositions(at(fx.lesson, turn, seed), fx.players, { ...cfgJ, jitter: undefined }), want);
+    }
+  }
+});
+
+test("L52 흔들림이 보인다: 2명이 늘 좌우가 아니고 · 3명 이상이 늘 정원형이 아니고 · 혼자도 중심에서 조금 비낀다", () => {
+  const stat = {};
+  for (let n = 1; n <= 7; n++) {
+    const fx = fixture({ pass: n });
+    const s = (stat[n] = { tilted: 0, uneven: 0, off: 0, total: 0 });
+    for (const seed of SEEDS) for (let turn = 1; turn <= 6; turn++) {
+      const pts = Object.values(zonePositions(at(fx.lesson, turn, seed), fx.players, cfgJ));
+      const c = cfgJ.centers.pass;
+      const rs = pts.map((p) => distU(p, c, A));
+      s.total += 1;
+      if (n === 1 && rs[0] > 0.2) s.off += 1;
+      if (n === 2 && Math.abs(pts[0].y - pts[1].y) * A > 1) s.tilted += 1;
+      if (n >= 3 && Math.max(...rs) - Math.min(...rs) > 0.3) s.uneven += 1;
+    }
+  }
+  assert.ok(stat[1].off / stat[1].total > 0.8, `혼자: 중심에서 비낌 ${stat[1].off}/${stat[1].total}`);
+  assert.ok(stat[2].tilted / stat[2].total > 0.6, `2명: 기울어짐 ${stat[2].tilted}/${stat[2].total}`);
+  for (let n = 3; n <= 7; n++) assert.ok(stat[n].uneven / stat[n].total > 0.8, `${n}명: 반지름이 고르지 않음 ${stat[n].uneven}/${stat[n].total}`);
+});
+
+test("L52 흔들린 대형에서도 지키는 원 약속: 작은 원 한 명 위 = 1명 · 중간 원 구역 중심 = 그 구역 전원 (이웃 0명) · 큰 원 22.7u 가운데 = 세 번째 구역 0명 · 주인 둘레 small 다른 구역 0명 · medium 주인 구역 전원", () => {
+  const pairs = [];
+  for (let i = 0; i < ZONE_IDS.length; i++) for (let j = i + 1; j < ZONE_IDS.length; j++) {
+    const a = ZONE_IDS[i], b = ZONE_IDS[j];
+    if (Math.abs(distU(cfg.centers[a], cfg.centers[b], A) - 22.7) < 0.1) pairs.push([a, b]);
+  }
+  assert.equal(pairs.length, 4);
+  for (const cs of allCounts().filter((_, i) => i % 3 === 0)) {
+    const fx = fixture(Object.fromEntries(ZONE_IDS.map((z, i) => [z, cs[i]])));
+    for (const seed of SEEDS.slice(0, 3)) for (const turn of [1, 2]) {
+      const L = at(fx.lesson, turn, seed);
+      const pos = zonePositions(L, fx.players, cfgJ);
+      const label = `${cs.join("")} seed ${seed} turn ${turn}`;
+      for (const id of Object.keys(pos)) {
+        assert.deepEqual(inCircle(pos, pos[id], cfg.radius.small, A), [id], `${label}: 작은 원 ${id} 위 = 1명`);
+        const z = L.zones[id];
+        assert.ok(inCircle(pos, pos[id], cfg.ownerRadius.small, A).every((o) => L.zones[o] === z), `${label}: 둘레 small 다른 구역 0명`);
+        const med = inCircle(pos, pos[id], cfg.ownerRadius.medium, A);
+        assert.ok(membersOf(L, z).every((o) => med.includes(o)), `${label}: 둘레 medium 주인 구역 전원`);
+      }
+      for (const z of ZONE_IDS) assert.deepEqual(inCircle(pos, cfg.centers[z], cfg.radius.medium, A), membersOf(L, z), `${label}: 중간 원 ${z} 중심`);
+      for (const [a, b] of pairs) {
+        const got = inCircle(pos, mid(cfg.centers[a], cfg.centers[b]), cfg.radius.large, A);
+        assert.ok(got.every((id) => L.zones[id] === a || L.zones[id] === b), `${label}: 큰 원 ${a}–${b} 세 번째 구역 0명`);
+      }
+    }
+  }
+});
+
+test("L52 candidatePoints (흔들린 대형): 대상 집합 중복 없음 · 점마다 대상 ≥ 1 · ids = 원 안 · 작은 원 2명 점이 남는다", () => {
+  for (const counts of [{ defense: 3, physical: 1, pass: 2, shoot: 1 }, { pass: 4, dribble: 3 }, { shoot: 7 }]) {
+    const fx = fixture(counts);
+    for (const seed of SEEDS.slice(0, 6)) for (const size of ["small", "medium", "large"]) {
+      const L = at(fx.lesson, 2, seed);
+      const pos = zonePositions(L, fx.players, cfgJ);
+      const cands = candidatePoints(pos, cfgJ, { kind: "circle", size, zoneOf: L.zones });
+      const keys = cands.map((c) => c.ids.join(","));
+      assert.equal(new Set(keys).size, keys.length);
+      for (const c of cands) {
+        assert.ok(c.ids.length >= 1);
+        assert.deepEqual(c.ids, inCircle(pos, c.at, cfgJ.radius[size], A));
+      }
+      if (size === "small") assert.ok(cands.some((c) => c.ids.length >= 2), `${JSON.stringify(counts)} seed ${seed}: 작은 원 2명 점`);
     }
   }
 });

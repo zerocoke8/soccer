@@ -15,6 +15,7 @@
  * 보상 · 힌트 · 결장 감소 · 기록 · phase 이동은 lessonRun.js 가 한다.
  *
  * 선수 위치는 저장하지 않는다 — lesson.zones (이번 턴 구역) 에서 zones.js 로 매번 계산한다.
+ *   L52 (§23): 대형 흔들림은 lesson.layoutSeed (레슨 시작 때 런 seed · 주 번호 해시) · lesson.turn · 구역 · 선수 id 의 해시 — rng 를 쓰지 않는다.
  *
  * 코치 지원 · 컷인 (§15.1 ~ §15.5): 레슨 시작에 붙을 턴 attach.count 개 (C3 에서 4~5 — 컷인이 레슨당 2~4번이 되게) 를 정하고, 그 턴 시작에 편성 코치 1명이 손패 1장에 붙는다
  *   (lesson.attach.cur). 붙은 카드는 그 턴만 한 단계 강화되고, 내면 컷인 fx · 코치 능력 (lesson.json attach.abilities) · 유대.
@@ -1069,6 +1070,8 @@ export function startLesson(state, data, { zone, special = false, prep = false, 
     status: "playing",
     playsLeft: 1, playedThisTurn: 0,
     zones: {}, bench: [],
+    // L52 배치 씨앗 (§23): 런 seed · 주 번호 해시 — 선수 자리 흔들림에만 쓴다 (rngState 는 건드리지 않는다)
+    layoutSeed: zones.layoutSeedOf(state.seed, state.turnIndex),
     drawPile: rng.shuffle([...pile, ...temp.map((t) => t.uid)]), hand: [], discard: [], exhausted: [],
     removed, temp,
     drawNext: 0,

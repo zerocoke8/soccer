@@ -318,6 +318,8 @@
 .lesson-screen .tok-name { display: block; padding: 0 6px; }
 .lesson-screen .tok.lp-r .tok-name { top: -8px; left: calc(var(--tok) / 2 + 4px); transform: none; }
 .lesson-screen .tok.lp-l .tok-name { top: -8px; left: auto; right: calc(var(--tok) / 2 + 4px); transform: none; }
+/* L52 흔들린 대형: 아래 · 옆이 다 막히면 위 (lesson_layout.labelPlan) */
+.lesson-screen .tok.lp-u .tok-name { top: auto; bottom: calc(var(--tok) / 2 + 7px); }
 .lesson-screen .tok-name.bub { background: #fff; color: #111; box-shadow: 0 2px 6px rgba(0, 0, 0, .5); z-index: 2; }
 .lesson-screen .tok-name.bub.risk { background: #ffe2c4; color: #4a2000; }
 .lesson-screen .tok-name.bub.heal { background: #d5ffe7; color: #04381c; }
@@ -333,6 +335,9 @@
 .tok-warn.on { display: block; }
 .tok.st-warn .tok-warn { background: rgba(255, 179, 71, .95); color: #2a1a00; }
 .lesson-screen .tok.wl .tok-warn { left: auto; right: calc(var(--tok) * .3); }
+/* L52: 위 모서리가 이웃 얼굴에 막히면 아래 모서리 (lesson_layout.labelPlan) */
+.lesson-screen .tok.wd .tok-warn { top: calc(var(--tok) * .33); left: calc(var(--tok) * .42); }
+.lesson-screen .tok.wd.wl .tok-warn { left: auto; right: calc(var(--tok) * .42); }
 /* 조준 중: 대상 = 흰 고리, 실패 후보 = 빨강, 단일 후보 = 초록 테, 추천 = 청록 점선, 나머지는 옅게 */
 .lesson-screen .tok.target .tok-face { box-shadow: 0 0 0 2px var(--home), 0 0 0 4px #fff, 0 0 16px rgba(255, 255, 255, .55); }
 .lesson-screen .tok.failer .tok-face { box-shadow: 0 0 0 2px var(--home), 0 0 0 4px var(--bad), 0 0 14px rgba(255, 92, 92, .6); }

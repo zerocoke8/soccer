@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { loadData, clone } from "./helpers.mjs";
-import { tokenSpot, tokenSpots, pointerToField, circlePx, fxPlan, scoreAfterPlay, handStep, playerStatInfo, MAIN_STATS, FIELD_PX, TOKEN_PX } from "../js/ui/lesson_layout.js";
+import { tokenSpot, tokenSpots, pointerToField, circlePx, fxPlan, scoreAfterPlay, handStep, playerStatInfo, labelPlan, labelWidth, WARN_PX, MAIN_STATS, FIELD_PX, TOKEN_PX } from "../js/ui/lesson_layout.js";
 import { gradeOf } from "../js/ui/dom.js";
 import { mainStatsOf } from "../js/engine/cards.js";
 import * as manager from "../js/engine/manager.js";
@@ -100,6 +100,113 @@ test("circlePx: 원 반지름 u → rx = r·W/100, ry = (r/aspect)·H/100 (1280�
   assert.equal(c2.rx, 90);
   assert.ok(Math.abs((c2.ry / 500) * 100 - 9 / Z.aspect) < 0.01);
   assert.deepEqual(circlePx(0, Z.aspect), { rx: 0, ry: 0 });
+});
+
+// ---------------------------------------------------------------------------
+// L52 이름표 자리 (labelPlan) — 흔들린 대형에서도 이름표 · 실패율 표가 다른 토큰과 겹치지 않는다
+// ---------------------------------------------------------------------------
+
+/** shot.mjs 레슨 경기장 겹침 검사와 같은 기준: 이름표 · 얼굴(40px) · 실패율 표 · 구역 라벨, 서로 다른 토큰끼리 넓이 > 4px² (필드 밖 이름표도) */
+function labelClashes(toks, plan, chips = []) {
+  const r = TOKEN_PX / 2;
+  const rect = (l, t, rr, b) => ({ left: l, top: t, right: rr, bottom: b });
+  const cut = (a, b) => Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+  const parts = [];
+  const out = [];
+  for (const t of toks) {
+    const s = plan[t.id];
+    const lab = s.side === "right" ? rect(t.x + r + 4, t.y - 8, t.x + r + 4 + t.w, t.y + 8)
+      : s.side === "left" ? rect(t.x - r - 4 - t.w, t.y - 8, t.x - r - 4, t.y + 8)
+        : s.side === "above" ? rect(t.x - t.w / 2, t.y - r - 23, t.x + t.w / 2, t.y - r - 7)
+          : rect(t.x - t.w / 2, t.y + r + 7, t.x + t.w / 2, t.y + r + 23);
+    parts.push({ tok: t.id, kind: "이름표", r: lab }, { tok: t.id, kind: "얼굴", r: rect(t.x - r, t.y - r, t.x + r, t.y + r) });
+    if (lab.left < 0 || lab.top < 0 || lab.right > FIELD_PX.w || lab.bottom > FIELD_PX.h) out.push(`${t.id} 이름표 필드 밖`);
+    if (t.warn) {
+      const top = s.warnDown ? t.y + TOKEN_PX * 0.33 : t.y - TOKEN_PX * 0.66;
+      const off = TOKEN_PX * (s.warnDown ? 0.42 : 0.3);
+      parts.push({ tok: t.id, kind: "실패율", r: s.warnLeft ? rect(t.x - off - WARN_PX, top, t.x - off, top + 13) : rect(t.x + off, top, t.x + off + WARN_PX, top + 13) });
+    }
+  }
+  for (const c of chips) parts.push({ tok: null, kind: "구역 라벨", r: c });
+  for (let i = 0; i < parts.length; i++) for (let j = i + 1; j < parts.length; j++) {
+    const a = parts[i], b = parts[j];
+    if ((a.tok && a.tok === b.tok) || (a.kind === "얼굴" && b.kind === "얼굴") || (!a.tok && !b.tok)) continue;
+    if (cut(a.r, b.r) > 4) out.push(`${a.tok} ${a.kind} ↔ ${b.tok} ${b.kind}`);
+  }
+  return out;
+}
+
+test("L52 labelPlan: 세로로 선 두 명 — 위 선수 이름표는 아래 선수 얼굴을 피해 옆 · 좌우 두 명은 바깥 옆 · 실패율 표가 막히면 반대쪽 · 결정적", () => {
+  const w = labelWidth("도르비나", "100");
+  assert.ok(w >= 80 && w <= 95, `이름표 폭 추정 ${w}`);
+  assert.ok(labelWidth("도르") < labelWidth("도르비나"));
+  // 세로 두 명 (간격 47px)
+  const v2 = [{ id: "a", x: 300, y: 150, cx: 300, cy: 173, w }, { id: "b", x: 300, y: 197, cx: 300, cy: 173, w }];
+  const p2 = labelPlan(v2);
+  assert.notEqual(p2.a.side, "below", "위 선수 이름표는 아래 선수 얼굴 위가 아니다");
+  assert.equal(p2.b.side, "below");
+  assert.deepEqual(labelClashes(v2, p2), []);
+  // 좌우 두 명: 바깥 옆 (예전 대형과 같다)
+  const h2 = [{ id: "a", x: 300, y: 150, cx: 334, cy: 150, w }, { id: "b", x: 368, y: 150, cx: 334, cy: 150, w }];
+  const ph = labelPlan(h2);
+  assert.deepEqual([ph.a.side, ph.b.side], ["left", "right"]);
+  // 실패율 표: 위 바깥쪽 모서리가 이웃 얼굴에 막히면 다른 모서리
+  const wv = [{ id: "a", x: 300, y: 150, cx: 280, cy: 150, w: 40, warn: true }, { id: "b", x: 345, y: 118, cx: 280, cy: 150, w: 40 }];
+  const pw = labelPlan(wv);
+  assert.ok(pw.a.warnLeft || pw.a.warnDown, `실패율 표가 오른쪽 위 (이웃 얼굴) 를 피한다 ${JSON.stringify(pw.a)}`);
+  assert.deepEqual(labelClashes(wv, pw), []);
+  // 필드 아래 끝: 아래 이름표가 밖으로 나가면 옆
+  const edge = [{ id: "a", x: 300, y: 370, cx: 300, cy: 300, w }];
+  assert.notEqual(labelPlan(edge).a.side, "below");
+  assert.deepEqual(labelPlan(v2), p2, "같은 입력 = 같은 결과");
+  assert.deepEqual(labelPlan([]), {});
+});
+
+test("L52 labelPlan × 엔진 흔들린 대형: 7명 구역 나누기 330가지 × 씨앗 3 — 겹침 (shot.mjs 기준) 이 거의 없다 · jitter null (예전 대형) 은 0", async () => {
+  const zones = await import("../js/engine/zones.js");
+  const data = loadData();
+  const Z = data.lesson.zones;
+  const NAMES = ["네리아", "도르비나", "아델린", "실루엔", "나엘리스", "울리카", "그레타"];
+  const toPx = (p) => [(p.x / 100) * FIELD_PX.w, (p.y / 100) * FIELD_PX.h];
+  const pr = circlePx(Z.pad, Z.aspect);
+  const chips = ["defense", "pass", "shoot", "physical", "dribble"].map((z, i) => {
+    const [x, y] = toPx(Z.centers[z]);
+    const cw = i === 0 ? 170 : 110;
+    return { left: x - cw / 2, top: y - pr.ry - 25, right: x + cw / 2, bottom: y - pr.ry - 5 };
+  });
+  const allCounts = (total = 7, k = 5) => (k === 1 ? [[total]] : Array.from({ length: total + 1 }, (_, i) => allCounts(total - i, k - 1).map((r) => [i, ...r])).flat());
+  const sweep = (cfg) => {
+    let layouts = 0, bad = 0;
+    const examples = [];
+    allCounts().forEach((cs, k) => {
+      for (let seed = 0; seed < 3; seed++) {
+        const lz = {};
+        const players = [];
+        zones.ZONE_IDS.forEach((z, zi) => { for (let j = 0; j < cs[zi]; j++) { const id = `p${players.length + 1}`; lz[id] = z; players.push({ id }); } });
+        const pos = zones.zonePositions({ zones: lz, bench: [], turn: 1 + seed, layoutSeed: zones.layoutSeedOf(`s${k}`, seed) }, players, cfg);
+        const counts = {};
+        for (const id of Object.keys(pos)) counts[lz[id]] = (counts[lz[id]] || 0) + 1;
+        const toks = players.map((p, i) => {
+          const [x, y] = toPx(pos[p.id]);
+          const [cx, cy] = toPx(Z.centers[lz[p.id]]);
+          const name = NAMES[(i + k) % NAMES.length];
+          const w = counts[lz[p.id]] >= 4 ? labelWidth(Array.from(name).slice(0, 2).join("")) : labelWidth(name, "100");
+          return { id: p.id, x, y, cx, cy, w, warn: (i + k + seed) % 4 === 0 };
+        });
+        const clash = labelClashes(toks, labelPlan(toks, { obstacles: chips }), chips);
+        layouts += 1;
+        if (clash.length) {
+          bad += 1;
+          if (examples.length < 3) examples.push(`${cs.join("")}#${seed}: ${clash.join(", ")}`);
+        }
+      }
+    });
+    return { layouts, bad, examples };
+  };
+  const old = sweep({ ...Z, jitter: null });
+  assert.equal(old.bad, 0, `예전 대형: ${old.examples.join(" / ")}`);
+  const now = sweep(Z);
+  assert.ok(now.bad / now.layouts < 0.01, `흔들린 대형: 겹친 배치 ${now.bad}/${now.layouts} (${now.examples.join(" / ")})`);
 });
 
 test("fxPlan: 합성 lastFx — 카드 · 턴 끝(기본 훈련 · 벤치 회복) · 흩어지기 · 새 손패 · 레슨 끝 · 벤치 단계로 나눈다", () => {

@@ -2196,6 +2196,7 @@ node tools/lesson_play.mjs <출력폴더> --watch-match --slot GK=ch_giant_keepe
 - 테스트 370 (새 `passives.test.mjs` 5).
 - **L49 키퍼 게이지 규칙** (`match.js` — 계획 §21): 필드 수비 듀얼 승리마다 막은 팀 GK 게이지 + `ultCfg.gkOnTeamDefWin` (기본 35, config.json 에 키 없음). 테스트 371.
 - **L51 경기 밸런스 1차** (2026-10-05 — 계획 §22): `config.match.actionCoef.tackle` · `intercept` · `holdMult` 1.0 → **0.6** (필드 수비 세 행동 같은 배율), `config.friendly.possessions` 6 → **10**, `opponents.json` 경계전 상대 3팀 스탯만 ×0.85 · ×0.88 · ×0.85 (`tools/sim.mjs scaleOpponents` 규칙, 10 단위), `challenge.json` 3 ~ 10단계 `statTarget` 500 / 555 / 650 / 660 / 880 / 910 / 950 / 1100. 엔진 규칙은 그대로이고, `computeOdds` 결정타 칩 목록만 버티기의 holdMult 를 철벽처럼 수비 기본 `stat` 에서 빼 `coef` 로 옮겼다 (표시 전용 — 확률 · 난수 불변, 같은 능력치에 "능력치 우위 ×1.67" 이 뜨던 버그). §13.1 의 holdMult · 태클 · 인터셉트 계수 1.0, §18.1 단계 statTarget · §18.11 보정 표 · §18.12-4 "10단계 GK 1580" (지금 1880) 은 L51 전 값이다. 테스트 373.
+- **L52 레슨 배치 자연스럽게** (2026-10-05 — 계획 §23): `zones.zonePositions` 가 `lesson.json zones.jitter` (`rotate` · `radiusScale` [0.85, 1.25] · `nudge` 1.2u · `minGap` 4.8u · `maxR` 6.6u) 로 구역 대형을 턴 · 구역마다 흔든다 (돌리기 · 반지름 · 선수별 비낌 · 겹침 풀기 → 반올림 뒤 검사, 안 되면 예전 대형). 흔들림은 해시 (`lesson.layoutSeed` = `zones.layoutSeedOf(seed, turnIndex)` 레슨 시작 때 · `lesson.turn` · 구역 · 선수 id) 라 rngState 를 건드리지 않고 자리는 저장하지 않는다. `jitter: null` = 예전 대형 그대로. 검사 `zones.jitterErrors` (`cards.validateShapeData`). 화면 이름표 · 실패율 표 자리는 `lesson_layout.labelPlan` (겹치지 않는 쪽, 새 클래스 `lp-u` · `wd`). `lesson_sim` 에 원 카드 대상 / 장 지표. 테스트 385.
 
 ### 20.7 선수 16명 · 전원 필살기 · 경기 엔진 수정 (L44 ~ L46, 2026-10-04 — 계획 §19 · §19.19)
 

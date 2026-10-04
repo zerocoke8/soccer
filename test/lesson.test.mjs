@@ -271,7 +271,50 @@ test("view · preview · dropCandidates · lessonResult 는 상태와 rng 를 �
   // 토큰 자리 = 경기장 선수 위치 (zones.js)
   const sv = lesson.getLessonView(s, data);
   assert.deepEqual(sv.positions, zones.zonePositions(s.lesson, s.players, ZC));
-  assert.deepEqual(sv.positions.p1, { x: 16.5, y: 30 });
+  // L52: 대형은 흔들린다 (layoutSeed · turn 해시) — 구역 바닥 안, jitter null 이면 예전 자리
+  assert.ok(zones.distU(sv.positions.p1, C.defense, ZC.aspect) <= ZC.jitter.maxR + 1e-9);
+  assert.deepEqual(zones.zonePositions(s.lesson, s.players, { ...ZC, jitter: null }).p1, { x: 16.5, y: 30 });
+});
+
+test("L52 자연스러운 배치 (§23): layoutSeed = 런 seed · 주 번호 해시 · rng 를 쓰지 않는다 · 같은 턴은 카드를 내도 같은 자리 · 턴마다 새 대형 · 겹침 없음 · JSON 왕복", () => {
+  const G = ZC.jitter;
+  const s = full(start({ seed: 11 }));
+  assert.equal(s.lesson.layoutSeed, zones.layoutSeedOf("11", 0));
+  assert.notEqual(full(start({ seed: 12 })).lesson.layoutSeed, s.lesson.layoutSeed, "런마다 다르다");
+  // 흔들림을 끈 데이터로 같은 레슨을 시작해도 rngState · 레슨 상태가 같다 (자리는 저장하지 않는다 — 계산만 다르다)
+  const d0 = clone(data);
+  d0.lesson.zones.jitter = null;
+  const s0 = lesson.startLesson(makeState({ seed: 11 }), d0, { zone: "physical" });
+  assert.equal(s0.rngState, s.rngState, "rngState 그대로");
+  assert.deepEqual(s0.lesson, s.lesson, "레슨 상태 그대로");
+  assert.notDeepEqual(cards.fieldPositions(s0, d0), posOf(s), "자리만 다르다");
+  let same = 0, turns = 0, newShape = 0;
+  let prev = null;
+  for (let i = 0; i < 200 && s.lesson.status === "playing"; i++) {
+    const L = s.lesson;
+    const pos = posOf(s);
+    const key = JSON.stringify([L.turn, L.zones, L.bench, L.out]);
+    const ids = Object.keys(pos);
+    for (let a = 0; a < ids.length; a++) for (let b = a + 1; b < ids.length; b++) {
+      assert.ok(zones.distU(pos[ids[a]], pos[ids[b]], ZC.aspect) >= G.minGap - 1e-9, `턴 ${L.turn}: ${ids[a]}·${ids[b]} 겹침`);
+    }
+    assert.deepEqual(lesson.getLessonView(s, data).positions, pos, "뷰 = 엔진 위치");
+    assert.deepEqual(posOf(clone(s)), pos, "JSON 왕복");
+    if (prev && prev.key === key) {
+      assert.deepEqual(pos, prev.pos, "같은 턴 · 같은 구역이면 카드를 내도 같은 자리");
+      same += 1;
+    }
+    if (!prev || prev.turn !== L.turn) {
+      L.playsLeft = 2; // 한 턴에 두 장 — 낸 뒤 같은 턴을 본다
+      turns += 1;
+      const other = zones.zonePositions({ ...L, turn: L.turn + 1 }, s.players.filter((p) => pos[p.id]), ZC);
+      if (JSON.stringify(other) !== JSON.stringify(pos)) newShape += 1;
+    }
+    prev = { key, pos, turn: L.turn };
+    autoStep(s);
+  }
+  assert.ok(same >= 1, "같은 턴에 카드를 낸 뒤를 봤다");
+  assert.ok(turns >= 3 && newShape === turns, `턴이 바뀌면 (같은 구역이어도) 새 대형 ${newShape}/${turns}`);
 });
 
 // ---------------------------------------------------------------------------
@@ -2151,7 +2194,9 @@ test("L40 주인 둘레 원 · 주인 구역: 철벽 실패 판정 없음 (rng �
   const pv = lesson.previewCard(w.s, data, { uid: w.uid, at: { x: 90, y: 90 } }); // 놓은 자리는 무시
   assert.deepEqual([pv.ok, pv.failRate, pv.failerId], [true, 0, null]);
   assert.deepEqual(pv.shape.circle, { ...posOf(w.s).p2, r: 8 });
-  assert.deepEqual(pvRows(pv), [["p2", "defense", wantGain(w.s, "p2", "defense", UPOW("cd_u_dorbina"))], ["p1", "defense", wantGain(w.s, "p1", "defense", UPOW("cd_u_dorbina"))]]);
+  // 원 안 = 주인 + 둘레 8u 안 동료 (L52 흔들린 대형 — 엔진 위치로 센다, 주인이 먼저)
+  const wIn = zones.inCircle(posOf(w.s), posOf(w.s).p2, 8, ZC.aspect).filter((id) => id !== "p2");
+  assert.deepEqual(pvRows(pv), ["p2", ...wIn].map((id) => [id, "defense", wantGain(w.s, id, "defense", UPOW("cd_u_dorbina"))]));
   assert.ok(pv.notes.includes("실패 없음 (철벽)"));
   assert.equal(lesson.getLessonView(w.s, data).hand[0].shape.noFail, true);
   const rng0 = (w.s.rngState = FAIL_INJURY);
@@ -2197,7 +2242,7 @@ test("L40 자리 옮기기: 놓은 구역으로 옮겨 ×1.3 · 비용 앞 move 
   assert.deepEqual([pv.shape.from, pv.shape.to, pv.shape.zone], ["pass", "shoot", "shoot"]);
   assert.equal(pv.notes[0], "타리아 → 슈팅 구역 · 기본 훈련도");
   // 옮긴 뒤 위치 = 두 대형이 다시 모인다
-  const after = zones.zonePositions({ zones: { ...L.zones, p5: "shoot" }, bench: [] }, s.players, ZC);
+  const after = zones.zonePositions({ ...L, zones: { ...L.zones, p5: "shoot" }, bench: [] }, s.players, ZC);
   assert.deepEqual(pv.shape.positionsAfter, after);
   // 기본 훈련 변화 = 새 구역 − 지금 구역 (중점 ×1.5 가 붙는다)
   const p5 = P(s, "p5");

@@ -15,6 +15,8 @@ import { createRngFromState } from "../js/engine/rng.js";
 const data = loadData();
 // 카드 1장의 효과만 본다 — 코치 지원 붙기(§15)는 끈다 (붙기는 lesson.test 가 본다, §15.13)
 data.lesson.attach.enabled = false;
+// 고정 놓을 점 (구역 중심 · 두 구역 가운데) 으로 대상을 정한다 — L52 배치 흔들림은 끈다 (예전 대형, 흔들림은 zones.test · lesson.test 가 본다)
+data.lesson.zones.jitter = null;
 const R = cards.roundCost;
 const GS = data.lesson.lesson.cardGainScale;
 const SAFE = (() => {
