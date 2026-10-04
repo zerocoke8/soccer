@@ -374,6 +374,7 @@ async function runScenario(browser, baseUrl, sc, prepared, opts) {
         ".policy-desc", ".ls-nm b", ".lesson-screen .tok-name", ".ls-row .ls-cur",
         ".ls-pinfo .pi-name", ".ls-pinfo .pi-sub", ".ls-pinfo .pi-where", ".ls-pinfo .pi-k", ".ls-pinfo .pi-v", ".ls-pinfo .pi-g", ".ls-pinfo .pi-foot > span",
         ".ls-cutin .lc-txt b", ".ls-cutin .lc-sub", ".ls-cutin .lc-line", ".card-face .cf-coach", ".ls-info .ls-att-line", ".ls-info .ls-att-sub", ".ls-info .ls-cut-sub",
+        ".rw-teach-line", ".rw-teach-desc", ".rw-teach-pl .tp-nm", ".rw-teach-pl .tp-sub", ".rw-teach-rep .rw-rep-btn", ".rw-chip.teach", ".rw-summary", ".cs-active-note", ".po-out .po-out-p",
       ].join(", "))]
         .map((el) => {
           // 말줄임은 소수 픽셀만 넘쳐도 생긴다 → 정수 scrollWidth 대신 글자 Range 크기와 요소 크기(소수)를 비교

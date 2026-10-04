@@ -111,6 +111,29 @@ function walkOrThrow(name, data, opts) {
   return { runState: found.state, steps: found.steps, preferred: true, summary: describeLessonRun(found.state) };
 }
 
+/**
+ * 보상 상태의 남은 코치 수업 (§18.4) 을 감독 추천대로 엔진에서 처리한다 (카드 고르기 장면용 — 수업 칸은 og_reward_teach*).
+ * @returns {object} 같은 state
+ */
+export function finishTeach(data, st) {
+  for (let i = 0; i < 12 && st.phase === "reward" && (st.pendingReward?.teach || []).some((t) => t.result === null); i++) {
+    lessonRun.resolveTeach(st, data, manager.recommendTeach(st, data));
+  }
+  return st;
+}
+/** walkOrThrow + 남은 코치 수업 처리 (보상 카드 고르기 장면) */
+function walkRewardOrThrow(name, data, opts) {
+  const b = walkOrThrow(name, data, opts);
+  const n = (b.runState.pendingReward?.teach || []).filter((t) => t.result === null).length;
+  finishTeach(data, b.runState);
+  return n ? { ...b, summary: `${b.summary} (코치 수업 ${n}개 감독 추천으로 처리)` } : b;
+}
+/** 코치 수업이 남은 보상 (§18.6) — minPending 개 이상, status 가 주어지면 그 결과 */
+const teachPending = (minPending = 1, status = null) => (s) => s.phase === "reward"
+  && (s.pendingReward?.teach || []).filter((t) => t.result === null).length >= minPending && (!status || s.pendingReward.result?.status === status);
+/** 포지션 제한 없는 패시브 3개 (가득 장면 주입) */
+const freePassives = (data) => data.skills.filter((k) => k.kind === "passive" && k.learnable && !(k.positions || []).length).slice(0, 3).map((k) => k.id);
+
 // ---- 레슨 화면 (U3) 시나리오 도우미 ----
 const playingLesson = (s) => s.phase === "lesson" && s.lesson?.status === "playing";
 const lessonHand = (data, s) => lessonRun.getLessonView(s, data).hand;
@@ -1092,7 +1115,7 @@ export const LESSON_OG_SCENARIOS = [
     name: "og_reward_clear",
     title: "레슨 결과 — 클리어: 점수 막대 · 보상 칩 · 선수 7 · 카드 3장 + 건너뛰기",
     outgame: true,
-    build: (data, { runSeed }) => walkOrThrow("og_reward_clear", data, { seed: runSeed, until: (s) => s.phase === "reward" && s.pendingReward?.result?.status === "clear" && s.pendingReward.offer.length > 0 }),
+    build: (data, { runSeed }) => walkRewardOrThrow("og_reward_clear", data, { seed: runSeed, until: (s) => s.phase === "reward" && s.pendingReward?.result?.status === "clear" && s.pendingReward.offer.length > 0 }),
     ready: "#modal-root .reward-modal .rw-offer .card-face",
     expect: { screen: "run", phase: "reward", modal: ".reward-modal" },
   },
@@ -1102,7 +1125,7 @@ export const LESSON_OG_SCENARIOS = [
     title: "레슨 결과 — 보상 후보에 고유 카드 강화 (모양 칩 · 배율 칩)",
     outgame: true,
     build: (data, { runSeed }) => {
-      const b = walkOrThrow("og_reward_unique", data, { seed: runSeed, until: (s) => s.phase === "reward" && s.pendingReward?.result?.status === "clear" && s.pendingReward.offer.length > 0 });
+      const b = walkRewardOrThrow("og_reward_unique", data, { seed: runSeed, until: (s) => s.phase === "reward" && s.pendingReward?.result?.status === "clear" && s.pendingReward.offer.length > 0 });
       const st = b.runState;
       const e = st.deck.find((d) => d.cardId === "cd_u_neria");
       st.pendingReward.offer[0] = { cardId: "cd_u_neria", plus: true, kind: "upgrade", uid: e.uid };
@@ -1116,7 +1139,7 @@ export const LESSON_OG_SCENARIOS = [
     name: "og_reward_pick",
     title: "레슨 결과 — 카드를 고른 상태 (설명 · [확인] 켜짐)",
     outgame: true,
-    build: (data, { runSeed }) => walkOrThrow("og_reward_pick", data, { seed: runSeed, until: (s) => s.phase === "reward" && s.pendingReward?.result?.status === "clear" && s.pendingReward.offer.length > 0 }),
+    build: (data, { runSeed }) => walkRewardOrThrow("og_reward_pick", data, { seed: runSeed, until: (s) => s.phase === "reward" && s.pendingReward?.result?.status === "clear" && s.pendingReward.offer.length > 0 }),
     steps: [{ click: "#modal-root .rw-offer .card-face.recommended" }],
     ready: "#modal-root .rw-offer .card-face.selected",
     expect: { screen: "run", phase: "reward", modal: ".reward-modal" },
@@ -1129,6 +1152,7 @@ export const LESSON_OG_SCENARIOS = [
     build: (data, { runSeed }) => {
       const found = perfectRewardState(data, runSeed);
       if (!found) throw new Error("[og_reward_perfect] 상태를 찾지 못했습니다");
+      finishTeach(data, found.state);
       return { runState: found.state, steps: found.steps, preferred: true, summary: `${describeLessonRun(found.state)} (점수 = 퍼펙트 − 1 주입 후 전체 카드)` };
     },
     steps: [{ click: "#modal-root .rw-offer .card-face" }, { click: "#modal-root .rw-deck .mini-card.recommended" }],
@@ -1143,7 +1167,7 @@ export const LESSON_OG_SCENARIOS = [
     build: (data, { runSeed }) => {
       const found = perfectRewardState(data, runSeed);
       if (!found) throw new Error(`[og_reward_perfect_${n}] 상태를 찾지 못했습니다`);
-      const st = found.state;
+      const st = finishTeach(data, found.state);
       const extra = ["cd_fw_drill", "cd_mf_drill", "cd_df_drill", "cd_gk_session", "cd_attack_build", "cd_defense_org", "cd_one_two", "cd_one_on_one", "cd_tactics_board", "cd_icing"];
       while (st.deck.length < n) { st.deck.push({ uid: `k${st.nextUid}`, cardId: extra[st.deck.length % extra.length], plus: st.deck.length % 4 === 0 }); st.nextUid += 1; }
       return { runState: st, steps: found.steps, preferred: true, summary: `${describeLessonRun(st)} (퍼펙트 주입 · 덱 ${n}장 주입)` };
@@ -1164,9 +1188,115 @@ export const LESSON_OG_SCENARIOS = [
       st.lesson.score = Math.floor(st.lesson.target * 0.6);
       lessonRun.endLessonTurn(st, data);
       if (st.phase !== "reward" || st.pendingReward?.result?.status !== "fail") throw new Error("[og_reward_fail] 실패 결과가 아닙니다");
+      finishTeach(data, st);
       return { runState: st, steps: found.steps + 1, preferred: true, summary: `${describeLessonRun(st)} (마지막 턴 점수 주입 → 실패)` };
     },
     ready: "#modal-root .reward-modal .rw-none",
+    expect: { screen: "run", phase: "reward", modal: ".reward-modal" },
+  },
+  // ---- 코치 수업 (§18.6): 액티브 힌트 → 보상 모달 수업 칸 (카드 고르기 대신) ----
+  {
+    // 빈 슬롯 · 추천 배지 (수업 1/n, 선수 7 칩 — 포지션 밖 · 이미 보유는 회색)
+    name: "og_reward_teach",
+    title: "레슨 결과 — 클리어 · 코치 수업: '○○ 코치가 …을 가르쳐 줍니다' · 받을 선수 7 (추천 · 회색 이유)",
+    outgame: true,
+    build: (data, { runSeed }) => {
+      // 클리어 보상의 수업을 먼저 (퍼펙트 · 수업 2개는 og_reward_teach_multi), 없으면 아무 수업
+      const found = walkLesson(data, { seed: runSeed, until: teachPending(1, "clear") }) || walkLesson(data, { seed: runSeed, until: teachPending(1) });
+      if (!found) throw new Error("[og_reward_teach] 수업이 남은 보상을 찾지 못했습니다");
+      return { runState: found.state, steps: found.steps, preferred: true, summary: describeLessonRun(found.state) };
+    },
+    ready: "#modal-root .reward-modal .rw-teach-pl.recommended",
+    expect: { screen: "run", phase: "reward", modal: ".reward-modal" },
+  },
+  {
+    // 추천 선수를 고른 상태: 금색 테두리 · 요약 "…에게 '…' — 빈 칸에 배웁니다" · [가르치기] 켜짐
+    name: "og_reward_teach_pick",
+    title: "레슨 결과 — 코치 수업: 선수를 고름 ([가르치기] 켜짐)",
+    outgame: true,
+    build: (data, { runSeed }) => walkOrThrow("og_reward_teach_pick", data, { seed: runSeed, until: teachPending(1) }),
+    steps: [{ click: "#modal-root .rw-teach-pl.recommended" }],
+    ready: "#modal-root .rw-teach-pl.selected",
+    expect: { screen: "run", phase: "reward", modal: ".reward-modal" },
+  },
+  {
+    // 수업 2개 보상에서 첫 수업을 엔진으로 끝낸 뒤 (칩 "수업 … → 선수") 둘째 수업: 받을 수 있는 첫 선수를 가득(패시브 3) 으로 주입 → 그 선수 고름 →
+    // 바꿀 스킬 줄 · 둘째 스킬 고름 (취소선)
+    name: "og_reward_teach_full",
+    title: "레슨 결과 — 코치 수업 2/2: 가득인 선수 → 바꿀 스킬 줄 (고른 스킬은 사라짐)",
+    outgame: true,
+    build: (data, { runSeed }) => {
+      const b = walkOrThrow("og_reward_teach_full", data, { seed: runSeed, until: teachPending(2) });
+      const st = b.runState;
+      lessonRun.resolveTeach(st, data, manager.recommendTeach(st, data));
+      const cur = lessonRun.getRewardView(st, data).teach.cur;
+      const p = st.players.find((x) => cur.players.find((c) => c.id === x.id)?.ok);
+      p.learnedSkillIds = freePassives(data);
+      return { ...b, info: { pid: p.id, rep: p.learnedSkillIds[1] }, summary: `${b.summary} (첫 수업 처리 · ${p.name} 습득 3 주입)` };
+    },
+    steps: (prepared) => [{ click: `#modal-root .rw-teach-pl[data-pid="${prepared.info.pid}"]` }, { click: `#modal-root .rw-rep-btn[data-skill="${prepared.info.rep}"]` }],
+    ready: "#modal-root .rw-teach-rep .rw-rep-btn.selected",
+    expect: { screen: "run", phase: "reward", modal: ".reward-modal" },
+  },
+  {
+    // 받을 선수 없음 (주입): 수업 = FW 전용 액티브, FW 2명이 이미 보유 → 선수 칩 모두 회색 · 안내 · [SP +20 받기] 하나
+    name: "og_reward_teach_none",
+    title: "레슨 결과 — 코치 수업: 받을 선수 없음 (모두 회색 · SP +20 받기)",
+    outgame: true,
+    build: (data, { runSeed }) => {
+      const b = walkOrThrow("og_reward_teach_none", data, { seed: runSeed, until: teachPending(1) });
+      const st = b.runState;
+      const fw = data.skills.find((k) => k.kind === "active" && k.learnable && (k.positions || []).length === 1 && k.positions[0] === "FW");
+      st.pendingReward.teach.find((t) => t.result === null).skillId = fw.id;
+      for (const p of st.players) if (p.position === "FW" && !p.learnedSkillIds.includes(fw.id)) p.learnedSkillIds = [...p.learnedSkillIds.slice(0, 2), fw.id];
+      return { ...b, summary: `${b.summary} (수업 = ${fw.name} · FW 보유 주입)` };
+    },
+    ready: "#modal-root .rw-teach-none",
+    expect: { screen: "run", phase: "reward", modal: ".reward-modal" },
+  },
+  {
+    // 퍼펙트 + 수업 2개: 수업 1/2 (무료 강화 · 카드 고르기는 수업 뒤 단계)
+    name: "og_reward_teach_multi",
+    title: "레슨 결과 — 퍼펙트 · 코치 수업 1/2 (카드 고르기 · 무료 강화는 수업 뒤)",
+    outgame: true,
+    build: (data, { runSeed }) => {
+      const found = walkLesson(data, { seed: runSeed, until: teachPending(2, "perfect") }) || walkLesson(data, { seed: runSeed, until: teachPending(2) });
+      if (!found) throw new Error("[og_reward_teach_multi] 수업 2개가 남은 보상을 찾지 못했습니다");
+      return { runState: found.state, steps: found.steps, preferred: true, summary: describeLessonRun(found.state) };
+    },
+    ready: "#modal-root .reward-modal .rw-teach-title",
+    expect: { screen: "run", phase: "reward", modal: ".reward-modal" },
+  },
+  {
+    // 실패 레슨 + 컷인 수업 (주입 — 실패 레슨도 컷인 힌트는 받는다): 실패 머리 · 수업 칸 · "수업이 끝나면 다음 주로"
+    name: "og_reward_teach_fail",
+    title: "레슨 결과 — 실패 + 코치 지원 수업 (수업 뒤 보상 없음)",
+    outgame: true,
+    build: (data, { runSeed }) => {
+      const found = walkLesson(data, { seed: runSeed, until: (s) => playingLesson(s) && s.lesson.turn === s.lesson.turns });
+      if (!found) throw new Error("[og_reward_teach_fail] 마지막 턴을 찾지 못했습니다");
+      const st = found.state;
+      st.lesson.score = Math.floor(st.lesson.target * 0.6);
+      lessonRun.endLessonTurn(st, data);
+      if (st.phase !== "reward" || st.pendingReward?.result?.status !== "fail") throw new Error("[og_reward_teach_fail] 실패 결과가 아닙니다");
+      if (!st.pendingReward.teach.some((t) => t.result === null)) {
+        const sup = st.supports.find((x) => (data.supports.find((d) => d.id === x.id)?.hintSkillIds || []).includes("sk_rally_cry")) || st.supports[0];
+        st.pendingReward.teach.push({ skillId: "sk_rally_cry", supportId: sup.id, src: "cutin", result: null, playerId: null, replaced: null, sp: 0 });
+      }
+      return { runState: st, steps: found.steps + 1, preferred: true, summary: `${describeLessonRun(st)} (마지막 턴 점수 주입 → 실패 · 컷인 수업)` };
+    },
+    ready: "#modal-root .reward-modal .rw-teach",
+    expect: { screen: "run", phase: "reward", modal: ".reward-modal" },
+  },
+  {
+    // 터치 915×412: 수업 칸 선수 칩을 손가락으로 탭 → 고름 (무대가 통째로 줄어도 잘림 · 스크롤 없음)
+    name: "og_reward_teach_touch",
+    title: "레슨 결과 — 터치 915×412: 코치 수업 선수 칩 탭",
+    outgame: true,
+    viewport: { width: 915, height: 412, deviceScaleFactor: 1, isMobile: true, hasTouch: true },
+    build: (data, { runSeed }) => walkOrThrow("og_reward_teach_touch", data, { seed: runSeed, until: teachPending(1) }),
+    steps: [{ tap: "#modal-root .rw-teach-pl.recommended" }],
+    ready: "#modal-root .rw-teach-pl.selected",
     expect: { screen: "run", phase: "reward", modal: ".reward-modal" },
   },
   {
@@ -1196,20 +1326,39 @@ export const LESSON_OG_SCENARIOS = [
   {
     // 꽉 찬 상담 (주입): 힌트 스킬 7개 · 덱 +10장(24장) · TP 200 · SP 600 — 스킬 줄 압축 · 덱 6줄이 스크롤 없이 들어가는지
     name: "og_consult_full",
-    title: "상담 — 꽉 참: 스킬 7 (압축) · 덱 24장 (TP · SP 주입)",
+    title: "상담 — 꽉 참: 패시브 스킬 7 (압축) · 덱 24장 (TP · SP 주입)",
     outgame: true,
     build: (data, { runSeed }) => {
       const b = walkOrThrow("og_consult_full", data, { seed: runSeed, until: (s) => s.phase === "consult" });
       const st = b.runState;
       st.trainingPoints = 200;
       st.skillPoints = 600;
-      const ids = st.supports.flatMap((x) => (data.supports.find((d) => d.id === x.id)?.hintSkillIds || []));
+      // 상담은 패시브만 판다 (§18.5) — 편성 코치 힌트의 패시브 먼저, 모자라면 다른 학습 패시브
+      const isPassive = (id) => data.skills.find((k) => k.id === id)?.kind === "passive";
+      const coachIds = st.supports.flatMap((x) => (data.supports.find((d) => d.id === x.id)?.hintSkillIds || [])).filter(isPassive);
+      const ids = [...new Set([...coachIds, ...data.skills.filter((k) => k.kind === "passive" && k.learnable).map((k) => k.id)])];
       ids.slice(0, 7).forEach((id, i) => { st.hints[id] = 1 + (i % 3); });
       const extra = ["cd_fw_drill", "cd_mf_drill", "cd_df_drill", "cd_gk_session", "cd_attack_build", "cd_defense_org", "cd_one_two", "cd_one_on_one", "cd_tactics_board", "cd_icing"];
       while (st.deck.length < 24) { st.deck.push({ uid: `k${st.nextUid}`, cardId: extra[st.deck.length % extra.length], plus: st.deck.length % 3 === 0 }); st.nextUid += 1; }
       return { ...b, summary: `${b.summary} (힌트 7 · 덱 24 · TP 200 · SP 600 주입)` };
     },
     ready: ".consult-screen .cs-skill",
+    expect: { screen: "run", phase: "consult", modal: false },
+  },
+  {
+    // 상담 패시브만 (§18.5): 편성 코치의 패시브 힌트 2개 · SP 300 (주입) — 스킬 칸 머리 "패시브 스킬 (SP)" · 힌트 대기 (패시브) · 액티브 안내 한 줄
+    name: "og_consult_passive",
+    title: "상담 — 패시브 스킬만 (SP) · 액티브는 코치 수업 안내",
+    outgame: true,
+    build: (data, { runSeed }) => {
+      const b = walkOrThrow("og_consult_passive", data, { seed: runSeed, until: (s) => s.phase === "consult" });
+      const st = b.runState;
+      st.skillPoints = Math.max(st.skillPoints, 300);
+      const ids = st.supports.flatMap((x) => (data.supports.find((d) => d.id === x.id)?.hintSkillIds || [])).filter((id) => data.skills.find((k) => k.id === id)?.kind === "passive");
+      for (const id of [...new Set(ids)].slice(0, 2)) st.hints[id] = Math.max(st.hints[id] || 0, 2);
+      return { ...b, summary: `${b.summary} (패시브 힌트 2 · SP 300 주입)` };
+    },
+    ready: ".consult-screen .cs-active-note",
     expect: { screen: "run", phase: "consult", modal: false },
   },
   {
@@ -1243,6 +1392,19 @@ export const LESSON_OG_SCENARIOS = [
     build: (data, { runSeed }) => walkOrThrow("og_prep_swap", data, { seed: runSeed, until: (s) => s.phase === "prep" }),
     steps: [{ drag: { from: '.prep-edit .lu-slot[data-slot="DF2"]', to: '.prep-edit .lu-slot[data-slot="MF1"]', release: true } }],
     ready: ".prep-screen .lu-slot[data-slot=\"MF1\"] .warn",
+    expect: { screen: "run", phase: "prep", modal: false },
+  },
+  {
+    // 부상 선수 (주입 — DF2 레슨 결장 2): 경기 전 준비 "부상 1명 — 레슨만 쉬고 경기는 그대로 출전" (유스 없음, §18.1)
+    name: "og_prep_injured",
+    title: "경기 전 준비 — 부상 선수: 레슨만 쉬고 경기는 그대로 출전",
+    outgame: true,
+    build: (data, { runSeed }) => {
+      const b = walkOrThrow("og_prep_injured", data, { seed: runSeed, until: (s) => s.phase === "prep" });
+      b.runState.players[2].injuredTurns = 2;
+      return { ...b, summary: `${b.summary} (${b.runState.players[2].name} 부상 2 주입)` };
+    },
+    ready: ".prep-screen .po-out",
     expect: { screen: "run", phase: "prep", modal: false },
   },
   // ---- 이벤트 · 유물 · 루트 · 결과 (레슨 런, I1) ----

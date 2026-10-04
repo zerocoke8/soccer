@@ -245,3 +245,14 @@ export function scoreLabel(g) {
     : (!g?.draw && home === away ? ' (승부차기)' : '');
   return `${home} : ${away}${pk} ${verdict}`;
 }
+
+/**
+ * 목적격 조사 "을/를" (§18.6 코치 수업 문구): 마지막 글자가 한글이면 받침 있으면 "을", 없으면 "를", 한글이 아니면 "을(를)".
+ * 예: objParticle("파워 슛") → "을", objParticle("스루 패스") → "를", objParticle("함성") → "을"
+ */
+export function objParticle(word) {
+  const ch = Array.from(String(word ?? '').trim()).pop();
+  const c = ch ? ch.charCodeAt(0) - 0xac00 : -1;
+  if (c < 0 || c > 11171) return '을(를)';
+  return c % 28 !== 0 ? '을' : '를';
+}

@@ -735,13 +735,118 @@ test("jsdom: 레슨 화면 (구역) — 골격 · 조준 · 키보드 · 벤치 
     .map((seed) => walkLesson(data, { seed, until: (s) => s.phase === "reward" && s.pendingReward?.result?.status === "clear" && s.pendingReward.offer.length > 0 }))
     .find(Boolean);
   assert.ok(clearWalk, "클리어 보상 상태 (시드 5개 안에서)");
-  const clearReward = clearWalk.state;
-  // teach-pending:S2 — 보상 모달에 코치 수업 칸이 아직 없다 (§18.6). 수업은 엔진으로 받지 않고 넘긴 뒤 카드 고르기를 본다.
-  const skipTeach = (st) => {
-    while (st.pendingReward?.teach?.some((t) => t.result === null)) lessonRun.resolveTeach(st, data, { playerId: null });
-    return st;
+  // 코치 수업 (§18.6) 이 남은 보상이면 화면 버튼으로 감독 추천대로 받고 (선수 칩 → [가르치기] / [배우지 않기]) 그 뒤 상태를 돌려준다
+  const teachUi = (st) => {
+    putRun(st);
+    for (let i = 0; i < 12 && $(".reward-modal .rw-teach"); i++) {
+      const tr = S.manager.recommendTeach(S.store.run, data);
+      if (tr.playerId) {
+        $(`.rw-teach-pl[data-pid="${tr.playerId}"]`).click();
+        $(".rw-teach-ok").click();
+      } else $(".rw-teach-skip").click();
+    }
+    assert.ok(!$(".reward-modal .rw-teach"), "수업이 모두 끝남");
+    return clone(S.store.run);
   };
-  skipTeach(clearReward);
+
+  // =====================================================================
+  // 코치 수업 (§18.6): 문구 · 조사 · 선수 칩 (회색 이유 · 추천) · [가르치기] → 습득 · 다음 수업 · 가득 → 바꿀 스킬 · 받지 않기 · 받을 선수 없음
+  // =====================================================================
+  assert.equal(OL.objParticle("파워 슛"), "을", "조사: 받침 있음");
+  assert.equal(OL.objParticle("스루 패스"), "를", "조사: 받침 없음");
+  assert.equal(OL.objParticle("함성"), "을");
+  assert.equal(OL.objParticle("XYZ"), "을(를)", "한글이 아니면 을(를)");
+  const teachWalk = walkLesson(data, { seed: 1, until: (s) => s.phase === "reward" && (s.pendingReward?.teach || []).filter((t) => t.result === null).length >= 2 && s.pendingReward.offer.length > 0 });
+  assert.ok(teachWalk, "수업 2개가 남은 보상 상태");
+  const teach0 = teachWalk.state;
+  const tList = teach0.pendingReward.teach;
+  // 두 수업을 모두 받을 수 있는 선수 하나를 가득 (습득 3 — 포지션 제한 없는 패시브) 으로 만들어 바꾸기 줄을 본다
+  const passives = data.skills.filter((k) => k.kind === "passive" && k.learnable && !(k.positions || []).length).map((k) => k.id);
+  const fullP = teach0.players.find((p) => lessonRun.canTeachSkill(teach0, data, tList[1].skillId, p.id).ok && lessonRun.canTeachSkill(teach0, data, tList[0].skillId, p.id).ok);
+  assert.ok(fullP && passives.length >= 3);
+  fullP.learnedSkillIds = passives.slice(0, 3);
+  putRun(teach0);
+  let tv = lessonRun.getRewardView(S.store.run, data).teach;
+  assert.ok($(".reward-modal .rw-teach"), "수업 칸");
+  assert.equal($$(".reward-modal .rw-offer").length + $$(".reward-modal .rw-deck").length, 0, "수업 중에는 카드 고르기 · 무료 강화 없음");
+  assert.match($(".rw-teach-title").textContent, /코치 수업 1\/2/, "머리 1/2");
+  assert.equal($(".rw-teach-line").textContent, `${tv.cur.coachShort} 코치가 '${tv.cur.name}'${OL.objParticle(tv.cur.name)} 가르쳐 줍니다`, "문구");
+  assert.ok($(".rw-teach-face"), "코치 얼굴");
+  assert.equal($$(".rw-teach-pl").length, 7, "선수 칩 7");
+  for (const p of tv.cur.players) {
+    const el = $(`.rw-teach-pl[data-pid="${p.id}"]`);
+    assert.equal(el.disabled, !p.ok, `${p.name}: 받을 수 있으면 켜짐`);
+    if (!p.ok) assert.ok(el.textContent.includes(p.reason), `${p.name}: 회색 이유`);
+    if (p.ok && p.full) assert.match(el.textContent, /가득 — 바꾸기/);
+  }
+  const trec = S.manager.recommendTeach(S.store.run, data);
+  assert.ok(trec.playerId, "빈 슬롯 선수 추천");
+  assert.ok($(`.rw-teach-pl[data-pid="${trec.playerId}"]`).classList.contains("recommended"), "추천 배지 = recommendTeach");
+  assert.equal($$(".rw-teach-pl.selected").length, 0, "미리 고르지 않는다");
+  assert.ok($(".rw-teach-ok").disabled, "고르기 전 [가르치기] 꺼짐");
+  assert.ok($(".rw-teach-skip").textContent.includes(`SP +${tv.declineSp}`), "[배우지 않기 · SP +20]");
+  // 선수 고르기 (모달 안에서만) → [가르치기] → 엔진 습득 · 저장 · 다음 수업 2/2
+  const pick1 = trec.playerId;
+  const snapT = JSON.stringify(S.store.run);
+  $(`.rw-teach-pl[data-pid="${pick1}"]`).click();
+  assert.equal(JSON.stringify(S.store.run), snapT, "고르기는 엔진을 부르지 않는다");
+  assert.ok($(`.rw-teach-pl[data-pid="${pick1}"]`).classList.contains("selected") && !$(".rw-teach-ok").disabled, "고름 → [가르치기] 켜짐");
+  assert.match($(".rw-summary").textContent, /빈 칸에 배웁니다/);
+  const okBtn = $(".rw-teach-ok");
+  okBtn.click();
+  okBtn.click(); // 연타 — 엔진 1번
+  const pl1 = S.store.run.players.find((p) => p.id === pick1);
+  assert.ok(pl1.learnedSkillIds.includes(tList[0].skillId), "습득 (엔진)");
+  assert.equal(S.store.run.pendingReward.teach[0].result, "learned");
+  assert.equal(S.store.run.pendingReward.teach[1].result, null, "연타해도 다음 수업은 그대로");
+  assert.ok(savedRun().players.find((p) => p.id === pick1).learnedSkillIds.includes(tList[0].skillId), "저장");
+  assert.match($(".rw-teach-title").textContent, /코치 수업 2\/2/, "다음 수업 2/2");
+  assert.ok($$(".rw-chip.teach").some((c) => c.textContent.includes(pl1.name)), "끝난 수업 칩 (수업 … → 선수)");
+  noErrorToast("수업 1");
+  // 가득인 선수 → 바꿀 스킬 줄 · 고르기 전 [가르치기] 꺼짐 → 바꾸기 (그 자리)
+  tv = lessonRun.getRewardView(S.store.run, data).teach;
+  const gray = tv.cur.players.find((p) => !p.ok);
+  if (gray) assert.ok($(`.rw-teach-pl[data-pid="${gray.id}"]`).disabled && $(`.rw-teach-pl[data-pid="${gray.id}"]`).textContent.includes(gray.reason), "포지션 · 보유 이유 회색");
+  assert.equal($$(".rw-teach-rep").length, 0, "고르기 전 바꿀 스킬 줄 없음");
+  $(`.rw-teach-pl[data-pid="${fullP.id}"]`).click();
+  assert.ok($(".rw-teach-rep"), "가득 → 바꿀 스킬 줄");
+  assert.equal($$(".rw-teach-rep .rw-rep-btn").length, 3, "습득 스킬 3개");
+  assert.ok($(".rw-teach-ok").disabled, "바꿀 스킬 고르기 전 [가르치기] 꺼짐");
+  const repId = passives[1];
+  $(`.rw-rep-btn[data-skill="${repId}"]`).click();
+  assert.ok(!$(".rw-teach-ok").disabled, "바꿀 스킬 고름 → 켜짐");
+  assert.match($(".rw-summary").textContent, /→/);
+  $(".rw-teach-ok").click();
+  assert.deepEqual(S.store.run.players.find((p) => p.id === fullP.id).learnedSkillIds, [passives[0], tList[1].skillId, passives[2]], "바꾸기 = 그 자리");
+  assert.equal(S.store.run.pendingReward.teach[1].replaced, repId);
+  // 수업이 모두 끝남 → 카드 고르기
+  assert.ok(!$(".rw-teach") && $(".rw-offer .card-face"), "수업 끝 → 카드 고르기");
+  assert.equal($$(".rw-chip.teach").length, 2, "수업 칩 2");
+  assert.equal(S.store.run.phase, "reward");
+  noErrorToast("수업 2");
+  // 받지 않기 → SP +20 · 다음 수업
+  putRun(teach0);
+  const sp0t = S.store.run.skillPoints;
+  $(".rw-teach-skip").click();
+  assert.equal(S.store.run.skillPoints, sp0t + tv.declineSp, "받지 않기 SP");
+  assert.equal(S.store.run.pendingReward.teach[0].result, "declined");
+  assert.match($(".rw-teach-title").textContent, /2\/2/);
+  assert.ok($$(".rw-chip.teach").some((c) => c.textContent.includes(`SP +${tv.declineSp}`)), "수업 칩 SP");
+  // 받을 선수 없음 → 선수 칩 모두 회색 · 안내 · [SP +20 받기] 하나
+  const none0 = clone(teach0);
+  const fwOnly = data.skills.find((k) => k.kind === "active" && k.learnable && (k.positions || []).length === 1 && k.positions[0] === "FW");
+  none0.pendingReward.teach[0].skillId = fwOnly.id;
+  for (const p of none0.players) if (p.position === "FW") p.learnedSkillIds = [fwOnly.id];
+  putRun(none0);
+  assert.equal($$(".rw-teach-pl:not(:disabled)").length, 0, "받을 선수 없음 = 모두 회색");
+  assert.match($(".rw-teach-none").textContent, /받을 수 있는 선수가 없습니다/);
+  assert.equal($$(".rw-teach-ok").length, 0, "[가르치기] 없음");
+  assert.match($(".rw-teach-skip").textContent, /SP \+\d+ 받기/);
+  $(".rw-teach-skip").click();
+  assert.equal(S.store.run.pendingReward.teach[0].result, "none", "받을 선수 없음 → none");
+  noErrorToast("받을 선수 없음");
+
+  const clearReward = teachUi(clearWalk.state);
 
   // ---------- 클리어: 골격 · 카드 고르기 → [확인] ----------
   putRun(clearReward);
@@ -797,7 +902,7 @@ test("jsdom: 레슨 화면 (구역) — 골격 · 조준 · 키보드 · 벤치 
   assert.equal(S.store.run.deck.length, clearReward.deck.length, "덱 그대로");
 
   // ---------- 퍼펙트: 무료 강화 덱 그리드 ----------
-  const perf = skipTeach(perfectRewardState(data, 1).state); // teach-pending:S2
+  const perf = teachUi(perfectRewardState(data, 1).state);
   putRun(perf);
   rv = lessonRun.getRewardView(S.store.run, data);
   assert.match($(".rw-status").textContent, /퍼펙트/);
@@ -830,7 +935,13 @@ test("jsdom: 레슨 화면 (구역) — 골격 · 조준 · 키보드 · 벤치 
     failWalk = walkLesson(data, { seed: i ? `lesson-ui-${i}` : "lesson-ui", until: (s) => s.phase === "reward" && s.pendingReward?.result?.status === "fail" });
   }
   assert.ok(failWalk, "실패 레슨이 나오는 시드");
-  const failReward = skipTeach(failWalk.state); // teach-pending:S2
+  // 실패 레슨도 컷인 수업은 받는다 (§18.3) — 수업 하나를 넣어 수업 → "보상 없음" 순서를 본다
+  const failT = clone(failWalk.state);
+  if (!failT.pendingReward.teach.some((t) => t.result === null)) failT.pendingReward.teach.push({ skillId: "sk_rally_cry", supportId: failT.supports[0].id, src: "cutin", result: null, playerId: null, replaced: null, sp: 0 });
+  putRun(failT);
+  assert.ok($(".rw-teach") && $(".rw-status").textContent.includes("실패"), "실패 레슨 수업 칸");
+  assert.match($(".rw-teach .rw-sec-head").textContent, /다음 주로/);
+  const failReward = teachUi(failT);
   putRun(failReward);
   assert.match($(".rw-status").textContent, /실패/);
   assert.ok($(".rw-none") && $$(".rw-offer").length === 0, "보상 없음");
@@ -860,6 +971,11 @@ test("jsdom: 레슨 화면 (구역) — 골격 · 조준 · 키보드 · 벤치 
   assert.equal($$(".cs-deck-grid .mini-card").length, cv.deck.length, "덱 그리드");
   assert.equal($$(".cs-skill").length, cv.skills.length, "스킬 줄");
   assert.ok(cv.skills.length >= 2);
+  // §18.5: 패시브만 · 액티브는 코치 수업 안내 한 줄 (옛 상태에 액티브 힌트가 남아도 진열하지 않는다)
+  assert.equal($(".cs-skills .og-panel-title").textContent, "패시브 스킬 (SP)", "스킬 칸 머리");
+  assert.ok(cv.skills.every((x) => x.kind === "passive") && $$(".cs-skill").every((e) => data.skills.find((k) => k.id === e.dataset.skill)?.kind === "passive"), "패시브만");
+  assert.equal($(".cs-active-note").textContent, "액티브 스킬은 레슨 보상에서 코치가 가르쳐 줍니다.", "액티브 안내");
+  assert.ok($$(".cs-wait-chip").every((e) => data.skills.find((k) => k.name === e.textContent)?.kind === "passive"), "힌트 대기도 패시브만");
   assert.ok($(".cs-head .cs-tp").textContent.includes("200") && $(".cs-head .cs-sp").textContent.includes("600"), "TP · SP");
   assert.ok($(".cs-detail.empty"), "고른 카드 없음 안내");
   const crec = S.manager.recommendConsult(S.store.run, data);
@@ -940,5 +1056,18 @@ test("jsdom: 레슨 화면 (구역) — 골격 · 조준 · 키보드 · 벤치 
   assert.equal(S.store.consultUi.selectedUid, null);
   assert.equal(savedRun().phase, S.store.run.phase, "저장");
   noErrorToast("상담 끝");
+
+  // ---------- 경기 전 준비: 부상 선수는 레슨만 쉬고 경기는 그대로 출전 (§18.1 · §18.6) ----------
+  const prep0 = walkLesson(data, { seed: "lesson-ui", until: (s) => s.phase === "prep" }).state;
+  prep0.players[2].injuredTurns = 1;
+  putRun(prep0);
+  assert.ok($(".prep-screen .po-out"), "부상 줄");
+  assert.match($(".po-out").textContent, /부상 1명 — 레슨만 쉬고 경기는 그대로 출전/);
+  assert.ok(!/유스/.test($(".prep-screen").textContent), "유스 문구 없음");
+  assert.ok($(".po-out .po-out-p").textContent.includes(prep0.players[2].name));
+  prep0.players[2].injuredTurns = 0;
+  putRun(prep0);
+  assert.match($(".prep-opp").textContent, /부상 선수 없음 — 7명 모두 출전/);
+  noErrorToast("경기 전 준비");
   assert.deepEqual(consoleErrors, [], "console.error 없음");
 });

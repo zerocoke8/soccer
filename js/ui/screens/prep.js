@@ -3,7 +3,7 @@
 //   ┌ topbar (hud.js) ─────────────────────────────────────────────────────────────┐
 //   │ 다음 상대 (이름 · 원소 · 스타일 · 주 성향 · 포메이션 · 포제션) │ meetingEditor (전술 6 · 포메이션 · 배치) │
 //   │ 대비 레슨 클리어: 경계전 컨디션 +1 / 보너스 없음               │                                         │
-//   │ 결장 선수 → "유스 출전" 경고                                   │ [경기 시작] = confirmPrep               │
+//   │ 부상 선수 → "레슨만 쉬고 경기는 그대로 출전" (§18.1 — 유스 없음) │ [경기 시작] = confirmPrep               │
 //   └──────────────────────────────────────────────────────────────┴─────────────────────────────────────────┘
 // 경기 전 준비는 주와 팀워크를 쓰지 않는다 (팀워크 +10 표시 없음). [경기 시작] = lessonRun.confirmPrep({ tactics, formation?, swaps? }) 1번.
 import { h, avatar, panel } from '../dom.js';
@@ -57,9 +57,9 @@ export function renderPrep(root, ctx) {
       : h('p', { class: 'small muted po-bonus' }, '대비 레슨 보너스 없음 (대비 레슨을 클리어하지 못했습니다)'),
     out.length
       ? h('div', { class: 'po-out' },
-        h('p', { class: 'small bad' }, `결장 ${out.length}명 → 유스 출전`),
-        h('div', { class: 'row wrap' }, out.map((p) => h('span', { class: 'badge badge-bad po-out-p' }, avatar(p.portraitColor, p.name, 'xs', 'dim'), ` ${p.name} · ${p.slot ?? ''}`))))
-      : h('p', { class: 'small muted' }, '결장 선수 없음 — 7명 모두 출전'),
+        h('p', { class: 'small' }, `🚑 부상 ${out.length}명 — 레슨만 쉬고 경기는 그대로 출전`),
+        h('div', { class: 'row wrap' }, out.map((p) => h('span', { class: 'badge po-out-p', title: `${p.name} — 레슨 결장 ${p.injuredTurns ?? ''}회 · 경기는 출전` }, avatar(p.portraitColor, p.name, 'xs'), ` ${p.name} · ${p.slot ?? ''}`))))
+      : h('p', { class: 'small muted' }, '부상 선수 없음 — 7명 모두 출전'),
     h('p', { class: 'tiny muted po-note' }, '경기 전 준비는 주와 팀워크를 쓰지 않습니다. 전술 · 포메이션 · 배치를 바꾼 뒤 경기를 시작하세요.'));
 
   const ed = meetingEditor(ctx, {

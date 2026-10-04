@@ -316,6 +316,14 @@ const actions = {
     render();
   },
 
+  /** 보상 모달 코치 수업 1개 (lessonRun.resolveTeach { playerId, replaceSkillId } — §18.6). phase 는 reward 그대로 → 모달을 다시 그린다 */
+  resolveTeach(args) {
+    const before = store.run?.log?.length ?? 0;
+    const r = engine(() => run.resolveTeach(store.run, store.data, args || {}));
+    if (r !== undefined) announce(newLogLines(before));
+    render();
+  },
+
   /** 상담 행동 1개 (buy · upgrade · delete · skill) — 행동마다 저장 */
   consultAction(op) {
     const before = store.run?.log?.length ?? 0;

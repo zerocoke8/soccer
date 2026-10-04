@@ -168,7 +168,7 @@ export function renderWeek(root, ctx, { inert = false } = {}) {
   // ---------- 도우미 ----------
   function freeActionText(type) {
     const v = data.config?.meeting?.teamwork ?? 10;
-    if (type === 'consult') return ['카드 구매 · 강화 · 삭제 (TP)', '스킬 배우기 (SP)', `지금 TP ${view.status?.tp ?? 0} · SP ${view.status?.sp ?? 0}`];
+    if (type === 'consult') return ['카드 구매 · 강화 · 삭제 (TP)', '패시브 스킬 배우기 (SP)', `지금 TP ${view.status?.tp ?? 0} · SP ${view.status?.sp ?? 0}`];
     if (type === 'meeting') return [`팀워크 +${v}`, '전술 · 포메이션 · 배치 변경', `지금 팀워크 ${view.status?.teamwork ?? 0}`];
     if (type === 'friendly') return [`전원 체력 −${fr.staminaCost ?? 30}`, `승리 SP +${fr.skillPointsWin ?? 20} · 패배 SP +${fr.skillPointsLoss ?? 10}`, '승리하면 유물 기회'];
     if (type === 'outing') return [`고른 선수 체력 +${outingCfg.picked ?? 20}`, `전원 체력 +${outingCfg.team ?? 10}`, `컨디션 +${outingCfg.condition ?? 1}`];
@@ -267,7 +267,7 @@ export function renderWeek(root, ctx, { inert = false } = {}) {
           h('span', { class: 'badge badge-accent' }, `팀워크 +${data.config?.meeting?.teamwork ?? 10}`),
           h('span', { class: 'tiny muted' }, '주를 씁니다')),
       ],
-      footNote: '스킬은 상담에서 SP로 배웁니다.',
+      footNote: '패시브는 상담에서 SP로, 액티브는 코치 수업으로 배웁니다.',
       submitLabel: '미팅 진행',
       onCancel: closeOverlays,
       onSubmit: (a) => { closeOverlays(); act({ type: 'meeting', ...a }); },

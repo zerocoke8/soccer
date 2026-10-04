@@ -98,11 +98,11 @@ export function hudRoster(view, ctx) {
       const mains = Array.isArray(p.mainStats) ? p.mainStats : [];
       return h('div', {
         class: ['ro-row', out ? 'injured' : ''],
-        title: `${p.name} · ${p.slot} · 체력 ${st}${mains.length ? ` · 주 스탯 ${mains.map((k) => L.STAT_LABELS[k] ?? k).join('·')}` : ''}${out ? ` · 결장 (레슨 ${p.injuredTurns}회)` : ''}`,
+        title: `${p.name} · ${p.slot} · 체력 ${st}${mains.length ? ` · 주 스탯 ${mains.map((k) => L.STAT_LABELS[k] ?? k).join('·')}` : ''}${out ? ` · 레슨 결장 ${p.injuredTurns}회 · 경기는 출전` : ''}`,
       },
       avatar(p.portraitColor, p.name, 'xs', out || st < 40 ? 'dim' : ''),
       h('span', { class: 'ro-name' }, h('b', { class: 'ellipsis' }, p.name), h('span', { class: 'ro-slot' }, p.slot ?? ''),
-        out ? h('span', { class: 'badge badge-bad' }, `결장 ${p.injuredTurns}`) : null),
+        out ? h('span', { class: 'badge badge-bad', title: `레슨 결장 ${p.injuredTurns}회 · 경기는 출전` }, `결장 ${p.injuredTurns}`) : null),
       h('span', { class: 'ro-stam' }, bar(st / 100, stamCls(st)), h('b', { class: stamCls(st) }, st)),
       h('span', { class: 'ro-stats' }, L.STATS.map((k) => {
         const v = Math.round(Number(p.stats?.[k]) || 0);

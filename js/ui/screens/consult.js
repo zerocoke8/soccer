@@ -1,12 +1,14 @@
 // js/ui/screens/consult.js — 상담 화면 (phase consult)
 // LESSON_PROTO_PLAN §6.3 "상담 화면" (.consult-screen, columns 300 | 1fr | 340):
 //   ┌ 🗂️ 상담 · 시즌 n · w주   TP 50 · SP 120                                              [상담 끝내기] ┐
-//   │ 진열 (3)                │ 덱 (14)  miniCard 4열, 누르면 고름                │ 스킬 (SP)                  │
+//   │ 진열 (3)                │ 덱 (14)  miniCard 4열, 누르면 고름                │ 패시브 스킬 (SP)            │
 //   │ [cardFace 0.8] 30 TP    │                                                   │ 스루패스 · 힌트 Lv2 96 SP   │
 //   │        [구매]           │ 고른 카드 [cardFace] → [강화 후 cardFace]          │  [선수 select] [배우기]     │
-//   │ [cardFace] 20 TP …      │ [강화 30 TP] (남은 1) [삭제 25 TP] (남은 1)        │ 힌트 대기 스킬은 회색        │
+//   │ [cardFace] 20 TP …      │ [강화 30 TP] (남은 1) [삭제 25 TP] (남은 1)        │ 힌트 대기 패시브 · 액티브 안내 │
 //   └─────────────────────────┴───────────────────────────────────────────────────┴────────────────────────────┘
 // 버튼 1개 = 엔진 consultAction 1번 (actions.consultAction: 저장 → 다시 그리기, 오류는 토스트). 고른 덱 카드 · 스킬 배울 선수는
+// §18.5: 상담은 패시브 스킬만 판다 (엔진 뷰가 패시브만 준다). 액티브는 레슨 보상의 코치 수업 (§18.6) — 스킬 칸 아래 안내 한 줄.
+// 진열할 패시브 (캐릭터 기준 / 서포트 기준) 는 기획자가 아직 정하지 않았다 — 지금은 "힌트를 받은 패시브" (§18.10 Q1).
 // store.consultUi 에 두어 다시 그려도 남는다. 고유 카드 삭제는 확인 모달. 추천 = manager.recommendConsult → 그 자리에 "추천" 배지.
 import { h, avatar, openModal, closeOverlays } from '../dom.js';
 import * as L from '../labels.js';
@@ -137,7 +139,7 @@ export function renderConsult(root, ctx) {
     for (const id of sd?.hintSkillIds || []) {
       if (hinted.has(id) || waiting.some((w) => w.id === id)) continue;
       const sk = skillDefs.find((x) => x.id === id);
-      if (sk && sk.learnable !== false) waiting.push({ id, name: sk.name, coach: sd.name });
+      if (sk && sk.learnable !== false && sk.kind === 'passive') waiting.push({ id, name: sk.name, coach: sd.name });
     }
   }
   const compact = v.skills.length > 5;
@@ -174,24 +176,25 @@ export function renderConsult(root, ctx) {
         }, '배우기')));
   });
   const skills = h('section', { class: 'og-panel cs-skills' },
-    h('div', { class: 'og-panel-head' }, h('h3', { class: 'og-panel-title' }, '스킬'), h('span', { class: 'status-chip' }, 'SP ', h('b', {}, v.sp))),
+    h('div', { class: 'og-panel-head' }, h('h3', { class: 'og-panel-title' }, '패시브 스킬 (SP)'), h('span', { class: 'status-chip' }, 'SP ', h('b', {}, v.sp))),
     skillRows.length
       ? h('div', { class: ['cs-skill-list', compact ? 'compact' : '', v.skills.length > 8 ? 'tight' : ''] }, skillRows)
-      : h('p', { class: 'small muted cs-sk-none' }, '힌트를 얻은 스킬이 없습니다. 레슨을 클리어하면 편성 코치의 힌트를 얻습니다.'),
+      : h('p', { class: 'small muted cs-sk-none' }, '힌트를 얻은 패시브 스킬이 없습니다. 레슨을 클리어하면 편성 코치의 힌트를 얻습니다.'),
     waiting.length
       ? h('div', { class: 'cs-wait' },
         h('span', { class: 'tiny muted' }, `힌트 대기 ${waiting.length}개 — 레슨 클리어로 힌트를 얻으면 배울 수 있다`),
         v.skills.length <= 4
           ? h('div', { class: 'cs-wait-chips' }, waiting.slice(0, 12).map((w) => h('span', { class: 'cs-wait-chip', title: `${w.coach} 힌트` }, w.name)))
           : null)
-      : null);
+      : null,
+    h('p', { class: 'tiny cs-active-note' }, '액티브 스킬은 레슨 보상에서 코치가 가르쳐 줍니다.'));
 
   // ---------- 머리 줄 ----------
   const endRec = rec?.op === 'end';
   screen.append(
     h('header', { class: 'og-head cs-head' },
       h('h2', {}, '🗂️ 상담'),
-      h('span', { class: 'muted small' }, `시즌 ${state.season ?? '?'} · ${state.turn ?? '?'}주 자유 주 — 카드 구매 · 강화 · 삭제 = TP, 스킬 = SP`),
+      h('span', { class: 'muted small' }, `시즌 ${state.season ?? '?'} · ${state.turn ?? '?'}주 자유 주 — 카드 구매 · 강화 · 삭제 = TP, 패시브 스킬 = SP`),
       h('span', { class: 'grow' }),
       h('span', { class: 'status-chip cs-tp', title: '훈련 포인트' }, 'TP ', h('b', {}, v.tp)),
       h('span', { class: 'status-chip cs-sp', title: '스킬 포인트' }, 'SP ', h('b', {}, v.sp)),

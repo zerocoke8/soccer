@@ -1467,6 +1467,7 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
     };
     const seen = {};
     const shapesPlayed = new Set(); // L40 (§16.10): 완주 중 낸 고유 카드 모양
+    let teachSteps = 0; // §18.6: 완주 중 보상 모달 코치 수업 칸을 화면 버튼으로 지난 수
     let prev = null;
     let steps = 0;
     for (; steps < 4000 && S.store.run.phase !== "finished"; steps++) {
@@ -1491,10 +1492,16 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
         assert.ok(r !== undefined, `레슨 호출 ${a.kind}`);
         if (S.store.run.phase !== "lesson") S.render();
       } else if (phase === "reward") {
-        // teach-pending:S2 — 보상 모달 코치 수업 단계 (§18.6) 가 생기면 S.actions.resolveTeach 로. 지금은 엔진으로 받고 다시 그린다.
+        // 코치 수업 (§18.6): 보상 모달 수업 칸 버튼 — 감독 추천 선수 칩 → [가르치기], 추천이 "받지 않기" 면 [배우지 않기]
         if (S.run.getRewardView(st, data).teach.cur) {
-          S.run.resolveTeach(st, data, M.recommendTeach(st, data));
-          S.render();
+          const tr = M.recommendTeach(st, data);
+          const nTeach = st.pendingReward.teach.filter((t) => t.result === null).length;
+          if (tr.playerId) {
+            doc.querySelector(`#modal-root .rw-teach-pl[data-pid="${tr.playerId}"]`).click();
+            doc.querySelector("#modal-root .rw-teach-ok").click();
+          } else doc.querySelector("#modal-root .rw-teach-skip").click();
+          assert.equal(S.store.run.pendingReward.teach.filter((t) => t.result === null).length, nTeach - 1, "수업 1개 처리 (화면 버튼)");
+          teachSteps += 1;
           continue;
         }
         S.actions.resolveReward(M.recommendReward(st, data));
@@ -1526,6 +1533,7 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
     for (const ph of ["week", "lesson", "reward", "prep", "match", "route"]) assert.ok(seen[ph] > 0, `거친 화면: ${ph}`);
     const cutinsRun = fin.record.lessons.reduce((a, l) => a + (Number(l.cutins) || 0), 0);
     assert.ok(cutinsRun >= 1, `완주 중 코치 컷인 ${cutinsRun}번 (§15.9)`);
+    assert.ok(teachSteps >= 1, `완주 중 코치 수업 ${teachSteps}번 (화면 버튼, §18.6)`);
     // 기본 편성의 고유 카드 7장 = 모양 5종 + 크로스 (가로지르기는 미르카 편성 — manager.test 15주 완주)
     for (const k of ["link", "pick", "pick:cross", "ownerCircle", "ownerZone", "move"]) assert.ok(shapesPlayed.has(k), `완주 중 고유 카드 모양 ${k} (낸 모양: ${[...shapesPlayed].join(" · ")})`);
     assert.equal(JSON.parse(window.localStorage.getItem(KEYS.run)).phase, "finished", "끝난 런 저장");

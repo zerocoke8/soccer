@@ -7,7 +7,8 @@
 //   │                        │ 고유 카드 ×1.5 구역이 바뀌는 선수 = 슬롯 카드 아래 "고유 ×1.5 구역 변경" │
 //   └────────────────────────┴───────────────────────────────────────────────────────────┘
 //   [취소] [submitLabel]
-// 스킬 상점은 없다 (스킬은 상담에서 SP 로 산다).
+// 스킬 상점은 없다 (패시브는 상담에서 SP 로, 액티브는 레슨 보상의 코치 수업으로 — §18.5 · §18.6).
+// 부상 선수 (injuredTurns > 0) 는 레슨만 쉬고 경기는 그대로 나온다 (§18.1) — 얼굴을 흐리게 하지 않고 "레슨 결장 n" 만 적는다.
 import { h, avatar, select, toast } from './dom.js';
 import * as L from './labels.js';
 import { lineupBoard, reseat, lineupIssues, meetingSwaps } from './lineup.js';
@@ -67,12 +68,12 @@ export function meetingEditor(ctx, o) {
         const injured = Number(p?.injuredTurns) > 0;
         const mains = Array.isArray(p?.mainStats) ? p.mainStats : [];
         return [
-          avatar(p?.portraitColor, p?.name, 'sm', injured ? 'dim' : ''),
+          avatar(p?.portraitColor, p?.name, 'sm'),
           h('span', { class: 'grow col' },
             h('span', { class: 'ellipsis slot-nm' }, p?.name ?? pid),
             was !== sl
               ? h('span', { class: 'tiny warn ellipsis' }, `← 원래 ${was ?? '-'}`)
-              : h('span', { class: ['tiny', 'ellipsis', injured ? 'bad' : 'muted'] }, injured ? `결장 · 레슨 ${p.injuredTurns}`
+              : h('span', { class: ['tiny', 'ellipsis', injured ? 'warn' : 'muted'], title: injured ? `레슨 결장 ${p.injuredTurns}회 · 경기는 출전` : '' }, injured ? `🚑 레슨 결장 ${p.injuredTurns}`
                 : `체력 ${Math.round(Number(p?.stamina) || 0)}${mains.length ? ` · ${mains.map((k) => L.STAT_SHORT[k] ?? k).join('')}` : ''}`)),
         ];
       },

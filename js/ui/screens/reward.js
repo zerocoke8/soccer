@@ -7,6 +7,11 @@
 //   ├ 무료 강화 1장 (퍼펙트) ─ 덱 miniCard 8열 · 고른 카드 "강화 후" 한 줄                                                ┤
 //   └ 고른 것 요약 ───────────────────────────────────────────────────────────────────────────── [확인] ┘
 // 실패 = 결과 머리 + "보상 없음" + [계속]. [확인] · [계속] = resolveReward({ pick, upgradeUid }) 1번 (연타 방지).
+// 코치 수업 (§18.6): 남은 수업(v.teach.cur)이 있으면 카드 고르기 · 무료 강화 대신 수업 칸 —
+//   ├ 코치 수업 1/2 ─ (코치 얼굴) 하르나 코치가 '파워 슛'을 가르쳐 줍니다 [액티브] FW · 설명                         ┤
+//   │ 받을 선수 7 (얼굴 · 이름 · 슬롯 · 스킬 칸 ●●○ · 이유는 회색 · 가득 — 바꾸기 · 추천) / 가득이면 바꿀 스킬 줄       │
+//   └ [배우지 않기 · SP +20]                                고른 것 요약                              [가르치기] ┘
+//   [가르치기] · [배우지 않기] = actions.resolveTeach 1번 (저장 · 다시 그리기) → 다음 수업 → 모두 끝나면 지금 모달.
 // 고르기(카드 · 건너뛰기 · 무료 강화 카드)는 모달 안에서만 바뀐다 (모달 내용만 다시 그린다 — 엔진 호출 없음).
 // 추천 = manager.recommendReward → 그 카드 · 건너뛰기 · 무료 강화 카드에 "추천" 배지 (미리 고르지는 않는다).
 import { h, avatar, openModal, signed } from '../dom.js';
@@ -53,10 +58,12 @@ export function renderRewardModal(ctx) {
     return;
   }
   const r = v.result || {};
+  const teach = v.teach || null;
   const offer = Array.isArray(v.offer) ? v.offer : [];
   const failed = r.status === 'fail';
   const hasOffer = offer.length > 0;
-  const rec = manager && (hasOffer || v.freeUpgrades > 0) ? safe(() => manager.recommendReward(state, data)) : null;
+  const teachCur = teach?.cur || null;
+  const rec = manager && !teachCur && (hasOffer || v.freeUpgrades > 0) ? safe(() => manager.recommendReward(state, data)) : null;
   const players = state.players || [];
   // 덱 카드 뷰 (lessonRun getRewardView.deck — 강화 후 미리보기 upgrade { power, desc })
   const deck = Array.isArray(v.deck) ? v.deck : [];
@@ -117,12 +124,21 @@ export function renderRewardModal(ctx) {
     : null;
   if (cutChip) cutChip.title = [`코치 지원 (컷인) ${cutList.length}번`, ...cutList.map((c) => `${c.turn}턴 ${c.name} — ${c.cardName ?? ''}`)].join('\n');
   const hintChip = hintItems.length ? chip('hint', '힌트 ', ...hintItems) : null;
+  // 끝난 코치 수업 (§18.6): "수업 파워 슛 → 실루엔" · "수업 함성 → SP +20" (액티브는 힌트 칩에 넣지 않는다)
+  const teachChips = (teach?.list || []).filter((t) => t.result).map((t) => {
+    const who = t.result === 'learned' ? (players.find((p) => p.id === t.playerId)?.name ?? t.playerId) : `SP +${t.sp ?? 0}`;
+    const c = chip('teach', '수업 ', avatar(t.coachColor, t.coachShort, 'xs', 'rw-face'), h('b', {}, t.name), ` → ${who}`);
+    c.title = `${t.coachShort === '코치진' ? '코치진' : `${t.coachShort} 코치`} 수업 '${t.name}' — ${t.result === 'learned' ? `${who} 습득${t.replacedName ? ` ('${t.replacedName}' 대신)` : ''}`
+      : t.result === 'none' ? `받을 선수 없음, SP +${t.sp ?? 0}` : `받지 않음, SP +${t.sp ?? 0}`}`;
+    return c;
+  });
   const chips = failed
-    ? [chip('bad', hintChip ? '실패 — TP · 보상 카드 없음' : '실패 — TP · 힌트 · 보상 카드 없음'), cutChip, hintChip]
+    ? [chip('bad', hintChip ? '실패 — TP · 보상 카드 없음' : '실패 — TP · 힌트 · 보상 카드 없음'), cutChip, hintChip, ...teachChips]
     : [
       chip('tp', 'TP ', h('b', {}, signed(r.tp ?? 0))),
       cutChip,
       hintChip,
+      ...teachChips,
       r.sp ? chip('sp', 'SP ', h('b', {}, signed(r.sp)), h('span', { class: 'muted' }, ' (힌트 없음)')) : null,
       chip('tw', '팀워크 ', h('b', {}, signed(r.teamwork ?? 0)), r.twAccrued ? h('span', { class: 'muted' }, ` (레슨 중 +${r.twAccrued})`) : null),
       r.condition ? chip('cond', '컨디션 ', h('b', {}, signed(r.condition))) : null,
@@ -165,8 +181,117 @@ export function renderRewardModal(ctx) {
   }));
 
   const body = h('div', { class: 'reward-body' });
+
+  // ---------- 코치 수업 (§18.6) ----------
+  // 모달 안 선택: 받을 선수 · 바꿀 스킬 (엔진 호출 전). [가르치기] · [배우지 않기] = resolveTeach 1번 (연타 방지)
+  const tsel = { pid: null, rep: null };
+  const teachRec = teachCur && manager ? safe(() => manager.recommendTeach(state, data)) : null;
+  let teachDone = false;
+  const teachCall = (args) => {
+    if (teachDone) return;
+    teachDone = true;
+    actions.resolveTeach(args);
+  };
+  const drawTeach = () => {
+    const t = teachCur;
+    const tpl = Array.isArray(t.players) ? t.players : [];
+    const picked = tsel.pid ? tpl.find((p) => p.id === tsel.pid && p.ok) || null : null;
+    const needRep = !!picked?.full;
+    const canTeach = !!picked && (!needRep || !!tsel.rep);
+    const coachLabel = t.coachShort === '코치진' ? '코치진이' : `${t.coachShort} 코치가`;
+    const declineSp = teach.declineSp ?? 0;
+    const posText = t.positions?.length ? `${t.positions.join(' · ')}` : '전원';
+    const recPid = teachRec?.playerId ?? null;
+    const nextText = failed ? '수업이 끝나면 다음 주로' : hasOffer ? '수업이 끝나면 카드 고르기' : '수업이 끝나면 계속';
+
+    const plEls = tpl.map((p) => {
+      const n = Array.isArray(p.learned) ? p.learned.length : 0;
+      const dots = `${'●'.repeat(Math.min(3, n))}${'○'.repeat(Math.max(0, 3 - n))}`;
+      const sub = !p.ok ? p.reason ?? '받을 수 없음' : p.full ? '가득 — 바꾸기' : `빈 칸 ${Math.max(0, 3 - n)}`;
+      const learnedText = n ? p.learned.map((x) => `${x.name}${x.kind ? ` (${L.SKILL_KIND_LABELS[x.kind] ?? x.kind})` : ''}`).join(' · ') : '습득 스킬 없음';
+      return h('button', {
+        type: 'button',
+        class: ['rw-teach-pl', p.ok ? '' : 'off', p.full && p.ok ? 'full' : '', tsel.pid === p.id ? 'selected' : '', recPid === p.id ? 'recommended' : ''],
+        dataset: { pid: p.id },
+        disabled: !p.ok,
+        'aria-pressed': tsel.pid === p.id ? 'true' : 'false',
+        title: `${p.name} · ${p.slot ?? ''}${p.injured ? ' · 부상 (레슨만 쉰다 — 수업은 받는다)' : ''}\n습득 ${n}/3: ${learnedText}${p.ok ? '' : `\n${p.reason ?? ''}`}`,
+        onclick: () => {
+          if (!p.ok) return;
+          tsel.pid = tsel.pid === p.id ? null : p.id;
+          tsel.rep = null;
+          draw();
+        },
+      },
+      avatar(p.portraitColor, p.name, 'sm', p.ok ? '' : 'dim'),
+      h('span', { class: 'tp-nm' }, p.name, h('span', { class: 'tp-slot' }, p.slot ?? ''), p.injured ? h('span', { class: 'tp-inj', title: '부상 — 레슨만 쉰다' }, '🚑') : null),
+      h('span', { class: ['tp-sub', p.ok ? (p.full ? 'warn' : '') : 'muted'] }, h('span', { class: 'tp-dots', 'aria-label': `스킬 칸 ${n}/3` }, dots), ` ${sub}`),
+      recPid === p.id ? h('span', { class: 'cf-rec tp-rec' }, '추천') : null);
+    });
+
+    const sec = h('div', { class: 'rw-sec rw-teach' },
+      h('div', { class: 'rw-sec-head' },
+        h('h4', { class: 'rw-teach-title' }, `코치 수업 ${(teach.index ?? 0) + 1}/${teach.total ?? 1}`),
+        h('span', { class: 'tiny muted' }, `액티브 스킬은 코치가 바로 가르쳐 줍니다 — 받을 선수를 고르세요 · ${nextText}`)),
+      h('div', { class: 'rw-teach-top' },
+        avatar(t.coachColor, t.coachShort, 'md', 'rw-teach-face'),
+        h('span', { class: 'rw-teach-txt' },
+          h('b', { class: 'rw-teach-line' }, `${coachLabel} '${t.name}'${L.objParticle(t.name)} 가르쳐 줍니다`),
+          h('span', { class: 'rw-teach-desc small', title: t.description || '' }, t.description || '')),
+        h('span', { class: 'rw-teach-meta' },
+          h('span', { class: 'badge badge-accent' }, L.SKILL_KIND_LABELS[t.kind] ?? '액티브'),
+          h('span', { class: 'small', title: '배울 수 있는 포지션' }, posText),
+          t.src === 'cutin' ? h('span', { class: 'tiny muted' }, '코치 지원') : t.src === 'event' ? h('span', { class: 'tiny muted' }, '유대 이벤트') : null)),
+      h('div', { class: 'rw-teach-pls' }, plEls),
+      t.noneEligible
+        ? h('div', { class: 'rw-teach-none small' },
+          h('b', { class: 'warn' }, '받을 수 있는 선수가 없습니다'),
+          ` (${t.positions?.length ? `${posText} 선수가 모두 이미 보유` : '모두 이미 보유'}) — 대신 SP +${declineSp}`)
+        : needRep
+          ? h('div', { class: 'rw-teach-rep' },
+            h('span', { class: 'small' }, h('b', {}, picked.name), ' — 바꿀 스킬'),
+            picked.learned.map((x) => h('button', {
+              type: 'button',
+              class: ['rw-rep-btn', tsel.rep === x.skillId ? 'selected' : ''],
+              dataset: { skill: x.skillId },
+              'aria-pressed': tsel.rep === x.skillId ? 'true' : 'false',
+              onclick: () => { tsel.rep = tsel.rep === x.skillId ? null : x.skillId; draw(); },
+            }, x.name, h('span', { class: 'tiny muted' }, ` ${L.SKILL_KIND_LABELS[x.kind] ?? ''}`))),
+            h('span', { class: 'tiny warn rw-rep-note' }, '고른 스킬은 사라집니다'))
+          : null);
+
+    let summary;
+    if (t.noneEligible) summary = h('span', { class: 'muted' }, `'${t.name}' — 받을 선수 없음, SP +${declineSp}`);
+    else if (!picked) summary = h('span', { class: 'muted' }, '받을 선수를 고르세요');
+    else if (needRep && !tsel.rep) summary = h('span', {}, h('b', {}, picked.name), ' — 슬롯이 가득입니다. 바꿀 스킬을 고르세요');
+    else if (needRep) summary = h('span', {}, h('b', {}, picked.name), `: '${picked.learned.find((x) => x.skillId === tsel.rep)?.name ?? tsel.rep}' → `, h('b', {}, `'${t.name}'`));
+    else summary = h('span', {}, h('b', {}, picked.name), `에게 '${t.name}' — 빈 칸에 배웁니다`);
+
+    const skipRec = !!teachRec && teachRec.playerId == null;
+    const foot = h('div', { class: 'row modal-foot rw-foot' },
+      h('button', {
+        type: 'button',
+        class: ['btn', 'rw-teach-skip', t.noneEligible ? 'btn-primary btn-lg' : '', skipRec && !t.noneEligible ? 'recommended' : ''],
+        title: t.noneEligible ? '' : `수업을 받지 않고 SP +${declineSp}`,
+        onclick: () => teachCall({ playerId: null }),
+      }, t.noneEligible ? `SP +${declineSp} 받기` : `배우지 않기 · SP +${declineSp}`, skipRec && !t.noneEligible ? h('span', { class: 'cf-rec tp-rec' }, '추천') : null),
+      h('span', { class: 'small grow rw-summary' }, summary),
+      t.noneEligible ? null : h('button', {
+        type: 'button',
+        class: 'btn btn-primary btn-lg rw-teach-ok',
+        disabled: !canTeach,
+        title: !picked ? '받을 선수를 고르세요' : needRep && !tsel.rep ? '바꿀 스킬을 고르세요' : '',
+        onclick: () => { if (canTeach) teachCall({ playerId: picked.id, replaceSkillId: needRep ? tsel.rep : null }); },
+      }, '가르치기'));
+    return [sec, foot];
+  };
+
   const draw = () => {
     const parts = [head, chipRow, playerRow];
+    if (teachCur) {
+      body.replaceChildren(...parts, ...drawTeach());
+      return;
+    }
     if (!hasOffer) {
       parts.push(h('div', { class: 'rw-none' },
         h('b', {}, failed ? '보상 없음' : '보상 카드 없음'),
