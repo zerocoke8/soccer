@@ -5,6 +5,7 @@
 > 사용자 결정 (2026-10-02): **A** 별도 브랜치에서 만들고 다른 주소(`/soccer/lesson/`)에 올린다 · 두 번에 나눠 1차 먼저. **C** 콘텐츠 결정은 추천대로 (L31).
 > **2026-10-04 구역 방식 개편 (L32~L36)**: [§14](#14-구역-방식-개편-l32l36)가 §4 · §5 · §6.3 · §9 · §10 · §12의 해당 부분(대상 지정 · 종목 · 쉬기 · 자율 훈련 · 수치)을 대신한다.
 > **2026-10-04 코치 지원 · 컷인 · 작은 원 카드 (L37 · L38)**: [§15](#15-코치-지원--컷인-l37--작은-원-카드-l38) — 레슨당 2~4번 코치가 손패 카드에 붙어 그 턴만 강화되고, 내면 컷인과 코치 능력. 카드 66장 → 68장.
+> **2026-10-04 선수 16명 · 전원 필살기 · 경기 엔진 수정 (L44 ~ L46, 이 브랜치만)**: [§19](#19-선수-16명--전원-필살기--경기-엔진-수정-브랜치) — 새 8명 · 16명 모두 필살기(새 종류 필살 수비 · 팀 · 드리블) · 합체기는 등록된 짝만 · 컷인 대사 · 주장 1명분. §0의 "경기 쪽 파일 diff 0"은 §19 슬라이스에서만 풀린다.
 > 표기: **[구현 결정]** = 기획서에 없거나 서로 다른 것을 이 계획이 정한 값. 프로토타입을 해 본 뒤 바꿀 수 있다. 수치는 모두 출발점이다. 밸런스는 조정하지 않고, 시뮬 결과만 보고한다.
 
 ---
@@ -3481,3 +3482,498 @@ teach: {
 | 레슨 · 성장 · 컷인 · 벤치 · 덱 · TP | — | 같은 띠 (±1%) |
 
 - 읽기: S1 보고와 같다 (S2 · S3 는 엔진을 바꾸지 않았다). S1 표의 "전" 경계전 전체 승률 첫 칸 52% 는 다시 재면 56% (ace) 다. 경계전 승률은 방침마다 0~+2%p, 패배는 조금 줄었다 — 액티브가 런당 약 11개 더 생기는데도 경기 차이는 작다. 평가 점수만 크게 오른다 (스킬 수가 들어간다). Q3 (수업 빈도) · 등급 기준선은 밸런스 때 한 번에.
+
+---
+
+## 19. 선수 16명 · 전원 필살기 · 경기 엔진 수정 (브랜치)
+
+> 상태: 구현 계획 (K0) · 2026-10-04 · 브랜치 `outgame-lesson` (시작 = `78cc0d3`). **main은 그대로 8명 · 옛 경기 엔진이다** — 이 절은 이 브랜치에만 들어간다 (`/soccer/lesson/`에만 보인다, §2.3).
+> 기획자 결정 (2026-10-04, 이 계획의 L44 ~ L46):
+> 1. **L44 선수 16명** — 새 8명(헤르타 · 브론테 · 나엘리스 · 온디나 · 리시엘 · 코니 · 카밀라 · 힐디)을 초안(`new_characters.json`) 그대로 넣는다. 고유 카드 8장은 초안 이름 · 연계 특성 모양(§16) · §16 보정 수치.
+> 2. **L45 전원 필살기** — 모든 선수가 처음부터 자기 필살기(개인 게이지 · 컷인)를 갖는다. 레어도가 세기를 정한다: R ≈ 판정 ×1.3 + 작은 추가 0~1개 · **짧은 컷인**, SR ≈ ×1.6 + 추가 최대 1개, SSR ≥ ×1.9 + 판을 바꾸는 추가 + 합체기. 실루엔 바람의 실 · 그레타 메테오 슛은 그대로. 이를 위해 **경기 엔진 수정을 승인**했다: E1(필수) 합체기는 `combos.json`에 등록된 짝만, E2 필살 수비, E3 팀 필살기, E4 필살 드리블, E5 컷인 대사. 옛 고유 스킬 6개 중 패시브 4개는 SP 패시브 풀로, 액티브 2개(철의 태클 · 라인 브레이커)는 코치 힌트 목록으로 (액티브는 코치가 가르친다, §18).
+> 3. **L46 주장 겹치지 않음** — 주장 두 명을 같이 내보내도 주장 효과는 한 명분만 (경기 · 그 밖 모든 곳).
+> 4. 바꾸지 않는 것: `js/engine/rng.js`, 경기 액티브 "스루 패스"(2구역 전진 행동을 넣지 않는다), `data/config.json` (옛 런 테스트가 기대는 값 — 이 계획은 config 키를 하나도 더하지 않는다. 바꿔야 하면 §19.19에 이유를 적는다).
+>
+> **§0 · §3.4 · §14 ~ §18의 "경기 쪽 파일 diff 0" 규칙은 이 절의 슬라이스 K1 · K4에서만 풀린다** (`js/engine/match.js` · `skills.js` · `ai.js` · `js/ui/screens/match.js` · `css/match.css` · `js/ui/labels.js`). `rng.js` · `config.json` · `run.js` · `training.js` · `layout.js` 코드는 그대로다.
+> 옛 런(`run.js`)도 이 브랜치에서는 같은 데이터(16명 · 새 필살기)를 쓴다 — 옛 런 테스트는 **데이터에 기대던 기대값만** 고친다 (§19.15).
+> 표기는 §14 ~ §18과 같다. **[가정]** = 기획자가 아직 정하지 않은 값, **[구현 결정]** = 이 계획이 정한 세부. 둘 다 §19.18에 모았다. 밸런스는 조정하지 않는다 — 시뮬은 전 / 후만 보고한다 (승률이 크게 움직일 것이다, §19.16).
+
+### 19.0 한눈에
+
+| 무엇 | 지금 | 바뀐 뒤 |
+|---|---|---|
+| 캐릭터 | 8명 (`characters.json`) | **16명** (+8, 초안 그대로). 기본 편성(`config.defaultSquad`)은 그대로 |
+| 필살기 보유 | SSR 2명 (실루엔 · 그레타), 나머지 6명은 고유 패시브 · 액티브 | **16명 모두** 필살기 1개 (`innateSkillId` = 필살기). 새 필살기 14개 |
+| 필살기 종류 | `shot` · `pass` · `save` | + **`defense`**(E2) · **`team`**(E3) · **`dribble`**(E4) |
+| 합체기 | 필살 패스를 받은 선수가 **아무 필살기나** 있으면 합체기 대기 | **`combos.json`에 (a, b)가 있을 때만** (E1). 5개 |
+| AI 필살 패스 | 받는 선수가 필살기 보유자이거나 박스로 들어가는 패스 | **등록된 합체기 짝이거나 박스로 들어가는 패스** (+ 한 구역 더 가는 패스, §19.4) |
+| 컷인 | 이름 · 종류. 첫 필살기만 길게 | + **대사 한 줄** `cutinLine` (E5), **등급별 길이** (R 짧게) |
+| 옛 고유 6개 | 캐릭터 고유 (`learnable: false`) | 밀물의 벽 · 주장의 외침 · 지치지 않는 다리 · 고양이 페인트 → **SP 패시브** (코치 힌트), 철의 태클 · 라인 브레이커 → **코치 수업 액티브** |
+| 주장 특성 | 주장마다 팀워크 +10 (`teamworkAmp`가 더한다) | **최대 1명분** (L46) |
+| 고유 카드 | 8장 (카드 68장) | **16장** (카드 76장) — 피니셔 모양에 처음 주인이 생긴다 |
+| 레슨 저장 | `lessonRun.version` 3 | **4** (옛 고유 스킬 id → 새 필살기 id) |
+| 편성 화면 | 선수 풀 1줄 8장 | **2줄 × 8장**, 선수 고르기 모달 4열, 필살기 칩 |
+
+### 19.1 파일 지도
+
+| 파일 | 슬라이스 | 바꾸는 것 |
+|---|---|---|
+| `js/engine/skills.js` | K1 | `ULTIMATE_TYPES` 6종, `ULTIMATE_KEYS` (종류별 허용 키), `ultimateErrors(skill)` · `validateUltimates(data)` |
+| `js/engine/match.js` | K1 | E0 공통 기반 · E1 ~ E4 (§19.3 ~ §19.7), 컷인 이벤트 `line` · `tier` (E5), 주장 최대 1명분 (§19.9) |
+| `js/engine/ai.js` | K1 | 필살기 사용 규칙은 `match.aiWantsUltimate` 한 곳에 있다 — ai.js는 `decideAttack` · `decideDefense`가 새 종류를 그대로 넘기는지만 확인하고, 필요하면 필살 드리블 성향 반영 한 줄 |
+| `data/skills.json` | K2 | 새 필살기 14개, 기존 필살기 4개에 `tier` · `cutinLine`, 옛 고유 6개 `learnable: true` · `cost` · `positions` |
+| `data/characters.json` | K2 | +8명 (초안 그대로), 기존 6명 `innateSkillId` 교체 |
+| `data/combos.json` | K2 | 1 → 5개 |
+| `data/supports.json` | K2 | 코치 6명 `hintSkillIds`에 옛 고유 6개를 하나씩 |
+| `data/traits.json` | K2 | 주장 `description`에 "1명분" (params 그대로) |
+| `data/cards.json` | K2 | 고유 +8장 (version 2 그대로) |
+| `js/engine/lessonRun.js` · `js/ui/store.js` | K3 | 저장 v4 (§19.13) |
+| `tools/sim.mjs` · `tools/lesson_sim.mjs` · `tools/challenge_sim.mjs` | K1 · K3 | 필살기 종류 · 등급 · 합체기 이름별 지표 (§19.16) |
+| `js/ui/screens/match.js` · `css/match.css` · `js/ui/labels.js` | K4 | 새 종류 버튼 · 호환 액션, 등급별 컷인 · 대사, 합체기 이름 폴백 제거, 역방향 컷인 (드리블) |
+| `js/ui/screens/setup.js` · `js/ui/lineup.js` · `css/outgame.css` | K4 | 16명 편성 화면 · 선수 고르기 모달 · 필살기 칩 · 주장 2명 안내 |
+| `js/ui/meeting.js` · `js/ui/screens/prep.js` · `js/ui/screens/result.js` · `css/lesson.css` | K4 | 필살기 표시 · 주장 2명 안내 · 결과 "고유 → 필살기" |
+| `tools/scenarios.mjs` · `tools/lesson_scenarios.mjs` · `tools/shot.mjs` | K4 | 경기 29 ~ 34, og 새 장면 (§19.14 ⑥) |
+| `docs/ARCHITECTURE.md` · `README.md` · `docs/OUTGAME_LESSON_draft.md` · `docs/OUTGAME_CARDS_draft.md` | K5 | §20 · 결정 L44 ~ L46 · 고유 카드 표 |
+
+바꾸지 않는 파일: `js/engine/rng.js` · `run.js` · `training.js` · `effects.js` · `rating.js` · `challenge.js` · `js/ui/layout.js` · `data/config.json` · `data/opponents.json` · `data/challenge*.json` (도전 모드 샘플 팀은 옛 고유 스킬 그대로인 고정 스냅샷이다 [구현 결정]) · `data/events.json` · `data/lesson.json` · `data/policies.json`.
+
+### 19.2 필살기 데이터 스키마 (`skills.json` `ultimate`)
+
+`kind: "unique"` · `learnable: false` · `tension: 0` · `active: null`은 지금 그대로다. `ultimate` 객체:
+
+```jsonc
+"ultimate": {
+  "type": "shot" | "pass" | "save" | "defense" | "team" | "dribble",
+  "tier": "R" | "SR" | "SSR",            // 새 필수 키 (E5 — 컷인 길이 · 칩 색 · 등급 검사). 상대 보스 필살기는 "SSR"
+  "cutinLine": "땅이 먼저 울릴 거야.",     // 새 필수 키 (E5) — 컷인 대사 한 줄, 1 ~ 24자 (띄어쓰기 포함)
+  // 종류별 인자 (그 밖의 키는 검증 오류)
+}
+```
+
+| 종류 | 허용 키 (기본값) | 뜻 |
+|---|---|---|
+| `shot` | `shoot` (1) · `gkMult` (1) · `boxShot` (false) · `minLine` (2) · `headerMult` (1) · `stamina` (0) | 슛 ×shoot, 막는 쪽 ×gkMult, 파이널 서드에서도 박스 슛 취급, **쓸 수 있는 최소 line** (새), **헤더면 ×headerMult 더** (새), 체력 추가 소모 |
+| `pass` | `attack` (1) · `actions` (["pass","cross"]) · `negateRead` (false) · `nextDuelBonus` (0) · `receiverGauge` (= `onReceive`) · `extraLine` (false) | 패스 · 크로스 ×attack, **쓸 수 있는 액션** (새), 짝 무효, 받은 선수 다음 듀얼 +, 받은 선수 게이지, **한 구역 더** (새 — 라인 브레이커와 같은 `fx.extraLine`) |
+| `save` | `saveMult` (1) · `sureDistribution` (false) | GK 세이브 ×saveMult, **막으면 그 GK의 롱패스 배급이 판정 없이 성공** (새) |
+| `defense` | `defense` (1) · `noMissPenalty` (false) | **E2** — 필드 수비 ×defense, 짝 빗나감 ×0.8 없음 |
+| `team` | `teamMult` (1) · `teamStamina` (0) | **E3** — 이번 듀얼부터 그 포제션 끝까지 팀 판정 ×teamMult, 판정 뒤 팀 전원 체력 +teamStamina |
+| `dribble` | `attack` (1) · `extraLine` (false) · `negateRead` (false) · `noStamina` (false) | **E4** — 드리블 ×attack, 성공하면 한 구역 더, 짝 무효, 성공하면 체력 소모 없음 |
+
+- **`receiverGauge` 기본값을 `onUltPassReceive`(50) → `onReceive`(35)로 바꾼다** [구현 결정]: 받은 선수 게이지 +50은 바람의 실의 SSR 추가 효과다. 지금 데이터의 필살 패스는 바람의 실 하나뿐이고 `receiverGauge: 50`을 직접 적어 두었으므로 K1에서 결과가 바뀌지 않는다 (config `onUltPassReceive`는 그대로 둔다 — 읽는 곳이 없어지면 §19.19에 적는다).
+- **검증** `skills.ultimateErrors(skill)` → 오류 문구 배열 (순수): `type ∈ ULTIMATE_TYPES` / 허용 키 밖 = "필살기 <id>: <type>에 쓸 수 없는 키 <k>" / 배율 키(`shoot` · `attack` · `saveMult` · `defense` · `teamMult` · `headerMult`) ≥ 1, `gkMult` ∈ (0, 1] / `minLine` ∈ {2, 3} / `actions` ⊂ {pass, cross}, 비어 있지 않음 / `tier` ∈ {R, SR, SSR} / `cutinLine` 1 ~ 24자 / `nextDuelBonus` · `teamStamina` · `stamina` · `receiverGauge` ≥ 0. `validateUltimates(data)`는 모두 모아 throw — `match.createMatch`가 한 번 부른다 (팀 선수 스킬 참조 검증 바로 뒤).
+- **등급 상한 검사**는 런타임이 아니라 **데이터 테스트**가 한다 (§19.15). "주 배율" = shot `shoot ÷ gkMult` · pass / dribble `attack` · save `saveMult` · defense `defense` · team `teamMult`. "추가" = `negateRead` · `nextDuelBonus` · `extraLine` · `noStamina` · `noMissPenalty` · `sureDistribution` · `teamStamina` · `headerMult ≠ 1` · `boxShot` · `receiverGauge > onReceive` (shot의 `gkMult`는 주 배율에 들어가므로 추가가 아니다). 제한 · 비용(`minLine` · `actions` · `stamina`)은 추가가 아니다.
+  - R: 주 배율 1.15 ~ 1.45 (team은 1.05 ~ 1.1), 추가 ≤ 1.
+  - SR: 주 배율 1.45 ~ 1.7, 추가 ≤ 1.
+  - SSR: 주 배율 ≥ 1.9, **또는** pass이고 추가 ≥ 2 (바람의 실 — 기획자가 그대로 두기로 한 예외). SSR 필드 선수는 합체기 목록에 1번 이상 나온다 (헤르타 GK는 예외 — §19.18 Q1).
+
+### 19.3 E0 · 공통 기반 (`match.js`) — 지금 데이터에서는 결과가 같다
+
+1. **`ultTypeUsableAt(ult, line)`** — 인자를 type 문자열에서 ultimate 객체로 바꾼다. shot: `line ≥ (minLine ?? 2)` · pass: `line ≤ 3` · dribble: `line ≤ 2` · team: 늘 참 · save · defense: 거짓 (받는 선수 = 공격 쪽이라). 부르는 곳 4곳 (`receiverValue` · `aiWantsUltimate` · `aceCallFor` · `nextShotP`).
+2. **`applyUlt(fx, skill, combo)`** — `fxPlusUlt`(미리보기)와 `commitUltimate`(실제)가 **같은 함수**로 fx를 만든다: `fx.ult = { skillId, ...ultimate }`, `fx.combo`, 그리고 위치를 바꾸는 인자를 fx 플래그로 접는다 — `ultimate.extraLine` → `fx.extraLine = true` (pass · dribble). 그래서 `passPlan` · `successTransition` · `outcomesBySkill`이 라인 브레이커와 같은 길로 한 구역 더 간다 (④ 박스 연결에는 추가 전진 없음 — 지금 규칙). 판정 배율(attack · defense · shoot)은 접지 않고 `computeOdds`가 `fx.ult`에서 읽는다 (결정타 칩이 "필살 ×1.6"으로 따로 보이게).
+3. **`ultimateUsable`** — 종류마다 (지금 shot · pass · save 갈래 + E2 ~ E4):
+   - shot: `role attack`, `line ≥ minLine` (minLine 3이면 사유 "박스 슛에서만", 아니면 지금 문구), `action ∈ {shoot, null}`.
+   - pass: 지금 규칙 + `action ∈ actions` (사유 "크로스와 함께만" / "패스와 함께만").
+   - save: 그대로.
+   - defense · team · dribble: §19.5 ~ §19.7.
+4. **`attackTendencyAt` 성향** (A안): `ultFor`가 dribble 필살기를 주면 드리블 성향 ×attack, shot은 `minLine` 아래 line이면 ultFor가 null, shot `headerMult`는 헤더 성향에만. 팀 필살기는 성향을 바꾸지 않는다 (모든 액션에 같은 배율).
+5. **`computeOdds`**: 공격 `ultMultA` = shot(`shoot` × 헤더면 `headerMult`) · pass(`attack`, `actions` 안일 때) · **dribble(`attack`, action dribble)** · team(`teamMult`, E3). 수비 `ultMultD` = **defense(`defense`)** · team(`teamMult`). 칩 `F("atk"|"def", "ultimate", …, "필살 ×1.6")`. 짝 무효 `negateApplies`에 dribble `negateRead` (action dribble). 빗나감: `fxD.noMissPenalty || fxD.ult?.noMissPenalty`.
+6. **체력** (`step`): shot `stamina` 그대로, dribble `noStamina`면 **성공했을 때** 드리블 소모 0 (폭발 드리블과 같은 규칙).
+7. **`bestAttackResponse`** 필터: dribble 필살기 → 드리블만, team → 전부.
+8. **`reverseCutinOf`**: dribble 필살기가 필드 수비에 막히면 `kind: "block"` ("철벽 블록!"). team · defense · save는 역방향 컷인 없음 (지금처럼 공격 필살기만).
+9. **이벤트 문구** `TYPE_TEXT`: shot "필살 슛" · pass "필살 패스" · save "필살 세이브" · **dribble "필살 드리블"** · **defense "필살 수비"** · **team "필살 호령"**. `labels.ULT_TYPE_LABELS`도 같게 (K4).
+10. **save `sureDistribution`** (헤르타): 그 세이브가 성공(= 공을 잡음)하고 배급이 이어지면 그 배급 한 번만 `sure: true` (배급 상태에 둔다). `longPassOdds` 결과 `p = 1` · `sure: true`, `resolveDistribution` 롱패스는 **`rng.chance`를 부르지 않고** 성공한다. 짧은 패스도 고를 수 있다 (사람). AI '상황 따라'는 p ≥ 0.55라 롱패스. 배급 뷰 · 카드에 "확정 (대지의 손바닥)". 승부차기 · 경기 끝 세이브면 배급이 없어 효과 없음. ④ 박스 연결을 잡은 경우도 세이브와 같다.
+11. **`aceCallFor`** (표시 전용): 게이지 외침(①)은 **shot · pass 필살기만** 그대로 본다 — 새 종류(dribble · team · defense · save)는 외치지 않는다 [구현 결정: 7명 모두 필살기라 외침이 너무 잦아진다 — 지금도 공격 결정의 약 20%, GDD 9.17-6 확인 필요]. 합체기 외침(②)은 이미 등록된 짝만 본다.
+12. **결정성 · 순수**: 새 규칙은 모두 상태 · 데이터만 읽는다. rng 호출이 달라지는 곳은 `sureDistribution` 롱패스에서 **하나 줄어드는 것**뿐이다. 미리보기 · 뷰 · AI는 rng를 쓰지 않는다 (지금 그대로).
+
+### 19.4 E1 · 합체기는 등록된 짝만 (필수)
+
+규칙: 필살 패스(a)를 받은 선수의 필살기(b)는 **`comboName(data, a, b)`가 있을 때만** 합체기 대기가 된다. 등록되지 않은 짝이면 받은 선수는 보통 필살 패스 수신(게이지 `+receiverGauge`, 다음 듀얼 `+nextDuelBonus`)만 받는다 — 게이지가 가득이면 자기 필살기를 보통처럼 쓸 수 있다.
+
+| 곳 (`match.js`) | 지금 | 바뀐 뒤 |
+|---|---|---|
+| 새 헬퍼 `comboSkillFor(data, passSkillId, receiver)` | — | 받은 선수 필살기 b가 있고 `comboName(data, a, b.id)`가 있으면 b, 아니면 null |
+| `step` 패스 성공 (`if (ultPass && getPlayerUltimate(data, receiver))`) | 필살기만 있으면 `comboReadyId` | `comboSkillFor(...)`가 있을 때만 `comboReadyId` · `comboFrom` |
+| `nextShotP`의 `recvUlt` | 〃 | 〃 (`comboSkillFor`) |
+| `receiverValue(…, combo)` | `combo` = 필살 패스 여부 (불리언) → 받은 선수 필살기 가치 | `passSkillId` (문자열 \| null) → `comboSkillFor`가 있을 때만 합체기 가치 |
+| `boxReceiverValue` `combo = passUlt && shotUlt` | | `&& comboSkillFor(...)` |
+| `defaultFromPlan` | 필살 패스면 합체기 가치 | `fx.ult.skillId`를 넘긴다 |
+| `aiWantsUltimate` pass | `arrival ≥ 3` 또는 받는 선수 필살기가 도착 line에서 쓸 수 있음 | **`arrival ≥ 3` 또는 (등록된 짝 && `ultTypeUsableAt(b, arrival)`)** 또는 한 구역 더 가는 패스 (아래) |
+| `comboFor` · `commitUltimate` · `getMatchView`의 이름 폴백 `"합체기"` | 이름이 없으면 "합체기" | 그대로 둔다 (옛 진행 중 경기 저장본의 `comboReadyId`용 — 새 경기에서는 생기지 않는다) |
+| UI `boxComboName` (`screens/match.js`, K4) | `comboName(...) \|\| '합체기'` | `comboName(...) ?? null` (등록 안 된 짝은 합체기 표시 없음) |
+
+- **AI 필살 패스 추가 규칙 — 한 구역 더 가는 패스** [구현 결정]: `extraLine` 필살 패스(나엘리스 심해 물길)는 `plan.arrival > min(3, line + 1)`일 때(실제로 한 구역을 건너뛸 때)도 쓴다. 이것이 없으면 DF 나엘리스(공을 line 0에서만 잡는다)는 박스로 바로 가는 패스가 없어 필살기를 거의 쓰지 못한다. 기획자 규칙("등록된 짝 또는 박스로 들어가는 패스")을 넓힌 것이라 §19.18에 적는다.
+- 마지막 2포제션 · 합체기 대기 = 즉시 사용 (지금 그대로).
+- **지금 데이터로는 결과가 같다**: 지금 필살 패스는 바람의 실 하나, 받는 쪽 필살기는 메테오 슛 하나 (등록된 짝)이고, 상대 보스는 필살 패스가 없다. K1은 이것을 시뮬 출력 비교로 확인한다 (§19.17).
+
+### 19.5 E2 · 필살 수비 (`type: "defense"`)
+
+- **쓸 수 있을 때**: `role === "defense"`, `line ≤ 2` (필드 수비 듀얼 — line 3은 GK 세이브), 수비 3종(태클 · 인터셉트 · 버티기) 어느 것과도. 사유 "필드 수비에서만".
+- **효과**: 수비 판정 ×`defense` (칩 "산맥 쐐기 ×1.6"), `noMissPenalty`면 짝 빗나감 ×0.8 → ×1.0. 제쳐짐 · 인터셉트 뚫림 같은 뚫림 결과는 그대로 (바위 방벽의 `noFailPenalty`와 다르다).
+- **AI** (`aiWantsUltimate` — `ai.decideDefense`가 이미 부른다): **line 2 수비**(= 상대의 파이널 서드, 우리 최종 수비 라인) 또는 남은 포제션 ≤ 2. line 0 · 1에서는 쓰지 않는다 (게이지를 아낀다).
+- **사람**: 수비 결정에서 스킬 줄의 필살기 버튼 → `{ action: "tackle", ultimate: true }`. 호환 액션 = 수비 3종 (`ultCompatible`, K4). 미리보기 기대 % (`expectedMap(applyUlt(...))`)에 반영된다.
+- 이벤트: `cutin` (`ultimateType: "defense"`). 막아도 따로 연출은 없다 (보통 수비 성공 연출 + 컷인).
+- 게이지: 수비 성공 +`onDuelWin` (지금 규칙 — 필살기를 쓴 듀얼에서는 얻지 않는다).
+
+### 19.6 E3 · 팀 필살기 (`type: "team"`)
+
+- **쓸 수 있을 때**: 그 선수가 이번 듀얼의 참가자 (공격 = 공 가진 선수, 수비 = 막는 선수 · GK), 역할 · line 상관없음. **팀당 포제션마다 1번** — `state.possessionFx[side].teamUlt`(skillId)가 있으면 사유 "이번 포제션에 이미 사용". 함성과는 곱으로 쌓인다.
+- **효과 (미리보기 = 실제가 되게 두 단계)** [구현 결정]:
+  1. **이번 듀얼**: `computeOdds`가 `fx.ult.type === "team"`이면 그쪽(공격 att / 수비 def)에 ×`teamMult` (칩 "불꽃 호령 ×1.08").
+  2. **판정 뒤** (`step`, 주사위 다음): `possessionFx[side].teamMult *= teamMult`, `teamUlt = skillId` → 남은 포제션 동안 그 팀의 모든 판정(공격 · 수비)에 붙는다. 포제션이 끝나면 지금처럼 리셋된다. 1번은 커밋한 fx로만, 2번은 판정 뒤에만 해서 이번 듀얼에 두 번 곱하지 않는다.
+  3. **체력**: 판정 뒤 팀 전원 `+teamStamina` (상한 `staminaMax`). 판정 전에 올리면 이번 듀얼의 체력 배율이 미리보기와 달라진다.
+- 수비 쪽에서 쓰면 "이번 포제션" = 상대 공격 포제션 (함성과 같은 뜻 — 막으면 포제션이 끝나 효과도 끝난다).
+- **AI**: 그 팀이 **지고 있을 때** (`scoreDiffFor(state, side) < 0`) 또는 남은 포제션 ≤ 2. 그 선수가 참가하는 듀얼이 오면 바로 쓴다.
+- **사람**: 공격 · 수비 결정 모두 버튼이 뜬다. 호환 액션 = 전부.
+- 이벤트: `cutin` (`ultimateType: "team"`), 판정 이벤트 뒤 정보 이벤트 `type: "teamUlt"` 텍스트 "팀 판정 ×1.08 (이번 포제션) · 체력 +15" (화면은 로그 한 줄).
+
+### 19.7 E4 · 필살 드리블 (`type: "dribble"`)
+
+- **쓸 수 있을 때**: `role attack`, `line ≤ 2`, `action ∈ {dribble, null}`. 사유 "드리블과 함께만" · "박스에서는 드리블 없음".
+- **효과**: 드리블 ×`attack` (칩). `negateRead`면 상대 짝 맞힘 ×1.0 (드리블에만). `noStamina`면 성공 시 드리블 체력 0. `extraLine`이면 성공 시 한 구역 더 (`applyUlt` → `fx.extraLine` — 라인 브레이커와 같은 처리: line 2에서 쓰면 박스 도착 + 원터치 + `extraLineShot` 슛 +20%).
+- **미리보기**: `getMatchView`의 `outcomesBySkill` · `receiverPreviewBySkill`에 **필살기 skillId 키**로 드리블 결과(도착 구역)가 들어간다 — 지금 필살 패스가 쓰는 자리와 같다. 그래서 화면 화살표가 "두 구역 전진"을 보여 준다.
+- **AI**: 드리블을 고른 듀얼이면 (성향에 필살 배율이 들어가 드리블이 1위가 되면) 준비됐을 때 쓴다 — 필살 슛과 같은 "준비되면 사용" 규칙. line 0의 DF(코니)도 쓴다.
+- 막히면 역방향 컷인 "철벽 블록!" (§19.3 8번).
+
+### 19.8 E5 · 컷인 대사 · 등급별 컷인 길이
+
+- **엔진**: `cutin` 이벤트에 `line: ultimate.cutinLine`, `tier: ultimate.tier`를 싣는다. `combo` 이벤트는 그대로 (두 컷인이 각자 `line`을 가진다). `getMatchView().ultimateOptions[]`에 `tier` · `cutinLine` (버튼 title용). 판정에는 쓰이지 않는다.
+- **화면** (`screens/match.js` 컷인 카드 · `css/match.css`, K4):
+  - 컷인 띠 글자: 작은 줄 "실루엔 · 필살 패스"(지금) → 큰 이름 "바람의 실"(지금) → **대사 `.cut-line`** "“바람이 길을 알려 줄 거야.”" (16px, 흰색 85%, 한 줄 ellipsis — 1280 폭에서 24자는 넘치지 않는다).
+  - 등급 클래스 `.cut.tier-R` · `.tier-SR` · `.tier-SSR`. R은 띠 위아래 여백 24 → 14px, 얼굴 88 → 64px, 이름 34 → 26px. SR은 얼굴 76px · 이름 30px. SSR은 지금 그대로.
+  - **길이** (`T` 상수, 배속 비례 그대로 — 2x · 4x는 지금 비율):
+
+    | 등급 | 경기 첫 필살기 (차지 + 컷인) | 그 뒤 | 이유 |
+    |---|---|---|---|
+    | SSR | 0.4 + 1.0초 | 0.3 + 0.9초 | 지금 그대로 |
+    | SR | 0.3 + 0.8초 | 0.25 + 0.7초 | |
+    | R | 0.2 + 0.6초 | 0.15 + 0.5초 | "짧은 컷인" — 한 경기 필살기가 팀당 5 ~ 8번이 된다 (§19.16 예상) |
+
+    "경기 첫 필살기"는 지금처럼 그 경기의 첫 `cutin` 하나뿐이다 (등급과 상관없이). 합체기(두 컷인 1.0초씩 + 이름 1.1초)는 그대로.
+- 옛 경기 저장본 이벤트에 `line` · `tier`가 없으면 대사 줄을 그리지 않고 SSR 길이로 그린다 (지금처럼 보인다).
+
+### 19.9 L46 · 주장 겹치지 않음
+
+- **경기** (`match.teamworkAmp`): `tw += Σ teamworkPlus` → **`tw += max(teamworkPlus)`** (경기장 선수 중 가장 큰 값 하나). 지금 데이터 · 상대 · 도전 샘플에는 주장이 둘인 팀이 없어 K1에서 결과가 같다.
+- `data/traits.json` 주장 `description` → "팀워크 증폭 단계를 계산할 때 팀워크 +10 (주장이 여럿이어도 1명분)", `labels.js` 특성 설명도 같게. `params` · `amp`는 그대로 (`DEFAULT_TRAITS` 비교 테스트 그대로).
+- **그 밖에 주장 효과가 있는 곳**: 코드 검색상 `teamworkPlus`는 `match.teamworkAmp` 한 곳뿐이다. 레슨의 주장 **모양**(주인 구역 전원 · 팀워크 +2, §16)은 그 주장의 고유 카드를 **낼 때**의 효과라 경기장에 둘이 있다고 저절로 겹치지 않는다 → 두 주장의 카드는 각자 그대로 낸다 [구현 결정 — §19.18 Q3로 묻는다].
+- **화면** (K4): 편성 화면 공명 줄 · 경기 전 준비 왼쪽 칸에 주장이 2명 이상이면 칩 "©️ 주장 2명 — 팀워크 +10은 1명분". 경기 화면은 바꿀 것이 없다.
+
+### 19.10 필살기 16개 (+ 상대 보스 2개)
+
+판정 비율 = §19.2의 주 배율. 수치 · 이름 · 대사는 모두 [가정] (밸런스는 나중에 한 번에).
+
+| 선수 (등급 · 포지션) | 필살기 id · 이름 | 종류 | 인자 | 판정 비율 · 추가 → 상한 | AI 사용 | `cutinLine` |
+|---|---|---|---|---|---|---|
+| 네리아 (SR · GK) | `sk_high_tide` 만조의 장벽 | save | `saveMult 1.6` | 1.6 · 0 → SR ✓ | 지금 save 규칙 (line 3, 동점 · 열세 · 남은 ≤ 3 · 게이지 가득) | 파도야, 골문을 지켜 줘. |
+| 도르비나 (SR · DF) | `sk_mountain_wedge` 산맥 쐐기 | defense | `defense 1.6, noMissPenalty` | 1.6 · 1 → SR ✓ | line 2 수비 | 여기서부터는 산이다. |
+| 아델린 (R · DF) | `sk_flame_command` 불꽃 호령 | team | `teamMult 1.08, teamStamina 15` | 1.08 / 듀얼 (포제션 3듀얼 ≈ 1.26) · 1 → R ✓ | 지고 있을 때 | 다들, 아직 안 끝났어! |
+| 실루엔 (SSR · MF) | `sk_wind_thread` 바람의 실 (그대로) | pass | `attack 1.5, negateRead, nextDuelBonus 0.5, receiverGauge 50` | 1.5 · 3 → SSR (pass 예외) ✓ | 등록 짝 · 박스로 | 바람이 길을 알려 줄 거야. |
+| 타리아 (R · MF) | `sk_lightning_dash` 번개 질주 | dribble | `attack 1.3, noStamina` | 1.3 · 1 → R ✓ | 드리블을 고르면 | 아직 한참 더 뛸 수 있어! |
+| 울리카 (SR · FW) | `sk_prairie_gale` 초원의 질풍 | pass | `attack 1.5, negateRead` | 1.5 · 1 → SR ✓ | 박스로 (크로스는 늘 박스) | 따라올 수 있으면 와 봐! |
+| 그레타 (SSR · FW) | `sk_meteor_shot` 메테오 슛 (그대로) | shot | `shoot 2, gkMult 0.7, boxShot, stamina 10` | 2.86 · 1 → SSR ✓ | 준비되면 (line ≥ 2) | 땅이 먼저 울릴 거야. |
+| 미르카 (R · MF) | `sk_alley_cat_step` 골목 고양이 스텝 | dribble | `attack 1.25, negateRead` | 1.25 · 1 → R ✓ | 드리블을 고르면 | 힘으로는 못 잡아, 냐. |
+| 헤르타 (SSR · GK) | `sk_earth_palm` 대지의 손바닥 | save | `saveMult 2, sureDistribution` | 2.0 · 1 → SSR ✓ (합체기 없음 — GK) | save 규칙 | 전원 앞으로! 공은 내가 보낸다. |
+| 브론테 (SSR · FW) | `sk_thunderbolt` 낙뢰 | shot | `shoot 1.8, gkMult 0.6, minLine 3, stamina 10` | 3.0 · 0 → SSR ✓ + 합체기 2개 | 준비되면 (박스만) | 번쩍— 이미 들어갔어. |
+| 나엘리스 (SR · DF) | `sk_deep_current` 심해 물길 | pass | `attack 1.5, actions ["pass"], extraLine` | 1.5 · 1 → SR ✓ + 합체기 1개 | 등록 짝 · 박스로 · 한 구역 더 갈 때 | 거리, 계산 끝났어요. |
+| 코니 (R · DF) | `sk_moon_hop` 달토끼 도약 | dribble | `attack 1.2, extraLine` | 1.2 · 1 → R ✓ | 드리블을 고르면 | 무, 무서워도 뛴다! |
+| 온디나 (SR · MF) | `sk_rapids` 급류 | dribble | `attack 1.6, negateRead` | 1.6 · 1 → SR ✓ | 드리블을 고르면 | 흐르는 물은 못 막아. |
+| 리시엘 (SR · MF) | `sk_lightning_arrow` 뇌전 화살 | pass | `attack 1.5, actions ["cross"], nextDuelBonus 0.3` | 1.5 · 1 → SR ✓ + 합체기 2개 | 크로스면 (늘 박스) | 과녁은 저 머리 위. |
+| 카밀라 (R · FW) | `sk_sky_header` 하늘 가르기 | shot | `shoot 1.3, minLine 3, headerMult 1.1` | 1.3 (헤더 1.43) · 1 → R ✓ | 준비되면 (박스만) | 공중볼은 전부 내 거야! |
+| 힐디 (R · FW) | `sk_forge_finish` 담금질 일격 | shot | `shoot 1.3, gkMult 0.9, minLine 3` | 1.44 · 0 → R ✓ | 준비되면 (박스만) | 이건 내 최고 작품이야. |
+| (상대) 엠버스론 FW | `sk_boss_strike` 업화의 일격 | shot | 그대로 + `tier SSR` | 2.86 | 그대로 | 다 태워 버려! |
+| (상대) 엠버스론 GK | `sk_boss_save` 불꽃 장벽 | save | 그대로 + `tier SSR` | 2.0 | 그대로 | 불꽃이 골문을 막는다. |
+
+- 새 필살기 공통: `kind "unique"`, `learnable false`, `cost 0`, `tension 0`, `positions null` (GK 필살기 2개는 `["GK"]`), `passive null`, `active null`.
+- `description` (스킬 목록 · 버튼 title): 종류 머리 + 효과. 예 "필살 수비: 이번 수비 ×1.6, 짝이 빗나가도 ×0.8 페널티 없음" · "팀 필살기: 이번 포제션 동안 팀 판정 ×1.08, 판정 뒤 팀 전원 체력 +15" · "필살 드리블: 이번 드리블 ×1.2, 성공하면 한 구역 더 전진" · "필살 세이브: 이번 세이브 ×2, 막으면 롱패스 배급 확정" · "필살 슛: 박스 슛 ×1.8, GK ×0.6 (체력 −10)" · "필살 패스: 이번 크로스 ×1.5, 받은 선수 다음 듀얼(헤더) +30%".
+- **브리프에서 고친 것** (등급 상한에 맞춤 — 모두 [가정], §19.18 Q2):
+
+  | 선수 | 브리프 | 이 계획 | 이유 |
+  |---|---|---|---|
+  | 울리카 | 패스 · 크로스 ×1.3 + 짝 무효 | ×1.5 + 짝 무효 | SR ≈ ×1.6 (×1.3은 R 수준) |
+  | 온디나 | 드리블 ×2 + 짝 무효 + 체력 소모 없음 | ×1.6 + 짝 무효 | SR 상한 (배율 ≤ 1.7 · 추가 1개) |
+  | 리시엘 | 크로스 ×1.5 + 짝 무효 + 받은 선수 헤더 + | ×1.5 + 받은 선수 다음 듀얼 +30% | 추가 1개 — "머리 위 한 점"의 헤더 쪽을 남겼다 |
+  | 카밀라 | 슛 ×1.7 | 박스 슛 ×1.3, 헤더면 ×1.1 더 | R 상한 · 타깃맨 (공중볼) |
+  | 힐디 | 슛 ×1.4, GK ×0.5 | 박스 슛 ×1.3, GK ×0.9 | R 상한 |
+  | 아델린 · 타리아 · 미르카 · 도르비나 · 나엘리스 | 종류만 정함 | 위 표 | 새 종류 (E2 ~ E4)에 맞춤 |
+- 필살기에서 빠지는 옛 고유 6개는 §19.12 ②.
+
+### 19.11 합체기 5개 (`data/combos.json`, a = 필살 패스 → b = 받은 선수의 필살기)
+
+| a (패스) | b (받은 선수) | 이름 | 어디서 나오나 |
+|---|---|---|---|
+| 실루엔 바람의 실 | 그레타 메테오 슛 | **바람의 유성** (그대로, 목록 맨 앞 — 테스트가 `combos[0]`을 본다) | 파이널 서드 · 박스 |
+| 실루엔 바람의 실 | 브론테 낙뢰 | **풍뢰일섬** | 박스로 들어가는 패스 · 박스 연결 (낙뢰는 박스만) |
+| 나엘리스 심해 물길 | 브론테 낙뢰 | **뇌우** | MF 자리 나엘리스의 line 1 → 3 패스, 또는 line 2 → 3 |
+| 리시엘 뇌전 화살 | 카밀라 하늘 가르기 | **하늘 과녁** | 크로스 → 헤더 (×1.1 · 합체기 ×1.2) |
+| 리시엘 뇌전 화살 | 그레타 메테오 슛 | **뇌명 유성** | 크로스 → 헤더 |
+
+- 합체기 보너스 `comboBonus` 1.2 (config 그대로), 받은 선수 게이지는 쓰지 않는다 (지금 그대로).
+- 등록되지 않은 짝 예: 울리카 초원의 질풍 → 그레타 = 합체기 없음 (그레타는 게이지 +35, 게이지가 차 있으면 자기 메테오 슛). [가정] — 기획자가 짝을 더하면 `combos.json` 한 줄이다.
+- 데이터 테스트: a는 `type pass`, b는 받은 뒤 공격에서 쓸 수 있는 종류 (shot · pass · dribble · team), 같은 (a, b) 중복 없음, 이름 1 ~ 8자, SSR 필드 선수(헤르타 제외)는 a나 b로 1번 이상.
+
+### 19.12 데이터 변경 (K2)
+
+**① `characters.json`** — 초안 8명을 그대로 뒤에 붙인다 (헤르타 · 브론테 · 나엘리스 · 코니 · 온디나 · 리시엘 · 카밀라 · 힐디 순, id · 스탯 · 성장률 · 적성 · 특성 · 색 · 소개 그대로). 기존 6명 `innateSkillId`:
+
+| id | 지금 | 바뀐 뒤 |
+|---|---|---|
+| `ch_spirit_keeper` 네리아 | `sk_tide_wall` | `sk_high_tide` |
+| `ch_dwarf_wall` 도르비나 | `sk_iron_tackle` | `sk_mountain_wedge` |
+| `ch_human_captain` 아델린 | `sk_captain_call` | `sk_flame_command` |
+| `ch_human_runner` 타리아 | `sk_tireless` | `sk_lightning_dash` |
+| `ch_wolf_winger` 울리카 | `sk_line_breaker` | `sk_prairie_gale` |
+| `ch_cat_trickster` 미르카 | `sk_feint` | `sk_alley_cat_step` |
+
+- 이름 · 대사 · 소개는 여성형 규칙 그대로 (초안이 이미 맞춤). 스탯 합: SSR 1,420 · 1,380 / SR 1,210 · 1,190 · 1,160 / R 960 · 990 · 970 (GDD 7.1 가이드 안). A 적성은 모두 1개 (run.test 검사 그대로 통과).
+- 16명이면 같은 원소 3명 공명이 가능해진다 (물 · 번개 · 땅 · 바람 · 불 모두 3명 이상). 기본 편성은 그대로 공명 없음.
+
+**② `skills.json`** — 새 필살기 14개 (§19.10), 기존 필살기 4개(바람의 실 · 메테오 슛 · 보스 2개)에는 `tier` · `cutinLine`만 더한다. 옛 고유 6개는 **id · 효과 그대로** 두고:
+
+| id | 바뀌는 것 | 레슨 런에서 얻는 곳 |
+|---|---|---|
+| `sk_tide_wall` 밀물의 벽 (GK 세이브 +15%) | `learnable: true`, `cost 180`, `positions ["GK"]` | 학자 이레네 힌트 → 상담 SP (패시브) |
+| `sk_captain_call` 주장의 외침 | `learnable: true`, `cost 140` | 음유시인 루미 힌트 → 상담 |
+| `sk_tireless` 지치지 않는 다리 | `learnable: true`, `cost 120` | 수행자 한나 힌트 → 상담 |
+| `sk_feint` 고양이 페인트 | `learnable: true`, `cost 100`, `positions ["FW","MF"]` | 거리의 조이 힌트 → 상담 |
+| `sk_iron_tackle` 철의 태클 (액티브) | `learnable: true`, `cost 130`, `positions ["DF","MF"]` | 주장 바르바라 → **코치 수업** (§18) |
+| `sk_line_breaker` 라인 브레이커 (액티브) | `learnable: true`, `cost 140`, `positions ["FW","MF"]` | 무희 셀리아 → **코치 수업** |
+
+- `cost`는 옛 런 상점과 레슨 상담(패시브)이 쓰는 SP다. 액티브의 `cost`는 레슨 런에서 쓰이지 않는다 (옛 런용). 수치 [가정] — 효과 대비 기존 패시브 가격에 맞췄다 (침착한 수문장 +8% = 150 → 밀물의 벽 +15% = 180).
+- 액티브 텐션(철의 태클 30 · 라인 브레이커 35)과 v05 텐션 표는 그대로.
+
+**③ `supports.json` `hintSkillIds`** (뒤에 하나씩 붙인다 — 힌트 뽑기 결과가 바뀌어 레슨 시뮬 값이 조금 달라진다):
+
+| 코치 | 지금 | 더하는 것 |
+|---|---|---|
+| 주장 바르바라 | 바위 방벽 · 잠금 수비 · 캐논 킥 | + 철의 태클 |
+| 무희 셀리아 | 폭발 드리블 · 마지막 힘 · 꿰뚫어보기 | + 라인 브레이커 |
+| 학자 이레네 | 스루 패스 · 침착한 수문장 · 꿰뚫어보기 | + 밀물의 벽 |
+| 음유시인 루미 | 함성 | + 주장의 외침 |
+| 수행자 한나 | 큰 경기 체질 · 마지막 힘 | + 지치지 않는 다리 |
+| 거리의 조이 | 파워 슛 · 언더독 정신 | + 고양이 페인트 |
+
+- "SP 패시브 풀"은 §18.5 기본값("편성 코치 힌트를 받은 패시브")이 그대로이므로 **패시브 4개는 코치 힌트를 거쳐 상담 진열에 들어온다**. §18.10 Q1(진열 기준)이 정해지면 4개도 그 규칙을 따른다.
+- 오르넬라 · 하르나는 그대로.
+
+**④ `combos.json`** — §19.11 5개.
+
+**⑤ `traits.json`** — 주장 `description`만 (§19.9).
+
+**⑥ `cards.json` 고유 +8장** (version 2 그대로, 68 → **76장**). 모양은 주인 특성에서 온다 (§16 — 카드에 모양 키 없음). 수치는 같은 특성 카드와 같게 (§16.2 ③ 권장), 피니셔는 §16.6 참고값 30 (38). 위력 손잡이만 K3가 §16.11 띠로 보정한다.
+
+| id | 이름 | 주인 (특성 → 모양) | 위력 (강화) | 효과 (강화) | `desc` |
+|---|---|---|---|---|---|
+| `cd_u_herta` | 골문 앞 허들 | 헤르타 (주장 → 주인 구역 전원 · 팀워크 +2) | 19 (24) | 체력 전원 +3 (+5) | 주인 구역 전원 · 1인 19, 팀워크 +2, 체력 +3 |
+| `cd_u_bronte` | 번개 원터치 | 브론테 (피니셔 → 마무리 · 슈팅 ×2) | 30 (38) | — | 마무리 · 1인 30, 슈팅 구역이면 ×2 |
+| `cd_u_naelis` | 물길 롱패스 | 나엘리스 (킬패스 → 연결 · 고른 선수 ×1.5) | 20 (25) | — | 연결 · 1인 20, 고른 선수 ×1.5 |
+| `cd_u_coni` | 토끼굴 오버래핑 | 코니 (침투 → 자리 옮기기 ×1.3) | 33 (41) | 다음 턴 손패 +1 (+2) | 자리 옮기기 · 1인 33, 옮긴 구역에서 ×1.3, 다음 턴 손패 +1 |
+| `cd_u_ondina` | 물살 타기 | 온디나 (볼 운반 → 가로지르기) | 25 (31) | 추가 사용 +1, 주인 체력 −5 (강화: −5 없음) | 가로지르기 · 1인 25, 두 구역 스탯, 추가 사용 +1, 주인 체력 −5 |
+| `cd_u_risiel` | 과녁 크로스 | 리시엘 (크로서 → 크로스 · 팀워크 +1) | 28 (35) | — | 크로스 · 1인 28, 슈팅 구역 1명과, 팀워크 +1 |
+| `cd_u_camila` | 공중볼 경합 | 카밀라 (타깃맨 → 둘레 중간 원 · 주인 ×1.5) | 20 (25) | 다음 카드 비용 0 (강화: + 주인 체력 +10) | 주인 둘레 중간 원 · 1인 20, 주인 ×1.5, 다음 카드 비용 0 |
+| `cd_u_hildi` | 담금질 슈팅 | 힐디 (피니셔 → 마무리 · 슈팅 ×2) | 30 (38) | — | 마무리 · 1인 30, 슈팅 구역이면 ×2 |
+
+- 공통: `family "unique"`, `start false`, `pool false`, `target {kind: "owner"}`, `costRate 0.4`, `mods {}`, `exhaust false`, `ownerCharId`. 비용은 `roundCost(위력 × 0.4)` (데이터에 적지 않는다 — 엔진 계산). `descPlus`는 같은 꼴로 강화 수치. 문구 머리 · 배율 마디는 U3 `effectDesc` · `shapeDesc` 규칙이 그대로 떼어 낸다 (마무리는 남는 말이 없어 쓰는 법 한 줄 "브론테 · 슈팅 구역이면 ×2").
+- 리시엘 과녁 크로스는 울리카 크로스와 같은 "슈팅 구역에 받을 선수가 없으면 낼 수 없다" 문제를 그대로 가진다 (§16.4 · §16.14 U2 — 기획자 답 전에는 그대로).
+- 덱: 편성 7명의 고유 카드만 들어간다 (지금 규칙). 새 8명을 쓰지 않으면 레슨은 지금과 같다.
+
+### 19.13 저장 이행 (`lessonRun.version` 3 → 4, K3)
+
+- `RUN_VERSION` 3 → **4**, `SAVE_VERSIONS = [1, 2, 3, 4]`, `isLessonRun`은 4만 참. `store.LESSON_RUN_VERSION` · `LESSON_RUN_SAVE_VERSIONS` 사본도 (outgame.test가 비교한다).
+- `canMigrateLessonRun(s)`: 4 → 참, **3 → 늘 참** (레슨 · 보상 · 경기 전 준비 중이어도 — 레슨 상태는 고유 스킬을 읽지 않는다), 2 · 1 → 지금 규칙 (2 → 3 → 4로 이어서).
+- `migrateLessonRun(s, data)` 3 → 4 (in-place, 멱등):
+  1. 선수마다 `charId`로 `data.characters`를 찾아, `innateSkillId`가 그 캐릭터의 `innateSkillId`와 다르면 바꾼다 (**옛 고유 → 새 필살기**). 캐릭터를 찾을 수 없으면 그대로.
+  2. 바뀐 옛 스킬은 사라진다 — `learnedSkillIds`에 넣지 않고 SP 보상도 없다 [가정, §19.18 Q6]. 옛 고유는 배울 수 없는 스킬이었으므로 습득 목록 · 힌트에 남은 것이 없다.
+  3. `learnedSkillIds`에 새 필살기 id가 있으면 지운다 (방어 — 생길 수 없다).
+  4. 로그 한 줄 "저장본 이행: 고유 스킬 → 필살기 (n명)" (n > 0일 때).
+  5. `version = 4`.
+- **진행 중인 경기 저장본**(`KEYS.match`)은 옮기지 않는다 — 경기 상태가 선수 `skillIds`를 복사해 두어 옛 스킬로 끝까지 진행된다 (옛 스킬 id는 `skills.json`에 남아 있다). E1 때문에 그 경기의 합체기는 등록된 짝만 생긴다.
+- **등록 팀 · 도전 모드 저장본**은 그대로 (만들 때 복사한 스냅샷 — §2.2 · GDD #71과 같은 원칙).
+- `data` 없이 부르면 v3는 3 그대로 (§18.12 S1과 같은 방식 — `app.js continueRun`은 이미 `data`를 넘긴다).
+- rng · 결정성: 이행은 rng를 쓰지 않는다.
+
+### 19.14 UI (1280×720 · 915×412 터치, 스크롤 · 잘림 없음, K4)
+
+**① 편성 화면 (`setup.js` · `lineup.js` · `css/outgame.css`)**
+
+```
+├ 상단 바 (그대로) ──────────────────────────────────────────────────────────────────────┤ y 0–58
+├ 포메이션 · 배치 (x 16–902, y 66–약 452) ──────────────┬ 코치 6/6 (그대로) ─────────────────┤
+│ 필드 (높이 364 → 약 300, 슬롯 카드 3줄 그대로)          │ 전술 지시 (그대로)                   │
+│ 공명 줄 + 주장 2명 칩                                   │ 훈련 방침 (그대로)                   │
+├ 선수 16명 — 필드 7/7 · 벤치 9 (x 16–1264, y 약 460–708) ────────────────────────────────┤
+│ 1줄: 필드 7장 (슬롯 순서) + 벤치 1장                                                      │
+│ 2줄: 벤치 8장 (레어도 SSR → SR → R)                                                       │
+```
+
+- 선수 풀 = **2줄 × 8장** (카드 약 148 × 112px, 간격 6). 순서: 필드 선수(슬롯 순서) → 벤치(레어도 SSR → SR → R, 같으면 데이터 순서) [구현 결정]. 지금 카드 4줄(이름 · 레어도 · 원소 / 특성 / 적성)에 **필살기 칩** `.lu-ult` "✨ 낙뢰"(등급 색 `.rarity-SSR` 등, title = 종류 · 설명 · 대사)를 특성 칩 옆에 둔다. 둘이 한 줄에 안 들어가면 특성은 아이콘만 보이고 이름은 title로.
+- 오른쪽 칸(코치 · 전술 · 방침)은 높이를 줄이지 않는다 — 필드 칸만 줄인다. 1-3-2(MF 3장)도 필드 높이 안에 슬롯이 들어가는지 shot으로 본다.
+- 필드 슬롯 카드: 지금 3줄 그대로, title에 필살기.
+- 공명 줄: 주장 2명이면 "©️ 주장 2명 — 팀워크 +10은 1명분" (§19.9). 공명은 지금 계산 그대로 보여 준다.
+- **선수 고르기 모달** (`openSlotPicker`): `.pick-grid.cols-4` — **4열 × 4줄**, 버튼 `.char-pick` 압축판 (얼굴 sm, 3줄: 이름 · 레어도 · 배지 / 종족 · 원소 · 스타일 · 스탯 합 / 적성 · 특성 · ✨필살기). 모달 높이 ≤ 680 (머리 · 안내 · 그리드 · 슬롯 비우기). 정렬은 지금 그대로 (그 슬롯 적성 순).
+- `outgame.test`의 "선수 풀 = 캐릭터 전원" · "벤치 = 캐릭터 − 7" · "모달 = 전원"은 `data.characters.length`를 읽으므로 그대로 통과해야 한다.
+
+**② 미팅 · 경기 전 준비 (`meeting.js` · `prep.js`)** — 7명 그대로. 슬롯 카드 이름 옆 작은 "✨" (등급 색, title = 필살기 이름 · 종류 · 설명). 준비 왼쪽 칸 아래 주장 2명 칩 (있을 때). 레슨 · 주 화면 · 명단 · 외출(7명 중 1명)은 바꾸지 않는다.
+
+**③ 경기 화면 (`screens/match.js` · `css/match.css` · `labels.js`)**
+
+- `L.ULT_TYPE_LABELS`에 `dribble: '필살 드리블'`, `defense: '필살 수비'`, `team: '필살 호령'`.
+- 스킬 줄 필살기 버튼의 호환 액션 `ultCompatible(u, action)`: shot = 슛, pass = `u.actions` 안 (없으면 패스 · 크로스), dribble = 드리블, defense = 태클 · 인터셉트 · 버티기, team = 전부. 수비 결정에서도 필살기 버튼이 뜬다 (save는 지금처럼 "GK 세이브에서 자동 발동").
+- 버튼 title에 대사 · 등급. 버튼 글자에 등급 칩은 넣지 않는다 (줄이 좁다 — `.skill-row.many`가 이미 칸을 숨긴다).
+- 결정 카드 미리보기: dribble `extraLine`은 `outcomesBySkill[ultId]`로 "두 구역 전진" 화살표 (라인 브레이커와 같은 그리기). 팀 필살기를 켜면 기대 %에 ×1.08이 반영된다 (엔진 `expectedPct`).
+- 컷인: §19.8. 합체기 이름 카드 그대로.
+- `boxComboName` 폴백 제거 (§19.4).
+- 역방향 컷인: 필살 드리블이 막히면 "철벽 블록!" (엔진 `reverseCutin.kind block`).
+- 정보 줄 · 로그: 팀 필살기 로그 줄. 배급 카드는 `distribution.sure`면 성공 확률 칸 "확정 (대지의 손바닥)", 실패 줄 숨김.
+- 토큰 게이지 링은 이제 7명 모두에게 그려진다 (지금 그리기 그대로 — 게이지가 있는 선수만 링). 겹침이 생기면 K4가 링 굵기만 줄인다.
+
+**④ 결과 화면** — 선수 줄 "고유 X" → "필살기 X".
+
+**⑤ 상담 · 수업**: 바뀌는 문구 없음 (패시브 4개 · 액티브 2개가 힌트로 들어올 뿐).
+
+**⑥ 스크린샷 시나리오** (`node tools/shot.mjs`, PNG를 직접 연다)
+
+| 이름 | 장면 | 볼 것 |
+|---|---|---|
+| `29_ult_defense` | 도르비나 line 2 수비 결정, 필살기 버튼 켬 | 버튼 · 기대 % · 칩 |
+| `30_ult_team_cutin` | 아델린 불꽃 호령 R 컷인 | 짧은 띠 · 대사 한 줄 · 잘림 없음 |
+| `31_ult_dribble_extra` | 코니 달토끼 도약 결정 (line 0 → 2 화살표) | 두 구역 미리보기 |
+| `32_combo_thunder` | 실루엔 → 브론테 풍뢰일섬 이름 카드 | 합체기 이름 · 두 이름 |
+| `33_save_sure_dist` | 헤르타 대지의 손바닥 뒤 배급 카드 | "확정" |
+| `34_cutin_sr_line` | 온디나 급류 SR 컷인 (상대 쪽 `side-away` 판 1장 더) | 대사 · 방향 |
+| `og_setup16` · `og_setup16_132` | 편성 기본 (16명 풀 2줄) · 1-3-2 | 카드 잘림 · 필드 슬롯 |
+| `og_setup_pick` | 슬롯 고르기 모달 16명 | 4열 · 스크롤 없음 |
+| `og_setup_captain2` | GK 헤르타 + 아델린 | 주장 칩 |
+| `og_setup16_touch` | 915×412 편성 | 터치 판 |
+| `og_prep_ult` | 경기 전 준비 (새 편성 A) | ✨ · 칩 |
+| `og_lesson_u_finish` | 브론테 마무리 조준 (§16.7 — U3에서 주인이 없어 못 찍은 장면) | 주인 빛 · "×2" |
+| `og_lesson_u_hand3` · `_hand4` | 새 고유 8장 앞면 (손패 주입 2장면) | 칩 · 아이콘 · 문구 |
+
+- 기존 01 ~ 28 · og_*는 모두 다시 찍는다 (기본 편성 7명 모두 필살기 → 게이지 링 · 스킬 줄 버튼이 는다 — 특히 16 · 17 스킬 줄, 20 · 21 외침, 22 차지).
+- `shot.mjs` 잘린 글자 검사에 `.cut-line` · `.lu-ult` · `.char-pick` 줄을 더한다.
+
+### 19.15 테스트
+
+**새 테스트 파일** `test/ultimates.test.mjs` (K1, `package.json` test 목록에서 `v05.test` 다음). 합성 팀(v05의 `team()` · `mk()`와 같은 방식)을 쓰고, 테스트용 필살기는 **데이터 사본**에 넣는다 (K1에서는 `skills.json`이 아직 그대로다):
+
+| 묶음 | 확인 |
+|---|---|
+| E0 | `ultimateErrors` (종류별 허용 키 · 모르는 키 · 배율 < 1 · `minLine` · `actions` · `tier` · `cutinLine` 길이) / `createMatch`가 잘못된 필살기를 막는다 / `receiverGauge` 기본 = `onReceive` / `minLine 3` 슛은 line 2에서 사유 "박스 슛에서만" · line 3에서 가능 / `headerMult`는 헤더에만 / pass `actions ["cross"]`는 패스에 쓸 수 없다 / pass `extraLine` 도착 = 한 구역 더 · `outcomesBySkill` = 실제 / `sureDistribution`: 세이브 → 배급 `p = 1` · 롱패스 판정 앞뒤 rngState가 같다 · 그다음 배급은 보통 |
+| E1 | 등록 안 된 짝: `comboReadyId` null · 게이지 +receiverGauge · 게이지가 차지 않았으면 다음 듀얼에 필살기 불가 / 등록된 짝: 지금 합체기 그대로 (이름 · ×1.2 · 소모 없음) / AI: 등록 안 된 필살기 보유자에게 가는 line 0 → 1 패스는 필살 패스를 쓰지 않음 · 등록 짝이면 씀 · 박스로면 씀 · 한 구역 더 가는 패스면 씀 / `receiverValue` · `boxReceiverValue` · `defaultFromPlan`이 등록 안 된 짝에 합체기 가치를 주지 않음 / `nextShotP` / 외침 ②는 등록 짝만 |
+| E2 | 수비 ×defense 칩 · `noMissPenalty` (빗나감 ×1.0) / line 3 · 공격 역할에서 사유 / AI: line 2 수비에서 씀 · line 0 · 1은 남은 > 2면 안 씀 / 사람 `{ action: "tackle", ultimate: true }` · 미리보기 % = 실제 p / 게이지 0 · 이벤트 `cutin` defense |
+| E3 | 이번 듀얼 ×teamMult (공격 · 수비 둘 다) · 판정 뒤 `possessionFx` · 그 포제션 다음 듀얼에 붙음 · 포제션이 끝나면 1 / 체력 +teamStamina는 판정 뒤 (판정 때 체력 배율 = 미리보기) / 포제션당 1번 사유 / AI: 지고 있을 때만 (동점 · 앞섬이면 남은 > 2에서 안 씀) / 이번 듀얼에 두 번 곱하지 않음 |
+| E4 | 드리블 ×attack · `negateRead` · `noStamina`(성공만) · `extraLine` (line 0 → 2, line 2 → 박스 + 원터치 + 슛 +20%) / 막히면 `reverseCutin.kind block` / A안 성향에 필살 배율이 들어가 드리블이 1위가 되는 픽스처 / 미리보기 = 실제 |
+| E5 | `cutin` 이벤트 `line` · `tier` / `ultimateOptions[].tier` · `cutinLine` |
+| L46 | 주장 2명 팀의 `teamworkAmp` = 주장 1명 팀 / 주장 0명은 그대로 |
+| 공통 | 결정성 (같은 seed → 같은 이벤트 · rngState) · JSON 왕복 · 뷰 · AI · 미리보기가 rngState를 바꾸지 않음 · 7명 모두 필살기(6종 섞음)인 팀 500판 `simulateAuto` 불변식 (게이지 0 ~ 100 · 체력 · 텐션 · p 범위 · NaN 없음) |
+
+**데이터 테스트** (K2 — `ultimates.test`에 더한다): 16명 모두 `innateSkillId` = `kind unique` 필살기 · 서로 다름 / `ultimate.tier` = 주인 캐릭터 `rarity` / §19.2 등급 상한 / §19.10 표 그대로 (id · 종류 · 인자 · 대사) / 합체기 5개 · §19.11 검사 / 옛 고유 6개 `learnable` · 코치 힌트 목록 (§19.12 ③) / 카드 76장 · 고유 16장 · 새 8장 표 (§19.12 ⑥).
+
+**고치는 테스트** (원인 → 고치는 법)
+
+| 파일 | 슬라이스 | 무엇 |
+|---|---|---|
+| `run.test` | K2 | 832-833 "캐릭터 8명 = `CHAR_TRAITS`" → 16명 표 (새 8명 특성을 더한다). 513 주석("8명 데이터에서는 공명 불가")만 고친다 (기본 편성은 여전히 공명 없음) |
+| `match.test` | K2 | 445 · 1140 "울리카 = 라인 브레이커" → 테스트 안에서 그 선수 `skillIds`에 `sk_line_breaker`를 넣는다 (라인 브레이커 동작 검사는 그대로) |
+| `layout.test` | K2 | 1066 라인 브레이커 편성 → 같은 방법 (주입) |
+| `v05.test` | K1 · K2 | K1: 그대로 통과해야 한다 (합성 팀 · 등록 짝). K2: 실제 스냅샷을 쓰는 테스트 (`a-plan` 90 · `many` 1146 · `box` 1739 · `ace` 1927 · `pen-dist` 2216 · `chips` 2231) 중 7명 모두 필살기가 되어 기대값이 바뀐 것은 **기대값이 데이터에서 나오게** 고친다 (고정 id · 횟수를 박지 않는다) |
+| `lessonRun.test` | K2 · K3 | 1414 "`sk_iron_tackle` 수업 불가 (learnable false)" → `sk_boss_strike`(필살기)로. 이행 테스트 v3 → v4 (K3) |
+| `cards.test` · `cardEffects.test` · `lesson.test` | K2 | 68 → 76장, 표에 8줄, 퍼즈 76장 |
+| `lessonLayout.test` | K2 · K4 | 382 고유 8장 → 16장 표 (새 8장 칩 · 아이콘 · 배율 칩 · 문구 · 비용) |
+| `outgame.test` | K3 · K4 | 저장 버전 사본 `[1, 2, 3, 4]`, 편성 2줄 · 모달 4열 · 필살기 칩 · 주장 칩 |
+| `ui.smoke` | K2 · K4 | 1119 라인 브레이커 버튼 (울리카) → 주입, 09 · 12 · 13 · 20 (합체기 · 외침) 장면이 데이터에서 나오게, 15주 완주 그대로 |
+| `manager.test` | K3 | 새 편성 A 15주 완주 (+ 결정성 · JSON 왕복) |
+| `lessonUi.test` | K2 | 힌트 목록이 늘어 시드에 기대던 상태 찾기 (클리어 보상 · 수업 · 상담 패시브)가 빗나가면 찾는 시드 범위만 넓힌다 |
+| `challenge.test` | — | 그대로 통과해야 한다 (샘플 팀 · 보스 그대로). 실패하면 원인을 §19.19에 적는다 |
+
+- 슬라이스 사이 규칙: 다음 슬라이스가 고칠 테스트는 `test.skip` + 주석 `k-pending:<슬라이스>`. K5 완료 조건은 `grep -rn "k-pending" test tools` 0건.
+- 테스트 수: 332 → K1 새 파일 약 +25, K2 데이터 약 +5, K3 약 +3 (정확한 수는 각 슬라이스가 §19.19에 적는다).
+
+### 19.16 시뮬
+
+**전 값 (이 커밋 = K0 — 엔진 · 데이터는 `78cc0d3`과 같다)**
+
+- 옛 런 경기 (`node tools/sim.mjs --runs 300 --seed 1`, 자동 A안, K0에서 잼): 목표 경기 승률 S1 / S2 / S3 = **80.0 / 59.7 / 38.3%** (전체 53.8%), 골 2.76 / 경기 (우리 1.49 · 상대 1.27), 필살기 / 경기 우리 **1.77** (보유자 2명, 보유자당 0.89) · 상대 보유자당 0.31, 필살 슛 / 패스 / 세이브 1.18 / 0.74 / 0.02, 필살 슛 골 84.2%, 합체기 **0.576** / 경기, 일반 액티브 3.34 / 1.04, 런당 패배 1.22, 평가 중앙값 B.
+- 레슨 런 (`npm run lesson-sim` = 방침 5 × 200런 · 경기 포함, §18.12 S3 최종): 경계전 승률 57 / 55 / 56 / 52 / 54% (ace / team / counter / press / poss), ace s1 / s2 / s3 = 83 / 53 / 35%. 이 도구는 경기당 필살기 수를 아직 세지 않는다 → K3가 지표를 더하고 **이 커밋을 `git worktree`로 다시 재서** 전 값을 채운다.
+- 도전 모드 (`node tools/challenge_sim.mjs`): K1이 전 값을 재어 §19.19에 적는다.
+
+**지표 추가** (K1 = `sim.mjs`, K3 = `lesson_sim.mjs` · `challenge_sim.mjs`)
+- 경기당 필살기 수 (우리 / 상대) — **종류별** (슛 · 패스 · 세이브 · 수비 · 호령 · 드리블), **등급별** (R · SR · SSR), 필살기 성공률 (쓴 듀얼을 이긴 비율), 합체기 수 **이름별**, 경기당 컷인 연출 시간 합 (1x 기준 초 — §19.8 길이표로 계산: 화면이 경기마다 얼마나 멈추나), 팀 필살기 배율이 붙은 듀얼 수, 확정 배급 수.
+- `lesson_sim --squad A` (새 편성 A = GK 헤르타 · DF1 나엘리스 · DF2 코니 · MF1 온디나 · MF2 리시엘 · FW1 브론테 · FW2 카밀라, 2-2-2 — 모두 적성 A) · `--squad B` (A의 FW2 = 힐디). 주장 2명 판은 지금 기능 `--slot GK=ch_giant_keeper` (기본 편성 + 헤르타 → 아델린과 주장 2명).
+
+**보고할 것** (수치는 바꾸지 않는다 — 기획자 방침)
+- K1 뒤: 옛 런 · 레슨 · 도전 시뮬의 **기존 지표가 전과 같다** (같은 seed — 엔진 수정이 지금 데이터에서는 동작을 바꾸지 않는다는 증거).
+- K2 뒤: 옛 런 sim 전 / 후 (기본 편성 7명 모두 필살기), 레슨 sim 전 / 후 (기본 편성), 도전 sim 전 / 후. 예상: 우리 필살기가 경기당 1.8 → 5 ~ 8회, 승률이 크게 오른다 (상대는 보스 2명만 필살기) — **보고만** 하고, 기획자에게 "상대 팀 필살기 · 게이지 수치"를 묻는다 (§19.18 Q4).
+- K3 뒤: 레슨 sim 4판 (기본 · 새 편성 A · B · 주장 2명), 새 고유 카드 8장 `--unique-report` (§16.11 표와 같은 꼴).
+
+**고유 카드 보정 (K3, §16.11 규칙 그대로)**: 손잡이 = 카드 `power` · `plus.power`(= round(×1.25))만. 띠 = 모양별 직접 상승 / 장 55 ~ 85, EV / 장 111 ~ 167 (§16.14 U2에서 위력이 원인이 아니라고 밝힌 EV 밑은 그대로 보고), 측정은 새 편성 A · B · 경기 없음 · 방침 5 × 80런. 최대 3번. 피니셔 2장(브론테 · 힐디)은 처음 실측이다.
+
+### 19.17 구현 슬라이스 (순서대로, 슬라이스 하나 = 에이전트 하나)
+
+공통 완료 조건:
+- `git branch --show-current` = `outgame-lesson`. main은 건드리지 않고, 푸시하지 않는다.
+- `npm test` 통과.
+- `git diff --stat 78cc0d3 -- js/engine/rng.js data/config.json js/engine/run.js js/engine/training.js js/ui/layout.js` 비어 있음.
+- 엔진 순수 · 결정적 (rng는 `state.rngState`로만, 미리보기 · 뷰 · AI는 rng 없음). UI 문구는 한국어.
+- 바뀐 점은 §19.19에 적고, 슬라이스마다 커밋한다 (경로 지정 `git add`, 메시지 끝 `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`).
+
+**K1 · 경기 엔진 E0 ~ E5 · 주장** (`skills.js` · `match.js` · `ai.js` · `test/ultimates.test.mjs` · `package.json` · `tools/sim.mjs` 지표)
+- 할 일: §19.2 검증, §19.3 ~ §19.9의 엔진 부분 (UI 제외). 데이터 파일은 바꾸지 않는다.
+- 완료 조건:
+  - `ultimates.test` 전부 + 기존 332개가 **테스트 파일을 고치지 않고** 통과.
+  - **같은 데이터 같은 결과**: K0과 K1에서 `node tools/sim.mjs --runs 300 --seed 1` · `node tools/lesson_sim.mjs --runs 40 --seed 1` · `node tools/challenge_sim.mjs`의 기존 지표가 같다 (`git worktree`로 K0을 따로 돌려 diff — 새로 더한 줄은 빼고 비교).
+  - `node tools/shot.mjs <dir> --only 0,1,2` (경기 01 ~ 28) 검사 통과.
+
+**K2 · 데이터** (`characters.json` · `skills.json` · `combos.json` · `supports.json` · `traits.json` · `cards.json` · 데이터 테스트 · 깨진 테스트 고치기)
+- 할 일: §19.12 전부, §19.15 데이터 테스트 · K2 행.
+- 완료 조건: `npm test` 통과 (`k-pending:K3|K4` 말고는 skip 없음), `validateUltimates` · `validateCardsData` · `validateShapeData` 통과, 시뮬 전 / 후 보고 (§19.16 K2 뒤 — 옛 런 · 레슨 기본 편성 · 도전), `node tools/shot.mjs` 01 ~ 28 · og 전체를 돌려 **실패 목록만** 적는다 (UI 고치기는 K4 — 단, 엔진 오류로 장면이 만들어지지 않으면 K2가 고친다).
+
+**K3 · 레슨 쪽 · 저장 · 보정** (`lessonRun.js` · `store.js` · 필요하면 `manager.js` · `lesson_sim.mjs` · `challenge_sim.mjs` · `cards.json` 위력 · 테스트)
+- 할 일: §19.13 v4 이행, `lesson_sim` `--squad A|B` · 필살기 지표, 새 고유 8장 보정 (§19.16), manager.test 새 편성 A 15주 완주, lessonRun 이행 테스트, outgame 버전 사본.
+- 완료 조건: v3 저장본(주 · 상담 · 보상 · 레슨 · 경기 전 준비 중)이 v4로 이어지고 `innateSkillId`가 새 필살기 · 멱등, v1 · v2 → v4, 새 편성 A · B 15주 완주 · 결정성 · JSON 왕복, 보정 표 전 / 후, 레슨 sim 4판 보고.
+
+**K4 · UI** (`screens/match.js` · `css/match.css` · `labels.js` · `setup.js` · `lineup.js` · `meeting.js` · `prep.js` · `result.js` · `css/outgame.css` · `css/lesson.css` · 새 고유 문구가 깨지면 `ui/cards.js` · 시나리오 · `shot.mjs` · UI 테스트)
+- 할 일: §19.14 전부 · §19.8 화면 · 새 장면 · 기존 장면 다시 찍기.
+- 완료 조건: `node tools/shot.mjs <dir>` **전체** (경기 01 ~ 34 · og 전체) 검사 통과 (스크롤 · 잘린 글자 · 겹침 · 상태 · 에러 0 — 17의 스킬 묶음 안쪽 스크롤은 지금처럼 의도), **PNG를 직접 연다** — 최소 29 ~ 34 · `og_setup16` · `_132` · `og_setup_pick` · `og_setup_captain2` · `og_setup16_touch` · `og_prep_ult` · `og_lesson_u_finish` · `og_lesson_u_hand3` · 16 · 17 · 20 · 22. jsdom: 편성 2줄 순서 · 모달 4열 · 필살기 칩 · 주장 칩 · 수비 결정 필살기 버튼 → `decision.ultimate` · 팀 필살기 버튼 (공격 · 수비) · 드리블 필살기 화살표 · 컷인 대사 · R 컷인 클래스.
+
+**K5 · 통합 · 문서**
+- 할 일: `tools/lesson_play.mjs` 실제 브라우저 판 — 새 편성 A 시즌 1 (1280×720, `--slot` 7개로 편성 화면에서 실제로 고르기) · 기본 편성 15주 완주 · 915×412 터치 시즌 1 (새 편성 A). 경기 화면은 자동 진행 그대로 (컷인 · 에러 0). 문서: ARCHITECTURE §20 (16명 · 필살기 6종 · E1 ~ E5 · 저장 v4 · 테스트 수 · shot 장수), README (16명 · 필살기 한 줄 · 테스트 수), OUTGAME_LESSON_draft 결정 L44 ~ L46, OUTGAME_CARDS_draft 고유 카드 16장 표, §19.19, 최종 시뮬 전 / 후 (K0 대비).
+- 완료 조건: `npm test` · shot 전체 통과, 브라우저 판 입력 실패 · 대상 불일치 · 에러 · 스크롤 0, `grep -rn "k-pending" test tools` 0건, 공통 diff 조건.
+
+순서 의존: K1 → K2 (엔진이 새 종류를 받아야 데이터가 검증을 지난다) → K3 (데이터 위에서 보정 · 이행) → K4 (뷰 계약이 고정된 뒤) → K5. K4는 K2 뒤부터 시작할 수 있지만 고유 카드 문구 확인은 K3 뒤에 한다. 배포(푸시)는 기획자 확인 뒤.
+
+### 19.18 [가정] · [구현 결정] · 기획자가 정할 것
+
+**[가정]**
+- §19.10의 필살기 수치 · 대사 · 이름 (새 이름 6개: 만조의 장벽 · 산맥 쐐기 · 불꽃 호령 · 번개 질주 · 초원의 질풍 · 골목 고양이 스텝), 브리프에서 고친 5명 (§19.10 아래 표).
+- 등급 상한 정의 (§19.2 — 주 배율 범위 · "추가" 목록).
+- 합체기 5개와 새 이름 4개 (풍뢰일섬 · 뇌우 · 하늘 과녁 · 뇌명 유성), 울리카 초원의 질풍은 합체기 없음.
+- 컷인 길이 R 0.2 + 0.6초 / SR 0.3 + 0.8초.
+- 옛 고유 6개의 SP `cost` · `positions` · 넣을 코치 (§19.12 ②③).
+- 새 고유 카드 8장 수치 = 같은 특성 카드 사본, 피니셔 30 (38).
+- 이행에서 옛 고유 스킬은 사라지고 보상이 없다.
+
+**[구현 결정]**
+- `ultimate.tier` · `cutinLine`을 스킬 데이터에 둔다 (캐릭터 `rarity`가 아니라 — 상대 보스 필살기도 같은 길로 간다). 데이터 테스트가 주인 레어도와 같은지 본다.
+- `receiverGauge` 기본 = `onReceive` (바람의 실은 50을 직접 적어 두어 그대로).
+- 위치를 바꾸는 필살 인자(`extraLine`)는 `applyUlt`에서 `fx.extraLine`으로 접는다 — 라인 브레이커와 같은 길.
+- 팀 필살기: 이번 듀얼은 fx로, 남은 포제션은 판정 뒤 `possessionFx`로 (두 번 곱하지 않음), 체력은 판정 뒤. 팀당 포제션 1번.
+- 필살 수비: line ≤ 2 필드 수비만, AI는 line 2.
+- 필살 드리블 AI = 드리블을 고르면 준비됐을 때 사용 (필살 슛과 같다).
+- AI 필살 패스에 "한 구역 더 가는 패스"를 더했다 (나엘리스).
+- 외침(표시 전용)은 shot · pass 필살기만.
+- 확정 배급은 롱패스 판정에서 rng를 부르지 않는다.
+- 레슨 주장 모양은 카드마다 그대로 (자동으로 겹치는 효과가 아니다).
+- 편성 풀 정렬 (필드 → 벤치 레어도 순), 모달 4열.
+- 도전 모드 샘플 팀 · 상대 팀 데이터는 그대로.
+
+**기획자가 정할 것**
+- **Q1. 헤르타(SSR GK)의 합체기** — 합체기는 "패스 → 받은 선수" 공격 연결이라 GK가 낄 자리가 없다. SSR 조건 "합체기"를 GK에서는 빼도 될지, 아니면 "대지의 손바닥 → 확정 롱패스 → 받은 MF의 필살기" 같은 배급 합체기를 새로 만들지.
+- **Q2. 브리프에서 고친 수치** (울리카 ×1.5 · 온디나 · 리시엘 · 카밀라 · 힐디) — 등급 상한을 지키느라 바꿨다. 그대로 둘지.
+- **Q3. 레슨의 주장 겹침** — 주장이 두 명이면 각자의 고유 카드(팀워크 +2)를 그대로 낼 수 있게 두었다. "레슨 한 번에 주장 모양 팀워크는 1명분만"처럼 막아야 하는지.
+- **Q4. 필살기 빈도 · 상대 팀** — 우리는 7명 모두 필살기, 상대는 보스 2명뿐이다. 승률이 크게 오를 것이다 (K2 보고). 상대 팀에도 필살기를 줄지, 게이지(시작 30 · 듀얼 승 +35)를 등급별로 나눌지는 밸런스 때 한 번에.
+- **Q5. 리시엘 과녁 크로스** — 울리카 크로스와 같은 "슈팅 구역이 비면 낼 수 없음" 문제 (§16.4 질문과 함께).
+- **Q6. 저장 이행** — 진행 중인 런의 6명이 옛 고유 스킬을 잃는다 (보상 없음). SP로 돌려줄지.
+
+### 19.19 구현 중 바뀐 것
+
+(K1 ~ K5가 채운다.)
