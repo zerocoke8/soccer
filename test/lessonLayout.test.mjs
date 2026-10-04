@@ -386,7 +386,7 @@ test("cards.js estimateCost/costText: 보상 · 상담 카드 비용 = 엔진 1�
     cd_u_adeline: ["구역 전원", "ownerZone", null, "팀워크 +2, 체력 +3"],
     cd_u_silluen: ["연결", "pick", "고른 쪽 ×1.5", ""],
     cd_u_taria: ["자리 옮기기", "move", "옮긴 구역 ×1.3", "다음 턴 손패 +1"],
-    cd_u_ulrika: ["크로스", "cross", null, "슈팅 구역 1명과, 팀워크 +1"],
+    cd_u_ulrika: ["크로스", "cross", null, "슈팅 구역 1명과 (없으면 드리블 구역), 팀워크 +1"],
     cd_u_greta: ["둘레 중간 원", "ownerCircle", "주인 ×1.5", "다음 카드 비용 0"],
     cd_u_mirka: ["가로지르기", "carry", null, "두 구역 스탯, 추가 사용 +1, 주인 체력 −5"],
     // §19.12 ⑥ 새 8장 — 피니셔(마무리)는 남는 말이 없어 쓰는 법 한 줄
@@ -395,7 +395,7 @@ test("cards.js estimateCost/costText: 보상 · 상담 카드 비용 = 엔진 1�
     cd_u_naelis: ["연결", "pick", "고른 쪽 ×1.5", ""],
     cd_u_coni: ["자리 옮기기", "move", "옮긴 구역 ×1.3", "다음 턴 손패 +1"],
     cd_u_ondina: ["가로지르기", "carry", null, "두 구역 스탯, 추가 사용 +1, 주인 체력 −5"],
-    cd_u_risiel: ["크로스", "cross", null, "슈팅 구역 1명과, 팀워크 +1"],
+    cd_u_risiel: ["크로스", "cross", null, "슈팅 구역 1명과 (없으면 드리블 구역), 팀워크 +1"],
     cd_u_camila: ["둘레 중간 원", "ownerCircle", "주인 ×1.5", "다음 카드 비용 0"],
     cd_u_hildi: ["마무리", "owner", "슈팅 ×2", ""],
   };
@@ -411,6 +411,7 @@ test("cards.js estimateCost/costText: 보상 · 상담 카드 비용 = 엔진 1�
     assert.ok(shapeHow(sh, "선수").length > 0, `${c.id}: 쓰는 법`);
   }
   assert.equal(shapeHow({ kind: "pick", recvMult: 1.5 }, "실루엔"), "실루엔 + 고른 1명");
+  assert.equal(shapeHow({ kind: "pick", onlyZones: ["shoot"], fallbackZones: ["dribble"] }, "울리카"), "울리카 + 슈팅 1명 (없으면 드리블)");
   assert.equal(shapeMultChip({ kind: "owner", zoneMult: { zones: ["shoot"], mult: 2 } }).text, "슈팅 ×2", "마무리 (피니셔 — 브론테 · 힐디)");
   assert.equal(effectDesc("큰 원 · 1인 12 + 분위기 1당 0.9"), "+ 분위기 1당 0.9");
   assert.equal(effectDesc("공격 구역 단일 · 1인 30, 탈취 스택당 +45%"), "탈취 스택당 +45%");

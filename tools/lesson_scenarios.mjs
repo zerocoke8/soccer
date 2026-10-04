@@ -330,7 +330,8 @@ const atZone = (prepared, z) => ({ x: prepared.info.centers[z].x, y: prepared.in
 /** 장면 배치 (슬롯 순서 GK · DF1 · DF2 · MF1 · MF2 · FW1 · FW2 = 네리아 · 도르비나 · 아델린 · 실루엔 · 타리아 · 울리카 · 그레타/미르카) */
 const Z_LINK = ["defense", "defense", "physical", "pass", "dribble", "shoot", "shoot"];
 const Z_CROSS = ["defense", "defense", "physical", "pass", "shoot", "dribble", "shoot"];
-const Z_CROSS_DEAD = ["defense", "defense", "physical", "pass", "pass", "shoot", "dribble"];
+const Z_CROSS_FALLBACK = ["defense", "defense", "physical", "pass", "pass", "shoot", "dribble"];
+const Z_CROSS_DEAD = ["defense", "defense", "physical", "pass", "pass", "shoot", "pass"];
 const Z_WALL = ["defense", "defense", "defense", "pass", "pass", "shoot", "physical"];
 const Z_ZONE = ["defense", "physical", "physical", "physical", "pass", "shoot", "dribble"];
 const Z_POST = ["defense", "defense", "pass", "shoot", "dribble", "shoot", "shoot"];
@@ -752,9 +753,19 @@ export const LESSON_OG_SCENARIOS = [
     expect: { screen: "run", phase: "lesson", modal: false },
   },
   {
-    // 크로스를 낼 수 없음: 슈팅 구역에 울리카 혼자 — 카드 흐림 + 이유 띠
+    // 크로스 대체 (L47): 슈팅 구역에 울리카 혼자 → 드리블 구역 바닥 빛 · 울리카 → 드리블 구역 그레타
+    name: "og_lesson_u_cross_fallback",
+    title: "레슨 — 크로스 대체: 슈팅 구역이 비면 드리블 구역 선수",
+    outgame: true,
+    build: (data, { runSeed }) => shapeScene("og_lesson_u_cross_fallback", data, runSeed, ["cd_u_ulrika"], Z_CROSS_FALLBACK),
+    steps: (prepared) => [{ click: handSel(prepared.info.uid) }, { hoverAt: { sel: FIELD, ...atPlayer(prepared, "p7") } }],
+    ready: ".lesson-screen .zone-pad.aim[data-zone=dribble]",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 크로스를 낼 수 없음: 슈팅 구역에 울리카 혼자 · 드리블 구역도 비었다 — 카드 흐림 + 이유 띠
     name: "og_lesson_u_cross_dead",
-    title: "레슨 — 크로스 낼 수 없음 (슈팅 구역에 받을 선수 없음)",
+    title: "레슨 — 크로스 낼 수 없음 (슈팅 · 드리블 구역에 받을 선수 없음)",
     outgame: true,
     build: (data, { runSeed }) => shapeScene("og_lesson_u_cross_dead", data, runSeed, ["cd_u_ulrika"], Z_CROSS_DEAD),
     ready: ".lesson-screen .card-face.dim .cf-reason",

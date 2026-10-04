@@ -2108,7 +2108,7 @@ test("L40 이어 주기 · 연결: 주인 + 받는 선수 (×1.3 · ×1.5) · �
   }
 });
 
-test("L40 크로스: 슈팅 구역 1명과 · 팀워크 +1 (모양) + L10 · 슈팅 구역이 비면 낼 수 없다 (손패 playable false · 턴 시작 다시 뽑기 대상)", () => {
+test("L40 크로스: 슈팅 구역 1명과 · 팀워크 +1 (모양) + L10 · 슈팅 구역이 비면 드리블 구역 (L47) · 둘 다 비면 낼 수 없다 (손패 playable false · 턴 시작 다시 뽑기 대상)", () => {
   const { s, L, uid } = shapeState("cd_u_ulrika", { layout: { ...LAYOUT, p7: "shoot" }, zone: "pass" });
   const pos = posOf(s);
   const pv = lesson.previewCard(s, data, { uid, at: pos.p7 });
@@ -2122,13 +2122,25 @@ test("L40 크로스: 슈팅 구역 1명과 · 팀워크 +1 (모양) + L10 · 슈
   assert.deepEqual(gainFx(s), pvRows(pv));
   assert.equal(s.teamwork - tw0, 2, "모양 팀워크 +1 + L10 +1");
   assert.equal(L.buffs.nextPairPct, 0, "지운 효과: 다음 작은 원 +50%");
-  // 슈팅 구역에 울리카 혼자: 죽은 카드
-  const d = shapeState("cd_u_ulrika");
+  assert.deepEqual(lesson.getLessonView(shapeState("cd_u_ulrika", { layout: { ...LAYOUT, p7: "shoot" } }).s, data).hand[0].shape.zonesNow, ["shoot"]);
+  // 슈팅 구역에 울리카 혼자: 드리블 구역 선수 (p7) 에게 (L47)
+  const f = shapeState("cd_u_ulrika");
+  const fh = lesson.getLessonView(f.s, data).hand[0];
+  assert.deepEqual([fh.playable, fh.deadReason, fh.shape.zonesNow, fh.shape.fallbackZones], [true, null, ["dribble"], ["dribble"]]);
+  assert.deepEqual(lesson.dropCandidates(f.s, data, { uid: f.uid }).map((c) => c.playerId), ["p7"]);
+  assert.equal(lesson.previewCard(f.s, data, { uid: f.uid }).reason, "드리블 구역 선수 위에 놓으세요");
+  const fpos = posOf(f.s);
+  const fpv = lesson.previewCard(f.s, data, { uid: f.uid, at: fpos.p7 });
+  assert.deepEqual(pvRows(fpv), [["p6", "shoot", wantGain(f.s, "p6", "shoot", UPOW("cd_u_ulrika"))], ["p7", "dribble", wantGain(f.s, "p7", "dribble", UPOW("cd_u_ulrika"))]]);
+  safePlay(f.s, f.uid, { at: fpos.p7 });
+  assert.deepEqual(gainFx(f.s), pvRows(fpv));
+  // 슈팅 · 드리블 구역 둘 다 비면 죽은 카드
+  const d = shapeState("cd_u_ulrika", { layout: { ...LAYOUT, p7: "pass" } });
   const h = lesson.getLessonView(d.s, data).hand[0];
-  assert.deepEqual([h.playable, h.deadReason], [false, "슈팅 구역에 받을 선수가 없습니다"]);
+  assert.deepEqual([h.playable, h.deadReason], [false, "슈팅·드리블 구역에 받을 선수가 없습니다"]);
   assert.deepEqual(lesson.dropCandidates(d.s, data, { uid: d.uid }), []);
-  assert.equal(lesson.previewCard(d.s, data, { uid: d.uid, playerId: "p4" }).reason, "슈팅 구역에 받을 선수가 없습니다");
-  assert.throws(() => lesson.playCard(d.s, data, { uid: d.uid, playerId: "p4" }), /슈팅 구역에 받을 선수가 없습니다/);
+  assert.equal(lesson.previewCard(d.s, data, { uid: d.uid, playerId: "p4" }).reason, "슈팅·드리블 구역에 받을 선수가 없습니다");
+  assert.throws(() => lesson.playCard(d.s, data, { uid: d.uid, playerId: "p4" }), /슈팅·드리블 구역에 받을 선수가 없습니다/);
 });
 
 test("L40 주인 둘레 원 · 주인 구역: 철벽 실패 판정 없음 (rng 안 씀) · 타깃맨 주인 ×1.5 · 주장 팀워크 +2 · 원 = 주인 중심", () => {
@@ -2385,6 +2397,7 @@ test("L40 뷰 · 후보: 손패 shape · ownerId · 비용 = 1인 비용 · drop
     ["cd_u_mirka", "carry", "zone", "p7"],
   ].map((x) => [...x, UCOST(x[0])]));
   assert.deepEqual(v.hand[1].shape, cards.shapeView(lesson.lessonCardDef(s, data, U("cd_u_dorbina")), data));
+  assert.deepEqual(v.hand[5].shape, { ...cards.shapeView(lesson.lessonCardDef(s, data, U("cd_u_ulrika")), data), zonesNow: ["shoot"] }, "크로스: 지금 받을 구역");
   const pos = posOf(s);
   const dc = (id) => lesson.dropCandidates(s, data, { uid: U(id) });
   assert.deepEqual(dc("cd_u_neria").map((c) => c.playerId), ["p2", "p3", "p4", "p5", "p6", "p7"]);

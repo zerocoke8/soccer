@@ -299,8 +299,8 @@ export const SHAPE_KINDS = ["link", "pick", "ownerCircle", "ownerZone", "move", 
 const SHAPE_COMMON_KEYS = ["shape", "label", "chip", "mods", "effects"];
 /** 모양마다 traits.json lesson 블록에 쓸 수 있는 키 (§16.2 ①) */
 export const SHAPE_KEYS = {
-  link: [...SHAPE_COMMON_KEYS, "recvMult", "onlyZones"],
-  pick: [...SHAPE_COMMON_KEYS, "recvMult", "onlyZones"],
+  link: [...SHAPE_COMMON_KEYS, "recvMult", "onlyZones", "fallbackZones"],
+  pick: [...SHAPE_COMMON_KEYS, "recvMult", "onlyZones", "fallbackZones"],
   ownerCircle: [...SHAPE_COMMON_KEYS, "size", "ownerMult"],
   ownerZone: [...SHAPE_COMMON_KEYS, "ownerMult"],
   move: [...SHAPE_COMMON_KEYS, "ownerMult"],
@@ -322,7 +322,7 @@ export function zoneLabels(list) {
  * @param {object} data data.traits · data.characters
  * @param {string|object} card 카드 id 또는 정의
  * @returns {{ kind: string, trait: string, traitName: string, label: string, chip: string, recvMult: number, ownerMult: number,
- *            onlyZones: string[]|null, size: string|null, zoneMult: {zones: string[], mult: number}|null,
+ *            onlyZones: string[]|null, fallbackZones: string[]|null, size: string|null, zoneMult: {zones: string[], mult: number}|null,
  *            mods: object, effects: object[] }|null}
  */
 export function shapeOf(data, card) {
@@ -339,6 +339,7 @@ export function shapeOf(data, card) {
     recvMult: isNum(s.recvMult) ? s.recvMult : 1,
     ownerMult: isNum(s.ownerMult) ? s.ownerMult : 1,
     onlyZones: Array.isArray(s.onlyZones) ? s.onlyZones.slice() : null,
+    fallbackZones: Array.isArray(s.fallbackZones) ? s.fallbackZones.slice() : null,
     size: s.size || null,
     zoneMult: s.zoneMult ? { zones: s.zoneMult.zones.slice(), mult: s.zoneMult.mult } : null,
     mods: clone(s.mods || {}),
@@ -356,6 +357,7 @@ export function shapeView(def, data) {
     size: sh.size, r: sh.size && isNum(radii[sh.size]) ? radii[sh.size] : null,
     recvMult: sh.recvMult, ownerMult: sh.ownerMult,
     onlyZones: sh.onlyZones ? sh.onlyZones.slice() : null,
+    fallbackZones: sh.fallbackZones ? sh.fallbackZones.slice() : null,
     zoneMult: sh.zoneMult ? { zones: sh.zoneMult.zones.slice(), mult: sh.zoneMult.mult } : null,
     noFail: !!(sh.mods && sh.mods.noFail),
     needs: SHAPE_NEEDS[sh.kind] || null,
@@ -372,23 +374,41 @@ function fieldOwner(state, def) {
   return owner;
 }
 
+/** 그 구역들(null = 어디든)에 선 경기장 선수 − 주인, 슬롯 순서 */
+function receiversIn(state, def, zoneIds) {
+  const owner = ownerOf(state, def);
+  const Z = (state.lesson && state.lesson.zones) || {};
+  return fieldPlayers(state)
+    .filter((p) => (!owner || p.id !== owner.id) && (!zoneIds || zoneIds.includes(Z[p.id])))
+    .map((p) => p.id);
+}
+
 /**
- * 받는 선수 후보 (link · pick): 경기장 선수 − 주인 (onlyZones 면 그 구역에 선 선수만), 슬롯 순서. 그 밖 모양 · 주인 없음이면 [].
+ * 지금 받는 선수를 고를 구역 (link · pick, L47): onlyZones 에 받을 선수가 있으면 onlyZones, 없고 fallbackZones 가 있으면 fallbackZones
+ * (예: 크로스 — 슈팅 구역이 비면 드리블 구역). 구역 제한이 없거나 받는 선수가 필요 없는 모양이면 null.
+ * @returns {string[]|null}
+ */
+export function receiverZones(state, def) {
+  const sh = def && def.shape;
+  if (!sh || SHAPE_NEEDS[sh.kind] !== "player" || !sh.onlyZones) return null;
+  if (!sh.fallbackZones || receiversIn(state, def, sh.onlyZones).length) return sh.onlyZones.slice();
+  return sh.fallbackZones.slice();
+}
+
+/**
+ * 받는 선수 후보 (link · pick): 경기장 선수 − 주인 (구역 제한이 있으면 receiverZones 구역에 선 선수만), 슬롯 순서.
+ * 그 밖 모양 · 주인 없음이면 [].
  * @returns {string[]}
  */
 export function shapeReceivers(state, def) {
   const sh = def && def.shape;
   if (!sh || SHAPE_NEEDS[sh.kind] !== "player") return [];
-  const owner = ownerOf(state, def);
-  const Z = (state.lesson && state.lesson.zones) || {};
-  return fieldPlayers(state)
-    .filter((p) => (!owner || p.id !== owner.id) && (!sh.onlyZones || sh.onlyZones.includes(Z[p.id])))
-    .map((p) => p.id);
+  return receiversIn(state, def, receiverZones(state, def));
 }
 
-/** 받는 선수 놓기 안내 문구 */
-function receiverHint(sh) {
-  return sh.onlyZones ? `${zoneLabels(sh.onlyZones)} 구역 선수 위에 놓으세요` : "받을 선수 위에 놓으세요";
+/** 받는 선수 놓기 안내 문구 (zoneIds = receiverZones) */
+export function receiverHint(zoneIds) {
+  return zoneIds ? `${zoneLabels(zoneIds)} 구역 선수 위에 놓으세요` : "받을 선수 위에 놓으세요";
 }
 
 /**
@@ -436,7 +456,7 @@ export function shapePlan(state, def, args = {}, data) {
       } else if (a.at) {
         id = zones.nearestWithin(fieldPositions(state, data), zones.clampPoint(a.at), cfg.pickR, cfg.aspect, cands);
       }
-      if (!id) throw new Error(`'${def.name}': ${receiverHint(sh)}`);
+      if (!id) throw new Error(`'${def.name}': ${receiverHint(receiverZones(state, { ...def, shape: sh }))}`);
       plan.receiverId = id;
       row(owner.id, from, "owner", 1);
       row(id, Z[id], "recv", sh.recvMult);
@@ -565,10 +585,11 @@ export function deadReason(state, def) {
     if (isOut(state, owner)) return "주인이 결장 중입니다";
     if (isBenched(state, owner.id)) return "주인이 벤치에 있습니다";
     if (!fieldPlayers(state).some((p) => p.id === owner.id)) return "주인이 경기장에 없습니다";
-    // 받는 선수가 있어야 하는 모양 (이어 주기 · 연결 · 크로스, §16.4)
+    // 받는 선수가 있어야 하는 모양 (이어 주기 · 연결 · 크로스, §16.4 · 크로스는 대체 구역까지, L47)
     const sh = def.shape;
     if (sh && SHAPE_NEEDS[sh.kind] === "player" && !shapeReceivers(state, def).length) {
-      return sh.onlyZones ? `${zoneLabels(sh.onlyZones)} 구역에 받을 선수가 없습니다` : "받을 선수가 없습니다";
+      const all = sh.onlyZones ? sh.onlyZones.concat(sh.fallbackZones || []) : null;
+      return all ? `${zoneLabels(all)} 구역에 받을 선수가 없습니다` : "받을 선수가 없습니다";
     }
     return null;
   }
@@ -912,6 +933,11 @@ function shapeErrors(data, errors) {
       if (typeof s.size !== "string" || !(radii && isNum(radii[s.size]))) errors.push(`${at}: size '${s.size}' 이(가) lesson.zones.ownerRadius 에 없습니다`);
     }
     if ("onlyZones" in s && !zoneList(s.onlyZones)) errors.push(`${at}: onlyZones 가 잘못됐습니다`);
+    if ("fallbackZones" in s) {
+      if (!zoneList(s.fallbackZones)) errors.push(`${at}: fallbackZones 가 잘못됐습니다`);
+      else if (!("onlyZones" in s)) errors.push(`${at}: fallbackZones 는 onlyZones 와 함께만 씁니다`);
+      else if (Array.isArray(s.onlyZones) && s.fallbackZones.some((z) => s.onlyZones.includes(z))) errors.push(`${at}: fallbackZones 가 onlyZones 와 겹칩니다`);
+    }
     if ("zoneMult" in s) {
       const zm = s.zoneMult;
       if (!zm || typeof zm !== "object" || !zoneList(zm.zones) || !(isNum(zm.mult) && zm.mult >= 1) || !Object.keys(zm).every((k) => k === "zones" || k === "mult"))

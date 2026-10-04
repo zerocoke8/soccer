@@ -281,7 +281,8 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     const sh = c.shape;
     const o = ownerName(c);
     if (sh.kind === 'link') return `${o}에서 받을 선수에게 끌어 놓으세요`;
-    if (sh.kind === 'pick') return sh.onlyZones?.length ? `${L.zonesText(sh.onlyZones)} 구역 선수 위에 놓으세요` : `${josa(o, '과', '와')} 함께할 선수 위에 놓으세요`;
+    const zs = sh.zonesNow ?? sh.onlyZones; // 크로스: 슈팅 구역이 비면 대체 구역 (L47)
+    if (sh.kind === 'pick') return zs?.length ? `${L.zonesText(zs)} 구역 선수 위에 놓으세요` : `${josa(o, '과', '와')} 함께할 선수 위에 놓으세요`;
     if (sh.kind === 'move') return `${josa(o, '을', '를')} 옮길 구역에 놓으세요`;
     if (sh.kind === 'carry') return `${josa(o, '이', '가')} 가로지를 구역에 놓으세요`;
     return shapeHow(sh, o);
@@ -562,11 +563,11 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
       aimGhost.className = 'aim-ghost tok-ghost';
       aimSpot.className = 'aim-spot';
     }
-    // 구역 바닥 강조: 크로스 = 슈팅 구역 · 구역 전원 = 주인 구역 · 옮기기 = 놓을 구역 (가로지르기는 지금 구역 .from) · 추천 구역 .rec
+    // 구역 바닥 강조: 크로스 = 슈팅 구역 (비면 드리블 구역) · 구역 전원 = 주인 구역 · 옮기기 = 놓을 구역 (가로지르기는 지금 구역 .from) · 추천 구역 .rec
     const padCls = {};
     const addPad = (z, k) => { if (z) (padCls[z] ||= []).push(k); };
     if (sh) {
-      for (const z of sh.onlyZones || []) addPad(z, 'aim');
+      for (const z of sh.zonesNow ?? sh.onlyZones ?? []) addPad(z, 'aim');
       if (sh.kind === 'ownerZone') addPad(v.zones?.[c.ownerId], 'aim');
       if (needs === 'zone') {
         if (sh.kind === 'carry') addPad(v.zones?.[c.ownerId], 'from');

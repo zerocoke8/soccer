@@ -1344,7 +1344,7 @@ function cardView(state, data, uid) {
     exhaust: !!def.exhaust,
     desc: def.desc,
     attach,
-    shape: cards.shapeView(def, data), // 고유 카드 모양 (L40, §16.3 ④) — 그 밖 null
+    shape: handShapeView(state, data, def), // 고유 카드 모양 (L40, §16.3 ④) — 그 밖 null
     ownerId: owner ? owner.id : null,
   };
 }
@@ -1453,6 +1453,13 @@ function shapeNotes(state, plan) {
  * 미리보기의 모양 블록 (§16.3 ④). sp = shapePlan 결과 (입력이 아직 없거나 틀리면 null — 그래도 선 · 구역 표시는 준다).
  * @returns {{ kind, label, chip, ownerId, receiverId, line, circle, zone, from, to, positionsAfter, baseDelta }}
  */
+/** 손패 모양 뷰: shapeView + zonesNow (지금 받는 선수를 고를 구역 — 크로스는 슈팅 구역이 비면 대체 구역, L47) */
+function handShapeView(state, data, def) {
+  const v = cards.shapeView(def, data);
+  if (v && v.onlyZones) v.zonesNow = cards.receiverZones(state, def);
+  return v;
+}
+
 function shapePreview(state, data, def, point, zone, sp) {
   const sh = def.shape;
   const L = state.lesson;
@@ -1551,7 +1558,7 @@ export function previewCard(state, data, { uid, at, playerId, zone } = {}) {
   if (kind === "circle" && !point) return { ...out, reason: "원을 놓을 자리를 고르세요" };
   if (kind === "single" && !point && playerId == null) return { ...out, reason: "선수 위에 놓으세요" };
   if (needs === "player" && !point && playerId == null) {
-    return { ...out, reason: sh.onlyZones ? `${cards.zoneLabels(sh.onlyZones)} 구역 선수 위에 놓으세요` : "받을 선수 위에 놓으세요" };
+    return { ...out, reason: cards.receiverHint(cards.receiverZones(state, def)) };
   }
   if (needs === "zone" && !point && zone == null) return { ...out, reason: "구역 위에 놓으세요" };
   if (!(L.playsLeft >= 1)) return { ...out, reason: "이번 턴에는 더 낼 수 없습니다" };

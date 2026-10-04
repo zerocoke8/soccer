@@ -24,7 +24,7 @@
     "kind": "condition",
     "amp": false,
     "params": { "canCross": true, "crossBonus": 0.10 },
-    "lesson": { "shape": "pick", "label": "크로스", "chip": "크로스", "onlyZones": ["shoot"], "effects": [{ "type": "teamwork", "n": 1 }] }
+    "lesson": { "shape": "pick", "label": "크로스", "chip": "크로스", "onlyZones": ["shoot"], "fallbackZones": ["dribble"], "effects": [{ "type": "teamwork", "n": 1 }] }
   },
   {
     "id": "targetman",

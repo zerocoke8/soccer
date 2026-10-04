@@ -1082,9 +1082,9 @@ test("15주 완주 (테스트 안의 간단한 정책 · 실제 경기): 불변�
     assert.equal(s.turn, WPS);
     assert.equal(s.turnIndex, 3 * WPS - 1);
     assert.equal(s.record.goalMatches.length, 3);
-    // 레슨 = 레슨 주 6 + 대비 레슨 2 (시즌 1 대비 주는 휴식)
+    // 레슨 = 레슨 주 + 대비 레슨 (시즌 1 대비 주는 휴식, 시즌 2 · 3 대비 주는 평균 체력 40 미만이면 휴식 — 정책이 그렇게 고른다)
     assert.equal(s.record.lessons.length, a.kinds.lesson + a.kinds.prepLesson);
-    assert.ok(a.kinds.lesson >= 1 && a.kinds.prepLesson === 2, JSON.stringify(a.kinds));
+    assert.ok(a.kinds.lesson >= 1 && a.kinds.prepLesson >= 1 && a.kinds.prepLesson <= 2, JSON.stringify(a.kinds));
     for (const ph of ["week", "lesson", "reward", "prep", "match", "route", "finished"]) assert.ok(a.phases.has(ph), `phase ${ph}`);
     assert.ok(a.kinds.consult >= 1 && a.kinds.meeting >= 1 && a.kinds.rest >= 1 && a.kinds.freeOuting === 1, JSON.stringify(a.kinds));
     assert.ok(a.kinds.route === 2);

@@ -555,10 +555,16 @@ test("jsdom: 레슨 화면 (구역) — 골격 · 조준 · 키보드 · 벤치 
   assert.equal($$(".tok.target").length, 3, "그 구역 3명");
   key("Escape");
   assert.ok(!$(".zone-pad.aim"), "Esc = 강조 지움");
-  // 크로스: 슈팅 구역에 받을 선수가 없으면 낼 수 없음 띠
-  const cx = shapeFix(lesson1, "cd_u_ulrika", ["defense", "defense", "physical", "pass", "pass", "shoot", "dribble"]);
+  // 크로스 (L47): 슈팅 구역이 비면 드리블 구역 바닥 강조 · 슈팅 · 드리블 둘 다 비면 낼 수 없음 띠
+  const cf = shapeFix(lesson1, "cd_u_ulrika", ["defense", "defense", "physical", "pass", "pass", "shoot", "dribble"]);
+  putRun(cf.s);
+  assert.ok(!cardOf(cf.uid).querySelector(".cf-reason"), "크로스: 드리블 구역에 받을 선수가 있으면 낼 수 있다");
+  cardOf(cf.uid).click();
+  assert.ok($('.zone-pad.aim[data-zone="dribble"]') && !$('.zone-pad.aim[data-zone="shoot"]'), "크로스 대체: 드리블 구역 바닥");
+  key("Escape");
+  const cx = shapeFix(lesson1, "cd_u_ulrika", ["defense", "defense", "physical", "pass", "pass", "shoot", "pass"]);
   putRun(cx.s);
-  assert.match(cardOf(cx.uid).querySelector(".cf-reason").textContent, /슈팅 구역에 받을 선수가 없습니다/, "크로스: 낼 수 없는 이유");
+  assert.match(cardOf(cx.uid).querySelector(".cf-reason").textContent, /슈팅·드리블 구역에 받을 선수가 없습니다/, "크로스: 낼 수 없는 이유");
   noErrorToast("고유 카드 모양");
 
   // ---------- 벤치: 명단 [벤치] → 벤치 칸 · 토큰 숨김 · 대형 다시 · 칸 누르기 = 복귀 · B 키 · 최대 2명 ----------
@@ -756,7 +762,14 @@ test("jsdom: 레슨 화면 (구역) — 골격 · 조준 · 키보드 · 벤치 
   assert.equal(OL.objParticle("스루 패스"), "를", "조사: 받침 없음");
   assert.equal(OL.objParticle("함성"), "을");
   assert.equal(OL.objParticle("XYZ"), "을(를)", "한글이 아니면 을(를)");
-  const teachWalk = walkLesson(data, { seed: 1, until: (s) => s.phase === "reward" && (s.pendingReward?.teach || []).filter((t) => t.result === null).length >= 2 && s.pendingReward.offer.length > 0 });
+  // 수업 2개가 남았고, 첫 수업을 받을 수 있는 선수가 2명 이상 (하나를 가득으로 만들어도 빈 슬롯 추천이 남게) 인 보상 상태
+  const teachOk = (s) => {
+    if (s.phase !== "reward" || !(s.pendingReward.offer.length > 0)) return false;
+    const tl = (s.pendingReward.teach || []).filter((t) => t.result === null);
+    return tl.length >= 2 && s.players.filter((p) => lessonRun.canTeachSkill(s, data, tl[0].skillId, p.id).ok).length >= 2;
+  };
+  let teachWalk = null;
+  for (let i = 1; i <= 40 && !teachWalk; i++) teachWalk = walkLesson(data, { seed: i, until: teachOk });
   assert.ok(teachWalk, "수업 2개가 남은 보상 상태");
   const teach0 = teachWalk.state;
   const tList = teach0.pendingReward.teach;
@@ -929,14 +942,14 @@ test("jsdom: 레슨 화면 (구역) — 골격 · 조준 · 키보드 · 벤치 
   noErrorToast("퍼펙트 보상");
 
   // ---------- 실패: 보상 없음 · [계속] ----------
-  // 목표치가 낮아 실패 레슨이 드물다 → 실패가 나오는 시드를 찾는다
-  let failWalk = null;
-  for (let i = 0; i < 40 && !failWalk; i++) {
-    failWalk = walkLesson(data, { seed: i ? `lesson-ui-${i}` : "lesson-ui", until: (s) => s.phase === "reward" && s.pendingReward?.result?.status === "fail" });
-  }
-  assert.ok(failWalk, "실패 레슨이 나오는 시드");
+  // 목표치가 낮아 실패 레슨이 드물다 → 마지막 턴의 레슨 점수를 0 으로 두고 턴을 끝내 실패 보상을 만든다
+  const lastTurn = walkLesson(data, { seed: "lesson-ui", until: (s) => s.phase === "lesson" && s.lesson?.status === "playing" && s.lesson.turn === s.lesson.turns });
+  assert.ok(lastTurn, "레슨 마지막 턴");
+  const failT = clone(lastTurn.state);
+  failT.lesson.score = 0;
+  lessonRun.endLessonTurn(failT, data);
+  assert.equal(failT.pendingReward?.result?.status, "fail", "실패 레슨 보상");
   // 실패 레슨도 컷인 수업은 받는다 (§18.3) — 수업 하나를 넣어 수업 → "보상 없음" 순서를 본다
-  const failT = clone(failWalk.state);
   if (!failT.pendingReward.teach.some((t) => t.result === null)) failT.pendingReward.teach.push({ skillId: "sk_rally_cry", supportId: failT.supports[0].id, src: "cutin", result: null, playerId: null, replaced: null, sp: 0 });
   putRun(failT);
   assert.ok($(".rw-teach") && $(".rw-status").textContent.includes("실패"), "실패 레슨 수업 칸");
@@ -1059,6 +1072,7 @@ test("jsdom: 레슨 화면 (구역) — 골격 · 조준 · 키보드 · 벤치 
 
   // ---------- 경기 전 준비: 부상 선수는 레슨만 쉬고 경기는 그대로 출전 (§18.1 · §18.6) ----------
   const prep0 = walkLesson(data, { seed: "lesson-ui", until: (s) => s.phase === "prep" }).state;
+  for (const p of prep0.players) p.injuredTurns = 0; // 진행 중 부상은 지우고 한 명만 다치게 한다
   prep0.players[2].injuredTurns = 1;
   putRun(prep0);
   assert.ok($(".prep-screen .po-out"), "부상 줄");

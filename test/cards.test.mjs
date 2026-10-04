@@ -391,10 +391,16 @@ test("deadReason: 대상 후보 0명이면 낼 수 없다 (원은 1명이라도 
   assert.equal(cards.deadReason(layoutState({ out: ["p1"] }), def("cd_u_neria")), "주인이 결장 중입니다");
   // 고유 ×1.5 (주 스탯 구역) 는 L40 으로 없어졌다
   assert.equal(cards.ownerOnMainZone, undefined);
-  // 크로스: 슈팅 구역에 울리카 말고 아무도 없으면 낼 수 없다 (대체 없음, §16.4) · 누가 오면 산다
-  assert.equal(cards.deadReason(s, def("cd_u_ulrika")), "슈팅 구역에 받을 선수가 없습니다");
+  // 크로스 (L47): 슈팅 구역에 울리카 말고 아무도 없으면 드리블 구역 선수에게 · 둘 다 비면 낼 수 없다
+  assert.equal(cards.deadReason(s, def("cd_u_ulrika")), null, "슈팅 구역이 비어도 드리블 구역 p7 이 받는다");
+  assert.deepEqual(cards.receiverZones(s, def("cd_u_ulrika")), ["dribble"]);
+  assert.deepEqual(cards.shapeReceivers(s, def("cd_u_ulrika")), ["p7"]);
+  assert.deepEqual(rowsOf(cards.shapePlan(s, def("cd_u_ulrika"), { playerId: "p7" }, data)), [["p6", "shoot", "owner", 1], ["p7", "dribble", "recv", 1]]);
   assert.equal(cards.deadReason(layoutState({ zones: { ...LAYOUT, p7: "shoot" } }), def("cd_u_ulrika")), null);
-  assert.equal(cards.deadReason(layoutState({ zones: { ...LAYOUT, p7: "shoot" }, bench: ["p7"] }), def("cd_u_ulrika")), "슈팅 구역에 받을 선수가 없습니다");
+  assert.deepEqual(cards.receiverZones(layoutState({ zones: { ...LAYOUT, p7: "shoot" } }), def("cd_u_ulrika")), ["shoot"]);
+  assert.equal(cards.deadReason(layoutState({ bench: ["p7"] }), def("cd_u_ulrika")), "슈팅·드리블 구역에 받을 선수가 없습니다");
+  assert.equal(cards.deadReason(layoutState({ zones: { ...LAYOUT, p7: "shoot" }, bench: ["p7"] }), def("cd_u_ulrika")), "슈팅·드리블 구역에 받을 선수가 없습니다");
+  assert.equal(cards.receiverZones(s, def("cd_u_neria")), null, "구역 제한 없는 모양은 null");
   // 이어 주기 · 연결: 주인 말고 경기장 선수가 0명이면 낼 수 없다 (벤치 · 결장은 받을 수 없다)
   const alone = layoutState({ bench: ["p2", "p3"], out: ["p4", "p5", "p6", "p7"] });
   assert.equal(cards.deadReason(alone, def("cd_u_neria")), "받을 선수가 없습니다");
@@ -519,7 +525,7 @@ const SHAPE_TABLE = {
   captain: { shape: "ownerZone", effects: [{ type: "teamwork", n: 2 }] },
   killpass: { shape: "pick", recvMult: 1.5 },
   runner: { shape: "move", ownerMult: 1.3 },
-  crosser: { shape: "pick", onlyZones: ["shoot"], effects: [{ type: "teamwork", n: 1 }] },
+  crosser: { shape: "pick", onlyZones: ["shoot"], fallbackZones: ["dribble"], effects: [{ type: "teamwork", n: 1 }] },
   targetman: { shape: "ownerCircle", size: "medium", ownerMult: 1.5 },
   carrier: { shape: "carry" },
   finisher: { shape: "owner", zoneMult: { zones: ["shoot"], mult: 2 } },
@@ -568,7 +574,7 @@ test("L40 모양 데이터: 9특성 모두 lesson · 닫힌 목록 7종 · 모�
   // 뷰 모양 (needs · r)
   assert.deepEqual(cards.shapeView(def("cd_u_greta"), data), {
     kind: "ownerCircle", trait: "targetman", label: "주인 둘레 중간 원", chip: "둘레 중간 원", size: "medium", r: 15,
-    recvMult: 1, ownerMult: 1.5, onlyZones: null, zoneMult: null, noFail: false, needs: null,
+    recvMult: 1, ownerMult: 1.5, onlyZones: null, fallbackZones: null, zoneMult: null, noFail: false, needs: null,
   });
   assert.deepEqual(["cd_u_neria", "cd_u_ulrika", "cd_u_taria", "cd_u_mirka", "cd_u_adeline"].map((id) => cards.shapeView(def(id), data).needs), ["player", "player", "zone", "zone", null]);
   assert.equal(cards.shapeView(def("cd_u_dorbina"), data).noFail, true);
@@ -590,6 +596,9 @@ test("L40 모양 검증: 모르는 shape · 남는 키 · 배율 · size · only
   bad((d, T) => { T("wall").lesson.size = "huge"; }, /size 'huge'/);
   bad((d, T) => { delete T("targetman").lesson.size; }, /size 'undefined'/);
   bad((d, T) => { T("crosser").lesson.onlyZones = ["MF"]; }, /onlyZones 가 잘못됐습니다/);
+  bad((d, T) => { T("crosser").lesson.fallbackZones = ["MF"]; }, /fallbackZones 가 잘못됐습니다/);
+  bad((d, T) => { T("crosser").lesson.fallbackZones = ["shoot"]; }, /fallbackZones 가 onlyZones 와 겹칩니다/);
+  bad((d, T) => { T("killpass").lesson.fallbackZones = ["dribble"]; }, /fallbackZones 는 onlyZones 와 함께만/);
   bad((d, T) => { T("wall").lesson.mods = { failPlus: 0.1 }; }, /모양에 쓸 수 없는 mod 'failPlus'/);
   bad((d, T) => { T("captain").lesson.effects = [{ type: "teamwork", n: 2, when: "consume" }]; }, /when: consume/);
   bad((d, T) => { T("captain").lesson.effects = [{ type: "hint", chance: 0.5 }]; }, /코치 지원 능력에만/);
@@ -636,6 +645,11 @@ test("L40 shapePlan: 이어 주기 · 연결 = 주인 + 받는 선수 (playerId 
   assert.deepEqual(rowsOf(cards.shapePlan(sh, def("cd_u_ulrika"), { playerId: "p7" }, data)), [["p6", "shoot", "owner", 1], ["p7", "shoot", "recv", 1]]);
   assert.throws(() => cards.shapePlan(sh, def("cd_u_ulrika"), { playerId: "p4" }, data), /그 선수는 받을 수 없습니다/);
   assert.throws(() => cards.shapePlan(sh, def("cd_u_ulrika"), { at: posOf(sh).p4 }, data), /슈팅 구역 선수 위에 놓으세요/);
+  // 슈팅 구역에 누가 있으면 드리블 구역 선수는 받지 못한다 (대체는 비었을 때만)
+  const sh2 = layoutState({ zones: { ...LAYOUT, p1: "shoot", p5: "dribble" } });
+  assert.deepEqual(cards.shapeReceivers(sh2, def("cd_u_ulrika")), ["p1"]);
+  assert.throws(() => cards.shapePlan(sh2, def("cd_u_ulrika"), { playerId: "p7" }, data), /그 선수는 받을 수 없습니다/);
+  assert.throws(() => cards.shapePlan(s, def("cd_u_ulrika"), { at: posOf(s).p4 }, data), /드리블 구역 선수 위에 놓으세요/);
   assert.equal(JSON.stringify(s), before, "순수");
 });
 

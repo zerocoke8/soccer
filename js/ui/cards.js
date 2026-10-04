@@ -92,7 +92,11 @@ export function shapeHow(shape, owner = '') {
   const o = owner || '주인';
   switch (shape.kind) {
     case 'link': return `${o} → 받는 1명`;
-    case 'pick': return shape.onlyZones?.length ? `${o} + ${L.zonesText(shape.onlyZones)} 1명` : `${o} + 고른 1명`;
+    case 'pick':
+      if (!shape.onlyZones?.length) return `${o} + 고른 1명`;
+      return shape.fallbackZones?.length
+        ? `${o} + ${L.zonesText(shape.onlyZones)} 1명 (없으면 ${L.zonesText(shape.fallbackZones)})`
+        : `${o} + ${L.zonesText(shape.onlyZones)} 1명`;
     case 'ownerCircle': return `${o} 둘레 전원`;
     case 'ownerZone': return `${o} 구역 전원`;
     case 'move': return `${o} → 다른 구역`;
