@@ -337,6 +337,7 @@ test("L52 데이터: jitter 블록 · 토큰 크기에서 나온 간격 (40px �
   assert.match(err({ radiusScale: [1.3, 1.1] }), /radiusScale/);
   assert.match(err({ nudge: -1 }), /nudge/);
   assert.match(err({ minGap: 6 }), /기본 대형 n=7/);
+  assert.match(err({ minGap: 1 }), /minGap 은 4.6 이상/, "토큰 크기보다 좁은 간격은 막는다 (얼굴이 겹친다)");
   assert.match(err({ maxR: 7.5 }), /pad/);
   assert.match(err({ maxR: 6 }), /기본 대형 n=5/);
   assert.match(err({ extra: 1 }), /알 수 없는 키 'extra'/);

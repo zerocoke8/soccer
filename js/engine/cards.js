@@ -913,7 +913,7 @@ function shapeErrors(data, errors) {
       errors.push(`${pre}: lesson.zones.ownerRadius 가 잘못됐습니다 (크기 → 반지름 > 0)`);
     if (!(isNum(Z.dropR) && Z.dropR > 0)) errors.push(`${pre}: lesson.zones.dropR 가 잘못됐습니다 (> 0)`);
     // L52 자연스러운 배치 (zones.jitter — null 이면 예전 대형)
-    for (const e of zones.jitterErrors(Z)) errors.push(`레슨 배치: ${e}`);
+    for (const e of zones.jitterErrors(Z)) errors.push(`레슨 배치 (zones.jitter): ${e}`);
   }
   const zoneList = (v) => Array.isArray(v) && v.length > 0 && v.every((z) => zones.ZONE_IDS.includes(z));
   for (const tr of data.traits) {

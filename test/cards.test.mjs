@@ -634,10 +634,10 @@ test("L40 모양 검증: 모르는 shape · 남는 키 · 배율 · size · only
   bad((d) => { delete d.lesson.zones.ownerRadius; }, /ownerRadius/);
   bad((d) => { d.lesson.zones.dropR = 0; }, /dropR/);
   // L52 배치 흔들림 (zones.jitter — null 이면 통과)
-  bad((d) => { d.lesson.zones.jitter.minGap = 0; }, /레슨 배치: lesson.zones.jitter.minGap/);
-  bad((d) => { d.lesson.zones.jitter.radiusScale = [1.2, 0.9]; }, /레슨 배치: lesson.zones.jitter.radiusScale/);
-  bad((d) => { d.lesson.zones.jitter.maxR = 8; }, /레슨 배치: .*pad/);
-  bad((d) => { d.lesson.zones.jitter.wobble = 1; }, /레슨 배치: .*알 수 없는 키 'wobble'/);
+  bad((d) => { d.lesson.zones.jitter.minGap = 0; }, /레슨 배치 \(zones\.jitter\): lesson.zones.jitter.minGap/);
+  bad((d) => { d.lesson.zones.jitter.radiusScale = [1.2, 0.9]; }, /레슨 배치 \(zones\.jitter\): lesson.zones.jitter.radiusScale/);
+  bad((d) => { d.lesson.zones.jitter.maxR = 8; }, /레슨 배치 \(zones\.jitter\): .*pad/);
+  bad((d) => { d.lesson.zones.jitter.wobble = 1; }, /레슨 배치 \(zones\.jitter\): .*알 수 없는 키 'wobble'/);
   {
     const d = clone(data);
     d.lesson.zones.jitter = null;

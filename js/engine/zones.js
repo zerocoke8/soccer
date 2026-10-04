@@ -200,6 +200,9 @@ function jitteredZone(c, ids, cfg, J, key) {
  * (흔들림이 막히면 돌아갈 자리), 구역 중심끼리 2·maxR + minGap 이상 떨어져 (다른 구역 토큰이 겹치지 않는다), 바닥이 필드 안이어야 한다.
  * @returns {string[]}
  */
+/** 토큰 얼굴 + 테두리 지름 (u) — jitter.minGap 의 아래 한계 */
+export const MIN_TOKEN_GAP = 4.6;
+
 export function jitterErrors(cfg, maxN = 7) {
   const errors = [];
   if (!cfg || cfg.jitter === undefined || cfg.jitter === null) return errors;
@@ -212,7 +215,8 @@ export function jitterErrors(cfg, maxN = 7) {
   const rs = J.radiusScale;
   if (!Array.isArray(rs) || rs.length !== 2 || !rs.every(num) || !(rs[0] > 0) || !(rs[0] <= rs[1])) errors.push(`${pre}.radiusScale 은 [lo, hi] (0 < lo ≤ hi) 여야 합니다`);
   if (!(num(J.nudge) && J.nudge >= 0)) errors.push(`${pre}.nudge 는 0 이상이어야 합니다`);
-  if (!(num(J.minGap) && J.minGap > 0)) errors.push(`${pre}.minGap 은 0 보다 커야 합니다`);
+  // 토큰 얼굴 + 테두리 44px ≈ 4.55u (1280×720) — 그보다 좁으면 얼굴이 겹친다
+  if (!(num(J.minGap) && J.minGap >= MIN_TOKEN_GAP)) errors.push(`${pre}.minGap 은 ${MIN_TOKEN_GAP} 이상이어야 합니다 (토큰 크기)`);
   if (!(num(J.maxR) && J.maxR > 0)) errors.push(`${pre}.maxR 은 0 보다 커야 합니다`);
   if (errors.length) return errors;
   if (num(cfg.pad) && J.maxR + J.minGap / 2 > cfg.pad + EPS) errors.push(`${pre}: maxR + minGap/2 (${J.maxR + J.minGap / 2}) 가 구역 바닥 pad (${cfg.pad}) 보다 큽니다`);

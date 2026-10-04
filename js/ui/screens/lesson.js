@@ -656,6 +656,7 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
   function placeTok(el, spot) {
     const [x, y] = toPx(spot);
     el.style.transform = `translate(${px(x)}, ${px(y)})`;
+    el.style.setProperty('--zy', String(500 - Math.round(spot.y * 4))); // 위쪽 선수가 앞 (L52 — 체력 바 가림 방지)
     el.dataset.x = String(round1(spot.x));
     el.dataset.y = String(round1(spot.y));
   }

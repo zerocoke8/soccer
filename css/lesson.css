@@ -312,7 +312,8 @@
 .lesson-screen .tok-layer { z-index: 3; }
 .lesson-screen .pop-layer { z-index: 9; }
 /* 토큰: 이름표 = 이름 + 체력 숫자 (4명 이상 대형 = 이름 앞 2글자). 자리 = 대형 바깥쪽 (아래 · 옆) */
-.lesson-screen .tok { transition: transform var(--t-move) cubic-bezier(.25, .8, .3, 1), opacity .3s; }
+.lesson-screen .tok { transition: transform var(--t-move) cubic-bezier(.25, .8, .3, 1), opacity .3s; z-index: var(--zy, auto); }
+/* L52: 위쪽 선수를 앞에 그린다 (--zy = 100 ~ 500, placeTok) — 붐비는 구역에서 아래 이웃 얼굴이 위 선수의 체력 바를 가리지 않게 */
 .lesson-screen .tok.off { opacity: 0; pointer-events: none; }
 .lesson-screen .tok.off > * { pointer-events: none; }
 .lesson-screen .tok-name { display: block; padding: 0 6px; }
@@ -389,7 +390,7 @@
 .lesson-screen .tok.shape-src .tok-face { cursor: grab; animation: src-pulse 1.4s ease-in-out infinite; }
 @keyframes src-pulse { 50% { box-shadow: 0 0 0 2px var(--home), 0 0 0 6px var(--shape), 0 0 24px rgba(240, 166, 224, .8); } }
 .lesson-screen.aiming .tok.noncand { opacity: .4; }
-.lesson-screen .tok.moving { z-index: 7; }
+.lesson-screen .tok.moving { z-index: 700; }
 .lesson-screen .tok-name.bub.shape { background: #ffe0f7; color: #4a0f3c; }
 .drag-ghost.shape-drag.over-field { opacity: 0; }
 /* 연출: 이어 주기 공 호 (.ls-ball) · 모양 배율 팝 · 가로지르기 두 팝 (위아래) */
@@ -402,7 +403,7 @@
 .ls-pop.row2 > span { margin-top: -52px; }
 /* 훈련 동작 (제자리 — 이미 구역에 서 있다): 통통 + 구역 색 고리 */
 .lesson-screen .tok-ring { display: none; position: absolute; left: calc(var(--tok) * -.72); top: calc(var(--tok) * -.72); width: calc(var(--tok) * 1.44); height: calc(var(--tok) * 1.44); border-radius: 50%; border: 3px solid var(--zc, var(--gold)); pointer-events: none; }
-.lesson-screen .tok.drilling { z-index: 6; }
+.lesson-screen .tok.drilling { z-index: 600; }
 .lesson-screen .tok.drilling .tok-ring { display: block; animation: ring-out .6s ease-out both; }
 .lesson-screen .tok.drilling .tok-face { animation: drill-hop .28s ease-in-out 2; }
 .lesson-screen.drilling-on .tok:not(.drilling):not(.off) { opacity: .35; }
