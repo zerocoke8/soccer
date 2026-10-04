@@ -377,9 +377,9 @@ test("cards.js estimateCost/costText: 보상 · 상담 카드 비용 = 엔진 1�
   // 효과 문구: 대상 · 1인 위력 머리는 칩 · 위력 줄과 겹치므로 뺀다
   assert.equal(effectDesc("중간 원 · 1인 18, 마지막 턴에 ×2"), "마지막 턴에 ×2");
   assert.equal(effectDesc("큰 원 · 1인 15"), "");
-  // 고유 카드 8장 (§16.6): 머리 = 모양 label · 1인 N → 칩 · 위력 줄이 대신한다. 배율 칩과 같은 마디도 뺀다 (shapeDesc), 남는 말이 없으면 쓰는 법 한 줄
+  // 고유 카드 16장 (§16.6 · §19.12 ⑥): 머리 = 모양 label · 1인 N → 칩 · 위력 줄이 대신한다. 배율 칩과 같은 마디도 뺀다 (shapeDesc), 남는 말이 없으면 쓰는 법 한 줄
   const uniq = data.cards.cards.filter((c) => c.family === "unique");
-  assert.equal(uniq.length, 8);
+  assert.equal(uniq.length, 16);
   const expect = {
     cd_u_neria: ["이어 주기", "link", "받는 쪽 ×1.3", "주인 체력 +10"],
     cd_u_dorbina: ["둘레 작은 원", "ownerCircle", null, "실패 없음, GK·DF 체력 +10"],
@@ -389,6 +389,15 @@ test("cards.js estimateCost/costText: 보상 · 상담 카드 비용 = 엔진 1�
     cd_u_ulrika: ["크로스", "cross", null, "슈팅 구역 1명과, 팀워크 +1"],
     cd_u_greta: ["둘레 중간 원", "ownerCircle", "주인 ×1.5", "다음 카드 비용 0"],
     cd_u_mirka: ["가로지르기", "carry", null, "두 구역 스탯, 추가 사용 +1, 주인 체력 −5"],
+    // §19.12 ⑥ 새 8장 — 피니셔(마무리)는 남는 말이 없어 쓰는 법 한 줄
+    cd_u_herta: ["구역 전원", "ownerZone", null, "팀워크 +2, 체력 +3"],
+    cd_u_bronte: ["마무리", "owner", "슈팅 ×2", ""],
+    cd_u_naelis: ["연결", "pick", "고른 쪽 ×1.5", ""],
+    cd_u_coni: ["자리 옮기기", "move", "옮긴 구역 ×1.3", "다음 턴 손패 +1"],
+    cd_u_ondina: ["가로지르기", "carry", null, "두 구역 스탯, 추가 사용 +1, 주인 체력 −5"],
+    cd_u_risiel: ["크로스", "cross", null, "슈팅 구역 1명과, 팀워크 +1"],
+    cd_u_camila: ["둘레 중간 원", "ownerCircle", "주인 ×1.5", "다음 카드 비용 0"],
+    cd_u_hildi: ["마무리", "owner", "슈팅 ×2", ""],
   };
   for (const c of uniq) {
     const def = engineCards.resolveCardDef(data, c, {});
@@ -402,7 +411,7 @@ test("cards.js estimateCost/costText: 보상 · 상담 카드 비용 = 엔진 1�
     assert.ok(shapeHow(sh, "선수").length > 0, `${c.id}: 쓰는 법`);
   }
   assert.equal(shapeHow({ kind: "pick", recvMult: 1.5 }, "실루엔"), "실루엔 + 고른 1명");
-  assert.equal(shapeMultChip({ kind: "owner", zoneMult: { zones: ["shoot"], mult: 2 } }).text, "슈팅 ×2", "마무리 (피니셔 — 카드 없음)");
+  assert.equal(shapeMultChip({ kind: "owner", zoneMult: { zones: ["shoot"], mult: 2 } }).text, "슈팅 ×2", "마무리 (피니셔 — 브론테 · 힐디)");
   assert.equal(effectDesc("큰 원 · 1인 12 + 분위기 1당 0.9"), "+ 분위기 1당 0.9");
   assert.equal(effectDesc("공격 구역 단일 · 1인 30, 탈취 스택당 +45%"), "탈취 스택당 +45%");
   assert.equal(effectDesc("분위기 +3"), "분위기 +3", "효과 카드는 그대로");

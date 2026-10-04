@@ -1,6 +1,6 @@
 // test/ultimates.test.mjs — LESSON_PROTO_PLAN §19 (K1): 필살기 6종 · E0 공통 기반 · E1 합체기는 등록된 짝만 ·
 // E2 필살 수비 · E3 팀 필살기 · E4 필살 드리블 · E5 컷인 대사 · L46 주장 1명분.
-// 테스트용 필살기는 데이터 사본(data.skills · data.combos)에 넣는다 — K1 에서는 skills.json 이 아직 그대로다.
+// 테스트용 필살기는 데이터 사본(data.skills · data.combos)에 넣는다 (K1). 끝의 "K2 데이터" 묶음은 실제 skills · characters · combos · supports · cards 를 본다 (§19.10 ~ §19.12).
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -516,12 +516,21 @@ test("E5 cutin 이벤트에 line · tier, ultimateOptions 에 tier · cutinLine 
   const { fresh } = forced(ms, { action: "shoot", ultimate: true }, true);
   const cut = fresh.find((e) => e.type === "cutin");
   assert.deepEqual({ l: cut.line, t: cut.tier, u: cut.ultimateType }, { l: ULTS.t_shot_box.cutinLine, t: "SSR", u: "shot" });
-  const old = place(mk({ FW1: { skillIds: ["sk_meteor_shot"] } }), { line: 3, carrier: "h_FW1", gauges: { h_FW1: 100 } });
-  const { fresh: f2 } = forced(old, { action: "shoot", ultimate: true }, true);
+  // 실제 데이터 (K2): 메테오 슛 = SSR · 대사
+  const real = place(mk({ FW1: { skillIds: ["sk_meteor_shot"] } }), { line: 3, carrier: "h_FW1", gauges: { h_FW1: 100 } });
+  const c1 = forced(real, { action: "shoot", ultimate: true }, true).fresh.find((e) => e.type === "cutin");
+  assert.deepEqual({ l: c1.line, t: c1.tier }, { l: "땅이 먼저 울릴 거야.", t: "SSR" });
+  // 옛 필살기 (tier · cutinLine 없는 데이터 사본): 키 없음 · ultimateOptions tier null
+  const dOld = clone(data);
+  const om = dOld.skills.find((s) => s.id === "sk_meteor_shot").ultimate;
+  delete om.tier;
+  delete om.cutinLine;
+  const old = place(mk({ FW1: { skillIds: ["sk_meteor_shot"] } }, {}, { data: dOld }), { line: 3, carrier: "h_FW1", gauges: { h_FW1: 100 } }, dOld);
+  const { fresh: f2 } = forced(old, { action: "shoot", ultimate: true }, true, dOld);
   const c2 = f2.find((e) => e.type === "cutin");
   assert.equal("line" in c2, false);
   assert.equal("tier" in c2, false);
-  assert.deepEqual({ t: match.getMatchView(place(old, { line: 3, carrier: "h_FW1", gauges: { h_FW1: 100 } }), data).ultimateOptions[0].tier }, { t: null });
+  assert.deepEqual({ t: match.getMatchView(place(old, { line: 3, carrier: "h_FW1", gauges: { h_FW1: 100 } }, dOld), dOld).ultimateOptions[0].tier }, { t: null });
 });
 
 /* ------------------------------------------------------------------ */
@@ -615,4 +624,190 @@ test("공통: 7명 모두 필살기(6종 섞음) 팀 500판 simulateAuto 불변�
   }
   for (const t of skills.ULTIMATE_TYPES) assert.ok(seen.has(t), `필살기 종류 ${t} 가 쓰였다`);
   assert.ok(teamUlt > 0 && sure > 0);
+});
+
+/* ------------------------------------------------------------------ */
+/* K2 · 실제 데이터 (§19.10 ~ §19.12)                                     */
+/* ------------------------------------------------------------------ */
+
+/** §19.10 필살기 표 — id → [주인 charId | null(상대), 이름, ultimate] */
+const ULT_TABLE = {
+  sk_high_tide: ["ch_spirit_keeper", "만조의 장벽", { type: "save", saveMult: 1.6, tier: "SR", cutinLine: "파도야, 골문을 지켜 줘." }],
+  sk_mountain_wedge: ["ch_dwarf_wall", "산맥 쐐기", { type: "defense", defense: 1.6, noMissPenalty: true, tier: "SR", cutinLine: "여기서부터는 산이다." }],
+  sk_flame_command: ["ch_human_captain", "불꽃 호령", { type: "team", teamMult: 1.08, teamStamina: 15, tier: "R", cutinLine: "다들, 아직 안 끝났어!" }],
+  sk_wind_thread: ["ch_elf_playmaker", "바람의 실", { type: "pass", attack: 1.5, negateRead: true, nextDuelBonus: 0.5, receiverGauge: 50, tier: "SSR", cutinLine: "바람이 길을 알려 줄 거야." }],
+  sk_lightning_dash: ["ch_human_runner", "번개 질주", { type: "dribble", attack: 1.3, noStamina: true, tier: "R", cutinLine: "아직 한참 더 뛸 수 있어!" }],
+  sk_prairie_gale: ["ch_wolf_winger", "초원의 질풍", { type: "pass", attack: 1.5, negateRead: true, tier: "SR", cutinLine: "따라올 수 있으면 와 봐!" }],
+  sk_meteor_shot: ["ch_giant_striker", "메테오 슛", { type: "shot", shoot: 2, gkMult: 0.7, boxShot: true, stamina: 10, tier: "SSR", cutinLine: "땅이 먼저 울릴 거야." }],
+  sk_alley_cat_step: ["ch_cat_trickster", "골목 고양이 스텝", { type: "dribble", attack: 1.25, negateRead: true, tier: "R", cutinLine: "힘으로는 못 잡아, 냐." }],
+  sk_earth_palm: ["ch_giant_keeper", "대지의 손바닥", { type: "save", saveMult: 2, sureDistribution: true, tier: "SSR", cutinLine: "전원 앞으로! 공은 내가 보낸다." }],
+  sk_thunderbolt: ["ch_spirit_striker", "낙뢰", { type: "shot", shoot: 1.8, gkMult: 0.6, minLine: 3, stamina: 10, tier: "SSR", cutinLine: "번쩍— 이미 들어갔어." }],
+  sk_deep_current: ["ch_elf_regista", "심해 물길", { type: "pass", attack: 1.5, actions: ["pass"], extraLine: true, tier: "SR", cutinLine: "거리, 계산 끝났어요." }],
+  sk_moon_hop: ["ch_rabbit_fullback", "달토끼 도약", { type: "dribble", attack: 1.2, extraLine: true, tier: "R", cutinLine: "무, 무서워도 뛴다!" }],
+  sk_rapids: ["ch_spirit_dribbler", "급류", { type: "dribble", attack: 1.6, negateRead: true, tier: "SR", cutinLine: "흐르는 물은 못 막아." }],
+  sk_lightning_arrow: ["ch_elf_archer", "뇌전 화살", { type: "pass", attack: 1.5, actions: ["cross"], nextDuelBonus: 0.3, tier: "SR", cutinLine: "과녁은 저 머리 위." }],
+  sk_sky_header: ["ch_human_header", "하늘 가르기", { type: "shot", shoot: 1.3, minLine: 3, headerMult: 1.1, tier: "R", cutinLine: "공중볼은 전부 내 거야!" }],
+  sk_forge_finish: ["ch_dwarf_finisher", "담금질 일격", { type: "shot", shoot: 1.3, gkMult: 0.9, minLine: 3, tier: "R", cutinLine: "이건 내 최고 작품이야." }],
+  sk_boss_strike: [null, "업화의 일격", { type: "shot", shoot: 2, gkMult: 0.7, boxShot: true, stamina: 10, tier: "SSR", cutinLine: "다 태워 버려!" }],
+  sk_boss_save: [null, "불꽃 장벽", { type: "save", saveMult: 2, tier: "SSR", cutinLine: "불꽃이 골문을 막는다." }],
+};
+
+/** §19.2 주 배율 · 추가 개수 (shot 의 gkMult 는 주 배율, 제한 · 비용 minLine · actions · stamina 는 추가가 아니다) */
+function ultPower(u, onReceive) {
+  const main = u.type === "shot" ? (u.shoot ?? 1) / (u.gkMult ?? 1)
+    : u.type === "pass" || u.type === "dribble" ? (u.attack ?? 1)
+      : u.type === "save" ? (u.saveMult ?? 1)
+        : u.type === "defense" ? (u.defense ?? 1)
+          : (u.teamMult ?? 1);
+  const extras = [
+    u.negateRead === true, (u.nextDuelBonus ?? 0) > 0, u.extraLine === true, u.noStamina === true, u.noMissPenalty === true,
+    u.sureDistribution === true, (u.teamStamina ?? 0) > 0, u.headerMult != null && u.headerMult !== 1, u.boxShot === true,
+    u.receiverGauge != null && u.receiverGauge > onReceive,
+  ].filter(Boolean).length;
+  return { main, extras };
+}
+
+const TYPE_HEAD = { shot: "필살 슛", pass: "필살 패스", save: "필살 세이브", defense: "필살 수비", team: "팀 필살기", dribble: "필살 드리블" };
+
+test("K2 데이터: 필살기 18개 = §19.10 표 (이름 · 종류 · 인자 · 등급 · 대사) · 모두 tier · cutinLine · validateUltimates 통과 · 공통 필드", () => {
+  const real = loadData();
+  const ults = real.skills.filter((s) => s.ultimate);
+  assert.deepEqual(ults.map((s) => s.id).sort(), Object.keys(ULT_TABLE).sort());
+  assert.doesNotThrow(() => skills.validateUltimates(real));
+  for (const s of ults) {
+    const [, name, u] = ULT_TABLE[s.id];
+    assert.equal(s.name, name, s.id);
+    assert.deepEqual(s.ultimate, u, `${s.id} 인자`);
+    assert.deepEqual(skills.ultimateErrors(s), [], s.id);
+    assert.ok(skills.ULTIMATE_TIERS.includes(s.ultimate.tier), `${s.id} tier`);
+    assert.ok(typeof s.ultimate.cutinLine === "string" && s.ultimate.cutinLine.length >= 1 && s.ultimate.cutinLine.length <= skills.CUTIN_LINE_MAX, `${s.id} cutinLine`);
+    assert.deepEqual([s.kind, s.learnable, s.cost, s.tension, s.passive, s.active], ["unique", false, 0, 0, null, null], `${s.id} 공통 필드`);
+    if (s.ultimate.type === "save") assert.deepEqual(s.positions, ["GK"], `${s.id} GK 필살기`);
+    assert.ok(s.description.startsWith(`${TYPE_HEAD[s.ultimate.type]}: `), `${s.id} 설명 머리 '${s.description}'`);
+  }
+});
+
+test("K2 데이터: 16명 모두 innateSkillId = 자기 필살기 (서로 다름) · tier = 캐릭터 rarity · 등급 상한 (§19.2) · SSR 필드 선수는 합체기에", () => {
+  const real = loadData();
+  const onReceive = real.config.match.ultimate.onReceive;
+  assert.equal(real.characters.length, 16);
+  const S = Object.fromEntries(real.skills.map((s) => [s.id, s]));
+  assert.equal(new Set(real.characters.map((c) => c.innateSkillId)).size, 16, "필살기는 서로 다르다");
+  const combos = readJson("combos");
+  for (const c of real.characters) {
+    const s = S[c.innateSkillId];
+    assert.ok(s && s.kind === "unique" && s.ultimate, `${c.name}: 고유 = 필살기`);
+    assert.equal(ULT_TABLE[s.id][0], c.id, `${c.name}: §19.10 주인`);
+    assert.equal(s.ultimate.tier, c.rarity, `${c.name}: tier = rarity`);
+    const { main, extras } = ultPower(s.ultimate, onReceive);
+    const tag = `${c.name} ${s.name} (주 ×${main.toFixed(3)} · 추가 ${extras})`;
+    if (c.rarity === "R") {
+      if (s.ultimate.type === "team") assert.ok(main >= 1.05 && main <= 1.1 + 1e-9, tag);
+      else assert.ok(main >= 1.15 - 1e-9 && main <= 1.45 + 1e-9, tag);
+      assert.ok(extras <= 1, tag);
+    } else if (c.rarity === "SR") {
+      assert.ok(main >= 1.45 - 1e-9 && main <= 1.7 + 1e-9, tag);
+      assert.ok(extras <= 1, tag);
+    } else {
+      assert.ok(main >= 1.9 - 1e-9 || (s.ultimate.type === "pass" && extras >= 2), tag);
+      if (c.aptitude.GK !== "A") assert.ok(combos.some((x) => x.a === s.id || x.b === s.id), `${tag}: SSR 필드 선수는 합체기에 (§19.18 Q1 — GK 제외)`);
+    }
+  }
+  // 상대 보스 필살기도 SSR 범위
+  for (const id of ["sk_boss_strike", "sk_boss_save"]) assert.ok(ultPower(S[id].ultimate, onReceive).main >= 1.9, id);
+});
+
+test("K2 데이터: 새 8명 = 초안 그대로 (§19.12 ① 이름 · 레어도 · 원소 · 스타일 · 특성 · 스탯 합 · A 적성 1개) · 기존 6명 필살기 교체 · 주장 1명분", () => {
+  const real = loadData();
+  const C = Object.fromEntries(real.characters.map((c) => [c.id, c]));
+  const NEW8 = {
+    ch_giant_keeper: ["헤르타", "SSR", "earth", "power", "captain", 1420, "GK"],
+    ch_spirit_striker: ["브론테", "SSR", "lightning", "speed", "finisher", 1380, "FW"],
+    ch_elf_regista: ["나엘리스", "SR", "water", "technique", "killpass", 1210, "DF"],
+    ch_rabbit_fullback: ["코니", "R", "earth", "speed", "runner", 960, "DF"],
+    ch_spirit_dribbler: ["온디나", "SR", "water", "speed", "carrier", 1190, "MF"],
+    ch_elf_archer: ["리시엘", "SR", "lightning", "technique", "crosser", 1160, "MF"],
+    ch_human_header: ["카밀라", "R", "wind", "power", "targetman", 990, "FW"],
+    ch_dwarf_finisher: ["힐디", "R", "fire", "technique", "finisher", 970, "FW"],
+  };
+  assert.deepEqual(real.characters.slice(8).map((c) => c.id), Object.keys(NEW8), "초안 순서로 뒤에 붙인다");
+  for (const [id, [name, rarity, element, style, trait, sum, aPos]] of Object.entries(NEW8)) {
+    const c = C[id];
+    assert.deepEqual([c.name, c.rarity, c.element, c.style, c.trait], [name, rarity, element, style, trait], id);
+    assert.equal(Object.values(c.baseStats).reduce((a, b) => a + b, 0), sum, `${name} 스탯 합`);
+    assert.deepEqual(Object.entries(c.aptitude).filter(([, v]) => v === "A").map(([k]) => k), [aPos], `${name} A 적성`);
+    assert.ok(/^#[0-9a-f]{6}$/i.test(c.portraitColor) && c.bio.length > 10, `${name} 색 · 소개`);
+  }
+  const SWAP = { ch_spirit_keeper: "sk_high_tide", ch_dwarf_wall: "sk_mountain_wedge", ch_human_captain: "sk_flame_command", ch_human_runner: "sk_lightning_dash", ch_wolf_winger: "sk_prairie_gale", ch_cat_trickster: "sk_alley_cat_step" };
+  for (const [id, sk] of Object.entries(SWAP)) assert.equal(C[id].innateSkillId, sk, C[id].name);
+  assert.equal(C.ch_elf_playmaker.innateSkillId, "sk_wind_thread");
+  assert.equal(C.ch_giant_striker.innateSkillId, "sk_meteor_shot");
+  // 주장 설명 = 1명분 (L46), params 그대로 — 헤르타 + 아델린 편성의 경기 팀워크 증폭 = 주장 1명
+  const cap = readJson("traits").find((t) => t.id === "captain");
+  assert.ok(cap.description.includes("1명분"));
+  assert.deepEqual(cap.params, { teamworkPlus: 10 });
+  assert.deepEqual(real.characters.filter((c) => c.trait === "captain").map((c) => c.name), ["아델린", "헤르타"]);
+});
+
+test("K2 데이터: 합체기 5개 (§19.11) — a = 필살 패스, b = 받은 뒤 공격 종류, 짝 중복 없음, 이름 1~8자, 바람의 유성이 맨 앞", () => {
+  const real = loadData();
+  const S = Object.fromEntries(real.skills.map((s) => [s.id, s]));
+  const combos = readJson("combos");
+  assert.deepEqual(combos.map((c) => [c.a, c.b, c.name]), [
+    ["sk_wind_thread", "sk_meteor_shot", "바람의 유성"],
+    ["sk_wind_thread", "sk_thunderbolt", "풍뢰일섬"],
+    ["sk_deep_current", "sk_thunderbolt", "뇌우"],
+    ["sk_lightning_arrow", "sk_sky_header", "하늘 과녁"],
+    ["sk_lightning_arrow", "sk_meteor_shot", "뇌명 유성"],
+  ]);
+  assert.equal(new Set(combos.map((c) => `${c.a}>${c.b}`)).size, combos.length);
+  for (const c of combos) {
+    assert.equal(S[c.a].ultimate.type, "pass", `${c.name} a`);
+    assert.ok(["shot", "pass", "dribble", "team"].includes(S[c.b].ultimate.type), `${c.name} b`);
+    assert.ok(c.name.length >= 1 && c.name.length <= 8, c.name);
+    assert.equal(match.comboName(real, c.a, c.b), c.name);
+  }
+  // 등록되지 않은 짝 (울리카 초원의 질풍 → 그레타) = 합체기 없음
+  assert.equal(match.comboName(real, "sk_prairie_gale", "sk_meteor_shot") ?? null, null);
+});
+
+test("K2 데이터: 옛 고유 6개 = 배울 수 있는 스킬 (id · 효과 그대로) · 코치 힌트 목록 맨 뒤 (§19.12 ②③) · 액티브 2개는 코치 수업", () => {
+  const real = loadData();
+  const S = Object.fromEntries(real.skills.map((s) => [s.id, s]));
+  const OLD = {
+    sk_tide_wall: ["passive", 180, ["GK"], "sp_river_scholar"],
+    sk_captain_call: ["passive", 140, null, "sp_bard_lumi"],
+    sk_tireless: ["passive", 120, null, "sp_mountain_monk"],
+    sk_feint: ["passive", 100, ["FW", "MF"], "sp_street_striker"],
+    sk_iron_tackle: ["active", 130, null, "sp_iron_captain"],
+    sk_line_breaker: ["active", 140, null, "sp_wind_dancer"],
+  };
+  for (const [id, [kind, cost, positions, coach]] of Object.entries(OLD)) {
+    const s = S[id];
+    assert.deepEqual([s.kind, s.learnable, s.cost, s.positions, s.ultimate], [kind, true, cost, positions, null], id);
+    const sp = real.supports.find((x) => x.id === coach);
+    assert.equal(sp.hintSkillIds.at(-1), id, `${id} → ${sp.name} 힌트 목록 맨 뒤`);
+    assert.equal(real.supports.filter((x) => x.hintSkillIds.includes(id)).length, 1, `${id} 코치 1명`);
+    assert.ok(!real.characters.some((c) => c.innateSkillId === id), `${id} 는 더 이상 고유가 아니다`);
+  }
+  assert.deepEqual(S.sk_iron_tackle.active.params, { defense: 1.4, noMissPenalty: true });
+  assert.equal(S.sk_line_breaker.active.effect, "extraLine");
+  // 코치 힌트 목록의 스킬은 모두 배울 수 있다
+  for (const sp of real.supports) for (const id of sp.hintSkillIds) assert.equal(S[id].learnable, true, `${sp.name} ${id}`);
+});
+
+test("K2 데이터: 고유 카드 16장 = 캐릭터마다 1장 (§19.12 ⑥) · 새 8장 이름 · 공통 필드 · validateCardsData", async () => {
+  const cardsEng = await import("../js/engine/cards.js");
+  const real = loadData();
+  assert.equal(cardsEng.validateCardsData(real), true);
+  const uniq = real.cards.cards.filter((c) => c.family === "unique");
+  assert.equal(uniq.length, 16);
+  assert.deepEqual(real.characters.map((c) => uniq.filter((u) => u.ownerCharId === c.id).length), Array(16).fill(1), "캐릭터마다 고유 1장");
+  const NAMES = { cd_u_herta: "골문 앞 허들", cd_u_bronte: "번개 원터치", cd_u_naelis: "물길 롱패스", cd_u_ondina: "물살 타기", cd_u_risiel: "과녁 크로스", cd_u_coni: "토끼굴 오버래핑", cd_u_camila: "공중볼 경합", cd_u_hildi: "담금질 슈팅" };
+  for (const [id, name] of Object.entries(NAMES)) {
+    const c = uniq.find((u) => u.id === id);
+    assert.equal(c.name, name, id);
+    assert.deepEqual([c.start, c.pool, c.target, c.costRate, c.exhaust], [false, false, { kind: "owner" }, 0.4, false], id);
+    assert.equal(c.plus.power, Math.round(c.power * 1.25), `${id}+ = round(×1.25)`);
+  }
 });

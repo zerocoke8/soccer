@@ -74,7 +74,7 @@
   {
     "id": "captain",
     "name": "주장",
-    "description": "팀워크 증폭 단계를 계산할 때 팀워크 +10",
+    "description": "팀워크 증폭 단계를 계산할 때 팀워크 +10 (주장이 여럿이어도 1명분)",
     "kind": "team",
     "amp": false,
     "params": { "teamworkPlus": 10 },

@@ -17,6 +17,9 @@ const TRAIT_IDS = ["killpass", "finisher", "crosser", "targetman", "runner", "ca
 const CHAR_TRAITS = {
   ch_elf_playmaker: "killpass", ch_wolf_winger: "crosser", ch_giant_striker: "targetman", ch_human_runner: "runner",
   ch_cat_trickster: "carrier", ch_dwarf_wall: "wall", ch_spirit_keeper: "distributor", ch_human_captain: "captain",
+  // LESSON_PROTO_PLAN §19.12 ① 새 8명 (브랜치 outgame-lesson)
+  ch_giant_keeper: "captain", ch_spirit_striker: "finisher", ch_elf_regista: "killpass", ch_rabbit_fullback: "runner",
+  ch_spirit_dribbler: "carrier", ch_elf_archer: "crosser", ch_human_header: "targetman", ch_dwarf_finisher: "finisher",
 };
 /** data/<name>.json 이 있으면 읽는다 (traits/combos 는 엔진 담당 신규 파일, helpers 번들 밖) */
 function readOptionalData(name) {
@@ -510,7 +513,7 @@ test("유물/루트 modifier 가 실제 수치에 반영된다", () => {
   assert.equal("intentReveal" in snap.modifiers, false, "intentReveal modifier 삭제");
   assert.equal("intentReveal" in snap, false, "스냅샷 intentReveal 삭제");
   assert.equal(snap.players.length, 7);
-  // 기본 편성은 같은 원소가 최대 2명 → 공명 없음 (8명 데이터에서는 어떤 편성도 3명 공명이 불가능)
+  // 기본 편성은 같은 원소가 최대 2명 → 공명 없음 (16명이면 3명 공명 편성이 가능하다 — §19.12 ①)
   assert.equal(snap.resonance, null);
   // 시즌3 상대는 공명 보유 (불 4명 → strong)
   const ember = run.buildOpponentSnapshot(data.opponents.find((o) => o.id === "op_s3_emberthrone"), data);
@@ -829,7 +832,7 @@ test("v0.3 데이터: 캐릭터 연계 특성 배정, traits.json 참조, 상대
   const traits = readOptionalData("traits");
   const traitIds = new Set(traits ? traits.map((t) => t.id) : TRAIT_IDS);
   for (const id of TRAIT_IDS) assert.ok(traitIds.has(id), `traits.json 에 ${id}`);
-  // 캐릭터 8명 = §13.1 배정 그대로
+  // 캐릭터 16명 = §13.1 배정 + §19.12 ① 새 8명
   assert.equal(data.characters.length, Object.keys(CHAR_TRAITS).length);
   for (const c of data.characters) {
     assert.equal(c.trait, CHAR_TRAITS[c.id], `${c.name} trait`);

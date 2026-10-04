@@ -1,3 +1,7 @@
 [
-  { "a": "sk_wind_thread", "b": "sk_meteor_shot", "name": "바람의 유성" }
+  { "a": "sk_wind_thread", "b": "sk_meteor_shot", "name": "바람의 유성" },
+  { "a": "sk_wind_thread", "b": "sk_thunderbolt", "name": "풍뢰일섬" },
+  { "a": "sk_deep_current", "b": "sk_thunderbolt", "name": "뇌우" },
+  { "a": "sk_lightning_arrow", "b": "sk_sky_header", "name": "하늘 과녁" },
+  { "a": "sk_lightning_arrow", "b": "sk_meteor_shot", "name": "뇌명 유성" }
 ]

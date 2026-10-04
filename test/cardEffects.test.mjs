@@ -1,4 +1,4 @@
-// test/cardEffects.test.mjs — 엔진 감사 (ENGINE AUDIT): 68장 카드마다 통제된 상태에서 1장을 내고 핵심 효과를 확인한다.
+// test/cardEffects.test.mjs — 엔진 감사 (ENGINE AUDIT): 76장 카드마다 통제된 상태에서 1장을 내고 핵심 효과를 확인한다.
 // 기준: LESSON_PROTO_PLAN §14.7 · §14.9 · §14.10 (구역 방식 — 대상 · 1인 위력 · 비용 · effects · 강화판 · 코치 구역 ×1.3 · 유대 80판 · 대비 구역 ×1.5)
 //       · §16 (L40 고유 카드 = 주인 연계 특성의 모양 — 행 rows 로 검사).
 // 상태: 기본 편성 2-2-2 (p1 GK 네리아 · p2/p3 DF 도르비나/아델린 · p4/p5 MF 실루엔/타리아 · p6/p7 FW 울리카/그레타),
@@ -23,6 +23,8 @@ const SAFE = (() => {
 })();
 const FILL = ["cd_basic", "cd_basic"];
 const MIRKA_SQUAD = { ...data.config.defaultSquad.slots, MF2: "ch_cat_trickster" };
+/** §19.12 ⑥ 새 고유 8장: 주인을 같은 특성 선수 자리에 넣은 편성 (슬롯 → p1 ~ p7 순서 그대로) */
+const SQ = (slot, charId) => ({ ...data.config.defaultSquad.slots, [slot]: charId });
 const ALL7 = ["p1", "p2", "p3", "p4", "p5", "p6", "p7"];
 const LAYOUT = { p1: "defense", p2: "defense", p3: "physical", p4: "pass", p5: "pass", p6: "shoot", p7: "dribble" };
 const C = data.lesson.zones.centers;
@@ -347,6 +349,37 @@ const CASES = [
     check: both(twGain(0), ({ L }, label) => assert.equal(L.zones.p5, "defense", `${label}: 놓은 구역에 선다`)) },
   { id: "cd_u_mirka", squad: MIRKA_SQUAD, plus: true, at: C.shoot, rows: [["p5", "pass", 31], ["p5", "shoot", 31]], cost: 10, extra: 1, setup: setStamina(["p5"], 50) },
 
+  // ── 고유 +8 (§19.12 ⑥ — 같은 특성 카드 사본, 피니셔 30 (38)): 주인을 그 특성 선수 자리에 넣는다 ──
+  // 골문 앞 허들 (헤르타 = GK p1, 주장): 주인 구역 전원 · 팀워크 +2 (모양) + L10 · 체력 전원 +3 (+5)
+  { id: "cd_u_herta", squad: SQ("GK", "ch_giant_keeper"), rows: [["p1", "defense", 19], ["p2", "defense", 19]], cost: 8, setup: setStamina(ALL7, 50), selfHeal: { p1: 3, p2: 3 },
+    check: both(twGain(2 + 1), healed(["p3", "p7"], 3)) },
+  { id: "cd_u_herta", squad: SQ("GK", "ch_giant_keeper"), plus: true, layout: { p1: "physical" }, rows: [["p1", "physical", 24], ["p3", "physical", 24]], cost: 8, setup: setStamina(ALL7, 50), selfHeal: { p1: 5, p3: 5 },
+    check: both(twGain(2 + 1), healed(["p2"], 5)) },
+  // 번개 원터치 (브론테 = FW2 p7, 피니셔): 마무리 · 슈팅 구역이면 ×2 (중점 슈팅 ×1.5 도)
+  { id: "cd_u_bronte", squad: SQ("FW2", "ch_spirit_striker"), layout: { p7: "shoot" }, rows: [["p7", "shoot", 30, 2]], cost: 12, check: twGain(0) },
+  { id: "cd_u_bronte", squad: SQ("FW2", "ch_spirit_striker"), plus: true, rows: [["p7", "dribble", 38]], cost: 12 },
+  // 물길 롱패스 (나엘리스 = DF1 p2, 킬패스): 연결 · 고른 선수 ×1.5
+  { id: "cd_u_naelis", squad: SQ("DF1", "ch_elf_regista"), playerId: "p7", rows: [["p2", "defense", 20], ["p7", "dribble", 20, 1.5]], cost: 8, check: twGain(1) },
+  { id: "cd_u_naelis", squad: SQ("DF1", "ch_elf_regista"), plus: true, playerId: "p6", rows: [["p2", "defense", 25], ["p6", "shoot", 25, 1.5]], cost: 8 },
+  // 토끼굴 오버래핑 (코니 = DF2 p3, 침투): 자리 옮기기 · 옮긴 구역 ×1.3 · 다음 턴 손패 +1 (+2)
+  { id: "cd_u_coni", squad: SQ("DF2", "ch_rabbit_fullback"), zone: "shoot", rows: [["p3", "shoot", 33, 1.3]], cost: 13,
+    check: both(drawNextIs(1), ({ L }, label) => assert.equal(L.zones.p3, "shoot", `${label}: 옮겼다`)) },
+  { id: "cd_u_coni", squad: SQ("DF2", "ch_rabbit_fullback"), plus: true, zone: "pass", rows: [["p3", "pass", 41, 1.3]], cost: 13, check: drawNextIs(2) },
+  // 물살 타기 (온디나 = MF2 p5, 볼 운반): 가로지르기 · 두 구역 스탯 · 추가 사용 +1 · 주인 체력 −5 (강화: −5 없음)
+  { id: "cd_u_ondina", squad: SQ("MF2", "ch_spirit_dribbler"), zone: "defense", rows: [["p5", "pass", 25], ["p5", "defense", 25]], cost: 10, extra: 1, setup: setStamina(["p5"], 50), selfHeal: { p5: -5 },
+    check: ({ L }, label) => assert.equal(L.zones.p5, "defense", `${label}: 놓은 구역에 선다`) },
+  { id: "cd_u_ondina", squad: SQ("MF2", "ch_spirit_dribbler"), plus: true, at: C.shoot, rows: [["p5", "pass", 31], ["p5", "shoot", 31]], cost: 10, extra: 1, setup: setStamina(["p5"], 50) },
+  // 과녁 크로스 (리시엘 = MF1 p4, 크로서): 슈팅 구역 1명과 · 팀워크 +1 (모양) + L10
+  { id: "cd_u_risiel", squad: SQ("MF1", "ch_elf_archer"), layout: { p7: "shoot" }, playerId: "p7", rows: [["p4", "pass", 28], ["p7", "shoot", 28]], cost: 11, check: twGain(1 + 1) },
+  { id: "cd_u_risiel", squad: SQ("MF1", "ch_elf_archer"), plus: true, playerId: "p6", rows: [["p4", "pass", 35], ["p6", "shoot", 35]], cost: 11, check: twGain(2) },
+  // 공중볼 경합 (카밀라 = FW2 p7, 타깃맨): 주인 둘레 중간 원 · 주인 ×1.5 · 다음 카드 비용 0 (강화: + 주인 체력 +10)
+  { id: "cd_u_camila", squad: SQ("FW2", "ch_human_header"), rows: [["p7", "dribble", 20, 1.5]], cost: 8, setup: setStamina(["p7"], 50), check: buffIs({ nextCostZero: true }) },
+  { id: "cd_u_camila", squad: SQ("FW2", "ch_human_header"), plus: true, layout: { p5: "dribble" }, rows: [["p7", "dribble", 25, 1.5], ["p5", "dribble", 25]], cost: 8, setup: setStamina(["p7"], 50), selfHeal: { p7: 10 },
+    check: both(buffIs({ nextCostZero: true }), twGain(1)) },
+  // 담금질 슈팅 (힐디 = FW1 p6, 피니셔): 마무리 · 슈팅 구역이면 ×2
+  { id: "cd_u_hildi", squad: SQ("FW1", "ch_dwarf_finisher"), rows: [["p6", "shoot", 30, 2]], cost: 12 },
+  { id: "cd_u_hildi", squad: SQ("FW1", "ch_dwarf_finisher"), plus: true, layout: { p6: "pass" }, rows: [["p6", "pass", 38]], cost: 12 },
+
   // ── 코치 8 (대상이 코치 타입 구역에 서 있을 때만 ×1.3, 유대 80 이상이면 bond80, 강화판 = 그 시점 위력 × 1.25, 비용은 기본 위력 기준, 낼 때 유대 +8) ──
   { id: "cd_c_harr", layout: { p7: "shoot" }, at: C.shoot, T: ["p6", "p7"], per: 18, zm: { shoot: 1.3 }, cost: 11, check: coachBond("sp_coach_harr", 8) },
   { id: "cd_c_harr", at: AT.pass, T: ["p4", "p5"], per: 18, cost: 11 },
@@ -398,9 +431,9 @@ const CASES = [
   { id: "cd_p_hold", at: AT.pass, T: ["p4", "p5"], per: 18, cost: 11 },
 ];
 
-test("카드 효과 표: 68장 모두 표에 있고 기본판 · 강화판(대비 제외)을 낸다 · 고유는 모양 행 (L40) · 코치는 유대 80 · 타입 구역 ×1.3", () => {
+test("카드 효과 표: 76장 모두 표에 있고 기본판 · 강화판(대비 제외)을 낸다 · 고유는 모양 행 (L40) · 코치는 유대 80 · 타입 구역 ×1.3", () => {
   const all = cards.cardList(data);
-  assert.equal(all.length, 68);
+  assert.equal(all.length, 76);
   for (const c of all) {
     assert.ok(CASES.some((x) => x.id === c.id && !x.plus), `${c.id} 기본판이 표에 없다`);
     if (cards.canUpgrade(c)) assert.ok(CASES.some((x) => x.id === c.id && x.plus), `${c.id} 강화판이 표에 없다`);

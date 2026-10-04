@@ -1323,7 +1323,7 @@ test("뷰 chips: 방침 버프는 0이어도, 그 밖은 0이 아니거나 켜�
 });
 
 // ---------------------------------------------------------------------------
-// 퍼즈: 66장 전부 "내기 → 오류 없음" (방침 5개 × 시드 20 × 중점 구역 5곳, 무작위 놓을 점 · 벤치 · 턴 끝, 매 행동 불변식)
+// 퍼즈: 76장 전부 "내기 → 오류 없음" (방침 5개 × 시드 20 × 중점 구역 5곳, 무작위 놓을 점 · 벤치 · 턴 끝, 매 행동 불변식)
 // ZE2 가 구역 방식으로 옮겼다 (탭 → 무작위 drop 점 · dropCandidates, 쉬기 → 벤치). ZE3 가 방침 불변식을 더했다 (expectBuffs).
 // ---------------------------------------------------------------------------
 
@@ -1410,13 +1410,16 @@ function checkInvariants(s, allUids, where) {
   }
 }
 
-test("퍼즈: 68장 전부 내기 → 오류 없음 (방침 5개 × 시드 20 × 중점 구역 5곳, 무작위 놓을 점 · 벤치 · 턴 끝 · 매 행동 불변식)", () => {
+test("퍼즈: 76장 전부 내기 → 오류 없음 (방침 5개 × 시드 20 × 중점 구역 5곳, 무작위 놓을 점 · 벤치 · 턴 끝 · 매 행동 불변식)", () => {
   const all = cards.cardList(data);
-  assert.equal(all.length, 68);
+  assert.equal(all.length, 76);
   const prepIds = all.filter((c) => c.family === "prep").map((c) => c.id);
   const deckIds = all.filter((c) => c.family !== "prep").map((c) => c.id);
   const formations = Object.keys(FORMATIONS);
   const mirkaSquad = { ...data.config.defaultSquad.slots, MF2: "ch_cat_trickster" };
+  // §19.16 새 편성 A · B (새 8명의 고유 카드가 손에 들어온다)
+  const newA = { GK: "ch_giant_keeper", DF1: "ch_elf_regista", DF2: "ch_rabbit_fullback", MF1: "ch_spirit_dribbler", MF2: "ch_elf_archer", FW1: "ch_spirit_striker", FW2: "ch_human_header" };
+  const newB = { ...newA, FW2: "ch_dwarf_finisher" };
   let plays = 0;
   let lessons = 0;
   let benches = 0;
@@ -1428,7 +1431,13 @@ test("퍼즈: 68장 전부 내기 → 오류 없음 (방침 5개 × 시드 20 ×
     for (let seed = 1; seed <= 20; seed++) {
       for (const [si, zone] of zones.ZONE_IDS.entries()) {
         const r = createRngFromState((seed * 1000 + si * 37 + policy.length * 7919) >>> 0);
-        const s = makeState({ seed: seed * 31 + si, policy, deckIds, squad: r.chance(0.4) ? mirkaSquad : undefined });
+        const squad = r.pick([undefined, mirkaSquad, newA, newB]);
+        // 덱 = 고유가 아닌 카드 전부 + 그 편성 주인의 고유 카드 2장씩 (§19.12 ⑥ — 16명 중 7명이라 주인이 없는 고유 9장은 넣지 않고,
+        // 편성 4가지로 나뉜 고유 카드가 방침마다 한 번은 손에 들어오게 2장씩)
+        const owners = new Set(Object.values(squad || data.config.defaultSquad.slots));
+        const owned = deckIds.filter((id) => owners.has(cards.getCard(data, id).ownerCharId));
+        const deck = [...deckIds.filter((id) => cards.getCard(data, id).family !== "unique"), ...owned, ...owned];
+        const s = makeState({ seed: seed * 31 + si, policy, deckIds: deck, squad });
         const fm = r.pick(formations);
         formationSlots(fm).forEach((slot, i) => {
           s.players[i].slot = slot;

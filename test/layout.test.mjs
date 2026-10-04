@@ -1106,6 +1106,8 @@ test("자동 진행: 화면에 그린 패스 후보 = 실제 수신자 (사람 �
 test("받는 선수 후보 전원 = 도착 구역 (실제 엔진 view): 크로스 후보 MF 도 박스, 결정 중 스킬·필살기 변형도 같은 규칙", () => {
   const squad = { GK: "ch_spirit_keeper", DF1: "ch_dwarf_wall", DF2: "ch_human_captain", MF1: "ch_elf_playmaker", MF2: "ch_human_runner", FW1: "ch_wolf_winger", FW2: "ch_giant_striker" };
   const home = run.buildTeamSnapshot(run.createRun({ data, seed: "cands", formation: "2-2-2", squad }), data);
+  // §19.12: 라인 브레이커는 이제 코치 수업 액티브 — 울리카(FW1)에게 넣어 스킬 변형을 만든다
+  home.players.find((p) => p.charId === "ch_wolf_winger").skillIds.push("sk_line_breaker");
   home.tension = 80;
   const seen = { cross: 0, multi: 0, variant: 0, ult: 0 };
   for (const opp of data.opponents) {

@@ -434,6 +434,8 @@ test("간파 스킬(사람): skillId 만 먼저 제출 → 효과(짝 ×readMult
 
 test("무효 입력은 throw: 비활성 액션, 텐션 부족, 미보유 스킬", () => {
   const home = homeSnapshot();
+  // §19.12: 라인 브레이커는 이제 코치 수업 액티브 — 울리카에게 배운 스킬로 넣는다
+  home.players.find((p) => p.charId === "ch_wolf_winger").skillIds.push("sk_line_breaker");
   const away = oppSnapshot("op_s1_ironhoof");
   const ms = match.createMatch({ data, seed: 3, home, away, possessions: 8, kind: "goal" });
   const v = match.getMatchView(ms, data);
@@ -1141,6 +1143,7 @@ test("v0.2 스킬 변형 미리보기: 라인 브레이커(extraLine)·소매치
   // 소매치기는 MF 전원에게 붙여 수비 성공 시 역습 시작 구역이 한 칸 깊어지는 경로를 검증한다.
   const squad = { GK: "ch_spirit_keeper", DF1: "ch_wolf_winger", MF1: "ch_elf_playmaker", MF2: "ch_human_runner", MF3: "ch_cat_trickster", FW1: "ch_giant_striker", FW2: "ch_human_captain" };
   const st = run.createRun({ data, seed: "lb", formation: "1-3-2", squad });
+  st.players.find((p) => p.charId === "ch_wolf_winger").learnedSkillIds.push("sk_line_breaker"); // §19.12: 배운 스킬로 넣는다
   const home = run.buildTeamSnapshot(st, data);
   const ulrika = home.players.find((p) => p.slot === "DF1");
   assert.ok(ulrika.skillIds.includes("sk_line_breaker"), "울리카 = 라인 브레이커 보유");

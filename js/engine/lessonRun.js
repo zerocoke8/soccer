@@ -62,12 +62,13 @@ export {
 export { lessonResult } from "./lesson.js";
 
 export const RUN_KIND = "lessonRun";
-export const RUN_VERSION = 3;
+export const RUN_VERSION = 4;
 /**
- * 저장소가 받는 저장본 버전. migrateLessonRun 이 3 으로 올린다:
- *   1 → 2 는 레슨 · 보상 중이 아니어야 한다 (§14.15), 2 → 3 은 늘 된다 (액티브 힌트 → SP · 수업 필드, §18.7).
+ * 저장소가 받는 저장본 버전. migrateLessonRun 이 4 로 올린다:
+ *   1 → 2 는 레슨 · 보상 중이 아니어야 한다 (§14.15), 2 → 3 은 늘 된다 (액티브 힌트 → SP · 수업 필드, §18.7),
+ *   3 → 4 도 늘 된다 (옛 고유 스킬 → 캐릭터의 새 필살기, LESSON_PROTO_PLAN §19.13).
  */
-export const SAVE_VERSIONS = [1, 2, 3];
+export const SAVE_VERSIONS = [1, 2, 3, 4];
 
 /** 사용자 입력을 기다리는 phase (continueFlow 가 여기서 멈춘다) */
 const STOP_PHASES = new Set(["week", "lesson", "reward", "consult", "prep", "event", "match", "relic", "route", "finished"]);
@@ -471,7 +472,7 @@ export function isLessonRun(s) {
 }
 
 /**
- * 저장소가 받는 레슨 런 저장본인가 (version 1 · 2 · 3 — 1 · 2 는 migrateLessonRun 으로 올린다). store.isLessonRunSave 의 원본.
+ * 저장소가 받는 레슨 런 저장본인가 (version 1 ~ 4 — 1 ~ 3 은 migrateLessonRun 으로 올린다). store.isLessonRunSave 의 원본.
  * @param {any} s
  * @returns {boolean}
  */
@@ -480,12 +481,13 @@ export function isLessonRunSave(s) {
 }
 
 /**
- * 저장본을 지금 버전으로 올릴 수 있는가: 3 → 참, 2 → 늘 참 (레슨 · 보상 중이어도, §18.7), 1 → 레슨 · 보상 중이 아니어야 (§14.15).
+ * 저장본을 지금 버전으로 올릴 수 있는가: 4 → 참, 3 · 2 → 늘 참 (레슨 · 보상 · 경기 전 준비 중이어도, §18.7 · §19.13),
+ * 1 → 레슨 · 보상 중이 아니어야 (§14.15).
  */
 export function canMigrateLessonRun(s) {
   if (isLessonRun(s)) return true;
   if (!isLessonRunSave(s)) return false;
-  if (s.version === 2) return true;
+  if (s.version === 2 || s.version === 3) return true;
   return s.version === 1 && s.lesson == null && s.pendingReward == null;
 }
 
@@ -518,13 +520,35 @@ function migrateV2toV3(s, data) {
 }
 
 /**
+ * version 3 → 4 (LESSON_PROTO_PLAN §19.13 · L45): 선수마다 charId 의 캐릭터 innateSkillId 와 다르면 바꾼다 (옛 고유 스킬 → 새 필살기).
+ * 바뀐 옛 스킬은 사라진다 (습득 목록에 넣지 않고 SP 보상도 없다 — [가정] §19.18 Q6). 습득 목록에 새 필살기 id 가 있으면 지운다 (방어).
+ * 캐릭터를 찾을 수 없는 선수는 그대로. rng 를 쓰지 않는다. 레슨 · 보상 · 경기 전 준비 상태는 고유 스킬을 읽지 않으므로 그대로 둔다.
+ */
+function migrateV3toV4(s, data) {
+  const chars = new Map(data.characters.map((c) => [c.id, c]));
+  let n = 0;
+  for (const p of Array.isArray(s.players) ? s.players : []) {
+    const c = p && chars.get(p.charId);
+    if (!c || !c.innateSkillId) continue;
+    if (p.innateSkillId !== c.innateSkillId) {
+      p.innateSkillId = c.innateSkillId;
+      n += 1;
+    }
+    if (Array.isArray(p.learnedSkillIds)) p.learnedSkillIds = p.learnedSkillIds.filter((id) => id !== c.innateSkillId);
+  }
+  s.version = 4;
+  if (n > 0) log(s, `저장본 이행: 고유 스킬 → 필살기 (${n}명)`);
+}
+
+/**
  * 저장본 이행. in-place, 멱등.
  *   - version 1 (종목 레슨): 레슨 · 보상 중이 아니면 version 2 로 — record.lessons[].stat → zone, rests → benches (§14.15).
  *     레슨 · 보상 중인 1 은 그대로 둔다 (isLessonRun 이 거짓 → UI 는 "저장 없음" + 토스트).
  *   - version 2 → 3 (§18.7, data 가 있어야 한다 — 액티브 판정 · noHintSp): migrateV2toV3. data 가 없으면 2 그대로 둔다.
- *   - version 3: tactics · modifiers 를 run.migrateRun 으로.
+ *   - version 3 → 4 (§19.13, data.characters 가 있어야 한다): migrateV3toV4. data 가 없으면 3 그대로 둔다.
+ *   - version 4: tactics · modifiers 를 run.migrateRun 으로.
  * @param {object} s
- * @param {object} [data] 데이터 번들 (2 → 3 에 필요)
+ * @param {object} [data] 데이터 번들 (2 → 3 · 3 → 4 에 필요)
  * @returns {object}
  */
 export function migrateLessonRun(s, data) {
@@ -538,6 +562,7 @@ export function migrateLessonRun(s, data) {
     s.version = 2;
   }
   if (isLessonRunSave(s) && s.version === 2 && data && Array.isArray(data.skills) && data.lesson) migrateV2toV3(s, data);
+  if (isLessonRunSave(s) && s.version === 3 && data && Array.isArray(data.characters)) migrateV3toV4(s, data);
   if (!isLessonRun(s)) return s;
   if (!Array.isArray(s.pendingTeach)) s.pendingTeach = [];
   return run.migrateRun(s);

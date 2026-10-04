@@ -20,13 +20,13 @@ function layoutState({ zones = LAYOUT, bench = [], out = [] } = {}) {
 }
 const posOf = (s) => cards.fieldPositions(s, data);
 
-test("카드 68장 · id 중복 없음 · 계열별 장수 · version 2 (§15.7: 공용 13 → 15)", () => {
+test("카드 76장 · id 중복 없음 · 계열별 장수 · version 2 (§15.7: 공용 13 → 15, §19.12 고유 8 → 16)", () => {
   assert.equal(data.cards.version, 2);
-  assert.equal(ALL.length, 68);
-  assert.equal(new Set(ALL.map((c) => c.id)).size, 68);
+  assert.equal(ALL.length, 76);
+  assert.equal(new Set(ALL.map((c) => c.id)).size, 76);
   const count = {};
   for (const c of ALL) count[c.family] = (count[c.family] || 0) + 1;
-  assert.deepEqual(count, { common: 15, ace: 8, team: 8, counter: 6, press: 6, poss: 6, unique: 8, coach: 8, prep: 3 });
+  assert.deepEqual(count, { common: 15, ace: 8, team: 8, counter: 6, press: 6, poss: 6, unique: 16, coach: 8, prep: 3 });
   assert.deepEqual(ALL.filter((c) => c.start).map((c) => c.id), data.lesson.startDeck);
   assert.equal(ALL.filter((c) => c.pool).length, 12 + 8 + 8 + 6 + 6 + 6);
   for (const c of ALL) if (["unique", "coach", "prep"].includes(c.family)) assert.equal(c.pool, false, c.id);
@@ -154,6 +154,10 @@ const TABLE = {
   cd_u_neria: ["owner", 20, 25, 8], cd_u_dorbina: ["owner", 21, 26, 8], cd_u_adeline: ["owner", 19, 24, 8],
   cd_u_silluen: ["owner", 20, 25, 8], cd_u_taria: ["owner", 33, 41, 13], cd_u_ulrika: ["owner", 28, 35, 11],
   cd_u_greta: ["owner", 20, 25, 8], cd_u_mirka: ["owner", 25, 31, 10],
+  // §19.12 ⑥ 새 고유 8장 (같은 특성 카드 사본, 피니셔 30 (38) — K3 가 위력만 보정)
+  cd_u_herta: ["owner", 19, 24, 8], cd_u_bronte: ["owner", 30, 38, 12], cd_u_naelis: ["owner", 20, 25, 8],
+  cd_u_coni: ["owner", 33, 41, 13], cd_u_ondina: ["owner", 25, 31, 10], cd_u_risiel: ["owner", 28, 35, 11],
+  cd_u_camila: ["owner", 20, 25, 8], cd_u_hildi: ["owner", 30, 38, 12],
   // 코치: 강화판 = 그 시점 위력 × 1.25 (plus 없음)
   cd_c_harr: ["circle medium", 18, 23, 11], cd_c_celia: ["circle small", 20, 25, 12], cd_c_ornella: ["circle large", 15, 19, 9],
   cd_c_barbara: ["circle large", 15, 19, 9], cd_c_hanna: ["all", 6, 8, 4], cd_c_joy: ["circle small", 24, 30, 14],
@@ -161,7 +165,7 @@ const TABLE = {
   cd_p_tackle: ["circle large", 14, null, 8], cd_p_intercept: ["circle large", 14, null, 8], cd_p_hold: ["circle medium", 18, null, 11],
 };
 
-test("§14.9 · §15.7 변환표: 대상 · 1인 위력 · 강화판 · 1인 비용 (68장)", () => {
+test("§14.9 · §15.7 변환표: 대상 · 1인 위력 · 강화판 · 1인 비용 (76장)", () => {
   assert.deepEqual(Object.keys(TABLE).sort(), ALL.map((c) => c.id).sort());
   for (const [id, [target, power, plus, cost]] of Object.entries(TABLE)) {
     const c = byId(id);
@@ -221,8 +225,17 @@ test("위력 없는 카드의 강화판 · 고유 카드 effects = 예전 지원
     cd_u_ulrika: [[], []],
     cd_u_greta: [[{ type: "nextCostZero" }], [{ type: "nextCostZero" }, { type: "heal", to: "owner", n: 10 }]],
     cd_u_mirka: [[{ type: "extraPlay", n: 1 }, { type: "heal", to: "owner", n: -5 }], [{ type: "extraPlay", n: 1 }]],
+    // §19.12 ⑥ 새 8장 = 같은 특성 카드의 남긴 효과 (피니셔 2장은 효과 없음)
+    cd_u_herta: [[{ type: "heal", to: "all", n: 3 }], [{ type: "heal", to: "all", n: 5 }]],
+    cd_u_bronte: [[], []],
+    cd_u_naelis: [[], []],
+    cd_u_coni: [[{ type: "drawNext", n: 1 }], [{ type: "drawNext", n: 2 }]],
+    cd_u_ondina: [[{ type: "extraPlay", n: 1 }, { type: "heal", to: "owner", n: -5 }], [{ type: "extraPlay", n: 1 }]],
+    cd_u_risiel: [[], []],
+    cd_u_camila: [[{ type: "nextCostZero" }], [{ type: "nextCostZero" }, { type: "heal", to: "owner", n: 10 }]],
+    cd_u_hildi: [[], []],
   };
-  const shapeEff = { cd_u_adeline: [{ type: "teamwork", n: 2 }], cd_u_ulrika: [{ type: "teamwork", n: 1 }] };
+  const shapeEff = { cd_u_adeline: [{ type: "teamwork", n: 2 }], cd_u_ulrika: [{ type: "teamwork", n: 1 }], cd_u_herta: [{ type: "teamwork", n: 2 }], cd_u_risiel: [{ type: "teamwork", n: 1 }] };
   for (const [id, [base, plus]] of Object.entries(kept)) {
     assert.deepEqual(byId(id).effects, base, `${id} 원본`);
     assert.deepEqual((byId(id).plus && byId(id).plus.effects) || base, plus, `${id}+ 원본`);

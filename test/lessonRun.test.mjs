@@ -154,7 +154,7 @@ test("createRun: 초기 상태 · 시작 덱 · 시즌 계획 · 1주 offer", ()
   const s = newRun();
   checkInvariants(s);
   assert.equal(s.kind, "lessonRun");
-  assert.equal(s.version, 3);
+  assert.equal(s.version, 4);
   assert.deepEqual(s.pendingTeach, []);
   assert.equal(s.phase, "week");
   assert.equal(s.policy, data.lesson.defaultPolicy);
@@ -192,7 +192,7 @@ test("createRun: 초기 상태 · 시작 덱 · 시즌 계획 · 1주 offer", ()
   assert.equal(LR.migrateLessonRun(clone(s)).kind, "lessonRun");
 });
 
-test("저장 v1 → v3 이행 (§14.15 · §18.7): 레슨 · 보상 밖이면 올리고 기록 stat → zone · rests → benches, 레슨 · 보상 중 v1 은 거절", () => {
+test("저장 v1 → v4 이행 (§14.15 · §18.7 · §19.13): 레슨 · 보상 밖이면 올리고 기록 stat → zone · rests → benches, 레슨 · 보상 중 v1 은 거절", () => {
   const s = newRun();
   startLessonWeek(s, "pass");
   clearLesson(s);
@@ -207,7 +207,7 @@ test("저장 v1 → v3 이행 (§14.15 · §18.7): 레슨 · 보상 밖이면 �
   assert.ok(LR.canMigrateLessonRun(v1));
   delete v1.pendingTeach;
   assert.equal(LR.migrateLessonRun(v1, data), v1, "in-place");
-  assert.equal(v1.version, 3);
+  assert.equal(v1.version, 4);
   assert.deepEqual(v1.pendingTeach, []);
   assert.ok(LR.isLessonRun(v1));
   const rec = v1.record.lessons[0];
@@ -237,7 +237,8 @@ test("저장 v1 → v3 이행 (§14.15 · §18.7): 레슨 · 보상 밖이면 �
   // 그 밖의 저장본은 건드리지 않는다
   assert.equal(LR.migrateLessonRun(null), null);
   assert.ok(LR.isLessonRunSave({ kind: "lessonRun", version: 3, phase: "week" }));
-  assert.ok(!LR.isLessonRunSave({ kind: "lessonRun", version: 4, phase: "week" }));
+  assert.ok(LR.isLessonRunSave({ kind: "lessonRun", version: 4, phase: "week" }));
+  assert.ok(!LR.isLessonRunSave({ kind: "lessonRun", version: 5, phase: "week" }));
   assert.ok(!LR.canMigrateLessonRun(run.createRun({ data, seed: 1 })));
 });
 
@@ -561,7 +562,8 @@ test("보상: 코치 카드 획득 유대 +15, 고유 강화 후보, 퍼펙트 T
   assert.equal(s.phase, "reward");
   assert.equal(s.lesson.status, "perfect");
   assert.equal(s.trainingPoints, data.lesson.rewards.perfect.tp);
-  assert.equal(Object.values(s.hints).reduce((a, b) => a + b, 0), 2);
+  // 힌트 2번 = 패시브 힌트 레벨 + 액티브 코치 수업 (§18.3 — §19.12 ③ 바르바라 목록에 철의 태클)
+  assert.equal(Object.values(s.hints).reduce((a, b) => a + b, 0) + s.pendingReward.teach.length, 2);
   assert.equal(s.pendingReward.freeUpgrades, 1);
   assert.equal(s.teamwork >= 3, true);
   assert.equal(sup(s, "sp_iron_captain").bond, 20 + 5);
@@ -577,6 +579,7 @@ test("보상: 코치 카드 획득 유대 +15, 고유 강화 후보, 퍼펙트 T
   assert.equal(basicView.power, 6);
   assert.deepEqual(basicView.upgrade.power, 8);
   rejects(s, () => LR.resolveReward(s, data, { pick: null, upgradeUid: "k999" }));
+  while (s.pendingReward.teach.some((x) => x.result === null)) LR.resolveTeach(s, data, { playerId: null }); // 수업은 받지 않기
   LR.resolveReward(s, data, { pick: null, upgradeUid: basic });
   assert.equal(s.deck.find((e) => e.uid === basic).plus, true);
   assert.equal(s.trainingPoints, 30);
@@ -773,6 +776,8 @@ test("대비 레슨 · 경기 전 준비: 주와 팀워크를 쓰지 않고 경�
   clearLesson(s);
   assert.ok(s.modifiers.some((m) => m.key === "goalMatchCondition" && m.amount === 1 && m.untilSeason === 1 && m.source === "prepLesson"));
   assert.equal(s.pendingReward.result.prepBonus, true);
+  // 수비 중점이라 바르바라 힌트(§19.12 ③ 철의 태클)가 코치 수업으로 올 수 있다 → 받지 않기
+  while (s.pendingReward.teach.some((x) => x.result === null)) LR.resolveTeach(s, data, { playerId: null });
   LR.resolveReward(s, data, { pick: null });
   assert.equal(s.phase, "prep");
   assert.equal(s.turn, 5);
@@ -1411,7 +1416,8 @@ test("§18.4 받지 않기 SP +20 · 같은 액티브 두 번 → 두 번째는 
   // canTeachSkill 이유
   const t = newRun();
   assert.deepEqual(LR.canTeachSkill(t, data, "sk_focus_finish", "p6"), { ok: false, reason: "수업할 수 없는 스킬", full: false }); // 패시브
-  assert.equal(LR.canTeachSkill(t, data, "sk_iron_tackle", "p2").reason, "수업할 수 없는 스킬"); // learnable false
+  assert.equal(LR.canTeachSkill(t, data, "sk_boss_strike", "p6").reason, "수업할 수 없는 스킬"); // learnable false (필살기)
+  assert.equal(LR.canTeachSkill(t, data, "sk_iron_tackle", "p2").ok, true); // §19.12 ② 옛 고유 액티브 = 바르바라 수업
   assert.equal(LR.canTeachSkill(t, data, "sk_power_shot", "zz").reason, "선수 없음");
   assert.equal(LR.canTeachSkill(t, data, "sk_eagle_eye", "p6").reason, "DF · MF만");
   assert.equal(LR.canTeachSkill(t, data, "sk_rally_cry", "p1").ok, true); // positions null = 전원
@@ -1491,7 +1497,7 @@ test("§18.7 저장 v2 → v3: 액티브 힌트 → 레벨 × noHintSp SP · 패
   assert.ok(!LR.isLessonRun(v2) && LR.isLessonRunSave(v2) && LR.canMigrateLessonRun(v2));
   const sp0 = v2.skillPoints;
   assert.equal(LR.migrateLessonRun(v2, data), v2);
-  assert.equal(v2.version, 3);
+  assert.equal(v2.version, 4); // 2 → 3 → 4
   assert.ok(LR.isLessonRun(v2));
   same(v2.hints, { sk_focus_finish: 2 });
   assert.equal(v2.skillPoints, sp0 + 3 * noHint);
@@ -1527,7 +1533,7 @@ test("§18.7 저장 v2 → v3: 액티브 힌트 → 레벨 × noHintSp SP · 패
   const keep = rv2.pendingReward.result.hints.filter((h) => h.skillId !== "sk_power_shot");
   assert.ok(LR.canMigrateLessonRun(rv2), "v2 는 보상 중이어도 이행");
   LR.migrateLessonRun(rv2, data);
-  assert.equal(rv2.version, 3);
+  assert.equal(rv2.version, 4);
   same(rv2.pendingReward.result.hints, keep);
   assert.deepEqual(rv2.pendingReward.result.teach, []);
   assert.deepEqual(rv2.pendingReward.teach, []);
@@ -1545,17 +1551,123 @@ test("§18.7 저장 v2 → v3: 액티브 힌트 → 레벨 × noHintSp SP · 패
   const lv2 = asV2(l, { sk_power_shot: 1 });
   const lessonBefore = JSON.stringify(lv2.lesson);
   LR.migrateLessonRun(lv2, data);
-  assert.equal(lv2.version, 3);
+  assert.equal(lv2.version, 4);
   assert.equal(JSON.stringify(lv2.lesson), lessonBefore);
   endToEnd(lv2);
   assert.equal(lv2.pendingReward.teach.length, 1);
   assert.equal(lv2.pendingReward.teach[0].skillId, "sk_power_shot");
   checkInvariants(lv2);
 
-  // v1 (주) → v3 한 번에
+  // v1 (주) → v4 한 번에
   const one = asV2(w, { sk_rally_cry: 2 });
   one.version = 1;
   LR.migrateLessonRun(one, data);
-  assert.equal(one.version, 3);
+  assert.equal(one.version, 4);
   assert.ok(!("sk_rally_cry" in one.hints));
+});
+
+// ---------------------------------------------------------------------------
+// LESSON_PROTO_PLAN §19.13 — 저장 v3 → v4 (옛 고유 스킬 → 새 필살기)
+// ---------------------------------------------------------------------------
+
+/** K2 이전 데이터의 고유 스킬 (6명 — 실루엔 · 그레타는 그대로) */
+const OLD_INNATE = {
+  ch_spirit_keeper: "sk_tide_wall", ch_dwarf_wall: "sk_iron_tackle", ch_human_captain: "sk_captain_call",
+  ch_human_runner: "sk_tireless", ch_wolf_winger: "sk_line_breaker", ch_cat_trickster: "sk_feint",
+};
+/** 지금 저장본을 옛 v3 모양으로 (버전 3 · 옛 고유 스킬 id) */
+function asV3(state) {
+  const o = clone(state);
+  o.version = 3;
+  for (const p of o.players) if (OLD_INNATE[p.charId]) p.innateSkillId = OLD_INNATE[p.charId];
+  return o;
+}
+const innateOf = (charId) => data.characters.find((c) => c.id === charId).innateSkillId;
+
+test("§19.13 저장 v3 → v4: 옛 고유 스킬 → 캐릭터의 새 필살기 (보상 없음) · 주 · 상담 · 보상 · 레슨 · 경기 전 준비 중 · 멱등 · data 없으면 3 그대로", () => {
+  // 주
+  const w = newRun();
+  const v3 = asV3(w);
+  assert.ok(!LR.isLessonRun(v3) && LR.isLessonRunSave(v3) && LR.canMigrateLessonRun(v3));
+  const sp0 = v3.skillPoints;
+  const learned0 = v3.players.map((p) => p.learnedSkillIds.slice());
+  assert.equal(LR.migrateLessonRun(v3, data), v3, "in-place");
+  assert.equal(v3.version, 4);
+  assert.ok(LR.isLessonRun(v3));
+  for (const p of v3.players) assert.equal(p.innateSkillId, innateOf(p.charId), p.name);
+  assert.deepEqual(v3.players.map((p) => p.learnedSkillIds), learned0, "옛 고유는 습득 목록에 넣지 않는다");
+  assert.equal(v3.skillPoints, sp0, "SP 보상 없음 ([가정] §19.18 Q6)");
+  const moved = w.players.filter((p) => OLD_INNATE[p.charId]).length;
+  assert.equal(moved, 5, "기본 편성 = 옛 고유 6명 중 5명");
+  assert.equal(lastLog(v3), `저장본 이행: 고유 스킬 → 필살기 (${moved}명)`);
+  same(v3.players, w.players);
+  same(LR.migrateLessonRun(clone(v3), data), v3); // 멱등
+  checkInvariants(v3);
+  walk(v3, (x) => x.phase === "week" && x.turn === 3);
+  checkInvariants(v3);
+  // 이미 v4 인 런은 로그가 늘지 않는다
+  const fresh = newRun();
+  const logN = fresh.log.length;
+  LR.migrateLessonRun(fresh, data);
+  assert.equal(fresh.log.length, logN);
+  // data 없이 부르면 3 그대로 (캐릭터 데이터를 모른다)
+  const nd = asV3(w);
+  LR.migrateLessonRun(nd);
+  assert.equal(nd.version, 3);
+  assert.equal(P(nd, "p1").innateSkillId, "sk_tide_wall");
+  // 습득 목록에 새 필살기가 있으면 지운다 (방어), 모르는 캐릭터는 그대로
+  const odd = asV3(w);
+  P(odd, "p1").learnedSkillIds.push("sk_high_tide", "sk_calm_keeper");
+  P(odd, "p2").charId = "ch_nobody";
+  LR.migrateLessonRun(odd, data);
+  assert.equal(odd.version, 4);
+  assert.deepEqual(P(odd, "p1").learnedSkillIds, ["sk_calm_keeper"]);
+  assert.equal(P(odd, "p2").innateSkillId, "sk_iron_tackle", "캐릭터를 모르면 그대로");
+  assert.equal(lastLog(odd), "저장본 이행: 고유 스킬 → 필살기 (4명)");
+
+  // 상담 중
+  const c = newRun();
+  forceFree(c, ["consult", "meeting", "outing"]);
+  LR.applyWeekAction(c, data, { type: "consult" });
+  const cv3 = asV3(c);
+  LR.migrateLessonRun(cv3, data);
+  assert.equal(cv3.phase, "consult");
+  assert.equal(cv3.version, 4);
+  for (const p of cv3.players) assert.equal(p.innateSkillId, innateOf(p.charId));
+  LR.getConsultView(cv3, data);
+
+  // 레슨 중 → 레슨 상태는 그대로, 끝까지 진행 → 보상 중 v3 도 이행
+  const l = newRun();
+  startLessonWeek(l, "pass");
+  const lv3 = asV3(l);
+  const lessonBefore = JSON.stringify(lv3.lesson);
+  assert.ok(LR.canMigrateLessonRun(lv3), "v3 는 레슨 중이어도 이행");
+  LR.migrateLessonRun(lv3, data);
+  assert.equal(lv3.version, 4);
+  assert.equal(JSON.stringify(lv3.lesson), lessonBefore);
+  endToEnd(lv3);
+  assert.equal(lv3.phase, "reward");
+  checkInvariants(lv3);
+  const rv3 = asV3(lv3);
+  LR.migrateLessonRun(rv3, data);
+  assert.equal(rv3.version, 4);
+  for (const p of rv3.players) assert.equal(p.innateSkillId, innateOf(p.charId));
+  while (rv3.pendingReward.teach.some((x) => x.result === null)) LR.resolveTeach(rv3, data, { playerId: null });
+  LR.resolveReward(rv3, data, { pick: null });
+  assert.equal(rv3.phase, "week");
+  checkInvariants(rv3);
+
+  // 경기 전 준비 중 → 이행 뒤 경기 설정의 선수 스킬 = 새 필살기
+  const pr = newRun();
+  walk(pr, (x) => x.phase === "prep");
+  const pv3 = asV3(pr);
+  LR.migrateLessonRun(pv3, data);
+  assert.equal(pv3.phase, "prep");
+  assert.equal(pv3.version, 4);
+  LR.confirmPrep(pv3, data, {});
+  const setup = LR.getMatchSetup(pv3, data);
+  for (const p of setup.home.players) {
+    const ch = pv3.players.find((x) => x.id === p.id);
+    if (!p.isYouth) assert.equal(p.skillIds[0], innateOf(ch.charId), `${p.name} 경기 스킬 = 새 필살기`);
+  }
 });

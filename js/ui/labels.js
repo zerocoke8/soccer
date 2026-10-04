@@ -90,7 +90,7 @@ export const TRAIT_LABELS = {
   carrier: { name: '볼 운반', icon: '🐾', description: '드리블 체력 소모 −30%, 빌드업·중원 드리블 +10%' },
   wall: { name: '철벽', icon: '🧱', description: '버티기 ×1.0 → ×1.15' },
   distributor: { name: '빠른 배급', icon: '📤', description: '이 골키퍼의 롱패스 배급 +25% (세이브 · 박스 연결 차단 뒤 GK 배급)' },
-  captain: { name: '주장', icon: '©️', description: '팀워크 증폭 단계를 계산할 때 팀워크 +10' },
+  captain: { name: '주장', icon: '©️', description: '팀워크 증폭 단계를 계산할 때 팀워크 +10 (주장이 여럿이어도 1명분)' },
 };
 /** 연계 특성 표시 정보 { id, name, icon, description } — data.traits(있으면) 우선. 없는 id 면 null */
 export function traitInfo(id, data) {

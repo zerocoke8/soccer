@@ -285,8 +285,12 @@ export const SCENARIOS = [
     auto: false,
     require: (s, { data }) => isDuel(s) && s.attackingSide === "home" && needs(s, "attack") && ultOption(viewOf(s, data))?.type === "pass",
     prefer: (s, { data }) => {
+      // §19 E1: 받는 선수 기본값이 등록된 합체기 짝일 때 (16명 모두 필살기라 "필살기 보유"만으로는 합체기 상대가 아니다)
       const v = viewOf(s, data);
-      return !!v.receivers?.pass?.ultimateDefaultId && v.players.home.find((p) => p.id === v.receivers.pass.ultimateDefaultId)?.ultimateSkillId;
+      const u = ultOption(v);
+      const rid = v.receivers?.pass?.ultimateDefaultId;
+      const r = rid ? v.players.home.find((p) => p.id === rid) : null;
+      return !!(u && r && r.ultimateSkillId && (data.combos || []).some((c) => c.a === u.skillId && c.b === r.ultimateSkillId));
     },
     interact: { type: "steps", steps: [{ click: ".skill-row .ult-btn:not(:disabled)" }, { wait: 150 }, { hover: ["pass"] }] },
   },

@@ -233,7 +233,7 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
     window.localStorage.setItem(KEYS.run, JSON.stringify(weekV1));
     S0.render();
     contOf().click();
-    assert.equal(S0.store.run.version, 3, "v1 (주) → v3 (§18.7)");
+    assert.equal(S0.store.run.version, 4, "v1 (주) → v4 (§18.7 · §19.13)");
     assert.equal(S0.store.run.record.lessons[0].zone, "pass");
     assert.equal(S0.store.run.record.lessons[0].benches, 1);
     assert.ok(doc.querySelector(".week-screen"), "이어하기 → 주 화면");

@@ -6,7 +6,7 @@
     "baseStats": { "shoot": 90, "dribble": 140, "pass": 230, "defense": 380, "physical": 340 },
     "growth":    { "shoot": 0.8, "dribble": 0.85, "pass": 1.0, "defense": 1.25, "physical": 1.15 },
     "aptitude":  { "GK": "A", "DF": "C", "MF": "-", "FW": "-" },
-    "innateSkillId": "sk_tide_wall",
+    "innateSkillId": "sk_high_tide",
     "trait": "distributor",
     "portraitColor": "#3f8cff",
     "bio": "호수에서 태어난 물의 정령. 골문 앞에 서면 파도가 따라온다."
@@ -18,7 +18,7 @@
     "baseStats": { "shoot": 120, "dribble": 150, "pass": 210, "defense": 390, "physical": 350 },
     "growth":    { "shoot": 0.8, "dribble": 0.85, "pass": 0.95, "defense": 1.3, "physical": 1.2 },
     "aptitude":  { "GK": "B", "DF": "A", "MF": "C", "FW": "-" },
-    "innateSkillId": "sk_iron_tackle",
+    "innateSkillId": "sk_mountain_wedge",
     "trait": "wall",
     "portraitColor": "#8b5a2b",
     "bio": "산맥 광산촌 출신 드워프 센터백. 말은 적고 태클은 무겁다."
@@ -30,7 +30,7 @@
     "baseStats": { "shoot": 140, "dribble": 150, "pass": 200, "defense": 270, "physical": 210 },
     "growth":    { "shoot": 0.95, "dribble": 0.95, "pass": 1.05, "defense": 1.15, "physical": 1.05 },
     "aptitude":  { "GK": "-", "DF": "A", "MF": "B", "FW": "C" },
-    "innateSkillId": "sk_captain_call",
+    "innateSkillId": "sk_flame_command",
     "trait": "captain",
     "portraitColor": "#b3261e",
     "bio": "변경 마을의 젊은 주장. 밀릴 때 목소리가 더 커진다."
@@ -54,7 +54,7 @@
     "baseStats": { "shoot": 150, "dribble": 220, "pass": 250, "defense": 160, "physical": 190 },
     "growth":    { "shoot": 0.95, "dribble": 1.1, "pass": 1.1, "defense": 1.0, "physical": 1.05 },
     "aptitude":  { "GK": "-", "DF": "B", "MF": "A", "FW": "C" },
-    "innateSkillId": "sk_tireless",
+    "innateSkillId": "sk_lightning_dash",
     "trait": "runner",
     "portraitColor": "#ffd23f",
     "bio": "전령 출신의 인간 미드필더. 경기가 끝나도 아직 뛸 힘이 남아 있다."
@@ -66,7 +66,7 @@
     "baseStats": { "shoot": 250, "dribble": 320, "pass": 200, "defense": 130, "physical": 240 },
     "growth":    { "shoot": 1.1, "dribble": 1.25, "pass": 0.95, "defense": 0.8, "physical": 1.05 },
     "aptitude":  { "GK": "-", "DF": "C", "MF": "B", "FW": "A" },
-    "innateSkillId": "sk_line_breaker",
+    "innateSkillId": "sk_prairie_gale",
     "trait": "crosser",
     "portraitColor": "#8fd14f",
     "bio": "북쪽 초원의 늑대 수인 윙어. 한 번 달리기 시작하면 라인이 사라진다."
@@ -90,9 +90,105 @@
     "baseStats": { "shoot": 180, "dribble": 260, "pass": 230, "defense": 120, "physical": 170 },
     "growth":    { "shoot": 1.05, "dribble": 1.25, "pass": 1.1, "defense": 0.8, "physical": 0.9 },
     "aptitude":  { "GK": "-", "DF": "-", "MF": "A", "FW": "B" },
-    "innateSkillId": "sk_feint",
+    "innateSkillId": "sk_alley_cat_step",
     "trait": "carrier",
     "portraitColor": "#5fbf8a",
     "bio": "항구 뒷골목의 고양이 수인. 힘으로 덤비는 상대를 가장 좋아한다."
+  },
+  {
+    "id": "ch_giant_keeper",
+    "name": "헤르타",
+    "race": "giant", "element": "earth", "style": "power", "rarity": "SSR",
+    "baseStats": { "shoot": 150, "dribble": 110, "pass": 220, "defense": 460, "physical": 480 },
+    "growth":    { "shoot": 0.85, "dribble": 0.8, "pass": 0.95, "defense": 1.25, "physical": 1.3 },
+    "aptitude":  { "GK": "A", "DF": "B", "MF": "-", "FW": "-" },
+    "innateSkillId": "sk_earth_palm",
+    "trait": "captain",
+    "portraitColor": "#3d4db7",
+    "bio": "산맥 수정굴 출신 거인족 골키퍼. 골문 뒤에서 팀 전체를 내려다보며 부른다."
+  },
+  {
+    "id": "ch_spirit_striker",
+    "name": "브론테",
+    "race": "spirit", "element": "lightning", "style": "speed", "rarity": "SSR",
+    "baseStats": { "shoot": 450, "dribble": 360, "pass": 230, "defense": 120, "physical": 220 },
+    "growth":    { "shoot": 1.3, "dribble": 1.15, "pass": 0.95, "defense": 0.8, "physical": 0.85 },
+    "aptitude":  { "GK": "-", "DF": "-", "MF": "B", "FW": "A" },
+    "innateSkillId": "sk_thunderbolt",
+    "trait": "finisher",
+    "portraitColor": "#9b5cff",
+    "bio": "낙뢰에서 태어난 번개의 정령. 공이 발에 닿는 순간과 골망이 흔들리는 순간 사이가 없다."
+  },
+  {
+    "id": "ch_elf_regista",
+    "name": "나엘리스",
+    "race": "elf", "element": "water", "style": "technique", "rarity": "SR",
+    "baseStats": { "shoot": 110, "dribble": 190, "pass": 330, "defense": 360, "physical": 220 },
+    "growth":    { "shoot": 0.8, "dribble": 1, "pass": 1.25, "defense": 1.15, "physical": 0.9 },
+    "aptitude":  { "GK": "-", "DF": "A", "MF": "B", "FW": "-" },
+    "innateSkillId": "sk_deep_current",
+    "trait": "killpass",
+    "portraitColor": "#129e9a",
+    "bio": "남쪽 군도의 바다 엘프, 조약 함대 항해사 출신. 수비 라인 뒤에서 거리를 재어 길게 찔러 준다."
+  },
+  {
+    "id": "ch_rabbit_fullback",
+    "name": "코니",
+    "race": "beast", "element": "earth", "style": "speed", "rarity": "R",
+    "baseStats": { "shoot": 110, "dribble": 240, "pass": 170, "defense": 260, "physical": 180 },
+    "growth":    { "shoot": 0.85, "dribble": 1.25, "pass": 1, "defense": 1.1, "physical": 1 },
+    "aptitude":  { "GK": "-", "DF": "A", "MF": "B", "FW": "C" },
+    "innateSkillId": "sk_moon_hop",
+    "trait": "runner",
+    "portraitColor": "#f4a259",
+    "bio": "들판 굴 마을의 토끼 수인 풀백. 겁은 많지만 한번 튀어 나가면 아무도 못 잡는다."
+  },
+  {
+    "id": "ch_spirit_dribbler",
+    "name": "온디나",
+    "race": "spirit", "element": "water", "style": "speed", "rarity": "SR",
+    "baseStats": { "shoot": 170, "dribble": 330, "pass": 300, "defense": 230, "physical": 160 },
+    "growth":    { "shoot": 0.9, "dribble": 1.3, "pass": 1.1, "defense": 0.95, "physical": 0.8 },
+    "aptitude":  { "GK": "-", "DF": "B", "MF": "A", "FW": "C" },
+    "innateSkillId": "sk_rapids",
+    "trait": "carrier",
+    "portraitColor": "#ff8a6b",
+    "bio": "산호초 급류의 정령. 막아서는 다리 사이로 물처럼 공을 흘려 보낸다."
+  },
+  {
+    "id": "ch_elf_archer",
+    "name": "리시엘",
+    "race": "elf", "element": "lightning", "style": "technique", "rarity": "SR",
+    "baseStats": { "shoot": 210, "dribble": 290, "pass": 350, "defense": 140, "physical": 170 },
+    "growth":    { "shoot": 1, "dribble": 1.1, "pass": 1.25, "defense": 0.8, "physical": 0.95 },
+    "aptitude":  { "GK": "-", "DF": "-", "MF": "A", "FW": "B" },
+    "innateSkillId": "sk_lightning_arrow",
+    "trait": "crosser",
+    "portraitColor": "#38bdf8",
+    "bio": "폭풍 고원의 엘프 궁수 출신 측면 미드필더. 크로스를 화살처럼 머리 위 한 점에 꽂는다."
+  },
+  {
+    "id": "ch_human_header",
+    "name": "카밀라",
+    "race": "human", "element": "wind", "style": "power", "rarity": "R",
+    "baseStats": { "shoot": 240, "dribble": 140, "pass": 140, "defense": 190, "physical": 280 },
+    "growth":    { "shoot": 1.15, "dribble": 0.95, "pass": 0.95, "defense": 1, "physical": 1.2 },
+    "aptitude":  { "GK": "-", "DF": "B", "MF": "C", "FW": "A" },
+    "innateSkillId": "sk_sky_header",
+    "trait": "targetman",
+    "portraitColor": "#e05a9c",
+    "bio": "바닷바람 부는 절벽 등대 마을 출신. 공중볼은 전부 자기 것이라고 믿는다."
+  },
+  {
+    "id": "ch_dwarf_finisher",
+    "name": "힐디",
+    "race": "dwarf", "element": "fire", "style": "technique", "rarity": "R",
+    "baseStats": { "shoot": 280, "dribble": 180, "pass": 150, "defense": 150, "physical": 210 },
+    "growth":    { "shoot": 1.25, "dribble": 1, "pass": 0.9, "defense": 0.95, "physical": 1.1 },
+    "aptitude":  { "GK": "-", "DF": "C", "MF": "B", "FW": "A" },
+    "innateSkillId": "sk_forge_finish",
+    "trait": "finisher",
+    "portraitColor": "#c0612b",
+    "bio": "대장간 집 막내 드워프. 슛 한 발 한 발을 담금질한 작품이라고 부른다."
   }
 ]
