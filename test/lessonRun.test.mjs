@@ -240,7 +240,8 @@ test("getWeekView: 레슨 주 · 자유 주 · 대비 주 모양, 순수", () =>
   const ZW = data.lesson.zones.weights;
   const fw = data.lesson.lesson.focus.weight;
   for (const l of v.lessons) {
-    assert.deepEqual(Object.keys(l).sort(), ["boosted", "cap", "expected", "label", "prep", "special", "target", "turns", "zone"]);
+    // L40: 고유 카드 주 스탯 구역 ×1.5 가 없어져 boosted 키도 지웠다
+    assert.deepEqual(Object.keys(l).sort(), ["cap", "expected", "label", "prep", "special", "target", "turns", "zone"]);
     assert.equal(l.turns, data.lesson.lesson.turns[0]);
     if (l.special) {
       // 특별: 목표 ×1.15 · 상한 ×1.2 (§14.12)
@@ -258,17 +259,11 @@ test("getWeekView: 레슨 주 · 자유 주 · 대비 주 모양, 순수", () =>
       e += (w[l.zone] * fw) / tot;
     }
     assert.equal(l.expected, Math.round(e * 10) / 10, `expected ${l.zone}`);
-    // boosted = 그 구역이 주 스탯인 선수 (7명 모두 고유 카드가 덱에 있다)
-    assert.deepEqual(l.boosted, s.players.filter((p) => cards.mainStatsOf(p.position).includes(l.zone)).map((p) => p.id), `boosted ${l.zone}`);
   }
-  assert.deepEqual(v.lessons.find((l) => l.zone === "defense").boosted, ["p1", "p2", "p3"]);
-  assert.deepEqual(v.lessons.find((l) => l.zone === "dribble").boosted, ["p4", "p5", "p6", "p7"]);
-  // 결장 선수는 기대 인원 · boosted 에서 빠지고, 덱에 고유 카드가 없으면 boosted 가 아니다
+  // 결장 선수는 기대 인원에서 빠진다
   const t = newRun();
   P(t, "p2").injuredTurns = 1;
-  t.deck = t.deck.filter((e) => e.cardId !== "cd_u_neria");
   const tv = LR.getWeekView(t, data);
-  assert.deepEqual(tv.lessons.find((l) => l.zone === "defense").boosted, ["p3"]);
   assert.ok(tv.lessons.find((l) => l.zone === "defense").expected < v.lessons.find((l) => l.zone === "defense").expected);
   assert.equal(v.restGain, data.config.rest.stamina);
   assert.deepEqual(Object.keys(v.status).sort(), ["condition", "sp", "teamwork", "tp"]);
@@ -1108,4 +1103,49 @@ test("§15.7 새 작은 원 공용 카드 2장이 보상 후보에 나온다", (
     for (const o of s.pendingReward.offer) seen.add(o.cardId);
   }
   assert.ok(seen.has("cd_pair_drill") && seen.has("cd_pair_stretch"), [...seen].join(","));
+});
+
+// ---------------------------------------------------------------------------
+// L40 고유 카드 모양 (§16.8)
+// ---------------------------------------------------------------------------
+
+test("L40: createRun 이 모양 데이터 오류를 막는다 · 보상 · 상담 · 덱 카드 뷰의 고유 카드에 shape · LR.playCard 가 zone 을 넘긴다", () => {
+  // 모양 데이터 오류 → 런 시작 거절
+  const bad = clone(data);
+  bad.traits.find((t) => t.id === "runner").lesson.shape = "teleport";
+  assert.throws(() => LR.createRun({ data: bad, seed: "l40-bad" }), /고유 카드 모양 데이터 오류.*teleport/s);
+  const noTraits = clone(data);
+  delete noTraits.traits;
+  assert.throws(() => LR.createRun({ data: noTraits, seed: "l40-bad" }), /data.traits 가 없습니다/);
+  // 덱 · 보상 카드 뷰: 고유 카드 = 모양, 그 밖 = null
+  const s = newRun();
+  forceFree(s, ["consult"]);
+  LR.applyWeekAction(s, data, { type: "consult" });
+  const cv = LR.getConsultView(s, data);
+  const views = [...cv.deck];
+  assert.equal(views.length, s.deck.length, "상담 덱 카드 뷰");
+  for (const v of views) {
+    if (v.family === "unique") {
+      assert.ok(v.shape && v.shape.kind && v.shape.label && v.shape.chip, `${v.cardId} shape`);
+      assert.deepEqual(v.shape, cards.shapeView(cards.resolveCardDef(data, v.cardId), data), v.cardId);
+    } else assert.equal(v.shape, null, v.cardId);
+  }
+  assert.deepEqual(views.filter((v) => v.family === "unique").map((v) => v.shape.kind).sort(),
+    ["link", "move", "ownerCircle", "ownerCircle", "ownerZone", "pick", "pick"].sort());
+  // LR.playCard: 자리 옮기기 zone 이 엔진까지 간다
+  const r = newRun();
+  startLessonWeek(r, "pass");
+  const L = r.lesson;
+  L.zones = { p1: "defense", p2: "defense", p3: "physical", p4: "pass", p5: "pass", p6: "shoot", p7: "dribble" };
+  const tu = uidOf(r, "cd_u_taria");
+  forceHand(r, [tu, uidOf(r, "cd_basic")]);
+  L.playsLeft = 2;
+  const pv = LR.previewCard(r, data, { uid: tu, zone: "shoot" });
+  assert.deepEqual([pv.ok, pv.shape.from, pv.shape.to], [true, "pass", "shoot"]);
+  assert.deepEqual(LR.dropCandidates(r, data, { uid: tu }).map((c) => c.zone), ["shoot", "dribble", "pass", "defense", "physical"]);
+  LR.playCard(r, data, { uid: tu, zone: "shoot" });
+  assert.equal(r.lesson.zones.p5, "shoot");
+  assert.deepEqual(r.lesson.lastFx.find((x) => x.t === "move"), { t: "move", id: "p5", from: "pass", to: "shoot" });
+  checkInvariants(r);
+  same(JSON.parse(JSON.stringify(r)), r);
 });

@@ -406,7 +406,9 @@ test("jsdom: 아웃게임 화면 전부 스테이지 안에 그려지고 주요 
   assert.ok($$(".week-lesson .wl-name").every((e, i) => e.textContent === OL.ZONE_LABELS[wv.lessons[i].zone]), "레슨 카드: 구역 이름");
   assert.ok($$(".week-lesson .wl-focus").every((e, i) => e.textContent.includes("서 있을 확률 ×2") && e.textContent.includes(wv.lessons[i].special ? "상승 ×2.0" : "상승 ×1.5")), "레슨 카드: 중점 효과");
   assert.deepEqual($$(".week-lesson .wl-exp b").map((e) => Number(e.textContent)), wv.lessons.map((l) => l.expected), "레슨 카드: 예상 인원 = expected");
-  assert.deepEqual($$(".week-lesson").map((e) => e.querySelectorAll(".wl-owners .avatar").length), wv.lessons.map((l) => l.boosted.length), "레슨 카드: 고유 ×1.5 선수 = boosted");
+  // L40: 고유 카드 주 스탯 구역 ×1.5 가 없어져 뷰의 boosted 를 지웠다 → 얼굴 없음 (.wl-owners 자체를 지우는 것은 U3)
+  assert.ok(wv.lessons.every((l) => !("boosted" in l)), "주 뷰 lessons[] 에 boosted 없음");
+  assert.deepEqual($$(".week-lesson").map((e) => e.querySelectorAll(".wl-owners .avatar").length), wv.lessons.map(() => 0), "레슨 카드: 고유 ×1.5 얼굴 없음");
   const plainL = wv.lessons.find((l) => !l.special);
   assert.ok($(".week-head .week-lhead").textContent.includes(`${plainL.turns}턴`) && Number($(".week-lhead .wlh-target").textContent) === plainL.target && $(".week-lhead").textContent.includes(`퍼펙트 ${plainL.cap}`), "머리 줄: 턴 · 목표 · 퍼펙트 한 번");
   assert.deepEqual($$(".week-lesson .wl-target b").map((e) => Number(e.textContent)), wv.lessons.filter((l) => l.special).map((l) => l.target), "특별 구역 카드: 특별 목표");

@@ -236,8 +236,10 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
   const playerOf = (id) => (v.players || []).find((p) => p.id === id);
   const staminaOf = (p) => shown.stamina[p.id] ?? Number(p.stamina) ?? 0;
   const handCard = (uid) => (uid ? (v.hand || []).find((c) => c.uid === uid) || null : null);
-  const needsPoint = (c) => !!c && (c.targetKind === 'circle' || (c.targetKind === 'single' && !c.heal));
-  const pointCard = (c) => !!c && (c.targetKind === 'circle' || c.targetKind === 'single'); // 놓는 자리가 뜻이 있는 카드 (회복 단일 포함)
+  // L40 고유 카드: 받는 선수 · 구역이 필요한 모양 (shape.needs) 도 놓는 자리가 있는 카드다 (U1 최소 처리 — 모양별 조준 표시는 U3)
+  const shapeNeeds = (c) => !!c && !!c.shape && !!c.shape.needs;
+  const needsPoint = (c) => !!c && (c.targetKind === 'circle' || (c.targetKind === 'single' && !c.heal) || shapeNeeds(c));
+  const pointCard = (c) => !!c && (c.targetKind === 'circle' || c.targetKind === 'single' || shapeNeeds(c)); // 놓는 자리가 뜻이 있는 카드 (회복 단일 포함)
 
   /* ------------------------------------------------------------------ */
   /* 구역 바닥 · 라벨                                                      */
@@ -1499,6 +1501,7 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
           const args = { uid: r.uid };
           if (r.at) args.at = r.at;
           if (r.playerId) args.playerId = r.playerId;
+          if (r.zone) args.zone = r.zone;
           playWith(args);
         }, LESSON_T.aimShow);
         return;

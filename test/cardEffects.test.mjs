@@ -1,5 +1,6 @@
 // test/cardEffects.test.mjs — 엔진 감사 (ENGINE AUDIT): 68장 카드마다 통제된 상태에서 1장을 내고 핵심 효과를 확인한다.
-// 기준: LESSON_PROTO_PLAN §14.7 · §14.9 · §14.10 (구역 방식 — 대상 · 1인 위력 · 비용 · effects · 강화판 · 코치 구역 ×1.3 · 유대 80판 · 대비 구역 ×1.5).
+// 기준: LESSON_PROTO_PLAN §14.7 · §14.9 · §14.10 (구역 방식 — 대상 · 1인 위력 · 비용 · effects · 강화판 · 코치 구역 ×1.3 · 유대 80판 · 대비 구역 ×1.5)
+//       · §16 (L40 고유 카드 = 주인 연계 특성의 모양 — 행 rows 로 검사).
 // 상태: 기본 편성 2-2-2 (p1 GK 네리아 · p2/p3 DF 도르비나/아델린 · p4/p5 MF 실루엔/타리아 · p6/p7 FW 울리카/그레타),
 //       고정 구역 (수비 p1 p2 · 피지컬 p3 · 패스 p4 p5 · 슈팅 p6 · 드리블 p7 — 케이스마다 layout 으로 바꿀 수 있다),
 //       중점 구역 = focus (기본 "shoot", 그 구역 대상은 ×1.5), 컨디션 2 (×1.0), modifier 없음, 체력 100,
@@ -72,7 +73,7 @@ function playOne(c) {
     turn: L.turn,
     score: L.score,
   };
-  const args = { uid, at: c.at, playerId: c.playerId };
+  const args = { uid, at: c.at, playerId: c.playerId, zone: c.zone };
   const pv = lesson.previewCard(s, data, args);
   lesson.playCard(s, data, args);
   return { s, L: s.lesson, uid, before, pv };
@@ -86,6 +87,7 @@ const P = (s, id) => s.players.find((p) => p.id === id);
  *   중점 구역 대상은 자동으로 ×1.5, 상승 = round(per × 성장률[서 있는 구역] × 배율 × 0.64)
  *   cost: 1인 비용 (숫자 또는 배열), selfHeal: { id: 카드 효과로 그 대상이 받은 회복 }
  *   extra: 그 뒤 사용 횟수 = 1 + extraPlay (기본 0) · check(r): 카드 고유 효과
+ *   rows (L40 고유 카드): [[id, 구역, 1인 위력, 모양 배율]] — 행마다 상승 (가로지르기는 같은 id 두 행), 비용은 서로 다른 선수마다 1번
  */
 function runCase(c) {
   const r = playOne(c);
@@ -95,12 +97,29 @@ function runCase(c) {
   assert.equal(L.status, "playing", label);
   assert.equal(L.turn, before.turn, `${label}: 턴이 끝나면 안 된다`);
   assert.equal(L.stats.fails, 0, label);
-  const T = c.T || [];
-  assert.deepEqual(pv.targets.map((t) => t.id), T, `${label}: 대상`);
+  const T = c.rows ? [...new Set(c.rows.map((x) => x[0]))] : c.T || [];
   const zoneOf = (id) => ({ ...LAYOUT, ...(c.layout || {}) })[id];
   const focus = c.focus || "shoot";
   let sum = 0;
-  T.forEach((id, i) => {
+  if (c.rows) {
+    assert.deepEqual(pv.targets.map((t) => [t.id, t.stat]), c.rows.map((x) => [x[0], x[1]]), `${label}: 행`);
+    const want = {};
+    const add = (id, k, n) => { want[id] ||= {}; want[id][k] = (want[id][k] || 0) + n; };
+    for (const [id, z, per, m = 1] of c.rows) {
+      const p = P(s, id);
+      const sub = data.config.training.subStatMap[z];
+      const g = R(per * p.growth[z] * (c.mult ?? 1) * m * (z === focus ? 1.5 : 1) * GS);
+      add(id, z, g);
+      add(id, sub, R(g * 0.36 * p.growth[sub]));
+      sum += g;
+    }
+    for (const id of T) {
+      for (const k of Object.keys(P(s, id).stats)) assert.equal(P(s, id).stats[k] - before.stats[id][k], (want[id] && want[id][k]) || 0, `${label}: ${id}.${k} 상승`);
+      const healAfter = c.selfHeal && c.selfHeal[id] ? c.selfHeal[id] : 0;
+      assert.equal(before.stamina[id] - P(s, id).stamina + healAfter, c.cost, `${label}: ${id} 비용 (서로 다른 선수마다 1번)`);
+    }
+  } else assert.deepEqual(pv.targets.map((t) => t.id), T, `${label}: 대상`);
+  if (!c.rows) T.forEach((id, i) => {
     const p = P(s, id);
     const z = zoneOf(id);
     const sub = data.config.training.subStatMap[z];
@@ -205,7 +224,8 @@ const CASES = [
   { id: "cd_routine", plus: true, policy: "ace", check: buffIs({ routine: 10 }) },
   // 루틴은 단일 · 주인 카드에만 +n (원에는 없음)
   { id: "cd_coaching", policy: "ace", playerId: "p4", T: ["p4"], per: 35 + 8, cost: 21, setup: (s, L) => (L.buffs.routine = 8) },
-  { id: "cd_u_silluen", policy: "ace", T: ["p4"], per: 52.5 + 8, cost: 21, setup: (s, L) => (L.buffs.routine = 8) },
+  // 고유 카드 (L40): 루틴은 주인 행에만 (연결의 고른 선수 행에는 없음)
+  { id: "cd_u_silluen", policy: "ace", playerId: "p7", rows: [["p4", "pass", 20 + 8], ["p7", "dribble", 20, 1.5]], cost: 8, setup: (s, L) => (L.buffs.routine = 8) },
   { id: "cd_one_two", policy: "ace", at: AT.pass, T: ["p4", "p5"], per: 20, cost: 12, setup: (s, L) => (L.buffs.routine = 8) },
   { id: "cd_breath", policy: "ace", playerId: "p5", setup: setStamina(["p5"], 50), check: both(healed(["p5"], 25), buffIs({ focus: 1 })) },
   { id: "cd_breath", plus: true, policy: "ace", playerId: "p5", setup: setStamina(["p5"], 50), check: both(healed(["p5"], 35), buffIs({ focus: 1 })) },
@@ -291,26 +311,41 @@ const CASES = [
   // 비교: 같은 자리라도 possKeep 이 없으면 −2
   { id: "cd_defense_org", policy: "poss", at: AT.defPhys, T: DEF3, per: 15, mult: 1.2, cost: 9, setup: (s, L) => (L.buffs.poss = 4), check: buffIs({ poss: 2 }) },
 
-  // ── 고유 8 (주인 1명. 주인이 배치 포지션의 주 스탯 구역에 서 있으면 ×1.5 — 비용 21, 아니면 35 · 비용 14. 캐릭터 효과는 늘) ──
-  { id: "cd_u_neria", T: ["p1"], per: 52.5, cost: 21, setup: setStamina(["p1"], 50), selfHeal: { p1: 15 }, check: buffIs({ nextNoFail: true }) },
-  { id: "cd_u_neria", plus: true, layout: { p1: "physical" }, T: ["p1"], per: 66, cost: 21, setup: setStamina(["p1"], 50), selfHeal: { p1: 25 } },
-  { id: "cd_u_neria", layout: { p1: "pass" }, T: ["p1"], per: 35, cost: 14, setup: setStamina(["p1"], 50), selfHeal: { p1: 15 }, check: buffIs({ nextNoFail: true }) },
-  { id: "cd_u_dorbina", T: ["p2"], per: 52.5, cost: 21, setup: setStamina(ALL7, 50), selfHeal: { p2: 10 },
-    check: both(healed(["p1", "p3"], 10), healed(["p4", "p5", "p6", "p7"], 0)) },
-  { id: "cd_u_dorbina", plus: true, layout: { p2: "shoot" }, T: ["p2"], per: 44, cost: 14, setup: setStamina(ALL7, 50), selfHeal: { p2: 15 }, check: healed(["p1", "p3"], 15) },
-  { id: "cd_u_adeline", T: ["p3"], per: 52.5, cost: 21, setup: setStamina(ALL7, 50), selfHeal: { p3: 3 }, check: both(twGain(3), healed(["p1", "p7"], 3)) },
-  { id: "cd_u_adeline", plus: true, layout: { p3: "dribble" }, T: ["p3"], per: 44, cost: 14, setup: setStamina(ALL7, 50), selfHeal: { p3: 5 }, check: both(twGain(4), healed(["p1"], 5)) },
-  { id: "cd_u_silluen", T: ["p4"], per: 52.5, cost: 21, check: buffIs({ nextPct: 0.4 }) },
-  { id: "cd_u_silluen", plus: true, layout: { p4: "dribble" }, T: ["p4"], per: 66, cost: 21, check: buffIs({ nextPct: 0.55 }) },
-  { id: "cd_u_silluen", layout: { p4: "physical" }, T: ["p4"], per: 35, cost: 14, check: buffIs({ nextPct: 0.4 }) },
-  { id: "cd_u_taria", T: ["p5"], per: 52.5, cost: 21, check: drawNextIs(1) },
-  { id: "cd_u_taria", plus: true, layout: { p5: "defense" }, T: ["p5"], per: 44, cost: 14, check: drawNextIs(2) },
-  { id: "cd_u_ulrika", T: ["p6"], per: 52.5, cost: 21, check: both(buffIs({ nextPairPct: 0.5 }), twGain(1)) },
-  { id: "cd_u_ulrika", plus: true, layout: { p6: "pass" }, T: ["p6"], per: 44, cost: 14, check: both(buffIs({ nextPairPct: 0.75 }), twGain(1)) },
-  { id: "cd_u_greta", T: ["p7"], per: 52.5, cost: 21, setup: setStamina(["p7"], 50), check: buffIs({ nextCostZero: true }) },
-  { id: "cd_u_greta", plus: true, layout: { p7: "physical" }, T: ["p7"], per: 44, cost: 14, setup: setStamina(["p7"], 50), selfHeal: { p7: 10 }, check: buffIs({ nextCostZero: true }) },
-  { id: "cd_u_mirka", squad: MIRKA_SQUAD, T: ["p5"], per: 52.5, cost: 21, extra: 1, setup: setStamina(["p5"], 50), selfHeal: { p5: -5 } },
-  { id: "cd_u_mirka", squad: MIRKA_SQUAD, plus: true, layout: { p5: "shoot" }, T: ["p5"], per: 44, cost: 14, extra: 1, setup: setStamina(["p5"], 50) },
+  // ── 고유 8 (L40 · §16.6): 주인 연계 특성의 모양 — 행 [id, 구역, 1인 위력, 모양 배율], 중점 (슈팅) 행은 자동 ×1.5. 비용 = round(1인 × 0.4) 서로 다른 선수마다 ──
+  // 이어 주기 (네리아): 받는 선수 ×1.3 · 주인 체력 +10 (+15) · L10 팀워크 +1 · 다음 카드 실패 없음은 지웠다
+  { id: "cd_u_neria", playerId: "p4", rows: [["p1", "defense", 20], ["p4", "pass", 20, 1.3]], cost: 8, setup: setStamina(["p1"], 50), selfHeal: { p1: 10 },
+    check: both(twGain(1), buffIs({ nextNoFail: false })) },
+  { id: "cd_u_neria", plus: true, playerId: "p6", rows: [["p1", "defense", 25], ["p6", "shoot", 25, 1.3]], cost: 8, setup: setStamina(["p1"], 50), selfHeal: { p1: 15 } },
+  // 철벽 스쿼트 (도르비나): 주인 둘레 작은 원 (8u) · 실패 판정 없음 · GK·DF 체력 +10 (+15)
+  { id: "cd_u_dorbina", rows: [["p2", "defense", 22], ["p1", "defense", 22]], cost: 9, setup: setStamina(ALL7, 50), selfHeal: { p1: 10, p2: 10 },
+    check: both(healed(["p3"], 10), healed(["p4", "p5", "p6", "p7"], 0), twGain(1)) },
+  { id: "cd_u_dorbina", plus: true, layout: { p2: "shoot" }, rows: [["p2", "shoot", 28], ["p6", "shoot", 28]], cost: 9, setup: setStamina(ALL7, 50), selfHeal: { p2: 15 },
+    check: healed(["p1", "p3"], 15) },
+  { id: "cd_u_dorbina", rows: [["p2", "defense", 22], ["p1", "defense", 22]], cost: 9, setup: setStamina(["p1", "p2"], 15), selfHeal: { p1: 10, p2: 10 },
+    check: ({ pv }, label) => assert.deepEqual([pv.failRate, pv.failerId], [0, null], `${label}: 체력 15 여도 실패 없음`) },
+  // 주장의 호령 (아델린): 주인 구역 전원 · 팀워크 +2 (모양) + L10 · 체력 전원 +3 (+5) · 팀워크 +3 은 지웠다
+  { id: "cd_u_adeline", rows: [["p3", "physical", 20]], cost: 8, setup: setStamina(ALL7, 50), selfHeal: { p3: 3 }, check: both(twGain(2), healed(["p1", "p7"], 3)) },
+  { id: "cd_u_adeline", plus: true, layout: { p1: "physical" }, rows: [["p3", "physical", 25], ["p1", "physical", 25]], cost: 8, setup: setStamina(ALL7, 50), selfHeal: { p1: 5, p3: 5 },
+    check: both(twGain(2 + 1), healed(["p2"], 5)) },
+  // 킬패스 리허설 (실루엔): 연결 · 고른 선수 ×1.5 · 다음 카드 +40% 는 지웠다
+  { id: "cd_u_silluen", playerId: "p7", rows: [["p4", "pass", 20], ["p7", "dribble", 20, 1.5]], cost: 8, check: both(buffIs({ nextPct: 0 }), twGain(1)) },
+  { id: "cd_u_silluen", plus: true, playerId: "p6", rows: [["p4", "pass", 25], ["p6", "shoot", 25, 1.5]], cost: 8 },
+  // 침투 스프린트 (타리아): 자리 옮기기 · 옮긴 구역 ×1.3 · 다음 턴 손패 +1 (+2)
+  { id: "cd_u_taria", zone: "shoot", rows: [["p5", "shoot", 30, 1.3]], cost: 12,
+    check: both(drawNextIs(1), ({ L }, label) => assert.equal(L.zones.p5, "shoot", `${label}: 옮겼다`)) },
+  { id: "cd_u_taria", plus: true, zone: "pass", rows: [["p5", "pass", 38, 1.3]], cost: 12, check: drawNextIs(2) },
+  // 측면 왕복 크로스 (울리카): 슈팅 구역 1명과 · 팀워크 +1 (모양) + L10 · 다음 작은 원 +50% 는 지웠다
+  { id: "cd_u_ulrika", layout: { p7: "shoot" }, playerId: "p7", rows: [["p6", "shoot", 24], ["p7", "shoot", 24]], cost: 10,
+    check: both(twGain(1 + 1), buffIs({ nextPairPct: 0 })) },
+  { id: "cd_u_ulrika", plus: true, layout: { p1: "shoot" }, playerId: "p1", rows: [["p6", "shoot", 30], ["p1", "shoot", 30]], cost: 10, check: twGain(2) },
+  // 포스트 플레이 (그레타): 주인 둘레 중간 원 (15u) · 주인 ×1.5 · 다음 카드 비용 0 (강화: + 주인 체력 +10)
+  { id: "cd_u_greta", rows: [["p7", "dribble", 17, 1.5]], cost: 7, setup: setStamina(["p7"], 50), check: buffIs({ nextCostZero: true }) },
+  { id: "cd_u_greta", plus: true, layout: { p5: "dribble" }, rows: [["p7", "dribble", 21, 1.5], ["p5", "dribble", 21]], cost: 7, setup: setStamina(["p7"], 50), selfHeal: { p7: 10 },
+    check: both(buffIs({ nextCostZero: true }), twGain(1)) },
+  // 고양이 발재간 (미르카 = MF2 자리 p5, 패스): 가로지르기 · 두 구역 스탯 · 비용 1번 · 추가 사용 +1 · 주인 체력 −5 (강화: −5 없음)
+  { id: "cd_u_mirka", squad: MIRKA_SQUAD, zone: "defense", rows: [["p5", "pass", 22], ["p5", "defense", 22]], cost: 9, extra: 1, setup: setStamina(["p5"], 50), selfHeal: { p5: -5 },
+    check: both(twGain(0), ({ L }, label) => assert.equal(L.zones.p5, "defense", `${label}: 놓은 구역에 선다`)) },
+  { id: "cd_u_mirka", squad: MIRKA_SQUAD, plus: true, at: C.shoot, rows: [["p5", "pass", 28], ["p5", "shoot", 28]], cost: 9, extra: 1, setup: setStamina(["p5"], 50) },
 
   // ── 코치 8 (대상이 코치 타입 구역에 서 있을 때만 ×1.3, 유대 80 이상이면 bond80, 강화판 = 그 시점 위력 × 1.25, 비용은 기본 위력 기준, 낼 때 유대 +8) ──
   { id: "cd_c_harr", layout: { p7: "shoot" }, at: C.shoot, T: ["p6", "p7"], per: 18, zm: { shoot: 1.3 }, cost: 11, check: coachBond("sp_coach_harr", 8) },
@@ -363,16 +398,19 @@ const CASES = [
   { id: "cd_p_hold", at: AT.pass, T: ["p4", "p5"], per: 18, cost: 11 },
 ];
 
-test("카드 효과 표: 68장 모두 표에 있고 기본판 · 강화판(대비 제외)을 낸다 · 고유는 주 스탯 구역 안팎 · 코치는 유대 80 · 타입 구역 ×1.3", () => {
+test("카드 효과 표: 68장 모두 표에 있고 기본판 · 강화판(대비 제외)을 낸다 · 고유는 모양 행 (L40) · 코치는 유대 80 · 타입 구역 ×1.3", () => {
   const all = cards.cardList(data);
   assert.equal(all.length, 68);
   for (const c of all) {
     assert.ok(CASES.some((x) => x.id === c.id && !x.plus), `${c.id} 기본판이 표에 없다`);
     if (cards.canUpgrade(c)) assert.ok(CASES.some((x) => x.id === c.id && x.plus), `${c.id} 강화판이 표에 없다`);
   }
+  // 고유 카드 (L40): 행으로 검사하고, 비용 = round(1인 × 0.4) (주 스탯 구역 ×1.5 없음)
   for (const c of all.filter((x) => x.family === "unique")) {
-    const per = new Set(CASES.filter((x) => x.id === c.id).map((x) => x.cost));
-    assert.deepEqual([...per].sort(), [14, 21], `${c.id}: 주 스탯 구역 안 · 밖`);
+    for (const x of CASES.filter((y) => y.id === c.id)) {
+      assert.ok(Array.isArray(x.rows), `${c.id}: rows`);
+      assert.equal(x.cost, cards.staminaCost(cards.resolveCardDef(data, c.id)), `${c.id}: 비용`);
+    }
   }
   for (const c of all.filter((x) => x.family === "coach")) {
     assert.ok(CASES.some((x) => x.id === c.id && (x.bond === 80 || (x.addSupports || []).some((a) => a.bond >= 80))), `${c.id}: 유대 80판`);
@@ -400,14 +438,15 @@ test("카드 효과 표: 방침 게이트 (D38) — 다른 방침에서는 패�
 });
 
 test("카드 효과 표: 고유 카드는 대상 카드라 일회성 버프를 쓴다 (호조 −1 · nextPct · nextNoFail), 효과의 nextCostZero 는 그 뒤에 켜진다", () => {
-  const r = runCase({ id: "cd_u_greta", policy: "ace", T: ["p7"], per: 52.5, mult: 1.5 * 1.4, cost: 21,
+  const r = runCase({ id: "cd_u_greta", policy: "ace", rows: [["p7", "dribble", 17, 1.5]], mult: 1.5 * 1.4, cost: 7,
     setup: (s, L) => Object.assign(L.buffs, { hojo: 2, nextPct: 0.4, nextNoFail: true }),
     check: buffIs({ hojo: 1, nextPct: 0, nextNoFail: false, nextCostZero: true }) });
   assert.deepEqual(r.L.targeted, { p7: 1 });
 });
 
 test("카드 문구: 위력 있는 카드는 해석된 1인 위력 숫자를 문구에 담는다 (기본 · 강화판 · 코치 유대 80판 · 유대 80 + 강화판) · 대상 이름", () => {
-  const word = { single: /단일|1명/, circle: /원/, all: /전체/, owner: /주인/ };
+  // 고유 카드 (L40) 의 대상 이름 = 주인 특성 모양의 label (문구 머리)
+  const word = { single: /단일|1명/, circle: /원/, all: /전체/ };
   for (const c of cards.cardList(data)) {
     const variants = [{ plus: false, bond: 0 }];
     if (cards.canUpgrade(c)) variants.push({ plus: true, bond: 0 });
@@ -418,7 +457,8 @@ test("카드 문구: 위력 있는 카드는 해석된 1인 위력 숫자를 문
       assert.equal(typeof d.desc, "string", tag);
       if (typeof d.power === "number") {
         assert.ok(new RegExp(`(^|\\D)${d.power}(\\D|$)`).test(d.desc), `${tag}: '${d.desc}' 에 위력 ${d.power} 가 없다`);
-        assert.ok(word[c.target.kind].test(d.desc), `${tag}: '${d.desc}' 에 대상 이름`);
+        if (c.target.kind === "owner") assert.ok(d.desc.startsWith(`${d.shape.label} · `), `${tag}: '${d.desc}' 머리 = 모양 이름`);
+        else assert.ok(word[c.target.kind].test(d.desc), `${tag}: '${d.desc}' 에 대상 이름`);
       }
       if (c.target.kind === "circle") {
         const size = { small: "작은 원", medium: "중간 원", large: "큰 원" }[c.target.size];

@@ -5,7 +5,8 @@
     "description": "이 선수의 패스·크로스를 받은 선수의 첫 듀얼(드리블·패스·크로스·박스 슛·헤더) +20%. 중거리 슛 제외",
     "kind": "bonus",
     "amp": true,
-    "params": { "nextDuelBonus": 0.20 }
+    "params": { "nextDuelBonus": 0.20 },
+    "lesson": { "shape": "pick", "label": "연결", "chip": "연결", "recvMult": 1.5 }
   },
   {
     "id": "finisher",
@@ -13,7 +14,8 @@
     "description": "패스·크로스를 받은 직후의 박스 슛·헤더 +15%",
     "kind": "bonus",
     "amp": true,
-    "params": { "receivedShotBonus": 0.15 }
+    "params": { "receivedShotBonus": 0.15 },
+    "lesson": { "shape": "owner", "label": "마무리", "chip": "마무리", "zoneMult": { "zones": ["shoot"], "mult": 2 } }
   },
   {
     "id": "crosser",
@@ -21,7 +23,8 @@
     "description": "파이널 서드에서 크로스 사용 가능, 크로스 +10%",
     "kind": "condition",
     "amp": false,
-    "params": { "canCross": true, "crossBonus": 0.10 }
+    "params": { "canCross": true, "crossBonus": 0.10 },
+    "lesson": { "shape": "pick", "label": "크로스", "chip": "크로스", "onlyZones": ["shoot"], "effects": [{ "type": "teamwork", "n": 1 }] }
   },
   {
     "id": "targetman",
@@ -29,7 +32,8 @@
     "description": "크로스를 헤더로 마무리하면 +25%",
     "kind": "bonus",
     "amp": true,
-    "params": { "headerBonus": 0.25 }
+    "params": { "headerBonus": 0.25 },
+    "lesson": { "shape": "ownerCircle", "label": "주인 둘레 중간 원", "chip": "둘레 중간 원", "size": "medium", "ownerMult": 1.5 }
   },
   {
     "id": "runner",
@@ -37,7 +41,8 @@
     "description": "패스를 받은 직후 드리블 +15% (받고 바로 돌파)",
     "kind": "bonus",
     "amp": true,
-    "params": { "receivedDribbleBonus": 0.15 }
+    "params": { "receivedDribbleBonus": 0.15 },
+    "lesson": { "shape": "move", "label": "자리 옮기기", "chip": "자리 옮기기", "ownerMult": 1.3 }
   },
   {
     "id": "carrier",
@@ -45,7 +50,8 @@
     "description": "드리블 체력 소모 −30%, 빌드업·중원 드리블 +10%",
     "kind": "bonus",
     "amp": true,
-    "params": { "dribbleStaminaMult": 0.7, "buildupDribbleBonus": 0.10, "buildupMaxLine": 1 }
+    "params": { "dribbleStaminaMult": 0.7, "buildupDribbleBonus": 0.10, "buildupMaxLine": 1 },
+    "lesson": { "shape": "carry", "label": "가로지르기", "chip": "가로지르기" }
   },
   {
     "id": "wall",
@@ -53,7 +59,8 @@
     "description": "버티기 ×1.0 → ×1.15",
     "kind": "mult",
     "amp": false,
-    "params": { "holdMult": 1.15 }
+    "params": { "holdMult": 1.15 },
+    "lesson": { "shape": "ownerCircle", "label": "주인 둘레 작은 원", "chip": "둘레 작은 원", "size": "small", "mods": { "noFail": true } }
   },
   {
     "id": "distributor",
@@ -61,7 +68,8 @@
     "description": "이 골키퍼의 롱패스 배급 +25% (세이브 · 박스 연결 차단 뒤 GK 배급)",
     "kind": "position",
     "amp": false,
-    "params": { "longPassBonus": 0.25 }
+    "params": { "longPassBonus": 0.25 },
+    "lesson": { "shape": "link", "label": "이어 주기", "chip": "이어 주기", "recvMult": 1.3 }
   },
   {
     "id": "captain",
@@ -69,6 +77,7 @@
     "description": "팀워크 증폭 단계를 계산할 때 팀워크 +10",
     "kind": "team",
     "amp": false,
-    "params": { "teamworkPlus": 10 }
+    "params": { "teamworkPlus": 10 },
+    "lesson": { "shape": "ownerZone", "label": "주인 구역 전원", "chip": "구역 전원", "effects": [{ "type": "teamwork", "n": 2 }] }
   }
 ]

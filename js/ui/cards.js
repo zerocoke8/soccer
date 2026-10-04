@@ -60,10 +60,10 @@ export function targetText(view, def) {
   }
 }
 
-/** 고유 카드의 주 스탯 구역 배율 (lesson.json lesson.unique.mainMult, 기본 1.5) */
+/** 고유 카드의 주 스탯 구역 배율 (lesson.json lesson.unique.mainMult). L40 으로 지워져 없으면 1 (범위 · 칩 없음 — 모양 칩은 U3) */
 export function uniqueMainMult(data) {
   const m = data?.lesson?.lesson?.unique?.mainMult;
-  return isNum(m) && m > 0 ? m : 1.5;
+  return isNum(m) && m > 0 ? m : 1;
 }
 
 /**
@@ -183,7 +183,7 @@ export function cardFace(view, opts = {}) {
     h('span', { class: ['cf-target', t.kind ? `tk-${t.kind}` : ''] }, ticon, targetText(view, def)),
     h('span', { class: ['cf-power', hasPower ? '' : 'muted'] }, powerLine,
       hasPower && att?.upgrade === 'pct' ? h('span', { class: 'cf-pmult att', title: '코치 지원 — 이미 강화된 카드라 이번 턴 위력 +' + attPct + '%' }, `지원 +${attPct}%`) : null,
-      hasPower && t.kind === 'owner' && att?.upgrade !== 'pct' ? h('span', { class: 'cf-pmult', title: '주인이 자기 포지션 주 스탯 구역에 서 있으면' }, `주 스탯 구역 ${L.multText(uniqueMainMult(data))}`) : null),
+      hasPower && t.kind === 'owner' && att?.upgrade !== 'pct' && uniqueMainMult(data) > 1 ? h('span', { class: 'cf-pmult', title: '주인이 자기 포지션 주 스탯 구역에 서 있으면' }, `주 스탯 구역 ${L.multText(uniqueMainMult(data))}`) : null),
     cost ? h('span', { class: ['cf-cost', /소모 없음/.test(cost) ? 'none' : ''] }, cost) : null,
     h('span', { class: 'cf-desc' }, desc),
     recommended ? h('span', { class: 'cf-rec' }, '추천') : null,

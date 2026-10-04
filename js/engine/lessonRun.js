@@ -60,7 +60,7 @@ export {
   getModifier,
 } from "./run.js";
 export { lessonResult } from "./lesson.js";
-// UI 뷰 도우미 (U2 전술 미팅 · 경기 전 준비: 자리를 옮기면 고유 카드 ×1.5 구역(주 스탯 쌍)이 바뀌는가)
+// UI 뷰 도우미: 포지션의 주 스탯 쌍 (L40 으로 고유 카드 ×1.5 는 없어졌다 — 미팅 · 준비의 표시 정리는 U3)
 export { mainStatsOf } from "./cards.js";
 
 export const RUN_KIND = "lessonRun";
@@ -208,18 +208,6 @@ function expectedInZone(state, data, zone) {
   return Math.round(sum * 10) / 10;
 }
 
-/** 그 구역이 자기 포지션 주 스탯이라 고유 카드 ×1.5 가 걸리는 선수 id (덱에 고유 카드가 있고 결장이 아닌 선수, §14.10) */
-function boostedInZone(state, data, zone) {
-  const owners = new Set();
-  for (const e of state.deck) {
-    const c = cards.getCard(data, e.cardId);
-    if (c.family === "unique" && c.ownerCharId) owners.add(c.ownerCharId);
-  }
-  return lessonFieldPlayers(state)
-    .filter((p) => owners.has(p.charId) && cards.mainStatsOf(p.position).includes(zone))
-    .map((p) => p.id);
-}
-
 /** 이번 시즌 경계전 상대 */
 function goalOpponent(state, data) {
   return data.opponents.find((o) => o.role === "goal" && o.season === state.season) || null;
@@ -262,6 +250,7 @@ function cardView(state, data, entry) {
     supportId: def.coach ? def.coach.supportId : null,
     canUpgrade: !!up,
     upgrade: up ? { power: up.power ?? null, desc: up.desc } : null,
+    shape: cards.shapeView(def, data), // 고유 카드 모양 (L40) — 그 밖 null
   };
 }
 
@@ -496,6 +485,7 @@ export function migrateLessonRun(s) {
 export function createRun({ data, seed, squad, formation, supportIds, tactics, policy, leagueTier = 1 }) {
   assertData(data);
   cards.validateAttachData(data); // 코치 지원 데이터 (§15.3)
+  cards.validateShapeData(data); // 고유 카드 모양 데이터 (L40 · §16.2 ④)
   if (seed === undefined || seed === null || seed === "") throw new Error("seed 가 필요합니다");
   const pol = policy || LD(data).defaultPolicy || "team";
   if (!policyOf(data, pol)) throw new Error(`알 수 없는 훈련 방침: '${pol}'`);
@@ -580,7 +570,6 @@ export function getWeekView(state, data) {
             prep: kind === "prep",
             ...lessonTargets(state, data, special),
             expected: expectedInZone(state, data, zone),
-            boosted: boostedInZone(state, data, zone),
           };
         })
       : [];

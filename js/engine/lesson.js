@@ -436,11 +436,11 @@ function turnEndTraining(state, data, fx) {
 // 방침 버프 — 읽는 쪽 (§14.7 3 · 4 · 6번). 버프가 0이면 영향 없음.
 // ---------------------------------------------------------------------------
 
-/** 1인 위력에 더하는 집중 몫: focus × focusPer × (focusX2 ? 2 : 1) / |T| */
+/** 1인 위력에 더하는 집중 몫: focus × focusPer × (focusX2 ? 2 : 1) / 행 수 (고유 카드 가로지르기는 2행, 그 밖은 |T|) */
 function focusShare(data, L, ctx) {
   if (!ctx.n) return 0;
   const B = lessonData(data).buffs;
-  return (L.buffs.focus * B.focusPer * (ctx.mods.focusX2 ? 2 : 1)) / ctx.n;
+  return (L.buffs.focus * B.focusPer * (ctx.mods.focusX2 ? 2 : 1)) / ctx.nRows;
 }
 
 /** 압박 비용 배율: 1 + pressCostK × press (noPressCost always · atLeast2 && press ≥ 2 → 1) */
@@ -652,7 +652,7 @@ function previewNotes(state, data, plan) {
   if (ctx.n) {
     if (v("hojo") > 0) notes.push(`호조 ×${fmt(BD.hojoMult)} (남은 ${v("hojo")}장)`);
     if (v("focus") > 0) {
-      const share = (v("focus") * BD.focusPer * (ctx.mods.focusX2 ? 2 : 1)) / ctx.n;
+      const share = (v("focus") * BD.focusPer * (ctx.mods.focusX2 ? 2 : 1)) / ctx.nRows;
       notes.push(`집중 ${v("focus")}${ctx.mods.focusX2 ? " ×2" : ""} → 1인 위력 +${fmt(share)}`);
     }
     if ((plan.kind === "single" || plan.kind === "owner") && v("routine") > 0) notes.push(`루틴 → 위력 +${v("routine")}`);
@@ -709,12 +709,14 @@ function previewNotes(state, data, plan) {
 
 /**
  * 카드 1장을 냈을 때의 계산 (rng 없음, 상태 변경 없음). 잘못된 입력은 throw.
+ * 상승은 행(row)마다: 보통 카드는 대상 1명 = 1행, 고유 카드는 모양의 행 (cards.shapePlan — 가로지르기는 주인 2행, §16.3 ③).
+ * 비용 · 실패 · 팀워크 · 대상 횟수는 서로 다른 선수(T) 단위. 행의 cost 는 그 선수의 첫 행에만 (두 번째 행은 0 — Σ cost = 실제 비용).
  * @param {object} state
  * @param {object} data
  * @param {string} uid
- * @param {{ at?: {x,y}, playerId?: string }} args
+ * @param {{ at?: {x,y}, playerId?: string, zone?: string }} args
  * @returns {{ entry, def, kind, T: string[], healId: string|null, effects: object[], rows: object[], f: number,
- *            failerId: string|null, pressCostMult: number, ctx: object, buffsBefore: object }}
+ *            failerId: string|null, pressCostMult: number, cost: number, ctx: object, buffsBefore: object, shape: object|null }}
  */
 function planPlay(state, data, uid, args) {
   const L = state.lesson;
@@ -728,42 +730,45 @@ function planPlay(state, data, uid, args) {
   const dead = cards.deadReason(state, def);
   if (dead) throw new Error(`'${def.name}': ${dead}`);
   const heal = cards.isHealSingle(def);
-  const sel = cards.targetsFor(state, def, args || {}, data);
+  const a = args || {};
+  // 고유 카드 = 주인 특성의 모양 (§16.3 ②), 그 밖 = 대상 종류 (§14.6)
+  const sp = def.shape ? cards.shapePlan(state, def, a, data) : null;
+  const sel = sp ? sp.T : cards.targetsFor(state, def, a, data);
   const T = heal ? [] : sel;
   const healId = heal ? sel[0] : null;
   const effects = def.effects || [];
   const mods = def.mods || {};
   const B = L.buffs;
   const players = T.map((id) => playerById(state, id));
-  const zoneOf = (id) => L.zones[id];
+  const rowSpecs = sp ? sp.rows : T.map((id) => ({ id, zone: L.zones[id], role: null, shapeMult: 1 }));
   const n = T.length;
   const att = attachOn(state, data, uid); // 코치 지원 (§15.4)
   const am = (att && att.ability.mods) || {};
   const attPow = attachPowerMult(data, att);
+  // 방침 문맥은 행 구역 (옮긴 뒤) 으로 (§16.3 ③ 11번)
   const ctx = {
     n,
+    nRows: rowSpecs.length,
     mods,
     smallCircle: n > 0 && cards.isSmallCircle(def),
-    hasAttackZone: n > 0 && T.some((id) => ATTACK_ZONES.includes(zoneOf(id))),
-    allDefenseZone: n > 0 && T.every((id) => DEFENSE_ZONES.includes(zoneOf(id))),
-    hasPassZone: T.some((id) => zoneOf(id) === "pass"),
+    hasAttackZone: n > 0 && rowSpecs.some((r) => ATTACK_ZONES.includes(r.zone)),
+    allDefenseZone: n > 0 && rowSpecs.every((r) => DEFENSE_ZONES.includes(r.zone)),
+    hasPassZone: rowSpecs.some((r) => r.zone === "pass"),
   };
 
-  // 3. 1인 위력 (소수 유지)
-  const unique15 = def.family === "unique" && cards.ownerOnMainZone(state, def);
-  const mainMult = unique15 ? ls.unique.mainMult : 1;
+  // 3. 1인 위력 (소수 유지, 행마다). 고유 카드는 주 스탯 배율 없음 (L40), 루틴은 단일 · 주인 행만
   const share = focusShare(data, L, ctx);
-  const power = players.map(() => {
+  const rowPower = (rs) => {
     let base;
-    if (kind === "owner") base = def.power * mainMult;
+    if (kind === "owner") base = def.power;
     else base = def.power + (mods.perMood || 0) * (B.mood || 0) + (mods.perPress || 0) * (B.press || 0);
-    if (kind === "single" || kind === "owner") base += B.routine || 0;
+    if (kind === "single" || (kind === "owner" && rs.role === "owner")) base += B.routine || 0;
     return base * attPow + share; // 붙은 카드 pct 강화는 focus 몫 전 (§15.2)
-  });
+  };
 
-  // 4. 비용 (1인당, 강화 전 기본 위력 기준)
+  // 4. 비용 (서로 다른 선수 1명당, 강화 전 기본 위력 기준)
   const pcm = pressCostMultOf(data, L, mods);
-  const cost = cards.staminaCost(def, { mood: B.mood || 0, press: B.press || 0, mainMult, pressCostMult: pcm, costZero: !!B.nextCostZero });
+  const cost = cards.staminaCost(def, { mood: B.mood || 0, press: B.press || 0, pressCostMult: pcm, costZero: !!B.nextCostZero });
 
   // 5. 실패율 (비용 내기 전 체력)
   const noFail = !!mods.noFail || !!am.noFail || !!B.nextNoFail;
@@ -787,7 +792,7 @@ function planPlay(state, data, uid, args) {
     failerId = players[best].id;
   }
 
-  // 6. 배율 M_i (대상마다 — 구역에 따라 다르다)
+  // 6. 배율 M (행마다 — 구역 · 모양 배율에 따라 다르다)
   let M0 = commonMult(state, data);
   if (n && (B.hojo || 0) > 0) M0 *= LD.buffs.hojoMult;
   if (mods.lastTurnX2 && L.turn > L.turns - mods.lastTurnX2) M0 *= 2;
@@ -798,31 +803,40 @@ function planPlay(state, data, uid, args) {
   M0 *= policyMult(state, data, L, ctx);
   M0 *= ls.cardGainScale;
 
-  // 8번의 상승 (실패하지 않았을 때). 실제 오른 양은 상한 1000에 잘린 값.
+  // 8번의 상승 (실패하지 않았을 때). 실제 오른 양은 상한 1000에 잘린 값 — 같은 선수의 두 행은 앞 행이 오른 뒤 기준.
   const cap = cfg.statCap;
-  const rows = players.map((p, i) => {
-    const z = zoneOf(p.id);
+  const running = {};
+  const seen = new Set();
+  const rows = rowSpecs.map((rs) => {
+    const p = playerById(state, rs.id);
+    const st = running[p.id] || (running[p.id] = { ...p.stats });
+    const z = rs.zone;
     const coach = def.family === "coach" && !!def.coach && def.coach.type === z;
     const focus = z === L.zone;
-    let M = M0 * zoneMult(L, data, z);
+    let M = M0 * zoneMult(L, data, z) * rs.shapeMult;
     if (coach) M *= ls.coachSameTypeMult;
     if (mods.lessonMult && mods.lessonMult.stats.includes(z)) M *= mods.lessonMult.mult;
     const attLM = am.lessonMult && am.lessonMult.stats.includes(z) ? am.lessonMult.mult : 1;
     M *= attLM;
     const sub = cfg.training.subStatMap[z];
-    const g = rnd(power[i] * growthOf(p, z) * M);
-    const gain = Math.max(0, Math.min(g, cap - p.stats[z]));
+    const power = rowPower(rs);
+    const g = rnd(power * growthOf(p, z) * M);
+    const gain = Math.max(0, Math.min(g, cap - st[z]));
+    st[z] += gain;
     const sg = rnd(g * ls.subGainRatio * growthOf(p, sub));
-    const subGain = Math.max(0, Math.min(sg, cap - p.stats[sub]));
+    const subGain = Math.max(0, Math.min(sg, cap - st[sub]));
+    st[sub] += subGain;
+    const first = !seen.has(p.id);
+    seen.add(p.id);
     return {
-      id: p.id, zone: z, stat: z, subStat: sub, power: power[i], M, g, gain, subGain, cost, failRate: rates[i],
-      coach, focus, unique15: def.family === "unique" && unique15,
+      id: p.id, zone: z, stat: z, subStat: sub, power, M, g, gain, subGain, cost: first ? cost : 0, failRate: rates[T.indexOf(p.id)],
+      coach, focus, role: rs.role, shapeMult: rs.shapeMult,
       attachMult: att ? attUnder * attLM : 1,
     };
   });
 
   const attach = att ? { supportId: att.cur.supportId, upgrade: att.cur.upgrade, ability: att.ability } : null;
-  return { entry, def, kind, T, healId, effects, rows, f, failerId, pressCostMult: pcm, ctx, buffsBefore: { ...B }, attach };
+  return { entry, def, kind, T, healId, effects, rows, f, failerId, pressCostMult: pcm, cost, ctx, buffsBefore: { ...B }, attach, shape: sp };
 }
 
 // ---------------------------------------------------------------------------
@@ -1080,13 +1094,14 @@ export function startLesson(state, data, { zone, special = false, prep = false, 
  * 카드 1장 내기 (§14.7). 끝나면 턴 끝이나 레슨 끝까지 진행한다.
  * @param {object} state
  * @param {object} data
- * @param {{ uid: string, at?: {x:number, y:number}, playerId?: string }} args at = 놓은 점 (필드 %)
+ * @param {{ uid: string, at?: {x:number, y:number}, playerId?: string, zone?: string }} args at = 놓은 점 (필드 %),
+ *   playerId = 고른 선수 (단일 · 받는 선수), zone = 고른 구역 (고유 카드 자리 옮기기 · 가로지르기)
  * @returns {object} state
  */
-export function playCard(state, data, { uid, at, playerId } = {}) {
+export function playCard(state, data, { uid, at, playerId, zone } = {}) {
   const L = assertPlaying(state);
   if (!(L.playsLeft >= 1)) throw new Error("이번 턴에는 더 낼 수 없습니다");
-  const plan = planPlay(state, data, uid, { at, playerId }); // 1~6 (검증 포함, 상태 변경 없음)
+  const plan = planPlay(state, data, uid, { at, playerId, zone }); // 1~6 (검증 포함, 상태 변경 없음)
   const LD = lessonData(data);
   const ls = LD.lesson;
   const rng = createRngFromState(state.rngState);
@@ -1105,21 +1120,33 @@ export function playCard(state, data, { uid, at, playerId } = {}) {
     });
   }
 
-  // 7. 비용 지불
-  for (const r of rows) {
-    const p = playerById(state, r.id);
+  // 7. 옮기기 (고유 카드 자리 옮기기 · 가로지르기, §16.3 ③): 비용 · 실패 판정 앞, 성공과 상관없이 — 이미 달려갔다
+  const sp = plan.shape;
+  if (sp && sp.move) {
+    L.zones[sp.move.id] = sp.move.to;
+    fx.push({ t: "move", id: sp.move.id, from: sp.move.from, to: sp.move.to });
+  }
+
+  // 7. 비용 지불 (서로 다른 선수마다 1번)
+  for (const id of T) {
+    const p = playerById(state, id);
     const before = Number(p.stamina) || 0;
-    p.stamina = clamp(before - r.cost, 0, 100);
+    p.stamina = clamp(before - plan.cost, 0, 100);
     if (before !== p.stamina) fx.push({ t: "cost", id: p.id, n: before - p.stamina });
   }
+  if (sp && sp.receiverId) fx.push({ t: "pass", from: sp.ownerId, to: sp.receiverId });
 
   // 7. 실패 판정 (카드 1장에 1번)
   const failerId = plan.f > 0 && rng.chance(plan.f) ? plan.failerId : null;
+  // 실패자의 모든 행은 상승 없음, 손실은 마지막 행 구역 스탯에서 1번 (가로지르기 · 자리 옮기기 = 놓은 구역)
+  const failRows = failerId ? rows.filter((r) => r.id === failerId) : [];
+  const lossRow = failRows.length ? failRows[failRows.length - 1] : null;
 
-  // 8. 상승 · 실패 (서 있는 구역의 스탯)
+  // 8. 상승 · 실패 (행 구역의 스탯)
   for (const r of rows) {
     const p = playerById(state, r.id);
     if (r.id === failerId) {
+      if (r !== lossRow) continue;
       const loss = Math.min(ls.failStatLoss, p.stats[r.stat]);
       p.stats[r.stat] -= loss;
       L.score -= loss;
@@ -1288,11 +1315,11 @@ function cardView(state, data, uid) {
   const B = L.buffs;
   let cost = null;
   if (!heal && kind !== "none") {
-    const mainMult = def.family === "unique" && cards.ownerOnMainZone(state, def) ? lessonData(data).lesson.unique.mainMult : 1;
     cost = cards.staminaCost(def, {
-      mood: B.mood || 0, press: B.press || 0, mainMult, pressCostMult: pressCostMultOf(data, L, def.mods || {}), costZero: !!B.nextCostZero,
+      mood: B.mood || 0, press: B.press || 0, pressCostMult: pressCostMultOf(data, L, def.mods || {}), costZero: !!B.nextCostZero,
     });
   }
+  const owner = def.shape ? cards.ownerOf(state, def) : null;
   const playing = L.status === "playing";
   const att = attachOn(state, data, uid);
   let attach = null;
@@ -1317,6 +1344,8 @@ function cardView(state, data, uid) {
     exhaust: !!def.exhaust,
     desc: def.desc,
     attach,
+    shape: cards.shapeView(def, data), // 고유 카드 모양 (L40, §16.3 ④) — 그 밖 null
+    ownerId: owner ? owner.id : null,
   };
 }
 
@@ -1346,7 +1375,10 @@ export function getLessonView(state, data) {
     zoneMult: L.special ? LD.lesson.focus.specialMult : LD.lesson.focus.mult,
     turn: L.turn, turns: L.turns, score: L.score, target: L.target, cap: L.cap, status: L.status,
     playsLeft: L.playsLeft,
-    zoneCfg: { centers: JSON.parse(JSON.stringify(Z.centers)), radius: { ...Z.radius }, aspect: Z.aspect, pad: Z.pad, pickR: Z.pickR },
+    zoneCfg: {
+      centers: JSON.parse(JSON.stringify(Z.centers)), radius: { ...Z.radius }, aspect: Z.aspect, pad: Z.pad, pickR: Z.pickR,
+      ownerRadius: { ...(Z.ownerRadius || {}) }, dropR: Z.dropR,
+    },
     positions: cards.fieldPositions(state, data),
     zones: { ...(L.zones || {}) },
     bench, benchMax: LD.lesson.bench.max,
@@ -1378,18 +1410,105 @@ export function getLessonView(state, data) {
 }
 
 /**
- * 카드 미리보기 (§14.13). 순수 · rng 없음.
+ * 고유 카드 모양 노트 (§16.3 ④ — 미리보기 노트 맨 앞, 코치 지원 노트 다음). plan 은 planPlay 결과.
+ */
+function shapeNotes(state, plan) {
+  const sh = plan.def.shape;
+  const sp = plan.shape;
+  if (!sh || !sp) return [];
+  const owner = playerById(state, sp.ownerId);
+  const name = owner.name || owner.id;
+  const lbl = (z) => STAT_LABELS[z] || z;
+  const notes = [];
+  switch (sh.kind) {
+    case "link":
+    case "pick":
+      if (sh.recvMult !== 1) notes.push(`${sh.kind === "link" ? "받는" : "고른"} 선수 ×${fmt(sh.recvMult)}`);
+      break;
+    case "ownerCircle":
+    case "ownerZone":
+      if (sh.ownerMult !== 1) notes.push(`${name} ×${fmt(sh.ownerMult)}`);
+      break;
+    case "move":
+      notes.push(sp.move ? `${name} → ${lbl(sp.move.to)} 구역 · 기본 훈련도` : `${name} ${lbl(sp.zone)} 구역 그대로`);
+      break;
+    case "carry":
+      notes.push(`${name} ${lbl(sp.move.from)} → ${lbl(sp.move.to)} · 두 구역`);
+      break;
+    case "owner":
+      if (sh.zoneMult) {
+        const zl = cards.zoneLabels(sh.zoneMult.zones);
+        notes.push(sh.zoneMult.zones.includes(sp.rows[0].zone) ? `${zl} 구역 ×${fmt(sh.zoneMult.mult)}` : `${zl} 구역이 아니라 ×1`);
+      }
+      break;
+    default:
+      break;
+  }
+  if (sh.mods && sh.mods.noFail) notes.push(`실패 없음 (${sh.traitName})`);
+  for (const e of sh.effects || []) if (e.type === "teamwork") notes.push(`팀워크 +${e.n}`);
+  return notes;
+}
+
+/**
+ * 미리보기의 모양 블록 (§16.3 ④). sp = shapePlan 결과 (입력이 아직 없거나 틀리면 null — 그래도 선 · 구역 표시는 준다).
+ * @returns {{ kind, label, chip, ownerId, receiverId, line, circle, zone, from, to, positionsAfter, baseDelta }}
+ */
+function shapePreview(state, data, def, point, zone, sp) {
+  const sh = def.shape;
+  const L = state.lesson;
+  const owner = cards.ownerOf(state, def);
+  const pos = cards.fieldPositions(state, data);
+  const ownerId = owner ? owner.id : null;
+  const opos = ownerId ? pos[ownerId] : null;
+  const out = {
+    kind: sh.kind, label: sh.label, chip: sh.chip, ownerId,
+    receiverId: null, line: null, circle: null, zone: null, from: null, to: null, positionsAfter: null, baseDelta: null,
+  };
+  if (!opos) return out;
+  const needs = cards.SHAPE_NEEDS[sh.kind];
+  if (sp) {
+    out.receiverId = sp.receiverId;
+    out.circle = sp.circle ? { ...sp.circle } : null;
+    out.zone = sp.zone;
+  }
+  if (needs === "player") {
+    const to = sp ? pos[sp.receiverId] : point;
+    if (to) out.line = { from: { ...opos }, to: { x: to.x, y: to.y } };
+  } else if (needs === "zone") {
+    const from = L.zones[ownerId];
+    let to = sp ? sp.zone : null;
+    if (!to && zone != null && zones.ZONE_IDS.includes(zone)) to = zone;
+    if (!to && point) to = zones.zoneAt(point, lessonData(data).zones);
+    out.from = from;
+    out.to = to;
+    if (sp) {
+      out.baseDelta = 0;
+      if (sp.move) {
+        // 옮긴 뒤: 다시 모인 대형 · 이번 턴 끝 주인 기본 훈련 (새 구역 − 지금 구역)
+        const hyp = { ...state, lesson: { ...L, zones: { ...L.zones, [ownerId]: sp.move.to } } };
+        out.positionsAfter = cards.fieldPositions(hyp, data);
+        out.baseDelta = baseGainOf(hyp, data, owner).gain - baseGainOf(state, data, owner).gain;
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * 카드 미리보기 (§14.13 · §16.3 ④). 순수 · rng 없음.
  * at 이 필요한 카드(원 · 단일)에 at · playerId 가 없거나 대상이 0명이면 ok: false.
+ * 고유 카드: 받는 선수 (playerId · at) · 구역 (zone · at) 이 필요한 모양은 그것이 없으면 ok: false, shape 블록은 그래도 준다.
  * 회복 단일은 targets 가 비고 healId 에 회복 대상을 돌려준다.
+ * targets 는 행마다 (가로지르기는 같은 id 두 줄 — stat 이 다르고 cost 는 첫 줄에만).
  * @param {object} state
  * @param {object} data
- * @param {{ uid: string, at?: {x:number, y:number}, playerId?: string }} args
- * @returns {{ ok, reason, kind, at, circle: {x,y,r}|null, targets: object[], healId, failRate, failerId, total, notes }}
+ * @param {{ uid: string, at?: {x:number, y:number}, playerId?: string, zone?: string }} args
+ * @returns {{ ok, reason, kind, at, circle: {x,y,r}|null, targets: object[], healId, failRate, failerId, total, notes, attach, shape }}
  */
-export function previewCard(state, data, { uid, at, playerId } = {}) {
+export function previewCard(state, data, { uid, at, playerId, zone } = {}) {
   const out = {
     ok: false, reason: null, kind: null, at: null, circle: null, healId: null,
-    targets: [], failRate: 0, failerId: null, total: 0, notes: [], attach: null,
+    targets: [], failRate: 0, failerId: null, total: 0, notes: [], attach: null, shape: null,
   };
   const L = state && state.lesson;
   if (!L) return { ...out, reason: "레슨 중이 아닙니다" };
@@ -1417,20 +1536,36 @@ export function previewCard(state, data, { uid, at, playerId } = {}) {
   if (kind === "circle" && point) out.circle = { x: point.x, y: point.y, r: cards.circleRadius(def, data) };
   const dead = cards.deadReason(state, def);
   if (dead) return { ...out, reason: dead };
+  const sh = def.shape;
+  const needs = sh ? cards.SHAPE_NEEDS[sh.kind] : null;
+  // 모양 계획 (입력이 틀려도 미리보기 선 · 구역 표시는 준다)
+  let sp = null;
+  if (sh) {
+    try {
+      sp = cards.shapePlan(state, def, { at: point, playerId, zone }, data);
+    } catch (_) {
+      sp = null;
+    }
+    out.shape = shapePreview(state, data, def, point, zone, sp);
+  }
   if (kind === "circle" && !point) return { ...out, reason: "원을 놓을 자리를 고르세요" };
   if (kind === "single" && !point && playerId == null) return { ...out, reason: "선수 위에 놓으세요" };
+  if (needs === "player" && !point && playerId == null) {
+    return { ...out, reason: sh.onlyZones ? `${cards.zoneLabels(sh.onlyZones)} 구역 선수 위에 놓으세요` : "받을 선수 위에 놓으세요" };
+  }
+  if (needs === "zone" && !point && zone == null) return { ...out, reason: "구역 위에 놓으세요" };
   if (!(L.playsLeft >= 1)) return { ...out, reason: "이번 턴에는 더 낼 수 없습니다" };
   let plan;
   try {
-    plan = planPlay(state, data, uid, { at: point, playerId });
+    plan = planPlay(state, data, uid, { at: point, playerId, zone });
   } catch (e) {
     return { ...out, reason: plainReason(e.message) };
   }
   const targets = plan.rows.map((r) => ({
     id: r.id, zone: r.zone, stat: r.stat, gain: r.gain, sub: r.subGain, subStat: r.subStat, cost: r.cost, failRate: r.failRate,
-    coach: r.coach, focus: r.focus, unique15: r.unique15, attachMult: r.attachMult,
+    coach: r.coach, focus: r.focus, role: r.role, shapeMult: r.shapeMult, attachMult: r.attachMult,
   }));
-  const notes = previewNotes(state, data, plan);
+  const notes = [...shapeNotes(state, plan), ...previewNotes(state, data, plan)];
   if (out.attach) notes.unshift(out.attach.note);
   return {
     ...out,
@@ -1445,9 +1580,12 @@ export function previewCard(state, data, { uid, at, playerId } = {}) {
 }
 
 /**
- * 후보 놓을 점 (§14.14) — 감독 AI · 키보드 대체 조작용. 순수.
+ * 후보 놓을 점 (§14.14 · §16.3 ④) — 감독 AI · 키보드 대체 조작용. 순수.
  *   단일: 후보 선수마다 그 위치 (playerId) · 원: zones.candidatePoints (구역 중심 → 선수 → 가운데 점, 대상 집합이 같으면 하나로)
- *   전체 · 주인 · 없음: (50, 50) 한 점 · 회복 단일: 7명 각각 { playerId } (경기장 선수는 at 도)
+ *   전체 · 없음: (50, 50) 한 점 · 회복 단일: 7명 각각 { playerId } (경기장 선수는 at 도)
+ *   고유 카드 (모양): 이어 주기 · 연결 · 크로스 = 받는 후보마다 { at: 그 선수 위치, playerId, ids: [주인, 그 선수], kind: "player" }
+ *     자리 옮기기 = 5구역 { at: 구역 중심, zone, ids: [주인], kind: "zone" } (지금 구역 포함, ZONE_IDS 순서) · 가로지르기 = 지금 구역을 뺀 4구역
+ *     주인 둘레 원 · 주인 구역 · 마무리 = 한 점 { at: 주인 위치, ids: T, kind: "owner" }
  * 낼 수 없는 카드 (손패에 없음 · 죽은 카드 · 레슨 끝) 는 [].
  * @returns {{ at: {x,y}|null, playerId?: string, ids: string[], kind: string, zone?: string, zones?: string[], players?: string[] }[]}
  */
@@ -1459,6 +1597,21 @@ export function dropCandidates(state, data, { uid } = {}) {
   const cfg = lessonData(data).zones;
   const pos = cards.fieldPositions(state, data);
   const kind = def.target.kind;
+  if (def.shape) {
+    const sh = def.shape;
+    const oid = cards.ownerOf(state, def).id;
+    switch (cards.SHAPE_NEEDS[sh.kind]) {
+      case "player":
+        return cards.shapeReceivers(state, def).map((id) => ({ at: { ...pos[id] }, playerId: id, ids: [oid, id], kind: "player" }));
+      case "zone": {
+        const from = L.zones[oid];
+        return zones.ZONE_IDS.filter((z) => sh.kind !== "carry" || z !== from)
+          .map((z) => ({ at: { ...cfg.centers[z] }, zone: z, ids: [oid], kind: "zone" }));
+      }
+      default:
+        return [{ at: { ...pos[oid] }, ids: cards.shapePlan(state, def, {}, data).T, kind: "owner" }];
+    }
+  }
   if (cards.isHealSingle(def)) {
     return state.players.map((p) => ({ at: pos[p.id] ? { ...pos[p.id] } : null, playerId: p.id, ids: [p.id], kind: "player" }));
   }
@@ -1468,7 +1621,7 @@ export function dropCandidates(state, data, { uid } = {}) {
   if (kind === "circle") {
     return zones.candidatePoints(pos, cfg, { kind: "circle", size: def.target.size, zoneOf: L.zones });
   }
-  const ids = kind === "owner" ? cards.targetsFor(state, def, {}, data) : kind === "all" ? Object.keys(pos) : [];
+  const ids = kind === "all" ? Object.keys(pos) : [];
   return [{ at: { x: 50, y: 50 }, ids, kind: "field" }];
 }
 

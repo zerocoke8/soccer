@@ -7,14 +7,15 @@
  *   - 해석 (`resolveCardDef`): base → (코치이고 유대 ≥ upgradeAt) bond80 → (plus) plus. 매번 새로 계산하고 상태에 저장하지 않는다.
  *   - 대상 (`targetsFor`): 놓은 점(at, 필드 %) 또는 playerId → 선수 id. 구역 기하는 zones.js. 죽은 카드 (`deadReason`)
  *   - 비용 (`costBase` · `staminaCost`): 강화 전 기본 카드의 1인 위력 × 비용률 × 압박 배율 (1인당 — 인원과 무관)
+ *   - 고유 카드 모양 (L40 · §16): 주인 캐릭터의 연계 특성 → data.traits[].lesson (`shapeOf` · `shapePlan` · `shapeView` · `validateShapeData`)
  *   - 주 스탯 쌍 (`mainStatsOf`), 데이터 검증 (`validateCardsData`)
  *
- * 대상 종류 (§14.6): single(+onlyZones) · circle(+size) · all · owner · none. power 가 null 인 single = 회복 단일 (결장 · 벤치 포함 7명).
+ * 대상 종류 (§14.6): single(+onlyZones) · circle(+size) · all · owner(= 주인 특성의 모양, §16) · none. power 가 null 인 single = 회복 단일 (결장 · 벤치 포함 7명).
  * "경기장 선수" = 레슨 중 이번 턴 구역(lesson.zones)에 서 있고 벤치 · 결장이 아닌 선수 (state.players 순서 = 슬롯 순서).
  *
  * 순수 로직: DOM/fetch/Date/Math.random/localStorage 를 쓰지 않고, 입력을 바꾸지 않으며, rng 를 쓰지 않는다.
  */
-import { STATS } from "./training.js";
+import { STATS, STAT_LABELS } from "./training.js";
 import * as zones from "./zones.js";
 
 // ---------------------------------------------------------------------------
@@ -190,6 +191,14 @@ export function resolveCardDef(data, card, { plus = false, bond = 0 } = {}) {
   // 문구: 유대 80판이면 bond80.desc · bond80.descPlus (없으면 기본 문구)
   const src = bond80 && raw.bond80.desc ? raw.bond80 : raw;
   d.desc = plus && src.descPlus ? src.descPlus : src.desc;
+  // 고유 카드 (L40 · §16.3 ①): 주인 특성의 모양을 합친다 — mods (철벽 noFail) 는 카드 mods 밑에, effects (팀워크) 는 카드 effects 앞에.
+  // 강화 · 코치 지원은 위력 · 효과만 바꾸고 모양 인자는 그대로다. baseMods 는 원본 그대로 (비용 손잡이는 모양에 없다).
+  if (raw.family === "unique") {
+    const sh = shapeOf(data, raw);
+    d.shape = sh;
+    d.mods = { ...clone(sh.mods), ...d.mods };
+    d.effects = [...clone(sh.effects), ...d.effects];
+  }
   return d;
 }
 
@@ -281,14 +290,200 @@ export function circleRadius(def, data) {
   return r;
 }
 
+// ---------------------------------------------------------------------------
+// 고유 카드 모양 (L40 · LESSON_PROTO_PLAN §16) — 주인 캐릭터의 연계 특성 → data.traits[].lesson
+// ---------------------------------------------------------------------------
+
+/** 모양 종류 (닫힌 목록 — 특성이 늘어도 종류는 늘리지 않고 인자로 만든다, §16.1) */
+export const SHAPE_KINDS = ["link", "pick", "ownerCircle", "ownerZone", "move", "carry", "owner"];
+const SHAPE_COMMON_KEYS = ["shape", "label", "chip", "mods", "effects"];
+/** 모양마다 traits.json lesson 블록에 쓸 수 있는 키 (§16.2 ①) */
+export const SHAPE_KEYS = {
+  link: [...SHAPE_COMMON_KEYS, "recvMult", "onlyZones"],
+  pick: [...SHAPE_COMMON_KEYS, "recvMult", "onlyZones"],
+  ownerCircle: [...SHAPE_COMMON_KEYS, "size", "ownerMult"],
+  ownerZone: [...SHAPE_COMMON_KEYS, "ownerMult"],
+  move: [...SHAPE_COMMON_KEYS, "ownerMult"],
+  carry: [...SHAPE_COMMON_KEYS],
+  owner: [...SHAPE_COMMON_KEYS, "ownerMult", "zoneMult"],
+};
+/** 모양의 입력: "player" = 받는 선수 (playerId · at), "zone" = 구역 (zone · at), null = 입력 없음 */
+export const SHAPE_NEEDS = { link: "player", pick: "player", ownerCircle: null, ownerZone: null, move: "zone", carry: "zone", owner: null };
+/** 모양 mods 에 쓸 수 있는 키 */
+export const SHAPE_MOD_KEYS = ["noFail"];
+
+/** ["shoot"] → "슈팅", ["shoot", "pass"] → "슈팅·패스" */
+export function zoneLabels(list) {
+  return (list || []).map((z) => STAT_LABELS[z] || z).join("·");
+}
+
 /**
- * 주인이 자기 배치 포지션의 주 스탯 구역에 서 있는가 (고유 카드 ×1.5, §14.10).
- * @returns {boolean}
+ * 고유 카드의 모양 (주인 캐릭터의 trait → data.traits[].lesson, 기본값을 채운 새 객체). 고유 카드가 아니면 null.
+ * @param {object} data data.traits · data.characters
+ * @param {string|object} card 카드 id 또는 정의
+ * @returns {{ kind: string, trait: string, traitName: string, label: string, chip: string, recvMult: number, ownerMult: number,
+ *            onlyZones: string[]|null, size: string|null, zoneMult: {zones: string[], mult: number}|null,
+ *            mods: object, effects: object[] }|null}
  */
-export function ownerOnMainZone(state, def) {
+export function shapeOf(data, card) {
+  const raw = typeof card === "string" ? getCard(data, card) : card;
+  if (!raw || raw.family !== "unique") return null;
+  if (!data || !Array.isArray(data.traits)) throw new Error("고유 카드 모양: data.traits 가 없습니다");
+  const ch = (Array.isArray(data.characters) ? data.characters : []).find((c) => c && c.id === raw.ownerCharId);
+  if (!ch) throw new Error(`고유 카드 '${raw.id}': 주인 캐릭터 '${raw.ownerCharId}' 을(를) 찾을 수 없습니다`);
+  const tr = data.traits.find((t) => t && t.id === ch.trait);
+  if (!tr || !tr.lesson) throw new Error(`고유 카드 '${raw.id}': 주인 특성 '${ch.trait}' 에 레슨 모양(lesson)이 없습니다`);
+  const s = tr.lesson;
+  return {
+    kind: s.shape, trait: tr.id, traitName: tr.name || tr.id, label: s.label, chip: s.chip,
+    recvMult: isNum(s.recvMult) ? s.recvMult : 1,
+    ownerMult: isNum(s.ownerMult) ? s.ownerMult : 1,
+    onlyZones: Array.isArray(s.onlyZones) ? s.onlyZones.slice() : null,
+    size: s.size || null,
+    zoneMult: s.zoneMult ? { zones: s.zoneMult.zones.slice(), mult: s.zoneMult.mult } : null,
+    mods: clone(s.mods || {}),
+    effects: clone(s.effects || []),
+  };
+}
+
+/** 뷰용 모양 (손패 · 보상 · 상담 · 덱). 고유 카드가 아니면 null. r = 주인 둘레 원 반지름 (u) */
+export function shapeView(def, data) {
+  const sh = def && def.shape;
+  if (!sh) return null;
+  const radii = (data && data.lesson && data.lesson.zones && data.lesson.zones.ownerRadius) || {};
+  return {
+    kind: sh.kind, trait: sh.trait, label: sh.label, chip: sh.chip,
+    size: sh.size, r: sh.size && isNum(radii[sh.size]) ? radii[sh.size] : null,
+    recvMult: sh.recvMult, ownerMult: sh.ownerMult,
+    onlyZones: sh.onlyZones ? sh.onlyZones.slice() : null,
+    zoneMult: sh.zoneMult ? { zones: sh.zoneMult.zones.slice(), mult: sh.zoneMult.mult } : null,
+    noFail: !!(sh.mods && sh.mods.noFail),
+    needs: SHAPE_NEEDS[sh.kind] || null,
+  };
+}
+
+/** 주인이 경기장에 있는가 확인하고 주인을 돌려준다 (아니면 throw — deadReason 과 같은 문구) */
+function fieldOwner(state, def) {
   const owner = ownerOf(state, def);
-  const z = owner && state.lesson && state.lesson.zones ? state.lesson.zones[owner.id] : null;
-  return !!z && mainStatsOf(owner.position).includes(z);
+  if (!owner) throw new Error(`'${def.name}': 주인이 명단에 없습니다`);
+  if (isOut(state, owner)) throw new Error(`'${def.name}': 주인이 결장 중입니다`);
+  if (isBenched(state, owner.id)) throw new Error(`'${def.name}': 주인이 벤치에 있습니다`);
+  if (!fieldPlayers(state).some((p) => p.id === owner.id)) throw new Error(`'${def.name}': 주인이 경기장에 없습니다`);
+  return owner;
+}
+
+/**
+ * 받는 선수 후보 (link · pick): 경기장 선수 − 주인 (onlyZones 면 그 구역에 선 선수만), 슬롯 순서. 그 밖 모양 · 주인 없음이면 [].
+ * @returns {string[]}
+ */
+export function shapeReceivers(state, def) {
+  const sh = def && def.shape;
+  if (!sh || SHAPE_NEEDS[sh.kind] !== "player") return [];
+  const owner = ownerOf(state, def);
+  const Z = (state.lesson && state.lesson.zones) || {};
+  return fieldPlayers(state)
+    .filter((p) => (!owner || p.id !== owner.id) && (!sh.onlyZones || sh.onlyZones.includes(Z[p.id])))
+    .map((p) => p.id);
+}
+
+/** 받는 선수 놓기 안내 문구 */
+function receiverHint(sh) {
+  return sh.onlyZones ? `${zoneLabels(sh.onlyZones)} 구역 선수 위에 놓으세요` : "받을 선수 위에 놓으세요";
+}
+
+/**
+ * 모양의 대상 계산 (§16.3 ②). 순수 — 상태를 바꾸지 않는다 (옮기기는 plan.move 로만 알린다). 잘못된 인자는 throw.
+ *   link · pick: { playerId } 또는 { at } (pickR 안 가장 가까운 후보) → 주인 (×1) + 받는 선수 (×recvMult)
+ *   ownerCircle: 주인 위치 중심 ownerRadius[size] 원 안 경기장 선수 (주인 ×ownerMult) · ownerZone: 주인 구역 전원 (주인 ×ownerMult)
+ *   move: { zone } 또는 { at } (zones.zoneAt) → 주인 1행 (놓은 구역, ×ownerMult). 지금 구역이면 옮기지 않는다
+ *   carry: { zone } 또는 { at } → 주인 2행 (지금 구역 · 놓은 구역, ×1). 지금 구역이면 throw
+ *   owner: 주인 1행 (지금 구역, ×ownerMult × (zoneMult 구역이면 mult))
+ * 행 순서: 주인 먼저, 그다음 슬롯 순서. T = 서로 다른 선수 (행 순서).
+ * @param {object} state
+ * @param {object} def resolveCardDef 결과 (원본 고유 카드 정의도 된다 — 모양을 data 에서 찾는다)
+ * @param {{ at?: {x,y}, playerId?: string, zone?: string }} [args]
+ * @param {object} data
+ * @returns {{ kind: string, ownerId: string, rows: {id: string, zone: string, role: "owner"|"recv"|"member", shapeMult: number}[],
+ *            T: string[], receiverId: string|null, circle: {x,y,r}|null, zone: string|null, move: {id, from, to}|null }}
+ */
+export function shapePlan(state, def, args = {}, data) {
+  const a = args || {};
+  const sh = def.shape || shapeOf(data, def);
+  if (!sh) throw new Error(`'${def.name}': 고유 카드가 아닙니다`);
+  const owner = fieldOwner(state, def);
+  const Z = state.lesson.zones;
+  const from = Z[owner.id];
+  const cfg = zoneCfg(data);
+  const plan = { kind: sh.kind, ownerId: owner.id, rows: [], T: [], receiverId: null, circle: null, zone: null, move: null };
+  const row = (id, zone, role, shapeMult) => plan.rows.push({ id, zone, role, shapeMult });
+  const dropZone = () => {
+    if (a.zone != null) {
+      if (!zones.ZONE_IDS.includes(a.zone)) throw new Error(`'${def.name}': 구역 위에 놓으세요`);
+      return a.zone;
+    }
+    const z = a.at ? zones.zoneAt(a.at, cfg) : null;
+    if (!z) throw new Error(`'${def.name}': 구역 위에 놓으세요`);
+    return z;
+  };
+  switch (sh.kind) {
+    case "link":
+    case "pick": {
+      const cands = shapeReceivers(state, { ...def, shape: sh });
+      let id = null;
+      if (a.playerId != null) {
+        if (!cands.includes(a.playerId)) throw new Error(`'${def.name}': 그 선수는 받을 수 없습니다`);
+        id = a.playerId;
+      } else if (a.at) {
+        id = zones.nearestWithin(fieldPositions(state, data), zones.clampPoint(a.at), cfg.pickR, cfg.aspect, cands);
+      }
+      if (!id) throw new Error(`'${def.name}': ${receiverHint(sh)}`);
+      plan.receiverId = id;
+      row(owner.id, from, "owner", 1);
+      row(id, Z[id], "recv", sh.recvMult);
+      break;
+    }
+    case "ownerCircle": {
+      const r = cfg.ownerRadius && cfg.ownerRadius[sh.size];
+      if (!isNum(r)) throw new Error(`알 수 없는 주인 둘레 원 크기 '${sh.size}'`);
+      const pos = fieldPositions(state, data);
+      const c = pos[owner.id];
+      plan.circle = { x: c.x, y: c.y, r };
+      row(owner.id, from, "owner", sh.ownerMult);
+      for (const id of zones.inCircle(pos, c, r, cfg.aspect)) if (id !== owner.id) row(id, Z[id], "member", 1);
+      break;
+    }
+    case "ownerZone": {
+      plan.zone = from;
+      row(owner.id, from, "owner", sh.ownerMult);
+      for (const p of fieldPlayers(state)) if (p.id !== owner.id && Z[p.id] === from) row(p.id, from, "member", 1);
+      break;
+    }
+    case "move": {
+      const to = dropZone();
+      plan.zone = to;
+      if (to !== from) plan.move = { id: owner.id, from, to };
+      row(owner.id, to, "owner", sh.ownerMult);
+      break;
+    }
+    case "carry": {
+      const to = dropZone();
+      if (to === from) throw new Error(`'${def.name}': 다른 구역에 놓으세요`);
+      plan.zone = to;
+      plan.move = { id: owner.id, from, to };
+      row(owner.id, from, "owner", 1);
+      row(owner.id, to, "owner", 1);
+      break;
+    }
+    case "owner": {
+      const zm = sh.zoneMult && sh.zoneMult.zones.includes(from) ? sh.zoneMult.mult : 1;
+      row(owner.id, from, "owner", sh.ownerMult * zm);
+      break;
+    }
+    default:
+      throw new Error(`알 수 없는 모양 '${sh.kind}'`);
+  }
+  for (const r of plan.rows) if (!plan.T.includes(r.id)) plan.T.push(r.id);
+  return plan;
 }
 
 /**
@@ -307,11 +502,11 @@ export function singleCandidates(state, def) {
  * 대상 T (§14.6). 잘못된 인자 · 대상 0명이면 throw.
  *   single: { playerId } 또는 { at } (놓은 점에서 pickR 안 가장 가까운 후보, 회복 단일은 경기장 위 토큰 또는 playerId)
  *   circle: { at } 필수 — 원 안의 경기장 선수 전원 (슬롯 순서)
- *   all: 경기장 선수 전원 · owner: [주인] (벤치 · 결장이면 throw) · none: []
+ *   all: 경기장 선수 전원 · owner: 주인 특성 모양의 대상 (shapePlan(...).T — 벤치 · 결장이면 throw) · none: []
  * 회복 단일은 회복 대상 1명 [id] 를 돌려준다 (상승 대상은 아니다 — lesson.js 가 구분한다).
  * @param {object} state
  * @param {object} def resolveCardDef 결과 (원본 정의도 된다)
- * @param {{ at?: {x:number, y:number}, playerId?: string }} [args]
+ * @param {{ at?: {x:number, y:number}, playerId?: string, zone?: string }} [args]
  * @param {object} data data.lesson.zones 를 읽는다
  * @returns {string[]} 선수 id
  */
@@ -326,14 +521,8 @@ export function targetsFor(state, def, args = {}, data) {
       if (!ids.length) throw new Error(`'${def.name}': 경기장에 선수가 없습니다`);
       return ids;
     }
-    case "owner": {
-      const owner = ownerOf(state, def);
-      if (!owner) throw new Error(`'${def.name}': 주인이 명단에 없습니다`);
-      if (isOut(state, owner)) throw new Error(`'${def.name}': 주인이 결장 중입니다`);
-      if (isBenched(state, owner.id)) throw new Error(`'${def.name}': 주인이 벤치에 있습니다`);
-      if (!fieldPlayers(state).some((p) => p.id === owner.id)) throw new Error(`'${def.name}': 주인이 경기장에 없습니다`);
-      return [owner.id];
-    }
+    case "owner":
+      return shapePlan(state, def, a, data).T;
     case "single": {
       const cands = singleCandidates(state, def);
       if (a.playerId != null) {
@@ -362,6 +551,7 @@ export function targetsFor(state, def, args = {}, data) {
 /**
  * 지금 낼 수 없는 이유 (§14.3 죽은 카드 · 행동 중 낼 수 없게 된 카드): 대상 후보가 0명이면 문자열, 낼 수 있으면 null.
  * 원 · 전체 카드는 경기장에 1명이라도 있으면 낼 수 있다. 회복 단일 · 대상 없는 카드는 늘 낼 수 있다.
+ * 고유 카드: 주인이 경기장에 있어야 하고, 받는 선수가 필요한 모양 (link · pick) 은 후보가 1명 이상 (§16.3 ③).
  * @param {object} state
  * @param {object} def
  * @returns {string|null}
@@ -374,7 +564,13 @@ export function deadReason(state, def) {
     if (!owner) return "주인이 명단에 없습니다";
     if (isOut(state, owner)) return "주인이 결장 중입니다";
     if (isBenched(state, owner.id)) return "주인이 벤치에 있습니다";
-    return fieldPlayers(state).some((p) => p.id === owner.id) ? null : "주인이 경기장에 없습니다";
+    if (!fieldPlayers(state).some((p) => p.id === owner.id)) return "주인이 경기장에 없습니다";
+    // 받는 선수가 있어야 하는 모양 (이어 주기 · 연결 · 크로스, §16.4)
+    const sh = def.shape;
+    if (sh && SHAPE_NEEDS[sh.kind] === "player" && !shapeReceivers(state, def).length) {
+      return sh.onlyZones ? `${zoneLabels(sh.onlyZones)} 구역에 받을 선수가 없습니다` : "받을 선수가 없습니다";
+    }
+    return null;
   }
   if (!fieldPlayers(state).length) return "경기장에 선수가 없습니다";
   if (kind === "single" && !singleCandidates(state, def).length) return "그 구역에 선수가 없습니다";
@@ -387,25 +583,25 @@ export function deadReason(state, def) {
 
 /**
  * 비용 기준 = 강화 전 기본 카드의 1인 위력 (perMood · perPress 몫 포함, 집중 · routine · 강화판 · 유대 80 증가분 제외).
- * 고유 카드는 주 스탯 구역 배율(mainMult)을 곱한 값 (35 × 1.5 = 52.5).
+ * 고유 카드는 1인 위력 그대로 (L40 — 주 스탯 구역 배율 없음, 모양 배율도 비용에는 곱하지 않는다).
  * @param {object} def resolveCardDef 결과 (원본 정의도 된다)
- * @param {{ mood?: number, press?: number, mainMult?: number }} [opts]
+ * @param {{ mood?: number, press?: number }} [opts]
  * @returns {number} 소수 유지. 위력 없는 카드는 0
  */
-export function costBase(def, { mood = 0, press = 0, mainMult = 1 } = {}) {
+export function costBase(def, { mood = 0, press = 0 } = {}) {
   const basePower = isNum(def.basePower) ? def.basePower : def.power;
   if (!isNum(basePower)) return 0;
   const kind = def.target.kind;
   if (kind === "none") return 0;
-  if (kind === "owner") return basePower * (isNum(mainMult) ? mainMult : 1);
+  if (kind === "owner") return basePower;
   const mods = def.baseMods || def.mods || {};
   return basePower + (mods.perMood || 0) * mood + (mods.perPress || 0) * press;
 }
 
 /**
- * 대상 1인 체력 비용 = round(costBase × costRate × pressCostMult), costZero 면 0.
+ * 대상 1인 체력 비용 = round(costBase × costRate × pressCostMult), costZero 면 0. 고유 카드는 서로 다른 대상 1명마다 1번 (§16.3 ③).
  * @param {object} def resolveCardDef 결과
- * @param {{ mood?: number, press?: number, mainMult?: number, pressCostMult?: number, costZero?: boolean }} [opts]
+ * @param {{ mood?: number, press?: number, pressCostMult?: number, costZero?: boolean }} [opts]
  * @returns {number}
  */
 export function staminaCost(def, opts = {}) {
@@ -615,6 +811,9 @@ export function validateCardsData(data) {
   // lesson.json attach (코치 지원, §15.3)
   if (L && L.attach !== undefined) attachErrors(data, errors);
 
+  // 고유 카드 모양 (L40 · §16.2 ④)
+  shapeErrors(data, errors);
+
   if (errors.length) throw new Error(`카드 데이터 오류 ${errors.length}건:\n- ${errors.join("\n- ")}`);
   return true;
 }
@@ -679,5 +878,77 @@ export function validateAttachData(data) {
   const errors = [];
   if (data && data.lesson && data.lesson.attach !== undefined) attachErrors(data, errors);
   if (errors.length) throw new Error(`코치 지원 데이터 오류 ${errors.length}건:\n- ${errors.join("\n- ")}`);
+  return true;
+}
+
+/** 고유 카드 모양 검사 (traits.json lesson · lesson.json zones.ownerRadius · dropR · 고유 카드 → 주인 특성) — 오류 문구를 errors 에 모은다 */
+function shapeErrors(data, errors) {
+  const pre = "고유 카드 모양";
+  if (!data || !Array.isArray(data.traits)) return errors.push(`${pre}: data.traits 가 없습니다`);
+  const Z = data.lesson && data.lesson.zones;
+  const radii = Z && Z.ownerRadius;
+  if (Z) {
+    if (!radii || typeof radii !== "object" || !Object.keys(radii).length || !Object.values(radii).every((v) => isNum(v) && v > 0))
+      errors.push(`${pre}: lesson.zones.ownerRadius 가 잘못됐습니다 (크기 → 반지름 > 0)`);
+    if (!(isNum(Z.dropR) && Z.dropR > 0)) errors.push(`${pre}: lesson.zones.dropR 가 잘못됐습니다 (> 0)`);
+  }
+  const zoneList = (v) => Array.isArray(v) && v.length > 0 && v.every((z) => zones.ZONE_IDS.includes(z));
+  for (const tr of data.traits) {
+    const at = `특성 '${tr && tr.id}'.lesson`;
+    const s = tr && tr.lesson;
+    if (!s || typeof s !== "object" || Array.isArray(s)) {
+      errors.push(`${at}: 레슨 모양이 없습니다`);
+      continue;
+    }
+    if (!SHAPE_KINDS.includes(s.shape)) {
+      errors.push(`${at}: 알 수 없는 모양 '${s.shape}'`);
+      continue;
+    }
+    for (const k of Object.keys(s)) if (!SHAPE_KEYS[s.shape].includes(k)) errors.push(`${at}: '${s.shape}' 모양에 없는 키 '${k}'`);
+    for (const k of ["label", "chip"]) if (typeof s[k] !== "string" || !s[k].trim()) errors.push(`${at}: ${k} 가 없습니다`);
+    if (typeof s.chip === "string" && s.chip.replace(/\s/g, "").length > 6) errors.push(`${at}: chip 은 6자 이하여야 합니다 (띄어쓰기 제외)`);
+    for (const k of ["recvMult", "ownerMult"]) if (k in s && !(isNum(s[k]) && s[k] >= 1)) errors.push(`${at}: ${k} 는 1 이상이어야 합니다`);
+    if (s.shape === "ownerCircle") {
+      if (typeof s.size !== "string" || !(radii && isNum(radii[s.size]))) errors.push(`${at}: size '${s.size}' 이(가) lesson.zones.ownerRadius 에 없습니다`);
+    }
+    if ("onlyZones" in s && !zoneList(s.onlyZones)) errors.push(`${at}: onlyZones 가 잘못됐습니다`);
+    if ("zoneMult" in s) {
+      const zm = s.zoneMult;
+      if (!zm || typeof zm !== "object" || !zoneList(zm.zones) || !(isNum(zm.mult) && zm.mult >= 1) || !Object.keys(zm).every((k) => k === "zones" || k === "mult"))
+        errors.push(`${at}: zoneMult 가 잘못됐습니다 ({ zones, mult ≥ 1 })`);
+    }
+    if ("mods" in s) {
+      checkMods(s.mods, at, errors);
+      if (s.mods && typeof s.mods === "object") for (const k of Object.keys(s.mods)) if (MOD_KEYS[k] && !SHAPE_MOD_KEYS.includes(k)) errors.push(`${at}: 모양에 쓸 수 없는 mod '${k}'`);
+    }
+    if ("effects" in s) {
+      checkEffects(s.effects, at, errors);
+      if (Array.isArray(s.effects)) s.effects.forEach((e, i) => {
+        if (e && e.when === "consume") errors.push(`${at}.effects[${i}]: 모양 효과에는 when: consume 을 쓸 수 없습니다`);
+      });
+    }
+  }
+  // 덱에 들어갈 수 있는 고유 카드마다 주인 → 특성 → lesson
+  const chars = Array.isArray(data.characters) ? data.characters : null;
+  if (!chars) return;
+  for (const c of cardList(data)) {
+    if (!c || c.family !== "unique") continue;
+    const ch = chars.find((x) => x && x.id === c.ownerCharId);
+    if (!ch) continue; // ownerCharId 오류는 validateCardsData 가 따로 말한다
+    const tr = data.traits.find((t) => t && t.id === ch.trait);
+    if (!tr) errors.push(`카드 '${c.id}': 주인 '${ch.id}' 의 특성 '${ch.trait}' 이(가) traits 에 없습니다`);
+    else if (!tr.lesson) errors.push(`카드 '${c.id}': 주인 특성 '${tr.id}' 에 레슨 모양(lesson)이 없습니다`);
+  }
+}
+
+/**
+ * 고유 카드 모양 데이터 검증 (L40 · §16.2 ④). lessonRun.createRun 이 런 시작에 부른다. 문제가 있으면 모두 모아 throw, 없으면 true.
+ * @param {object} data
+ * @returns {true}
+ */
+export function validateShapeData(data) {
+  const errors = [];
+  shapeErrors(data, errors);
+  if (errors.length) throw new Error(`고유 카드 모양 데이터 오류 ${errors.length}건:\n- ${errors.join("\n- ")}`);
   return true;
 }

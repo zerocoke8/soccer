@@ -1,7 +1,7 @@
 // js/engine/zones.js — 레슨 훈련 구역 기하 (LESSON_PROTO_PLAN §14.2 · §14.6 · §14.14)
 // 순수 함수만: DOM · rng · Date 없음. 좌표는 레슨 필드 % (x = 우리 골 0 → 상대 골 100, y = 위 0 → 아래 100).
 // 거리 단위 u = 필드 폭의 1%. 세로 % 차이는 aspect(H/W)를 곱해 u로 바꾼다.
-// cfg = data.lesson.zones ({ aspect, pad, pickR, centers, huddle, radius, weights }).
+// cfg = data.lesson.zones ({ aspect, pad, pickR, centers, huddle, radius, ownerRadius, dropR, weights }).
 
 /** 구역 id — STATS 순서 (training.js 와 같다). */
 export const ZONE_IDS = ["shoot", "dribble", "pass", "defense", "physical"];
@@ -86,6 +86,26 @@ export function nearestWithin(positions, at, r, aspect, ids) {
     if (d <= r + EPS && d < bestD - EPS) { best = id; bestD = d; }
   }
   return best;
+}
+
+/**
+ * 놓은 점 → 구역 (L40 자리 옮기기 · 가로지르기, §16.3 ②). clampPoint 뒤 중심이 가장 가까운 구역,
+ * 그 거리가 cfg.dropR(u) 보다 멀면 null. 같은 거리면 ZONE_IDS 순서.
+ * @returns {string|null}
+ */
+export function zoneAt(at, cfg) {
+  const p = clampPoint(at);
+  const R = Number(cfg.dropR);
+  if (!(R > 0)) throw new Error("구역 놓기 반경(dropR)이 없습니다");
+  let best = null;
+  let bestD = Infinity;
+  for (const z of ZONE_IDS) {
+    const c = cfg.centers[z];
+    if (!c) continue;
+    const d = distU(p, c, cfg.aspect);
+    if (d < bestD - EPS) { best = z; bestD = d; }
+  }
+  return best && bestD <= R + EPS ? best : null;
 }
 
 /** 두 구역이 이웃인가 (중심 거리 ≤ NEIGHBOR_MAX_U). 같은 구역도 참. */

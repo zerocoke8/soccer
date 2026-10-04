@@ -451,7 +451,12 @@ test("jsdom: 레슨 화면 (구역) — 골격 · 조준 · 키보드 · 벤치 
   // =====================================================================
   const { perfectRewardState } = await import(pathToFileURL(path.join(ROOT, "tools/lesson_scenarios.mjs")).href);
   const savedRun = () => JSON.parse(window.localStorage.getItem(KEYS.run));
-  const clearReward = walkLesson(data, { seed: "lesson-ui", until: (s) => s.phase === "reward" && s.pendingReward?.result?.status === "clear" && s.pendingReward.offer.length > 0 }).state;
+  // 클리어 (퍼펙트 아님) 보상이 나오는 첫 시드 — 밸런스가 바뀌면 (L40 등) 시드 "lesson-ui" 의 레슨이 모두 퍼펙트일 수 있다
+  const clearWalk = ["lesson-ui", "lesson-ui-2", "lesson-ui-3", "lesson-ui-4", "lesson-ui-5"]
+    .map((seed) => walkLesson(data, { seed, until: (s) => s.phase === "reward" && s.pendingReward?.result?.status === "clear" && s.pendingReward.offer.length > 0 }))
+    .find(Boolean);
+  assert.ok(clearWalk, "클리어 보상 상태 (시드 5개 안에서)");
+  const clearReward = clearWalk.state;
 
   // ---------- 클리어: 골격 · 카드 고르기 → [확인] ----------
   putRun(clearReward);

@@ -94,7 +94,7 @@ function buffValue(state, data, c) {
   const nAct = active.length;
   const lowSt = active.filter((p) => p.stamina < 50).length;
   const moodUnit = BD.moodK * data.lesson.lesson.cardGainScale;
-  const { f, T, effects, mods, consumes, zoneOf, healId } = c;
+  const { f, T, effects, mods, consumes, rowZones, healId } = c;
   const tPlayers = T.map((id) => playerById(state, id)).filter(Boolean);
   let val = 0;
   for (const e of effects) {
@@ -164,8 +164,9 @@ function buffValue(state, data, c) {
   }
   // 방침 패시브 (§14.11) — 쌓는 쪽의 가치
   if (T.length) {
-    const allDefenseZone = T.every((id) => lesson.DEFENSE_ZONES.includes(zoneOf[id]));
-    const hasPassZone = T.some((id) => zoneOf[id] === "pass");
+    // 행 구역 (고유 카드 자리 옮기기 · 가로지르기는 옮긴 뒤 구역, §16.3 ③)
+    const allDefenseZone = rowZones.every((z) => lesson.DEFENSE_ZONES.includes(z));
+    const hasPassZone = rowZones.includes("pass");
     if (policy === "counter" && allDefenseZone) {
       val += (1 - f) * Math.min(BD.stealCap - v("steal"), mods.stealBuild ?? 1) * BD.stealPer * 40 * (remaining > 0 ? 0.8 : 0);
     }
@@ -184,17 +185,20 @@ function buffValue(state, data, c) {
  */
 function scoreDrop(state, data, hv, def, cand, evenW) {
   const L = state.lesson;
-  const pv = lesson.previewCard(state, data, { uid: hv.uid, at: cand.at || undefined, playerId: cand.playerId });
+  // 고유 카드 자리 옮기기 · 가로지르기 후보는 구역 (zone) 을 그대로 넘긴다 (§16.9)
+  const zone = def.shape && cards.SHAPE_NEEDS[def.shape.kind] === "zone" && cand.zone ? cand.zone : undefined;
+  const pv = lesson.previewCard(state, data, { uid: hv.uid, at: cand.at || undefined, playerId: cand.playerId, zone });
   if (!pv.ok) return null;
   // 붙은 코치의 능력 effects 를 카드 effects 뒤에 (§15.6 — 능력은 카드가 실패해도 발동, when 없음)
   const effects = [...(def.effects || []), ...((pv.attach && pv.attach.effects) || [])];
   const mods = def.mods || {};
-  const T = pv.targets.map((t) => t.id);
+  // T = 서로 다른 대상, rowZones = 행 구역 (가로지르기는 주인 2행)
+  const T = [...new Set(pv.targets.map((t) => t.id))];
+  const rowZones = pv.targets.map((t) => t.zone);
   const f = pv.failRate || 0;
-  const zoneOf = L.zones || {};
   const ps = T.map((id) => playerById(state, id));
-  const hasAttackZone = T.some((id) => lesson.ATTACK_ZONES.includes(zoneOf[id]));
-  const hasPassZone = T.some((id) => zoneOf[id] === "pass");
+  const hasAttackZone = rowZones.some((z) => lesson.ATTACK_ZONES.includes(z));
+  const hasPassZone = rowZones.includes("pass");
   const B = L.buffs;
   const steal = Number(B.steal) || 0;
   const poss = Number(B.poss) || 0;
@@ -209,13 +213,13 @@ function scoreDrop(state, data, hv, def, cand, evenW) {
   let failLoss = data.lesson.lesson.failStatLoss + FAIL_EXTRA;
   if (state.policy === "poss" && T.length && !(Number(B.possGuard) > 0)) failLoss += poss * 8;
   let ev = gain * (1 - f) - f * failLoss;
-  ev += buffValue(state, data, { f, T, effects, mods, consumes, zoneOf, healId: pv.healId });
+  ev += buffValue(state, data, { f, T, effects, mods, consumes, rowZones, healId: pv.healId });
   ev -= COST_K * cost;
   ev -= LOW_TARGET_PENALTY * ps.filter((p) => p.stamina < 40).length;
   if (pv.attach) ev += ATTACH_BONUS;
   if (state.policy === "counter" && steal >= 3 && hasAttackZone) ev += 30;
   if (state.policy === "poss" && T.length && !hasPassZone && !mods.possKeep) ev -= Math.min(data.lesson.buffs.possNoPass, poss) * 8;
-  return { uid: hv.uid, cardId: hv.cardId, at: cand.at || null, playerId: cand.playerId ?? null, score: Math.round(ev * 100) / 100 };
+  return { uid: hv.uid, cardId: hv.cardId, at: cand.at || null, playerId: cand.playerId ?? null, zone: zone ?? null, score: Math.round(ev * 100) / 100 };
 }
 
 /** 손패 카드 1장의 가장 좋은 후보 점. 회복 단일은 체력이 가장 낮은 선수 (출전 선수 먼저) 1명만 본다. */
@@ -270,6 +274,7 @@ function playAction(s) {
   const a = { kind: "play", uid: s.uid, score: s.score };
   if (s.at) a.at = s.at;
   if (s.playerId != null) a.playerId = s.playerId;
+  if (s.zone != null) a.zone = s.zone;
   return a;
 }
 
@@ -278,7 +283,7 @@ function playAction(s) {
  *   1. 벤치 먼저: 그 턴에 카드를 아직 내지 않았고 벤치가 남았고 체력 < 25 인 경기장 선수가 있으면 → 체력 최저 (슬롯 순서) 1명
  *   2. 카드마다 후보 점 (dropCandidates) → previewCard 로 EV
  *   3. 최고 EV ≤ 0 이면 endTurn. 같은 EV 면 손패 순서 → 후보 순서
- * @returns {{ kind: "bench", playerId: string } | { kind: "play", uid: string, at?: {x,y}, playerId?: string, score: number } | { kind: "endTurn" }}
+ * @returns {{ kind: "bench", playerId: string } | { kind: "play", uid: string, at?: {x,y}, playerId?: string, zone?: string, score: number } | { kind: "endTurn" }}
  */
 export function recommendCard(state, data) {
   const L = state && state.lesson;
@@ -472,7 +477,7 @@ export function autoStep(state, data, { playMatch } = {}) {
     }
     case "lesson": {
       const a = recommendCard(state, data);
-      if (a.kind === "play") LR.playCard(state, data, { uid: a.uid, at: a.at, playerId: a.playerId });
+      if (a.kind === "play") LR.playCard(state, data, { uid: a.uid, at: a.at, playerId: a.playerId, zone: a.zone });
       else if (a.kind === "bench") LR.benchPlayer(state, data, { playerId: a.playerId, on: true });
       else LR.endLessonTurn(state, data);
       return { phase, action: a };

@@ -287,11 +287,14 @@ test("fxPlan: 실제 엔진 — 새 턴 붙기 attach = 뷰 attach, 붙은 카�
 });
 
 // 플레이 점검 (2026-10-02) · §14.16: 보상 · 상담 카드 앞면의 비용 = 엔진 1인 비용 (cards.staminaCost — 원 · 전체도 1인당, 인원 계산 없음)
-test("cards.js estimateCost/costText: 보상 · 상담 카드 비용 = 엔진 1인 비용 (기본 위력, 강화판 · 유대 80 은 비용 그대로, 고유 = 주 스탯 구역 ×1.5 범위)", async () => {
+test("cards.js estimateCost/costText: 보상 · 상담 카드 비용 = 엔진 1인 비용 (기본 위력, 강화판 · 유대 80 은 비용 그대로, 고유 = 1인 비용 — L40)", async () => {
   const { estimateCost, costText, targetText, powerText, effectDesc } = await import("../js/ui/cards.js");
   const engineCards = await import("../js/engine/cards.js");
   const data = loadData();
-  const mainMult = data.lesson.lesson.unique.mainMult;
+  // L40: lesson.unique.mainMult 를 지웠다 → 고유 카드 비용은 1인 비용 하나 (범위 없음). 모양별 문구 ("체력 −8 /명") 는 U3
+  assert.equal(data.lesson.lesson.unique, undefined);
+  const { uniqueMainMult } = await import("../js/ui/cards.js");
+  assert.equal(uniqueMainMult(data), 1);
   let checked = 0;
   for (const raw of data.cards.cards) {
     for (const [plus, bond] of [[false, 0], [true, 0], [false, 100], [true, 100]]) {
@@ -311,9 +314,7 @@ test("cards.js estimateCost/costText: 보상 · 상담 카드 비용 = 엔진 1�
       assert.equal(powerText(view, raw), `1인 ${def.power}`, `${tag}: 위력 줄`);
       const txt = costText(view, raw, data);
       if (kind === "owner") {
-        const hi = engineCards.staminaCost(def, { mainMult });
-        assert.equal(estimateCost(view, raw, { mainMult }), hi, `${tag}: 주 스탯 구역 ×1.5 비용`);
-        assert.equal(txt, `체력 −${est}~${hi}`, tag);
+        assert.equal(txt, `체력 −${est}`, `${tag}: 고유 = 1인 비용 하나 (L40)`);
       } else if (kind === "circle" || kind === "all") {
         assert.equal(txt, `체력 −${est} /명`, `${tag}: 원 · 전체 = 1인당`);
       } else {

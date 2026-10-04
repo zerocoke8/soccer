@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { loadData } from "./helpers.mjs";
 import {
   ZONE_IDS, distU, clampPoint, huddleOffsets, zonePositions, inCircle, nearestWithin,
-  areNeighbors, zoneWeight, candidatePoints,
+  areNeighbors, zoneWeight, candidatePoints, zoneAt,
 } from "../js/engine/zones.js";
 
 const data = loadData();
@@ -46,7 +46,9 @@ test("데이터: lesson.json 구역 키 (ZE1 추가분) · 구역 5곳 = STATS �
   assert.deepEqual(L.base, { gain: 3.2, stamina: 1 });
   assert.deepEqual(L.bench, { recover: 15, max: 2 });
   assert.deepEqual(L.focus, { mult: 1.5, specialMult: 2.0, weight: 2 });
-  assert.deepEqual(L.unique, { mainMult: 1.5 });
+  assert.equal(L.unique, undefined, "L40: 고유 카드 주 스탯 구역 ×1.5 (lesson.unique.mainMult) 는 지웠다");
+  assert.deepEqual(cfg.ownerRadius, { small: 8, medium: 15 }, "L40 주인 둘레 원 반지름 [가정]");
+  assert.equal(cfg.dropR, 12, "L40 구역 놓기 반경 [가정]");
   assert.equal(L.special.capMult, 1.2);
 });
 
@@ -223,5 +225,61 @@ test("candidatePoints: 단일 · 전체/주인/없음", () => {
   assert.deepEqual(only.map((c) => c.ids[0]), ["p1", "p3"]);
   for (const kind of ["all", "owner", "none"]) {
     assert.deepEqual(candidatePoints(pos, cfg, { kind }), [{ at: { x: 50, y: 50 }, ids: ["p1", "p2", "p3", "p4", "p5"], kind: "field" }]);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// L40 고유 카드 모양 (§16.2 ② · §16.3 ②): 구역 놓기 · 주인 둘레 원
+// ---------------------------------------------------------------------------
+
+test("zoneAt: 중심이 가장 가까운 구역 · dropR 경계 포함 · 가운데 점은 가까운 쪽 (같으면 ZONE_IDS 순) · 밖이면 null · 필드 밖은 자른다", () => {
+  const C = cfg.centers;
+  for (const z of ZONE_IDS) assert.equal(zoneAt(C[z], cfg), z, `${z} 중심`);
+  // 경계: 중심에서 정확히 dropR (가로) 는 그 구역, 조금 넘으면 null (이웃 중심과 멀다)
+  const R = cfg.dropR;
+  assert.equal(zoneAt({ x: C.defense.x - R, y: C.defense.y }, cfg), "defense");
+  assert.equal(zoneAt({ x: C.defense.x - R - 0.01, y: C.defense.y }, cfg), null);
+  // 세로는 aspect 로 u 를 잰다: 12u = 12 / 0.405 ≈ 29.6%
+  assert.equal(zoneAt({ x: C.shoot.x, y: C.shoot.y - R / A + 0.01 }, cfg), "shoot");
+  // 수비 (20, 30) · 패스 (50, 30) 가운데 (35, 30) 은 둘 다 15u > dropR → null, 한쪽으로 조금 가면 그쪽
+  assert.equal(zoneAt({ x: 35, y: 30 }, cfg), null);
+  assert.equal(zoneAt({ x: 33, y: 30 }, cfg), null);
+  assert.equal(zoneAt({ x: 31, y: 30 }, cfg), "defense");
+  // 22.7u 이웃 쌍 (패스 (50, 30) · 피지컬 (35, 72)) 의 가운데 (11.35u) 는 어느 한쪽으로 잡힌다 — 같은 거리면 ZONE_IDS 순서 (pass < physical)
+  const m = mid(C.pass, C.physical);
+  assert.ok(Math.abs(distU(m, C.pass, A) - distU(m, C.physical, A)) < 1e-9);
+  assert.equal(zoneAt(m, cfg), "pass");
+  const m2 = mid(C.dribble, C.shoot); // (72.5, 51): dribble < shoot? ZONE_IDS 순서 shoot 먼저
+  assert.equal(zoneAt(m2, cfg), "shoot");
+  // 필드 밖 점은 [0, 100] 으로 자른 뒤 판정, 숫자가 아니면 throw
+  assert.equal(zoneAt({ x: 80, y: -10 }, cfg), distU({ x: 80, y: 0 }, C.shoot, A) <= R ? "shoot" : null);
+  assert.equal(zoneAt({ x: 0, y: 100 }, cfg), null);
+  assert.throws(() => zoneAt({ x: "a", y: 1 }, cfg), /놓은 점/);
+  assert.throws(() => zoneAt(C.pass, { ...cfg, dropR: 0 }), /dropR/);
+});
+
+test("주인 둘레 원 약속 (§16.2 ②): n = 1~7 대형에서 small 8u = 주인 + 바로 옆 ≤ 2명 · 다른 구역 0명, medium 15u = 주인 구역 전원", () => {
+  const rs = cfg.ownerRadius.small;
+  const rm = cfg.ownerRadius.medium;
+  for (const z of ZONE_IDS) {
+    for (let n = 1; n <= 7; n++) {
+      // 모든 "나머지 배치" 를 두루: 나머지를 이웃 · 먼 구역 각각에 몰아 본다
+      for (const other of ZONE_IDS.filter((o) => o !== z)) {
+        const counts = { [z]: n };
+        if (n < 7) counts[other] = 7 - n;
+        const fx = fixture(counts);
+        const pos = zonePositions(fx.lesson, fx.players, cfg);
+        const members = membersOf(fx.lesson, z);
+        for (const owner of members) {
+          const small = inCircle(pos, pos[owner], rs, A);
+          assert.ok(small.includes(owner));
+          assert.ok(small.every((id) => fx.lesson.zones[id] === z), `${z} n=${n} small: 다른 구역 0명`);
+          assert.ok(small.length - 1 <= 2, `${z} n=${n} small: 바로 옆 ≤ 2명 (${small.length - 1})`);
+          if (n >= 2) assert.ok(small.length >= 2, `${z} n=${n} small: 바로 옆 1명 이상`);
+          const medium = inCircle(pos, pos[owner], rm, A);
+          for (const id of members) assert.ok(medium.includes(id), `${z} n=${n} medium: 주인 구역 전원`);
+        }
+      }
+    }
   }
 });

@@ -671,7 +671,10 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
       assert.equal(va.carrier.id, other, "받은 선수가 공");
       assert.match(s18.querySelector(".m-banner-txt").textContent, new RegExp(`^★ 컷백! ${nm(other)} 원터치 슛 찬스`), "배너 = 받은 선수의 찬스");
     } else {
-      assert.equal(va.attackingSide, "away", "GK 가 잡음 → 상대 공");
+      // GK 가 잡음 → 상대 공 (세이브 이벤트의 다음 공격 측). 화면은 그 뒤 상대 배급 · 상대 포제션을 이어 갈 수 있어 지금 공격 측은 보지 않는다
+      // (L40 으로 레슨 런 시드 1 의 스탯이 바뀌어 이 갈래가 처음 걸렸다 — 예전 기대는 연출이 끝난 뒤의 공격 측이라 맞지 않았다)
+      assert.equal(ev.toAttackingSide, "away", "GK 가 잡음 → 상대 공");
+      assert.ok(va.attackingSide === "away" || S.store.match.events.slice(e0).some((e) => e.attackingSide === "away"), "상대 포제션이 이어졌다");
     }
     S.actions.resetToStart();
   }
