@@ -1,0 +1,23 @@
+$imagegen
+Generate exactly ONE full-body character illustration for a fantasy soccer gacha game (support/coach card art), portrait orientation (2:3).
+
+THREE ATTACHED IMAGES:
+- Image 1 = the original STYLE reference (2D anime key visual).
+- Images 2 and 3 = two APPROVED finished illustrations of OTHER characters in the exact target style of this game. Match their style as closely as possible: clean lineart of even weight, flat cel coloring (flat base colors with one hard-edged shadow tone, cool blue-violet shadow tint, very little gradient), simple skin coloring with blush and no shine, hair drawn in clumps with a few crisp highlight streaks, anime eyes with gradient irises and crisp highlights, crisp rim light, flat glowing effects with a soft outer glow, simple soft background with a dusk or evening sky gradient and flat silhouettes. It must look like a frame from a high-budget 2D anime — not painterly, not semi-realistic, not glossy, not 3D, not a busy background.
+- Do NOT copy the characters, faces, hair, outfits or poses of images 1-3. This is a NEW character.
+
+GAME RULES FOR CHARACTERS: every coach is an adult woman. Tall characters have a mature, curvy figure (tasteful, fully clothed, no fan-service framing); short characters look young and cute (still adults) and their figure is NOT emphasized. Coaches wear their own coach / mentor outfits (not a player's match kit).
+
+CAMERA: eye level or a mild high angle (never from below), full body visible from head to feet, character large in frame, natural relaxed proportions. Hands with five fingers, feet anatomically correct. A calm standing pose (no kicking).
+
+CHARACTER: Hanna the ascetic, physical coach, R — came down from a mountain temple; tells you to steady your breathing before building your body. SHORT and small, looks young and serene (still an adult), her figure is NOT emphasized.
+- Hair: chin-length ochre-brown hair with a simple cloth headband.
+- Eyes: calm warm brown, half-closed in serenity.
+- Outfit: a light ochre-and-white training gi with rolled sleeves, a dark sash belt, loose pants tied at the ankles, simple straw sandals; a string of wooden prayer beads around her wrist; a long wooden training staff.
+- Pose: standing in a calm breathing stance, one palm raised in front of her chest, the staff held upright in the other hand; faint warm mist of breath-like light swirls around her.
+- Background: a mountain temple training yard at dusk — stone steps, flat silhouettes of temple roofs and pine trees, warm orange-to-violet sky.
+- Palette: ochre, white, dark brown, warm light.
+
+HARD RULES: no text, no letters, no numbers, no logos, no watermark, no signature, no frame, no UI elements. One character only.
+
+Save the final PNG in the current working directory as hanna.png. Do not create any other files. Reply with the saved file path only.

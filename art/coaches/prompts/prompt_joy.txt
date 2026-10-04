@@ -1,0 +1,23 @@
+$imagegen
+Generate exactly ONE full-body character illustration for a fantasy soccer gacha game (support/coach card art), portrait orientation (2:3).
+
+THREE ATTACHED IMAGES:
+- Image 1 = the original STYLE reference (2D anime key visual).
+- Images 2 and 3 = two APPROVED finished illustrations of OTHER characters in the exact target style of this game. Match their style as closely as possible: clean lineart of even weight, flat cel coloring (flat base colors with one hard-edged shadow tone, cool blue-violet shadow tint, very little gradient), simple skin coloring with blush and no shine, hair drawn in clumps with a few crisp highlight streaks, anime eyes with gradient irises and crisp highlights, crisp rim light, flat glowing effects with a soft outer glow, simple soft background with a dusk or evening sky gradient and flat silhouettes. It must look like a frame from a high-budget 2D anime — not painterly, not semi-realistic, not glossy, not 3D, not a busy background.
+- Do NOT copy the characters, faces, hair, outfits or poses of images 1-3. This is a NEW character.
+
+GAME RULES FOR CHARACTERS: every coach is an adult woman. Tall characters have a mature, curvy figure (tasteful, fully clothed, no fan-service framing); short characters look young and cute (still adults) and their figure is NOT emphasized. Coaches wear their own coach / mentor outfits (not a player's match kit).
+
+CAMERA: eye level or a mild high angle (never from below), full body visible from head to feet, character large in frame, natural relaxed proportions. Hands with five fingers, feet anatomically correct. A calm standing pose (no kicking).
+
+CHARACTER: Joy of the streets, shooting coach, R — a legend of back-alley betting football at the harbor; doesn't know the rules but knows where the goal is. TALL, lean and sporty with a mature curvy figure; cocky grin, a bandage on her cheek.
+- Hair: messy scarlet-red hair in a short high ponytail, a backwards cap.
+- Eyes: bright red-orange.
+- Outfit: a red oversized hoodie with the sleeves pushed up over a black tank top, black shorts over leggings, worn high-top sneakers; a wristband and a small chain.
+- Pose: standing casually with one sneaker resting on top of a scuffed soccer ball on the ground, hands in her hoodie pocket, a cocky grin at the viewer.
+- Background: a harbor back-alley street court at dusk — chain-link fence, crates, hanging lanterns, flat silhouettes of cranes and masts, red-violet sky.
+- Palette: scarlet red, black, gray, a little gold.
+
+HARD RULES: no text, no letters, no numbers, no logos, no watermark, no signature, no frame, no UI elements. One character only.
+
+Save the final PNG in the current working directory as joy.png. Do not create any other files. Reply with the saved file path only.

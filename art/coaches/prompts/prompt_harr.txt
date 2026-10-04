@@ -1,0 +1,23 @@
+$imagegen
+Generate exactly ONE full-body character illustration for a fantasy soccer gacha game (support/coach card art), portrait orientation (2:3).
+
+THREE ATTACHED IMAGES:
+- Image 1 = the original STYLE reference (2D anime key visual).
+- Images 2 and 3 = two APPROVED finished illustrations of OTHER characters in the exact target style of this game. Match their style as closely as possible: clean lineart of even weight, flat cel coloring (flat base colors with one hard-edged shadow tone, cool blue-violet shadow tint, very little gradient), simple skin coloring with blush and no shine, hair drawn in clumps with a few crisp highlight streaks, anime eyes with gradient irises and crisp highlights, crisp rim light, flat glowing effects with a soft outer glow, simple soft background with a dusk or evening sky gradient and flat silhouettes. It must look like a frame from a high-budget 2D anime — not painterly, not semi-realistic, not glossy, not 3D, not a busy background.
+- Do NOT copy the characters, faces, hair, outfits or poses of images 1-3. This is a NEW character.
+
+GAME RULES FOR CHARACTERS: every coach is an adult woman. Tall characters have a mature, curvy figure (tasteful, fully clothed, no fan-service framing); short characters look young and cute (still adults) and their figure is NOT emphasized. Coaches wear their own coach / mentor outfits (not a player's match kit).
+
+CAMERA: eye level or a mild high angle (never from below), full body visible from head to feet, character large in frame, natural relaxed proportions. Hands with five fingers, feet anatomically correct. A calm standing pose (no kicking).
+
+CHARACTER: Coach Harna, shooting coach, SSR — a former top scorer of the continental border matches. TALL, athletic, mature curvy figure, in her early thirties; sharp, focused eyes ("you kick with your eyes"), confident small smile.
+- Hair: short layered tangerine-orange hair, one side tucked behind the ear.
+- Eyes: sharp amber with a keen gleam.
+- Outfit: an orange-and-charcoal coach track jacket worn open over a fitted black sports top, charcoal track pants with orange side stripes, white trainers; a silver whistle on a cord around her neck; fingerless gloves.
+- Pose: standing with one hand on her hip, the other hand pointing two fingers at her own eye then forward (a "watch the goal" gesture), looking at the viewer.
+- Background: an evening training pitch — a goal and a pile of practice balls in soft focus, orange-to-violet sky, flat silhouettes of floodlights.
+- Palette: tangerine orange, charcoal, white, silver.
+
+HARD RULES: no text, no letters, no numbers, no logos, no watermark, no signature, no frame, no UI elements. One character only.
+
+Save the final PNG in the current working directory as harr.png. Do not create any other files. Reply with the saved file path only.
