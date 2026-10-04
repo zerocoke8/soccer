@@ -233,7 +233,7 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
     window.localStorage.setItem(KEYS.run, JSON.stringify(weekV1));
     S0.render();
     contOf().click();
-    assert.equal(S0.store.run.version, 2, "v1 (주) → v2");
+    assert.equal(S0.store.run.version, 3, "v1 (주) → v3 (§18.7)");
     assert.equal(S0.store.run.record.lessons[0].zone, "pass");
     assert.equal(S0.store.run.record.lessons[0].benches, 1);
     assert.ok(doc.querySelector(".week-screen"), "이어하기 → 주 화면");
@@ -1491,6 +1491,12 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
         assert.ok(r !== undefined, `레슨 호출 ${a.kind}`);
         if (S.store.run.phase !== "lesson") S.render();
       } else if (phase === "reward") {
+        // teach-pending:S2 — 보상 모달 코치 수업 단계 (§18.6) 가 생기면 S.actions.resolveTeach 로. 지금은 엔진으로 받고 다시 그린다.
+        if (S.run.getRewardView(st, data).teach.cur) {
+          S.run.resolveTeach(st, data, M.recommendTeach(st, data));
+          S.render();
+          continue;
+        }
         S.actions.resolveReward(M.recommendReward(st, data));
       } else if (phase === "consult") {
         const a = M.recommendConsult(st, data);

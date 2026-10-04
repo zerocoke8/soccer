@@ -1,6 +1,6 @@
 // test/lessonRules.test.mjs — 엔진 감사 (ENGINE AUDIT): 규칙 항목 중 다른 테스트가 직접 보지 않던 것 (구역 방식, §14.17).
 //   OUTGAME_LESSON_draft 10.1 키 매핑 (trainingEfficiency · injuryRate · bondGain · hintRate · restEffect + D30 → 벤치),
-//   D6 턴 끝 기본 훈련 퍼펙트 → 런 보상 (D5), D22 대비 레슨 부상 → 경계전 유스 → 다음 레슨 −1, 경기 전 준비 뷰 prepBonus.
+//   D6 턴 끝 기본 훈련 퍼펙트 → 런 보상 (D5), D22 대비 레슨 부상 → 경계전 본인 출전 (§18.1) → 다음 레슨 −1, 경기 전 준비 뷰 prepBonus.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { loadData } from "./helpers.mjs";
@@ -30,13 +30,19 @@ function newRun(opts = {}) {
   return LR.createRun({ data, seed: opts.seed ?? 11, policy: opts.policy });
 }
 
+/** 코치 수업 (§18.4) 이 남았으면 받지 않고 (SP) 넘긴 뒤 보상을 고른다 */
+function finishReward(s, args) {
+  while (s.pendingReward.teach.some((t) => t.result === null)) LR.resolveTeach(s, data, { playerId: null });
+  LR.resolveReward(s, data, args);
+}
+
 /** 휴식 위주로 until 까지 걷는다 */
 function walk(s, until) {
   for (let g = 0; !until(s); g++) {
     if (g > 500) throw new Error(`walk (${s.phase})`);
     if (s.phase === "week") LR.applyWeekAction(s, data, { type: "rest" });
     else if (s.phase === "lesson") LR.endLessonTurn(s, data);
-    else if (s.phase === "reward") LR.resolveReward(s, data, { pick: null });
+    else if (s.phase === "reward") finishReward(s, { pick: null });
     else if (s.phase === "consult") LR.endConsult(s, data);
     else if (s.phase === "prep") LR.confirmPrep(s, data, {});
     else if (s.phase === "match") LR.finishMatch(s, data, WIN);
@@ -144,7 +150,7 @@ test("10.1 키 매핑: bondGain 은 코치 카드를 낼 때만 (+8 + 3), 카드
   // 보상에서 코치 카드 획득 +15 (bondGain 없음)
   s.pendingReward.offer = [{ cardId: "cd_c_celia", plus: false, kind: "add" }];
   const c0 = sup(s, "sp_wind_dancer").bond;
-  LR.resolveReward(s, data, { pick: 0 });
+  finishReward(s, { pick: 0 });
   assert.equal(sup(s, "sp_wind_dancer").bond, c0 + 15);
 });
 
@@ -154,7 +160,8 @@ test("10.1 키 매핑: hintRate 는 클리어 때 힌트 1개 더 (확률), 실�
   startLessonWeek(s, "pass");
   clearLesson(s);
   assert.equal(s.pendingReward.result.status, "clear");
-  assert.equal(s.pendingReward.result.hints.length + s.pendingReward.result.sp / data.lesson.rewards.noHintSp, 2);
+  // 힌트 = 패시브 힌트 + 코치 수업 (액티브, §18.3) + 후보 없음 SP
+  assert.equal(s.pendingReward.result.hints.length + s.pendingReward.teach.length + s.pendingReward.result.sp / data.lesson.rewards.noHintSp, 2);
 
   const t = newRun();
   t.modifiers.push({ key: "hintRate", amount: 1, untilSeason: null });
@@ -162,6 +169,7 @@ test("10.1 키 매핑: hintRate 는 클리어 때 힌트 1개 더 (확률), 실�
   endToEnd(t);
   assert.equal(t.pendingReward.result.status, "fail");
   assert.equal(t.pendingReward.result.hints.length, 0);
+  assert.equal(t.pendingReward.teach.length, 0);
   assert.equal(t.pendingReward.result.sp, 0);
 });
 
@@ -200,7 +208,7 @@ test("D5 · D6: 턴 끝 기본 훈련으로 상한에 닿아도 퍼펙트 — �
   assert.equal(r.status, "perfect");
   assert.equal(r.turnReached, 3);
   assert.equal(s.trainingPoints - tp0, data.lesson.rewards.perfect.tp);
-  assert.equal(r.hints.length + r.sp / data.lesson.rewards.noHintSp, data.lesson.rewards.perfect.hints);
+  assert.equal(r.hints.length + s.pendingReward.teach.length + r.sp / data.lesson.rewards.noHintSp, data.lesson.rewards.perfect.hints);
   assert.equal(s.pendingReward.freeUpgrades, 1);
   assert.equal(s.teamwork - tw0, data.lesson.teamwork.clear);
   // 체력: 기본 훈련 −1 (경기장) · 벤치 +15 (p1) → 퍼펙트 5 × (6 − 3). 자율 훈련은 없다.
@@ -230,7 +238,7 @@ test("D6: 카드로 퍼펙트가 되면 그 턴의 기본 훈련 · 벤치 회�
   assert.ok(s.pendingReward.result.perPlayer.every((x) => x.base === 0 && x.mood === 0));
 });
 
-test("D22: 대비 레슨에서 다치면 바로 뒤 경계전 · 원정 친선전에서 유스, 다음 시즌 첫 레슨이 끝나면 −1", () => {
+test("D22 (§18.1): 대비 레슨에서 다치면 바로 뒤 경계전 · 원정 친선전에 본인이 나온다 (유스 없음), 다음 시즌 첫 레슨이 끝나면 −1", () => {
   const s = newRun();
   walk(s, (x) => x.phase === "week" && x.turn === 5);
   LR.applyWeekAction(s, data, { type: "lesson", zone: "defense" });
@@ -246,12 +254,16 @@ test("D22: 대비 레슨에서 다치면 바로 뒤 경계전 · 원정 친선�
   assert.equal(P(s, "p4").injuredTurns, 1);
   assert.deepEqual(LR.getPrepView(s, data).injuredOut, ["p4"]);
   LR.confirmPrep(s, data, {});
-  assert.ok(LR.getMatchSetup(s, data).home.players.some((p) => p.isYouth && p.replacesPlayerId === "p4"));
+  const goalHome = LR.getMatchSetup(s, data).home;
+  assert.ok(!goalHome.players.some((p) => p.isYouth), "경계전에 유스 없음");
+  assert.ok(goalHome.players.some((p) => p.id === "p4"), "다친 선수 본인이 출전");
   LR.finishMatch(s, data, WIN);
+  assert.equal(P(s, "p4").injuredTurns, 1, "경기는 결장을 줄이지 않는다");
   LR.chooseRelic(s, data, s.pendingRelicChoices[0]);
   LR.chooseRoute(s, data, "rt_expedition");
   assert.equal(s.phase, "match");
-  assert.ok(LR.getMatchSetup(s, data).home.players.some((p) => p.isYouth && p.replacesPlayerId === "p4"), "원정 친선전도 유스");
+  const awayHome = LR.getMatchSetup(s, data).home;
+  assert.ok(!awayHome.players.some((p) => p.isYouth) && awayHome.players.some((p) => p.id === "p4"), "원정 친선전도 본인");
   walk(s, (x) => x.phase === "week");
   assert.equal(P(s, "p4").injuredTurns, 1, "주 시작만으로는 줄지 않는다");
   startLessonWeek(s, "pass");
@@ -273,7 +285,7 @@ test("경기 전 준비 뷰 prepBonus = 이번 시즌 대비 레슨 클리어만
   walk(t, (x) => x.phase === "week" && x.turn === 5);
   LR.applyWeekAction(t, data, { type: "lesson", zone: "defense" });
   clearLesson(t);
-  LR.resolveReward(t, data, { pick: null });
+  finishReward(t, { pick: null });
   assert.equal(LR.getPrepView(t, data).prepBonus, true);
   // 다음 시즌 경기 전 준비에서는 지난 시즌 대비 보너스가 남지 않는다
   walk(t, (x) => x.phase === "prep" && x.season === 2);

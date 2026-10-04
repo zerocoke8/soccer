@@ -50,7 +50,8 @@
     "perfect": { "tp": 20, "hints": 2, "freeUpgrades": 1 },
     "plusChance": { "special": 0.3, "perfect": 0.5, "max": 0.7 },
     "weights": { "common": 1, "policy": 1, "coachBase": 2, "coachRef": 0.4, "uniquePlus": 0.5 },
-    "noHintSp": 10
+    "noHintSp": 10,
+    "teach": { "declineSp": 20 }
   },
   "bond": { "acquire": 15, "play": 8, "sameTypeClear": 5, "upgradeAt": 80, "eventAt": 60 },
   "consult": {

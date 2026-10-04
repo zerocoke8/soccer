@@ -89,11 +89,13 @@ test("저장 키: 'soccer-lesson.' 앞머리 · loadRun 은 레슨 런 저장본
   assert.deepEqual(st.LESSON_RUN_SAVE_VERSIONS, lr.SAVE_VERSIONS);
   const cases = [null, undefined, 0, "x", [], {}, { phase: "turn", seed: 1 }, { kind: "lessonRun", version: 1 }, { kind: "lessonRun", version: 2, phase: "week" },
     { kind: "lessonRun", version: "1", phase: "week" }, { kind: "run", version: 1, phase: "week" }, { kind: "lessonRun", version: 1, phase: "week" },
-    { kind: "lessonRun", version: 1, phase: 3 }, { kind: "lessonRun", version: 3, phase: "week" }, { kind: "lessonRun", version: 2, phase: 3 }];
-  // store 사본 = 엔진 isLessonRunSave (version 1 · 2 — 1 은 continueRun 이 migrateLessonRun 으로 올린다, §14.15)
+    { kind: "lessonRun", version: 1, phase: 3 }, { kind: "lessonRun", version: 3, phase: "week" }, { kind: "lessonRun", version: 2, phase: 3 },
+    { kind: "lessonRun", version: 4, phase: "week" }];
+  // store 사본 = 엔진 isLessonRunSave (version 1 · 2 · 3 — 1 · 2 는 continueRun 이 migrateLessonRun 으로 올린다, §14.15 · §18.7)
   for (const c of cases) assert.equal(st.isLessonRunSave(c), lr.isLessonRunSave(c), `같은 검사: ${JSON.stringify(c)}`);
-  // 엔진 isLessonRun 은 version 2 만
-  assert.ok(lr.isLessonRun({ kind: "lessonRun", version: 2, phase: "week" }));
+  // 엔진 isLessonRun 은 version 3 만
+  assert.ok(lr.isLessonRun({ kind: "lessonRun", version: 3, phase: "week" }));
+  assert.ok(!lr.isLessonRun({ kind: "lessonRun", version: 2, phase: "week" }));
   assert.ok(!lr.isLessonRun({ kind: "lessonRun", version: 1, phase: "week" }));
   // 코드에 본편 키 문자열('soccer.run' 등)이 남지 않았다 (UI · 도구)
   const files = ["js/ui/app.js", "js/ui/store.js", "js/ui/screens/challenge.js", "js/ui/screens/start.js", "js/ui/hud.js", "tools/shot.mjs", "tools/scenarios.mjs", "tools/lesson_scenarios.mjs"];

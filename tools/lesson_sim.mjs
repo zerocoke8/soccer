@@ -14,6 +14,8 @@
 //   벤치 · 시즌별 일반 / 특별 점수 p30 / p90 · 역습 · 점유 · 압박. 비교 기준 = tools/drafts/zone_sim.mjs (보정 시뮬).
 // 코치 지원 · 컷인 지표 (§15.10): 레슨당 붙기 · 컷인 (평균 · 분포 · 끝까지 간 레슨 중 2~4번 비율) · 코치별 붙기 몫 · 낸 비율 ·
 //   런당 코치별 컷인 (능력 발동) · 컷인 힌트 · 컨디션 +1 · 컷인 유대.
+// 코치 수업 · 부상 지표 (§18.9): 런당 수업 · 습득 / 바꾸기 / 받지 않음 / 받을 선수 없음 · 수업 SP · 런 끝 선수당 액티브 · 패시브 ·
+//   다친 선수의 경기 출전 (§18 전에는 유스 출전). 감독 AI 는 수업을 빈 슬롯에만 받는다 (§18.8).
 // 결과는 보고만 한다. 수치는 바꾸지 않는다 (밸런스는 나중에).
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -122,6 +124,8 @@ export function simulateOne(data, { seed, policy, formation, slots = {}, playMat
     coachAcquired: 0, targeted: Object.fromEntries(state.players.map((p) => [p.id, 0])),
     actionsPerLesson: [], steps: 0, consultBuys: 0, consultUpgrades: 0, consultDeletes: 0, skillsBought: 0, rewardSkips: 0,
     uniq: {},
+    // §18 코치 수업 · 부상 (레슨에만): 수업 수 · 습득 / 바꾸기 / 받지 않음 / 받을 선수 없음 · 수업 SP · 다친 선수 경기 출전 (예전 유스)
+    teach: 0, teachLearned: 0, teachReplaced: 0, teachDeclined: 0, teachNone: 0, teachSp: 0, injuredPlays: 0,
   };
   const benchTurnKeys = new Set();
   const uniqTurnKeys = new Set();
@@ -135,6 +139,7 @@ export function simulateOne(data, { seed, policy, formation, slots = {}, playMat
     const pressBefore = wasLesson ? Number(state.lesson.buffs.press) || 0 : 0;
     if (wasLesson && state.lesson.status === "playing") uniqueTurnStart(state, data, m.uniq, uniqTurnKeys);
     const uniqFrom = wasLesson ? { ...state.lesson.zones } : null;
+    if (state.phase === "match") m.injuredPlays += state.players.filter((p) => (Number(p.injuredTurns) || 0) > 0).length;
     const forced = specialRateAction(state, data, seed, specialRate);
     let r;
     if (forced) {
@@ -174,6 +179,14 @@ export function simulateOne(data, { seed, policy, formation, slots = {}, playMat
       }
     }
     if (r.phase === "reward" && r.action.pick === null && state.record.lessons.at(-1).result !== "fail") m.rewardSkips += 1;
+    if (r.phase === "reward" && r.action.kind === "teach") {
+      const done = state.pendingReward.teach.filter((t) => t.result !== null).at(-1);
+      if (done.result === "learned") m.teachLearned += 1;
+      if (done.replaced) m.teachReplaced += 1;
+      if (done.result === "declined") m.teachDeclined += 1;
+      if (done.result === "none") m.teachNone += 1;
+      m.teachSp += done.sp || 0;
+    }
     if (r.phase === "consult") {
       if (r.action.op === "buy") m.consultBuys += 1;
       if (r.action.op === "upgrade") m.consultUpgrades += 1;
@@ -183,6 +196,7 @@ export function simulateOne(data, { seed, policy, formation, slots = {}, playMat
     if (wasLesson && state.phase === "reward") {
       const res = state.pendingReward.result;
       m.hints += res.hints.length;
+      m.teach += (state.pendingReward.teach || []).length;
       for (const h of res.hints) if (h.src === "cutin") m.cutinHints[h.supportId] = (m.cutinHints[h.supportId] || 0) + 1;
       // 코치 지원: 끝까지 간 레슨 = 퍼펙트로 일찍 끝나지 않고 마지막 턴까지 (출전 0명 조기 종료도 뺀다)
       const A = state.lesson.attach || { turns: [], log: [] };
@@ -235,6 +249,9 @@ export function simulateOne(data, { seed, policy, formation, slots = {}, playMat
     supportIds: state.supports.map((x) => x.id),
     players: state.players.map((p) => ({ id: p.id, name: p.name, position: p.position })),
     spEnd: state.skillPoints,
+    // 런 끝 선수당 습득 액티브 · 패시브 (§18.9)
+    actives: state.players.reduce((a, p) => a + p.learnedSkillIds.filter((id) => (data.skills.find((k) => k.id === id) || {}).kind === "active").length, 0) / state.players.length,
+    passives: state.players.reduce((a, p) => a + p.learnedSkillIds.filter((id) => (data.skills.find((k) => k.id === id) || {}).kind === "passive").length, 0) / state.players.length,
     ...m,
   };
 }
@@ -449,6 +466,15 @@ export function summarize(data, args, policy) {
     consultUpgrades: mean(rs.map((r) => r.consultUpgrades)),
     consultDeletes: mean(rs.map((r) => r.consultDeletes)),
     skillsBought: mean(rs.map((r) => r.skillsBought)),
+    teach: mean(rs.map((r) => r.teach)),
+    teachLearned: mean(rs.map((r) => r.teachLearned)),
+    teachReplaced: mean(rs.map((r) => r.teachReplaced)),
+    teachDeclined: mean(rs.map((r) => r.teachDeclined)),
+    teachNone: mean(rs.map((r) => r.teachNone)),
+    teachSp: mean(rs.map((r) => r.teachSp)),
+    actives: mean(rs.map((r) => r.actives)),
+    passives: mean(rs.map((r) => r.passives)),
+    injuredPlays: mean(rs.map((r) => r.injuredPlays)),
     playsPerLesson: mean(apl.map((x) => x.plays)),
     actionsPerLesson: mean(apl.map((x) => x.actions)),
     minutesPerLesson: (mean(apl.map((x) => x.actions)) * SEC_PER_ACTION) / 60,
@@ -503,7 +529,11 @@ function printTable(sums, args) {
     ["코치 카드 획득 / 런 끝 덱 안", (s) => `${f1(s.coachAcquired)} / ${f1(s.coachInDeck)}`],
     ["유대 60 / 80 도달 코치 수", (s) => `${f1(s.bond60)} / ${f1(s.bond80)}`],
     ["힌트 수", (s) => f1(s.hints)],
-    ["스킬 구매 (상담)", (s) => f1(s.skillsBought)],
+    ["스킬 구매 (상담 — §18 뒤 패시브만)", (s) => f1(s.skillsBought)],
+    ["[수업] 런당 수업 · 습득 / 바꾸기 / 받지 않음 / 받을 선수 없음", (s) => `${f1(s.teach)} · ${f1(s.teachLearned)}/${f1(s.teachReplaced)}/${f1(s.teachDeclined)}/${f1(s.teachNone)}`],
+    ["[수업] 수업 SP / 런", (s) => f0(s.teachSp)],
+    ["[수업] 런 끝 선수당 액티브 · 패시브", (s) => `${f2(s.actives)} · ${f2(s.passives)}`],
+    ["[부상] 다친 선수의 경기 출전 / 런 (예전 유스)", (s) => f2(s.injuredPlays)],
     ["런 끝 덱 크기", (s) => f1(s.deck)],
     ["TP 얻음 / 씀 / 남음", (s) => `${f0(s.tpGain)}/${f0(s.tpSpent)}/${f0(s.tpEnd)}`],
     ["SP 얻음 / 씀 / 남음", (s) => `${f0(s.spGain)}/${f0(s.spSpent)}/${f0(s.spEnd)}`],

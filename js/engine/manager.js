@@ -331,12 +331,12 @@ function counterStat(state) {
   return top ? "pass" : "defense";
 }
 
-/** 지금 살 수 있는 힌트 스킬이 있는가 (힌트 · SP · 배울 수 있는 선수) */
+/** 지금 살 수 있는 힌트 스킬이 있는가 (힌트 · SP · 배울 수 있는 선수). 상담은 패시브만 판다 (§18.5) */
 function hasBuyableSkill(state, data) {
   for (const [skillId, level] of Object.entries(state.hints || {})) {
     if (!(level > 0)) continue;
     const sk = data.skills.find((s) => s.id === skillId);
-    if (!sk || !sk.learnable) continue;
+    if (!sk || !sk.learnable || sk.kind !== "passive") continue;
     if (state.skillPoints < skillDiscountedCost(Number(sk.cost) || 0, level)) continue;
     if (state.players.some((p) => canLearnSkill(state, data, skillId, p.id).ok)) return true;
   }
@@ -424,6 +424,31 @@ export function recommendReward(state, data) {
 }
 
 /**
+ * 코치 수업 추천 (§18.8). 순수 · rng 없음. 보상 뷰 teach.cur 가 있어야 한다.
+ *   후보 = 받을 수 있고 (ok) 슬롯이 남은 (!full) 선수. 점수 = 지금 포지션 주 스탯 2개 현재 값 합 (그 스킬을 쓸 자리에서 가장 강한 선수),
+ *   같으면 슬롯 순서. 후보가 없으면 (모두 가득 · 받을 선수 없음) 받지 않는다 — 감독 AI 는 스킬을 바꾸지 않는다 [구현 결정].
+ * @returns {{ playerId: string, replaceSkillId: null } | { playerId: null }}
+ */
+export function recommendTeach(state, data) {
+  const v = LR.getRewardView(state, data);
+  const cur = v.teach && v.teach.cur;
+  if (!cur) throw new Error("남은 코치 수업이 없습니다");
+  let best = null;
+  let bestScore = -Infinity;
+  for (const c of cur.players) {
+    if (!c.ok || c.full) continue;
+    const p = playerById(state, c.id);
+    if (!p) continue;
+    const score = cards.mainStatsOf(p.position).reduce((a, st) => a + (Number(p.stats[st]) || 0), 0);
+    if (score > bestScore) {
+      bestScore = score;
+      best = p.id;
+    }
+  }
+  return best ? { playerId: best, replaceSkillId: null } : { playerId: null };
+}
+
+/**
  * 상담 추천 (§5.5): 다음 op 하나, 없으면 { op: "end" }. 순수.
  *   1. 살 수 있는 힌트 스킬 (힌트 레벨 높은 것부터, 배울 수 있는 첫 선수)
  *   2. TP ≥ 30이면 방침 · 코치 카드 구매 (방침 먼저)
@@ -487,6 +512,12 @@ export function autoStep(state, data, { playMatch } = {}) {
       return { phase, action: a };
     }
     case "reward": {
+      // 코치 수업이 남았으면 그것부터 한 단계씩 (§18.8)
+      if (LR.getRewardView(state, data).teach.cur) {
+        const t = recommendTeach(state, data);
+        LR.resolveTeach(state, data, t);
+        return { phase, action: { kind: "teach", ...t } };
+      }
       const a = recommendReward(state, data);
       LR.resolveReward(state, data, a);
       return { phase, action: a };

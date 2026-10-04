@@ -26,7 +26,9 @@ function recommendFor(state) {
   switch (state.phase) {
     case "week": return M.recommendWeek(state, data);
     case "lesson": return M.recommendCard(state, data);
-    case "reward": return M.recommendReward(state, data);
+    case "reward":
+      // 코치 수업이 남았으면 수업 추천 (§18.8) — autoStep 의 action 모양 { kind: "teach", ... }
+      return LR.getRewardView(state, data).teach.cur ? { kind: "teach", ...M.recommendTeach(state, data) } : M.recommendReward(state, data);
     case "consult": return M.recommendConsult(state, data);
     case "prep": return M.recommendPrep(state, data);
     default: return null;
@@ -68,6 +70,17 @@ function checkValid(state, rec) {
     }
     case "reward": {
       const v = LR.getRewardView(state, data);
+      if (rec.kind === "teach") {
+        const cur = v.teach.cur;
+        assert.ok(cur, "수업 차례");
+        if (rec.playerId === null) assert.ok(!cur.players.some((p) => p.ok && !p.full), "빈 슬롯 후보가 있는데 받지 않기");
+        else {
+          const c = LR.canTeachSkill(state, data, cur.skillId, rec.playerId);
+          assert.ok(c.ok && !c.full, `수업 받을 선수 ${rec.playerId}`);
+          assert.equal(rec.replaceSkillId, null);
+        }
+        break;
+      }
       if (rec.pick !== null) assert.ok(rec.pick >= 0 && rec.pick < v.offer.length);
       if (rec.upgradeUid !== null) assert.ok(v.upgradable.includes(rec.upgradeUid));
       break;
@@ -81,6 +94,7 @@ function playManagerRun(seed, policy, { roundtrip = false, squad } = {}) {
   let state = LR.createRun({ data, seed, policy, ...(squad ? { squad } : {}) });
   const phases = {};
   const uniquePlays = {};
+  let teaches = 0;
   let steps = 0;
   while (state.phase !== "finished") {
     if (++steps > 400) throw new Error(`정해진 단계 수 안에 끝나지 않습니다 (${state.phase})`);
@@ -92,10 +106,11 @@ function playManagerRun(seed, policy, { roundtrip = false, squad } = {}) {
     const r = M.autoStep(state, data, { playMatch });
     phases[r.phase] = (phases[r.phase] || 0) + 1;
     if (rec) same(r.action, rec);
+    if (r.phase === "reward" && r.action.kind === "teach") teaches += 1;
     if (playedId && playedId.startsWith("cd_u_")) uniquePlays[playedId] = (uniquePlays[playedId] || 0) + 1;
     if (roundtrip) state = clone(state);
   }
-  return { state, phases, steps, uniquePlays };
+  return { state, phases, steps, uniquePlays, teaches };
 }
 
 // ---------------------------------------------------------------------------
@@ -111,6 +126,8 @@ test("감독 AI 15주 완주 (실제 경기, 시드 2 × 방침 ace · counter):
       assert.equal(s.record.goalMatches.length, 3);
       assert.ok(s.record.lessons.length >= 6, `레슨 ${s.record.lessons.length}`);
       for (const ph of ["week", "lesson", "reward", "prep", "match", "route"]) assert.ok(a.phases[ph] > 0, `phase ${ph}`);
+      assert.ok(a.teaches >= 1, "코치 수업 단계를 지난다 (§18.8)");
+      for (const k of Object.keys(s.hints)) assert.notEqual(data.skills.find((x) => x.id === k).kind, "active");
       assert.ok(a.steps < 400);
       assert.equal(M.autoStep(s, data, { playMatch }).action, null);
       const fin = LR.finalizeRun(s, data);
@@ -287,9 +304,10 @@ test("상담: 스킬 → 방침 · 코치 구매 → 고유 아닌 강화 → �
   ];
   // 스킬: 힌트 있는 스킬 + SP
   const sp = data.supports.find((x) => x.id === s.supports[0].id);
+  // 상담은 패시브만 판다 (§18.5)
   const skillId = sp.hintSkillIds.find((id) => {
     const sk = data.skills.find((k) => k.id === id);
-    return sk && sk.learnable;
+    return sk && sk.learnable && sk.kind === "passive";
   });
   s.hints[skillId] = 2;
   s.skillPoints = 999;
@@ -480,4 +498,43 @@ test("감독 AI 15주 완주 · 미르카 편성 (FW2 = 미르카): 가로지르
   assert.ok(a.state.players.some((p) => p.charId === "ch_cat_trickster"));
   assert.ok((a.uniquePlays.cd_u_mirka || 0) >= 1, `미르카 카드 ${JSON.stringify(a.uniquePlays)}`);
   assert.ok(Object.keys(a.uniquePlays).length >= 4, `고유 카드 종류 ${JSON.stringify(a.uniquePlays)}`);
+});
+
+test("§18.8 recommendTeach: 빈 슬롯 후보 중 지금 포지션 주 스탯 2개 합 최고 · 같으면 슬롯 순서 · 후보 없으면 받지 않기 · 바꾸지 않는다 · 상태 불변", () => {
+  const s = LR.createRun({ data, seed: 11 });
+  s.hints.sk_focus_finish = 3;
+  s.hints.sk_tiebreaker = 3;
+  s.weekOffer = { kind: "lesson", specials: [] };
+  LR.applyWeekAction(s, data, { type: "lesson", zone: "pass" });
+  s.lesson.attach.hints = ["sp_coach_harr", "sp_coach_harr"];
+  while (s.phase === "lesson") LR.endLessonTurn(s, data);
+  assert.equal(s.pendingReward.teach.length, 2);
+  const fwScore = (id) => cardsMainOf(P(s, id).position).reduce((a, st) => a + P(s, id).stats[st], 0);
+  // FW 둘: 주 스탯 합이 큰 쪽
+  const before = JSON.stringify(s);
+  const r = M.recommendTeach(s, data);
+  assert.equal(JSON.stringify(s), before, "순수");
+  const best = fwScore("p6") >= fwScore("p7") ? "p6" : "p7";
+  same(r, { playerId: best, replaceSkillId: null });
+  // 같으면 슬롯 순서
+  for (const st of cardsMainOf("FW")) P(s, "p7").stats[st] = P(s, "p6").stats[st];
+  same(M.recommendTeach(s, data), { playerId: "p6", replaceSkillId: null });
+  // 더 강한 쪽이 가득이면 빈 슬롯 쪽
+  P(s, "p7").stats.shoot += 50;
+  same(M.recommendTeach(s, data), { playerId: "p7", replaceSkillId: null });
+  P(s, "p7").learnedSkillIds = ["sk_focus_finish", "sk_tiebreaker", "sk_underdog"];
+  same(M.recommendTeach(s, data), { playerId: "p6", replaceSkillId: null });
+  // autoStep: 수업 한 단계씩 → 둘째 수업은 받을 선수 없음 (p7 가득은 바꾸지 않는다) → 받지 않기 → 그다음 보상 고르기
+  const a1 = M.autoStep(s, data);
+  same(a1, { phase: "reward", action: { kind: "teach", playerId: "p6", replaceSkillId: null } });
+  assert.ok(P(s, "p6").learnedSkillIds.includes("sk_power_shot"));
+  same(M.recommendTeach(s, data), { playerId: null });
+  const sp0 = s.skillPoints;
+  M.autoStep(s, data);
+  assert.equal(s.pendingReward.teach[1].result, "declined", "가득인 p7 은 바꾸기로 받을 수 있었다 → declined");
+  assert.equal(s.skillPoints, sp0 + data.lesson.rewards.teach.declineSp);
+  assert.throws(() => M.recommendTeach(s, data), /남은 코치 수업/);
+  const a3 = M.autoStep(s, data);
+  assert.ok("pick" in a3.action);
+  assert.equal(s.phase, "week");
 });

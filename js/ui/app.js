@@ -231,10 +231,10 @@ const actions = {
   },
 
   continueRun() {
-    const s = loadRun(); // 레슨 런 저장본만 (store.isLessonRunSave — version 1 · 2)
+    const s = loadRun(); // 레슨 런 저장본만 (store.isLessonRunSave — version 1 · 2 · 3)
     if (!s) return toast('저장된 런이 없습니다.');
     if (run) {
-      safe(() => run.migrateLessonRun(s)); // version 1 → 2 (레슨 · 보상 중이면 그대로 1, §14.15)
+      safe(() => run.migrateLessonRun(s, store.data)); // version 1 → 2 → 3 (1 은 레슨 · 보상 중이면 그대로, §14.15 · §18.7)
       if (!run.isLessonRun(s)) {
         const oldLesson = s.version === 1;
         clearRunSaves(); // "저장 없음"

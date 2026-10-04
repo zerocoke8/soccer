@@ -736,6 +736,12 @@ test("jsdom: 레슨 화면 (구역) — 골격 · 조준 · 키보드 · 벤치 
     .find(Boolean);
   assert.ok(clearWalk, "클리어 보상 상태 (시드 5개 안에서)");
   const clearReward = clearWalk.state;
+  // teach-pending:S2 — 보상 모달에 코치 수업 칸이 아직 없다 (§18.6). 수업은 엔진으로 받지 않고 넘긴 뒤 카드 고르기를 본다.
+  const skipTeach = (st) => {
+    while (st.pendingReward?.teach?.some((t) => t.result === null)) lessonRun.resolveTeach(st, data, { playerId: null });
+    return st;
+  };
+  skipTeach(clearReward);
 
   // ---------- 클리어: 골격 · 카드 고르기 → [확인] ----------
   putRun(clearReward);
@@ -791,7 +797,7 @@ test("jsdom: 레슨 화면 (구역) — 골격 · 조준 · 키보드 · 벤치 
   assert.equal(S.store.run.deck.length, clearReward.deck.length, "덱 그대로");
 
   // ---------- 퍼펙트: 무료 강화 덱 그리드 ----------
-  const perf = perfectRewardState(data, 1).state;
+  const perf = skipTeach(perfectRewardState(data, 1).state); // teach-pending:S2
   putRun(perf);
   rv = lessonRun.getRewardView(S.store.run, data);
   assert.match($(".rw-status").textContent, /퍼펙트/);
@@ -824,7 +830,7 @@ test("jsdom: 레슨 화면 (구역) — 골격 · 조준 · 키보드 · 벤치 
     failWalk = walkLesson(data, { seed: i ? `lesson-ui-${i}` : "lesson-ui", until: (s) => s.phase === "reward" && s.pendingReward?.result?.status === "fail" });
   }
   assert.ok(failWalk, "실패 레슨이 나오는 시드");
-  const failReward = failWalk.state;
+  const failReward = skipTeach(failWalk.state); // teach-pending:S2
   putRun(failReward);
   assert.match($(".rw-status").textContent, /실패/);
   assert.ok($(".rw-none") && $$(".rw-offer").length === 0, "보상 없음");
@@ -841,7 +847,11 @@ test("jsdom: 레슨 화면 (구역) — 골격 · 조준 · 키보드 · 벤치 
   const consult0 = walkLesson(data, { seed: "lesson-ui", until: (s) => s.phase === "consult" }).state;
   consult0.trainingPoints = 200;
   consult0.skillPoints = 600;
-  for (const st of consult0.supports) for (const id of (data.supports.find((x) => x.id === st.id)?.hintSkillIds || []).slice(0, 1)) consult0.hints[id] = 2;
+  // 상담은 패시브만 판다 (§18.5) — 편성 코치마다 첫 패시브 힌트
+  for (const st of consult0.supports) {
+    const id = (data.supports.find((x) => x.id === st.id)?.hintSkillIds || []).find((k) => data.skills.find((x) => x.id === k)?.kind === "passive");
+    if (id) consult0.hints[id] = 2;
+  }
   putRun(consult0);
   let cv = lessonRun.getConsultView(S.store.run, data);
   assert.ok($(".consult-screen .consult-cols"), "상담 화면 3단");
