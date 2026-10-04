@@ -7,7 +7,8 @@
 //   │                        │ 고유 카드 ×1.5 구역이 바뀌는 선수 = 슬롯 카드 아래 "고유 ×1.5 구역 변경" │
 //   └────────────────────────┴───────────────────────────────────────────────────────────┘
 //   [취소] [submitLabel]
-// 스킬 상점은 없다 (패시브는 상담에서 SP 로, 액티브는 레슨 보상의 코치 수업으로 — §18.5 · §18.6).
+// 스킬 상점은 없다 (패시브는 [✦ 패시브] 상점에서 SP 로 — L48, 액티브는 레슨 보상의 코치 수업으로 — §18.6).
+// 경기 전 준비는 footExtra 로 [✦ 패시브] 버튼을 제출 버튼 앞에 둔다.
 // 부상 선수 (injuredTurns > 0) 는 레슨만 쉬고 경기는 그대로 나온다 (§18.1) — 얼굴을 흐리게 하지 않고 "레슨 결장 n" 만 적는다.
 import { h, avatar, select, toast } from './dom.js';
 import * as L from './labels.js';
@@ -24,6 +25,7 @@ import { lineupBoard, reseat, lineupIssues, meetingSwaps, ultMark } from './line
  * @param {(action: { tactics: object, formation?: string, swaps?: Array<{ playerId: string, slot: string }> }) => void} o.onSubmit
  * @param {() => void} [o.onCancel] 있으면 [취소] 버튼
  * @param {any} [o.footNote] 버튼 줄 왼쪽 안내
+ * @param {Node|(() => Node)} [o.footExtra] 제출 버튼 앞에 둘 요소 (경기 전 준비 [✦ 패시브] — 함수면 그릴 때마다 부른다)
  * @returns {{ el: HTMLElement, cancel: () => void }}
  */
 export function meetingEditor(ctx, o) {
@@ -110,6 +112,7 @@ export function meetingEditor(ctx, o) {
       h('div', { class: 'row modal-foot meeting-foot' },
         o.footNote ? h('span', { class: 'tiny muted grow' }, o.footNote) : h('span', { class: 'grow' }),
         o.onCancel ? h('button', { class: 'btn', onclick: () => { cancel(); o.onCancel(); } }, '취소') : null,
+        typeof o.footExtra === 'function' ? o.footExtra() : o.footExtra ?? null,
         h('button', { class: ['btn', 'btn-primary', 'meeting-submit', o.submitClass || ''], onclick: submit }, o.submitLabel || '확인')),
     ];
   }

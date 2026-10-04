@@ -2187,6 +2187,14 @@ node tools/lesson_play.mjs <출력폴더> --watch-match --slot GK=ch_giant_keepe
 - 도전 모드 샘플 팀 · 등급 기준선은 옛 육성 기준 그대로다.
 - 대비 주 카드 미리보기는 `miniCard` 가 아니라 주 화면 안의 작은 카드(`.prep-mini`)다.
 
+### 20.8 선수 패시브 · SP 상점 · 코치 파티 패시브 (L47 · L48, 2026-10-05 — 계획 §16.15 · §20)
+
+- **L47 크로스 대체 구역**: 크로서 모양 (`traits.json` crosser `lesson.fallbackZones: ["dribble"]`) — 슈팅 구역에 받을 선수가 없으면 드리블 구역. `cards.receiverZones` · `receiverHint`, 손패 `shape.zonesNow`.
+- **L48** 새 엔진 모듈 `js/engine/passives.js` (선수 패시브 목록 · SP 상점 · 선수 힌트 · 코치 파티 패시브 · `validatePassiveData`), 새 UI 모듈 `js/ui/passives.js` (상점 모달 · 압축판 · 버튼 · 파티 패시브 목록). 데이터: `characters.json passiveIds`, 고유 패시브 `skills.json ownerCharId`, `supports.json teachSkillIds` · `partyPassive`, `lesson.json rewards.{clear,perfect}.sp · playerHints`.
+- 경기 쪽: `lessonRun` 이 home 스냅샷에 `partyPassives` 를 싣고, `skills.collectMods` · `collectModSources` 가 팀 패시브처럼 센다 (출처 = 코치). `match.initTeam` 은 배열인지만 본다. 옛 런 · 도전 모드 · 상대 팀은 키가 없어 그대로.
+- 슬롯 3 = 액티브만 (`canTeachSkill.full`, 바꾸기는 액티브만). 저장 모양은 그대로 (v4).
+- 테스트 370 (새 `passives.test.mjs` 5).
+
 ### 20.7 선수 16명 · 전원 필살기 · 경기 엔진 수정 (L44 ~ L46, 2026-10-04 — 계획 §19 · §19.19)
 
 이 브랜치만의 묶음이다 (시작 `78cc0d3`, 슬라이스 K0 ~ K5). 기획 결정은 [OUTGAME_LESSON_draft.md](OUTGAME_LESSON_draft.md) L44 ~ L46, 수치 · 이름 · 대사는 모두 [가정] (밸런스는 나중에 한 번에).

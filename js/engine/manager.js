@@ -10,7 +10,7 @@
 import * as LR from "./lessonRun.js";
 import * as lesson from "./lesson.js";
 import * as cards from "./cards.js";
-import { STATS, canLearnSkill, skillDiscountedCost } from "./training.js";
+import { STATS } from "./training.js";
 
 /** 카드 가치 계산의 평균 카드 상승 (초안 시뮬 value() 의 avg) */
 const AVG_GAIN = 75;
@@ -331,15 +331,27 @@ function counterStat(state) {
   return top ? "pass" : "defense";
 }
 
-/** 지금 살 수 있는 힌트 스킬이 있는가 (힌트 · SP · 배울 수 있는 선수). 상담은 패시브만 판다 (§18.5) */
-function hasBuyableSkill(state, data) {
-  for (const [skillId, level] of Object.entries(state.hints || {})) {
-    if (!(level > 0)) continue;
-    const sk = data.skills.find((s) => s.id === skillId);
-    if (!sk || !sk.learnable || sk.kind !== "passive") continue;
-    if (state.skillPoints < skillDiscountedCost(Number(sk.cost) || 0, level)) continue;
-    if (state.players.some((p) => canLearnSkill(state, data, skillId, p.id).ok)) return true;
-  }
+/**
+ * 패시브 사기 추천 (L48, 순수): 지금 SP 로 살 수 있는 (선수 · 패시브) 중 하나, 없으면 null.
+ * 순서: 고유 먼저 → 힌트 레벨 높은 것 → 패시브가 적은 선수 → 싼 것 → 명단 순서.
+ * @returns {{ skillId: string, playerId: string }|null}
+ */
+export function recommendPassive(state, data) {
+  const shop = LR.getPassiveShopView(state, data);
+  let best = null;
+  shop.players.forEach((p, pi) => {
+    for (const r of p.rows) {
+      if (!r.affordable) continue;
+      const key = [r.unique ? 0 : 1, -r.level, p.owned, r.cost, pi];
+      if (!best || lexLess(key, best.key)) best = { key, skillId: r.skillId, playerId: p.id };
+    }
+  });
+  return best ? { skillId: best.skillId, playerId: best.playerId } : null;
+}
+
+/** 수 배열 사전순 a < b */
+function lexLess(a, b) {
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] < b[i];
   return false;
 }
 
@@ -371,7 +383,7 @@ export function recommendWeek(state, data) {
   // 자유 주
   const open = new Set(view.actions.map((a) => a.type));
   if (avg < 50) return { type: "rest", reason: `출전 선수 평균 체력 ${Math.round(avg)} < 50` };
-  if (open.has("consult") && (state.trainingPoints >= data.lesson.consult.price.common || hasBuyableSkill(state, data))) {
+  if (open.has("consult") && (state.trainingPoints >= data.lesson.consult.price.common || recommendPassive(state, data) !== null)) {
     return { type: "consult", reason: "TP · 힌트 스킬 사용" };
   }
   if (open.has("meeting") && state.teamwork < 100) return { type: "meeting", reason: "팀워크 +10" };
@@ -457,10 +469,8 @@ export function recommendTeach(state, data) {
  */
 export function recommendConsult(state, data) {
   const v = LR.getConsultView(state, data);
-  const skills = v.skills
-    .filter((s) => s.affordable && s.eligiblePlayers.length)
-    .sort((a, b) => b.level - a.level);
-  if (skills.length) return { op: "skill", skillId: skills[0].skillId, playerId: skills[0].eligiblePlayers[0] };
+  const pas = recommendPassive(state, data);
+  if (pas) return { op: "skill", skillId: pas.skillId, playerId: pas.playerId };
   if (v.tp >= 30) {
     const buyable = v.stock.map((s, i) => ({ s, i })).filter(({ s }) => s.affordable);
     const pol = buyable.find(({ s }) => s.card.family === state.policy) || buyable.find(({ s }) => s.card.family === "coach");
@@ -529,6 +539,12 @@ export function autoStep(state, data, { playMatch } = {}) {
       return { phase, action: a };
     }
     case "prep": {
+      // 경기 전에 살 수 있는 패시브부터 하나씩 (L48)
+      const pas = recommendPassive(state, data);
+      if (pas) {
+        LR.buyPassive(state, data, pas);
+        return { phase, action: { kind: "passive", ...pas } };
+      }
       const a = recommendPrep(state, data);
       LR.confirmPrep(state, data, a);
       return { phase, action: a };

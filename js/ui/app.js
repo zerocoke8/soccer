@@ -332,6 +332,19 @@ const actions = {
     render();
   },
 
+  /**
+   * 패시브 사기 (L48 — lessonRun.buyPassive { skillId, playerId }, phase 주 · 상담 · 경기 전 준비). 저장 · 오류 토스트는 engine().
+   * render: false = 다시 그리지 않는다 (패시브 상점 모달이 자기 내용만 다시 그린다 — 경기 전 준비의 편집 중 배치를 지키려고).
+   * @returns {boolean} 샀으면 true
+   */
+  buyPassive(args, { render: rerender = true } = {}) {
+    const before = store.run?.log?.length ?? 0;
+    const r = engine(() => run.buyPassive(store.run, store.data, args || {}));
+    if (r !== undefined) announce(newLogLines(before));
+    if (rerender) render();
+    return r !== undefined;
+  },
+
   endConsult() {
     const before = store.run?.log?.length ?? 0;
     const r = engine(() => run.endConsult(store.run, store.data));

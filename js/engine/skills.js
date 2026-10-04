@@ -314,6 +314,13 @@ function forEachActivePassive(team, playerId, ctx, fn) {
       fn(sk, owner);
     }
   }
+  // 코치 파티 패시브 (레슨판 L48 — team.partyPassives): 팀 전원의 듀얼에, 주인 선수 없음 (출처 = 코치)
+  for (const pp of Array.isArray(team.partyPassives) ? team.partyPassives : []) {
+    if (!pp || !pp.mods) continue;
+    if (Array.isArray(pp.actions) && pp.actions.length && ctx.action && !pp.actions.includes(ctx.action)) continue;
+    if (!matchesWhen(pp.when, ctx, undefined, staminaMax)) continue;
+    fn({ id: pp.id, name: pp.name, kind: "passive", party: true, passive: { when: pp.when, target: "team", mods: pp.mods, actions: pp.actions } }, { id: pp.coachId });
+  }
 }
 
 /* ------------------------------------------------------------------ */

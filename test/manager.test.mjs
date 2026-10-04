@@ -30,7 +30,11 @@ function recommendFor(state) {
       // 코치 수업이 남았으면 수업 추천 (§18.8) — autoStep 의 action 모양 { kind: "teach", ... }
       return LR.getRewardView(state, data).teach.cur ? { kind: "teach", ...M.recommendTeach(state, data) } : M.recommendReward(state, data);
     case "consult": return M.recommendConsult(state, data);
-    case "prep": return M.recommendPrep(state, data);
+    case "prep": {
+      // 경기 전에 살 수 있는 패시브부터 (L48) — autoStep 의 action 모양 { kind: "passive", ... }
+      const pas = M.recommendPassive(state, data);
+      return pas ? { kind: "passive", ...pas } : M.recommendPrep(state, data);
+    }
     default: return null;
   }
 }
@@ -302,19 +306,21 @@ test("상담: 스킬 → 방침 · 코치 구매 → 고유 아닌 강화 → �
     { cardId: "cd_gegen", price: 30, bought: false },
     { cardId: "cd_c_harr", price: 30, bought: false },
   ];
-  // 스킬: 힌트 있는 스킬 + SP
-  const sp = data.supports.find((x) => x.id === s.supports[0].id);
-  // 상담은 패시브만 판다 (§18.5)
-  const skillId = sp.hintSkillIds.find((id) => {
-    const sk = data.skills.find((k) => k.id === id);
-    return sk && sk.learnable && sk.kind === "passive";
-  });
-  s.hints[skillId] = 2;
+  // 스킬 (L48): 선수 패시브 — 고유 먼저 → 힌트 레벨 높은 것 → 패시브가 적은 선수 → 싼 것 → 명단 순서. 상담은 패시브만 판다 (§18.5)
+  const listOf = (id) => data.characters.find((c) => c.id === P(s, id).charId).passiveIds;
   s.skillPoints = 999;
   s.trainingPoints = 100;
-  const r1 = M.recommendConsult(s, data);
-  assert.equal(r1.op, "skill");
-  assert.equal(r1.skillId, skillId);
+  const r0 = M.recommendConsult(s, data);
+  assert.equal(r0.op, "skill");
+  assert.equal(data.skills.find((k) => k.id === r0.skillId).ownerCharId, P(s, r0.playerId).charId, "고유 먼저");
+  same(M.recommendPassive(s, data), { skillId: r0.skillId, playerId: r0.playerId });
+  s.hints[listOf("p6")[0]] = 2;
+  same(M.recommendConsult(s, data), { op: "skill", skillId: listOf("p6")[0], playerId: "p6" }, "힌트 레벨 높은 고유");
+  s.hints[listOf("p6")[1]] = 3; // 승부사 — 이 편성에서 울리카만 가진 공용
+  same(M.recommendConsult(s, data), { op: "skill", skillId: listOf("p6")[0], playerId: "p6" }, "공용은 힌트가 높아도 고유 뒤");
+  LR.consultAction(s, data, { op: "skill", skillId: listOf("p6")[0], playerId: "p6" });
+  for (const p of s.players) if (p.id !== "p6") p.learnedSkillIds.push(listOf(p.id)[0]);
+  same(M.recommendConsult(s, data), { op: "skill", skillId: listOf("p6")[1], playerId: "p6" }, "고유가 다 팔리면 힌트 레벨 높은 공용");
   s.skillPoints = 0;
   same(M.recommendConsult(s, data), { op: "buy", index: 1 });
   LR.consultAction(s, data, { op: "buy", index: 1 });
@@ -502,12 +508,13 @@ test("감독 AI 15주 완주 · 미르카 편성 (FW2 = 미르카): 가로지르
 
 test("§18.8 recommendTeach: 빈 슬롯 후보 중 지금 포지션 주 스탯 2개 합 최고 · 같으면 슬롯 순서 · 후보 없으면 받지 않기 · 바꾸지 않는다 · 상태 불변", () => {
   const s = LR.createRun({ data, seed: 11 });
-  s.hints.sk_focus_finish = 3;
-  s.hints.sk_tiebreaker = 3;
   s.weekOffer = { kind: "lesson", specials: [] };
   LR.applyWeekAction(s, data, { type: "lesson", zone: "pass" });
   s.lesson.attach.hints = ["sp_coach_harr", "sp_coach_harr"];
-  while (s.phase === "lesson") LR.endLessonTurn(s, data);
+  // 하르나 수업 목록을 파워 슛 하나로 (레슨 끝 컷인 수업이 늘 파워 슛)
+  const harrPs = clone(data);
+  harrPs.supports.find((x) => x.id === "sp_coach_harr").teachSkillIds = ["sk_power_shot"];
+  while (s.phase === "lesson") LR.endLessonTurn(s, harrPs);
   assert.equal(s.pendingReward.teach.length, 2);
   const fwScore = (id) => cardsMainOf(P(s, id).position).reduce((a, st) => a + P(s, id).stats[st], 0);
   // FW 둘: 주 스탯 합이 큰 쪽
@@ -522,7 +529,9 @@ test("§18.8 recommendTeach: 빈 슬롯 후보 중 지금 포지션 주 스탯 2
   // 더 강한 쪽이 가득이면 빈 슬롯 쪽
   P(s, "p7").stats.shoot += 50;
   same(M.recommendTeach(s, data), { playerId: "p7", replaceSkillId: null });
-  P(s, "p7").learnedSkillIds = ["sk_focus_finish", "sk_tiebreaker", "sk_underdog"];
+  P(s, "p7").learnedSkillIds = ["sk_focus_finish", "sk_big_game"]; // 패시브는 슬롯을 쓰지 않는다 (L48)
+  same(M.recommendTeach(s, data), { playerId: "p7", replaceSkillId: null });
+  P(s, "p7").learnedSkillIds = ["sk_burst_dribble", "sk_see_through", "sk_line_breaker"];
   same(M.recommendTeach(s, data), { playerId: "p6", replaceSkillId: null });
   // autoStep: 수업 한 단계씩 → 둘째 수업은 받을 선수 없음 (p7 가득은 바꾸지 않는다) → 받지 않기 → 그다음 보상 고르기
   const a1 = M.autoStep(s, data);

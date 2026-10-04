@@ -24,8 +24,6 @@ import {
   MAX_LEARNED_SKILLS as MAX_SKILL_SLOTS,
   clamp,
   getModifier,
-  skillDiscountedCost,
-  canLearnSkill,
   resolveRest,
   resolveMeeting,
 } from "./training.js";
@@ -34,6 +32,7 @@ import * as cards from "./cards.js";
 import * as lesson from "./lesson.js";
 import * as zones from "./zones.js";
 import { applyEffects } from "./effects.js";
+import * as passives from "./passives.js";
 
 // run.js 에서 그대로 다시 내보내는 것 (같은 이름 · 같은 동작).
 // getMatchSetup · buildTeamSnapshot 은 다시 내보내지 않고 아래에서 감싼다 — 부상은 레슨에만 (§18.1, 유스 교체 없음).
@@ -321,6 +320,11 @@ function coachViews(state, data) {
       hintSkillIds: sc && Array.isArray(sc.hintSkillIds) ? sc.hintSkillIds.slice() : [],
     };
   });
+}
+
+/** 지금 SP 로 살 수 있는 (선수 · 패시브) 쌍 수 (L48) */
+function shopBuyableCount(state, data) {
+  return passives.passiveShopView(state, data).players.reduce((n, p) => n + p.rows.filter((r) => r.affordable).length, 0);
 }
 
 function statusView(state) {
@@ -686,6 +690,8 @@ export function getWeekView(state, data) {
     restGain: Math.round(data.config.rest.stamina * (1 + getModifier(state, "restEffect"))),
     players: state.players.map((p) => playerView(state, data, p)),
     coaches: coachViews(state, data),
+    partyPassives: passives.partyPassivesFor(state, data), // 코치 파티 패시브 (L48)
+    shopBuyable: shopBuyableCount(state, data), // 지금 SP 로 살 수 있는 패시브 수 (L48 — 주 화면 [패시브] 버튼 배지)
     deck: state.deck.map((e) => ({ uid: e.uid, cardId: e.cardId, name: cards.getCard(data, e.cardId).name, family: cards.getCard(data, e.cardId).family, plus: !!e.plus })),
     hints: { ...state.hints },
     relics: state.relics.slice(),
@@ -860,6 +866,17 @@ function grantHint(state, data, skillId, supportId) {
 }
 
 /**
+ * 코치가 주는 스킬 목록 (L48): 레슨판은 `teachSkillIds` (수업할 액티브만 — 패시브는 선수 목록 · 선수 힌트로 옮겼다).
+ * 없으면 옛 `hintSkillIds`. 코치가 없으면 null.
+ */
+function coachSkillList(data, supportId) {
+  const sc = supportCard(data, supportId);
+  if (!sc) return null;
+  if (Array.isArray(sc.teachSkillIds)) return sc.teachSkillIds;
+  return Array.isArray(sc.hintSkillIds) ? sc.hintSkillIds : null;
+}
+
+/**
  * 힌트 1개 뽑기 (D26): hintRate 가중으로 편성 코치 → 그 코치 스킬 중 균등 (후보 = hintCandidate). 후보가 없으면 null.
  * rng 호출 수 · 순서는 §18 전과 같다 (후보 목록만 다르다).
  * @returns {{ skillId: string, level: number, supportId: string, active: boolean }|null}
@@ -867,9 +884,10 @@ function grantHint(state, data, skillId, supportId) {
 function drawHint(state, data, rng) {
   const cands = [];
   for (const st of state.supports) {
+    const list = coachSkillList(data, st.id);
+    if (!list) continue;
     const sc = supportCard(data, st.id);
-    if (!sc || !Array.isArray(sc.hintSkillIds)) continue;
-    const skills = sc.hintSkillIds.filter((id) => hintCandidate(state, data, id));
+    const skills = list.filter((id) => hintCandidate(state, data, id));
     if (skills.length) cands.push({ supportId: st.id, skills, w: Number(sc.hintRate) || 0 });
   }
   if (!cands.length) return null;
@@ -883,9 +901,9 @@ function drawHint(state, data, rng) {
  * @returns {{ skillId: string, level: number, supportId: string, active: boolean }|null}
  */
 function drawHintFrom(state, data, rng, supportId) {
-  const sc = supportCard(data, supportId);
-  if (!sc || !Array.isArray(sc.hintSkillIds)) return null;
-  const skills = sc.hintSkillIds.filter((id) => hintCandidate(state, data, id));
+  const list = coachSkillList(data, supportId);
+  if (!list) return null;
+  const skills = list.filter((id) => hintCandidate(state, data, id));
   if (!skills.length) return null;
   const skillId = rng.pick(skills);
   return grantHint(state, data, skillId, supportId);
@@ -959,21 +977,24 @@ function afterLesson(state, data) {
 
   // 1. 결과 보상
   let tp = 0;
+  let spLesson = 0;
   let hintCount = 0;
+  let playerHintCount = 0;
   let freeUpgrades = 0;
   let teamwork = 0;
   let condition = 0;
   let prepBonus = false;
-  if (status === "perfect") {
-    tp = D.rewards.perfect.tp;
-    hintCount = D.rewards.perfect.hints;
-    freeUpgrades = D.rewards.perfect.freeUpgrades || 0;
-  } else if (status === "clear") {
-    tp = D.rewards.clear.tp;
-    hintCount = D.rewards.clear.hints;
+  if (status === "perfect" || status === "clear") {
+    const R = D.rewards[status];
+    tp = R.tp;
+    spLesson = Number(R.sp) || 0;
+    hintCount = R.hints;
+    playerHintCount = Number(R.playerHints) || 0;
+    freeUpgrades = R.freeUpgrades || 0;
   }
   if (ok) {
     state.trainingPoints += tp;
+    state.skillPoints += spLesson; // 레슨 SP (L48 — SP 수입 약 3배)
     const twBefore = state.teamwork;
     addTeamwork(state, D.teamwork.clear);
     teamwork = state.teamwork - twBefore;
@@ -998,16 +1019,29 @@ function afterLesson(state, data) {
   const hints = [];
   const teach = (Array.isArray(state.pendingTeach) ? state.pendingTeach : []).map((t) => teachEntry(t.skillId, t.supportId, t.src || "event"));
   state.pendingTeach = [];
-  let sp = 0;
+  let sp = spLesson;
   const take = (h, src) => {
     if (h && h.active) teach.push(teachEntry(h.skillId, h.supportId, src));
-    else if (h) hints.push({ skillId: h.skillId, level: h.level, supportId: h.supportId, src });
+    else if (h) hints.push({ skillId: h.skillId, level: h.level, supportId: h.supportId || null, playerId: h.playerId || null, src });
     else {
       sp += D.rewards.noHintSp;
       state.skillPoints += D.rewards.noHintSp;
     }
   };
   for (let i = 0; i < hintCount; i++) take(drawHint(state, data, rng), "clear");
+  // 2a. 선수 힌트 (L48): 이번 레슨에서 많이 큰 선수부터, 한 명에 1개씩 그 선수 패시브 목록에서 (후보가 없는 선수는 건너뛴다)
+  if (playerHintCount > 0) {
+    let got = 0;
+    for (const pid of passives.topGrowers(res.perPlayer)) {
+      if (got >= playerHintCount) break;
+      const h = passives.drawPlayerHint(state, data, rng, pid);
+      if (h) {
+        take(h, "player");
+        got += 1;
+      }
+    }
+    for (; got < playerHintCount; got++) take(null, "player");
+  }
   // 2b. 컷인 힌트 (§15.5): 레슨 중 코치 능력으로 얻은 힌트 — 결과와 상관없이, 그 코치의 힌트 1개씩
   for (const supportId of res.cutinHints || []) take(drawHintFrom(state, data, rng, supportId), "cutin");
 
@@ -1069,7 +1103,12 @@ function afterLesson(state, data) {
       turnReached: L.turn,
       tp,
       sp,
-      hints: hints.map((h) => ({ skillId: h.skillId, level: h.level, supportId: h.supportId, src: h.src, name: (skillById(data, h.skillId) || {}).name || h.skillId })),
+      spLesson,
+      hints: hints.map((h) => ({
+        skillId: h.skillId, level: h.level, supportId: h.supportId, playerId: h.playerId, src: h.src,
+        name: (skillById(data, h.skillId) || {}).name || h.skillId,
+        playerName: h.playerId ? (playerById(state, h.playerId) || {}).name || h.playerId : null,
+      })),
       teach: [], // 끝난 수업 요약 (resolveTeach 가 채운다, §18.4)
       attaches: res.attaches,
       cutins: res.cutins.map((c) => ({ ...c })),
@@ -1106,7 +1145,8 @@ export function canTeachSkill(state, data, skillId, playerId) {
   const p = (state.players || []).find((x) => x.id === playerId);
   if (!p) return { ok: false, reason: "선수 없음", full: false };
   const learned = Array.isArray(p.learnedSkillIds) ? p.learnedSkillIds : [];
-  const full = learned.length >= MAX_SKILL_SLOTS;
+  // 슬롯 3 = 액티브 몫 (L48 — 패시브는 자기 목록 3개로 따로)
+  const full = learned.filter((id) => isActiveSkill(skillById(data, id))).length >= MAX_SKILL_SLOTS;
   if (learned.includes(skillId) || p.innateSkillId === skillId) return { ok: false, reason: "이미 보유", full };
   if (Array.isArray(sk.positions) && sk.positions.length && !sk.positions.includes(p.position)) {
     return { ok: false, reason: `${sk.positions.join(" · ")}만`, full };
@@ -1238,6 +1278,7 @@ export function resolveTeach(state, data, { playerId = null, replaceSkillId = nu
       if (!hasRep) throw new Error("스킬 슬롯이 가득입니다 — 바꿀 스킬을 고르세요");
       const i = p.learnedSkillIds.indexOf(replaceSkillId);
       if (i < 0) throw new Error(`'${replaceSkillId}' 은(는) ${p.name} 의 습득 스킬이 아닙니다`);
+      if (!isActiveSkill(skillById(data, replaceSkillId))) throw new Error(`'${skillName(data, replaceSkillId)}' 은(는) 패시브라 바꿀 수 없습니다 — 액티브만 바꿉니다`);
       p.learnedSkillIds[i] = t.skillId;
       t.replaced = replaceSkillId;
     } else {
@@ -1346,32 +1387,34 @@ function rollConsult(state, data) {
 }
 
 /**
- * 상담 스킬 진열 (§18.5): SP 로 파는 것은 **패시브만** (액티브는 코치 수업). 순수.
- * 어떤 패시브를 진열할지 (캐릭터 기준 / 서포트 기준) 는 기획자가 아직 정하지 않았다 [가정 §18.10 Q1] —
- * 기본값은 지금 규칙 그대로 "힌트를 받은 (= 편성 코치에게서 힌트가 나온) 패시브만". 바꿀 때는 이 함수만 고친다.
+ * 상담 스킬 진열 (§18.5 · L48): SP 로 파는 것은 **패시브만** (액티브는 코치 수업). 진열 = 선수마다 자기 패시브 목록 3개
+ * (passives.passiveShopView 를 한 줄씩 편 것 — 선수 · 스킬 한 쌍이 한 줄, 이미 가진 것은 뺀다). 순수.
  */
 function consultSkillRows(state, data) {
-  return Object.entries(state.hints)
-    .filter(([, lv]) => lv > 0)
-    .map(([skillId, level]) => {
-      const sk = skillById(data, skillId);
-      if (!sk || !sk.learnable || sk.kind !== "passive") return null;
-      const baseCost = Number(sk.cost) || 0;
-      const cost = skillDiscountedCost(baseCost, level);
-      return {
-        skillId,
-        name: sk.name,
-        kind: sk.kind,
-        description: sk.description || "",
-        positions: sk.positions || null,
-        baseCost,
-        cost,
-        level,
-        affordable: state.skillPoints >= cost,
-        eligiblePlayers: state.players.filter((p) => canLearnSkill(state, data, skillId, p.id).ok).map((p) => p.id),
-      };
-    })
-    .filter(Boolean);
+  const rows = [];
+  for (const p of passives.passiveShopView(state, data).players) {
+    for (const r of p.rows) {
+      if (r.owned) continue;
+      rows.push({
+        skillId: r.skillId,
+        playerId: p.id,
+        playerName: p.name,
+        name: r.name,
+        kind: "passive",
+        unique: r.unique,
+        description: r.description,
+        positions: (skillById(data, r.skillId) || {}).positions || null,
+        baseCost: r.baseCost,
+        cost: r.cost,
+        level: r.level,
+        ok: r.ok,
+        reason: r.reason,
+        affordable: r.affordable,
+        eligiblePlayers: r.ok ? [p.id] : [],
+      });
+    }
+  }
+  return rows;
 }
 
 /** 상담 화면 뷰 (§5.4.4). 순수. skills = 패시브만 (consultSkillRows, §18.5) */
@@ -1454,15 +1497,8 @@ export function consultAction(state, data, op) {
       const known = skillById(data, op.skillId);
       if (isActiveSkill(known)) throw new Error("액티브 스킬은 코치 수업으로 배웁니다");
       if (known && known.kind !== "passive") throw new Error("상담에서는 패시브 스킬만 배울 수 있습니다");
-      const check = canLearnSkill(state, data, op.skillId, op.playerId);
-      if (!check.ok) throw new Error(`스킬 구매 불가: ${check.reason}`);
-      const sk = skillById(data, op.skillId);
-      const cost = skillDiscountedCost(Number(sk.cost) || 0, state.hints[op.skillId] || 0);
-      if (state.skillPoints < cost) throw new Error(`스킬 포인트 부족 (${state.skillPoints}/${cost})`);
-      const p = playerById(state, op.playerId);
-      p.learnedSkillIds.push(op.skillId);
-      state.skillPoints -= cost;
-      log(state, `상담: ${p.name} — '${sk.name}' 습득 (SP −${cost})`);
+      const r = passives.applyBuyPassive(state, data, op.skillId, op.playerId);
+      log(state, `상담: ${r.player.name} — '${r.name}' 습득 (SP −${r.cost})`);
       return state;
     }
     default:
@@ -1492,6 +1528,8 @@ export function getPrepView(state, data) {
     tactics: { ...state.tactics },
     players: state.players.map((p) => playerView(state, data, p)),
     injuredOut: state.players.filter((p) => (Number(p.injuredTurns) || 0) > 0).map((p) => p.id),
+    partyPassives: passives.partyPassivesFor(state, data), // 코치 파티 패시브 (L48)
+    shopBuyable: shopBuyableCount(state, data),
     // 대비 레슨 클리어 보너스만 (유물 '낡은 주장 완장' 의 goalMatchCondition 은 대비 레슨 표시가 아니다)
     prepBonus: state.modifiers.some(
       (m) => m.key === "goalMatchCondition" && m.source === "prepLesson" && (m.untilSeason === null || m.untilSeason === undefined || m.untilSeason >= state.season),
@@ -1522,12 +1560,43 @@ export function confirmPrep(state, data, { tactics, formation, swaps } = {}) {
  * 옛 런 (run.buildTeamSnapshot 을 직접 부르는 쪽) 은 지금처럼 유스로 바꾼다.
  */
 export function buildTeamSnapshot(state, data) {
-  return run.buildTeamSnapshot(fieldView(state), data);
+  return withParty(run.buildTeamSnapshot(fieldView(state), data), state, data);
 }
 
-/** 경기 세팅 (run.getMatchSetup 과 같은 모양 · 시드 · 규칙, home 에 유스 없음 — §18.1). 순수. */
+/** 경기 세팅 (run.getMatchSetup 과 같은 모양 · 시드 · 규칙, home 에 유스 없음 — §18.1). 순수. home 에 코치 파티 패시브 (L48) */
 export function getMatchSetup(state, data) {
-  return run.getMatchSetup(fieldView(state), data);
+  const setup = run.getMatchSetup(fieldView(state), data);
+  withParty(setup.home, state, data);
+  return setup;
+}
+
+/** 우리 팀 스냅샷에 코치 파티 패시브를 싣는다 (L48 — 편성하면 처음부터, 유대 80이면 한 단계 위). 없으면 키를 두지 않는다 */
+function withParty(team, state, data) {
+  const pp = passives.partyPassivesFor(state, data);
+  if (pp.length) team.partyPassives = pp;
+  return team;
+}
+
+/** 코치 파티 패시브 뷰 (준비 · 주 · 편성 표시용, 순수) */
+export function getPartyPassives(state, data) {
+  return passives.partyPassivesFor(state, data);
+}
+
+/** SP 상점 뷰 (L48 — 주 · 상담 · 경기 전 준비에서 연다). 순수. */
+export function getPassiveShopView(state, data) {
+  return passives.passiveShopView(state, data);
+}
+
+/**
+ * 패시브 사기 (L48): phase 가 주 · 상담 · 경기 전 준비일 때. 그 선수 패시브 목록 안 · 아직 없음 · 포지션 · SP. 실패하면 상태 그대로 throw.
+ * @param {{ skillId: string, playerId: string }} args
+ */
+export function buyPassive(state, data, { skillId, playerId } = {}) {
+  assertData(data);
+  if (!passives.SHOP_PHASES.includes(state.phase)) throw new Error(`지금(${state.phase})은 패시브를 살 수 없습니다`);
+  const r = passives.applyBuyPassive(state, data, skillId, playerId);
+  log(state, `패시브: ${r.player.name} — '${r.name}' 습득 (SP −${r.cost})`);
+  return state;
 }
 
 /**

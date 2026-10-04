@@ -193,6 +193,7 @@ export function simulateOne(data, { seed, policy, formation, slots = {}, playMat
       if (r.action.op === "delete") m.consultDeletes += 1;
       if (r.action.op === "skill") m.skillsBought += 1;
     }
+    if (r.phase === "prep" && r.action && r.action.kind === "passive") m.skillsBought += 1; // 경기 전 준비 패시브 (L48)
     if (wasLesson && state.phase === "reward") {
       const res = state.pendingReward.result;
       m.hints += res.hints.length;
@@ -529,7 +530,7 @@ function printTable(sums, args) {
     ["코치 카드 획득 / 런 끝 덱 안", (s) => `${f1(s.coachAcquired)} / ${f1(s.coachInDeck)}`],
     ["유대 60 / 80 도달 코치 수", (s) => `${f1(s.bond60)} / ${f1(s.bond80)}`],
     ["힌트 수", (s) => f1(s.hints)],
-    ["스킬 구매 (상담 — §18 뒤 패시브만)", (s) => f1(s.skillsBought)],
+    ["패시브 구매 / 런 (상담 · 경기 전 준비, L48 목표 4~5)", (s) => f1(s.skillsBought)],
     ["[수업] 런당 수업 · 습득 / 바꾸기 / 받지 않음 / 받을 선수 없음", (s) => `${f1(s.teach)} · ${f1(s.teachLearned)}/${f1(s.teachReplaced)}/${f1(s.teachDeclined)}/${f1(s.teachNone)}`],
     ["[수업] 수업 SP / 런", (s) => f0(s.teachSp)],
     ["[수업] 런 끝 선수당 액티브 · 패시브", (s) => `${f2(s.actives)} · ${f2(s.passives)}`],

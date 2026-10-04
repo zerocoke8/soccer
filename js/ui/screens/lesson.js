@@ -35,7 +35,8 @@
 //   연출: fx move → 주인 토큰이 새 자리로 뛰어간다 (두 대형이 다시 모인다) / fx pass → 공 호 (.ls-ball) → 훈련 동작, 받는 선수 "+N ×1.3", 가로지르기 두 팝.
 // 개발용 ?autolesson=1: 600ms 마다 감독 추천(manager.recommendCard: bench · play { at, playerId, zone } · endTurn)을 그대로 낸다 (컷인도 그대로 — 저절로 닫힌다). inert: 마지막 상태만.
 // 스탯 보기 (§17): 명단 줄 두 번째 줄 = 서 있는 구역의 지금 스탯 "🛡️ 수비 B 552 +18" (+N = 이번 레슨 상승, 벤치 = 돌아갈 구역, 결장 = 부상 · 이번 상승 합).
-//   선수 정보 팝오버 (.ls-pinfo — lesson_layout.playerStatInfo): 스탯 5개 등급 · 지금 값 · 이번 레슨 상승 · 성장률, 자리 · 구역 · 체력 · 실패율 · 기본 / 카드 / 부 나눔.
+//   선수 정보 팝오버 (.ls-pinfo — lesson_layout.playerStatInfo): 스탯 5개 등급 · 지금 값 · 이번 레슨 상승 · 성장률, 자리 · 구역 · 체력 · 실패율 · 기본 / 카드 / 부 나눔,
+//   패시브 3 (L48 — lessonRun.getPassiveShopView: 보유 ✓ / 아직, 고유 먼저).
 //   여는 법: 카드를 고르지 않았을 때 토큰 · 명단 줄 누르기 (탭) · 마우스 올리기 (잠깐 — 누르면 고정), 명단 ⓘ 버튼 (카드를 골랐어도 늘),
 //   토큰 포커스 + Enter · Space (카드를 고르지 않았을 때) · I (늘). 닫기: 바깥 누르기 · Esc · 같은 토큰 · 줄 · ⓘ 다시 · × 버튼. 끌기가 시작되면 닫는다.
 //   카드를 골랐을 때 토큰 누르기는 그대로 자리 고르기다 (팝오버를 열지 않는다).
@@ -988,6 +989,14 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     const s = stageScale();
     return { l: (r.left - sr.left) / s, t: (r.top - sr.top) / s, w: r.width / s, h: r.height / s };
   }
+  /** 그 선수의 패시브 3 (lessonRun.getPassiveShopView rows — 고유 먼저). 엔진 함수가 없거나 실패하면 [] (팝오버는 그대로) */
+  function passivesOf(pid) {
+    if (!run || typeof run.getPassiveShopView !== 'function') return [];
+    try {
+      const p = run.getPassiveShopView(st(), data).players.find((x) => x.id === pid);
+      return p ? p.rows.slice().sort((a, b) => Number(!!b.unique) - Number(!!a.unique)) : [];
+    } catch (_) { return []; }
+  }
   /** 팝오버 내용 · 자리. 토큰에서 열었고 경기장에 있으면 토큰 옆, 아니면 명단 줄 왼쪽 */
   function renderInfoPop() {
     const d = infoPop && !inert ? playerStatInfo(st(), infoPop.id, v, thresholds) : null;
@@ -1034,7 +1043,14 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
       h('span', { class: 'muted' }, d.out ? '이번 레슨은 훈련하지 않는다'
         : d.bench ? `벤치 — 이번 턴 기본 훈련 · 카드 대상 없음`
           : `턴 끝 기본 훈련 +${d.baseNext} 예상 · 카드 대상 ${d.targeted}회`));
-    pinfo.replaceChildren(head, state, grid, foot);
+    // 패시브 3 (L48 — 고유 1 + 공용 2): 보유 = ✓ 초록, 아직 = 흐리게 (힌트 Lv 는 title)
+    const pas = passivesOf(d.id);
+    const pasEl = pas.length
+      ? h('div', { class: 'pi-pas', title: pas.map((r) => `${r.owned ? '✓ ' : ''}${r.unique ? '고유 ' : ''}${r.name}${r.level ? ` (힌트 Lv${r.level})` : ''} — ${r.description}`).join('\n') },
+        h('span', { class: 'pi-pas-k' }, '패시브'),
+        pas.map((r) => h('span', { class: ['pi-pa', r.owned ? 'on' : '', r.unique ? 'uq' : ''] }, r.owned ? '✓ ' : '', r.name)))
+      : null;
+    pinfo.replaceChildren(head, state, grid, foot, ...(pasEl ? [pasEl] : []));
     pinfo.className = ['ls-pinfo', 'on', infoPop.pinned ? 'pinned' : 'hover'].join(' ');
     pinfo.dataset.pid = d.id;
     pinfo.setAttribute('aria-hidden', 'false');

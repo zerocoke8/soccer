@@ -7,6 +7,7 @@
     "growth":    { "shoot": 0.8, "dribble": 0.85, "pass": 1.0, "defense": 1.25, "physical": 1.15 },
     "aptitude":  { "GK": "A", "DF": "C", "MF": "-", "FW": "-" },
     "innateSkillId": "sk_high_tide",
+    "passiveIds": ["sk_tide_wall", "sk_calm_keeper", "sk_big_game"],
     "trait": "distributor",
     "portraitColor": "#3f8cff",
     "bio": "호수에서 태어난 물의 정령. 골문 앞에 서면 파도가 따라온다."
@@ -19,6 +20,7 @@
     "growth":    { "shoot": 0.8, "dribble": 0.85, "pass": 0.95, "defense": 1.3, "physical": 1.2 },
     "aptitude":  { "GK": "B", "DF": "A", "MF": "C", "FW": "-" },
     "innateSkillId": "sk_mountain_wedge",
+    "passiveIds": ["sk_earth_root", "sk_lockdown", "sk_second_wind"],
     "trait": "wall",
     "portraitColor": "#8b5a2b",
     "bio": "산맥 광산촌 출신 드워프 센터백. 말은 적고 태클은 무겁다."
@@ -31,6 +33,7 @@
     "growth":    { "shoot": 0.95, "dribble": 0.95, "pass": 1.05, "defense": 1.15, "physical": 1.05 },
     "aptitude":  { "GK": "-", "DF": "A", "MF": "B", "FW": "C" },
     "innateSkillId": "sk_flame_command",
+    "passiveIds": ["sk_captain_call", "sk_lockdown", "sk_big_game"],
     "trait": "captain",
     "portraitColor": "#b3261e",
     "bio": "변경 마을의 젊은 주장. 밀릴 때 목소리가 더 커진다."
@@ -43,6 +46,7 @@
     "growth":    { "shoot": 1.0, "dribble": 1.1, "pass": 1.3, "defense": 0.85, "physical": 0.9 },
     "aptitude":  { "GK": "-", "DF": "C", "MF": "A", "FW": "B" },
     "innateSkillId": "sk_wind_thread",
+    "passiveIds": ["sk_wind_reading", "sk_chain_master", "sk_big_game"],
     "trait": "killpass",
     "portraitColor": "#3cb371",
     "bio": "숲의 엘프 플레이메이커. 패스 한 줄로 경기장을 다시 그린다."
@@ -55,6 +59,7 @@
     "growth":    { "shoot": 0.95, "dribble": 1.1, "pass": 1.1, "defense": 1.0, "physical": 1.05 },
     "aptitude":  { "GK": "-", "DF": "B", "MF": "A", "FW": "C" },
     "innateSkillId": "sk_lightning_dash",
+    "passiveIds": ["sk_tireless", "sk_chain_master", "sk_underdog"],
     "trait": "runner",
     "portraitColor": "#ffd23f",
     "bio": "전령 출신의 인간 미드필더. 경기가 끝나도 아직 뛸 힘이 남아 있다."
@@ -67,6 +72,7 @@
     "growth":    { "shoot": 1.1, "dribble": 1.25, "pass": 0.95, "defense": 0.8, "physical": 1.05 },
     "aptitude":  { "GK": "-", "DF": "C", "MF": "B", "FW": "A" },
     "innateSkillId": "sk_prairie_gale",
+    "passiveIds": ["sk_flank_run", "sk_tiebreaker", "sk_underdog"],
     "trait": "crosser",
     "portraitColor": "#8fd14f",
     "bio": "북쪽 초원의 늑대 수인 윙어. 한 번 달리기 시작하면 라인이 사라진다."
@@ -79,6 +85,7 @@
     "growth":    { "shoot": 1.3, "dribble": 0.85, "pass": 0.85, "defense": 1.0, "physical": 1.2 },
     "aptitude":  { "GK": "-", "DF": "B", "MF": "C", "FW": "A" },
     "innateSkillId": "sk_meteor_shot",
+    "passiveIds": ["sk_blaze_finish", "sk_focus_finish", "sk_big_game"],
     "trait": "targetman",
     "portraitColor": "#ff5a36",
     "bio": "화산 기슭의 거인족 스트라이커. 슛보다 먼저 땅이 울린다."
@@ -91,6 +98,7 @@
     "growth":    { "shoot": 1.05, "dribble": 1.25, "pass": 1.1, "defense": 0.8, "physical": 0.9 },
     "aptitude":  { "GK": "-", "DF": "-", "MF": "A", "FW": "B" },
     "innateSkillId": "sk_alley_cat_step",
+    "passiveIds": ["sk_feint", "sk_underdog", "sk_tiebreaker"],
     "trait": "carrier",
     "portraitColor": "#5fbf8a",
     "bio": "항구 뒷골목의 고양이 수인. 힘으로 덤비는 상대를 가장 좋아한다."
@@ -103,6 +111,7 @@
     "growth":    { "shoot": 0.85, "dribble": 0.8, "pass": 0.95, "defense": 1.25, "physical": 1.3 },
     "aptitude":  { "GK": "A", "DF": "B", "MF": "-", "FW": "-" },
     "innateSkillId": "sk_earth_palm",
+    "passiveIds": ["sk_earth_guard", "sk_calm_keeper", "sk_second_wind"],
     "trait": "captain",
     "portraitColor": "#3d4db7",
     "bio": "산맥 수정굴 출신 거인족 골키퍼. 골문 뒤에서 팀 전체를 내려다보며 부른다."
@@ -115,6 +124,7 @@
     "growth":    { "shoot": 1.3, "dribble": 1.15, "pass": 0.95, "defense": 0.8, "physical": 0.85 },
     "aptitude":  { "GK": "-", "DF": "-", "MF": "B", "FW": "A" },
     "innateSkillId": "sk_thunderbolt",
+    "passiveIds": ["sk_thunder_sense", "sk_focus_finish", "sk_tiebreaker"],
     "trait": "finisher",
     "portraitColor": "#9b5cff",
     "bio": "낙뢰에서 태어난 번개의 정령. 공이 발에 닿는 순간과 골망이 흔들리는 순간 사이가 없다."
@@ -127,6 +137,7 @@
     "growth":    { "shoot": 0.8, "dribble": 1, "pass": 1.25, "defense": 1.15, "physical": 0.9 },
     "aptitude":  { "GK": "-", "DF": "A", "MF": "B", "FW": "-" },
     "innateSkillId": "sk_deep_current",
+    "passiveIds": ["sk_water_path", "sk_lockdown", "sk_chain_master"],
     "trait": "killpass",
     "portraitColor": "#129e9a",
     "bio": "남쪽 군도의 바다 엘프, 조약 함대 항해사 출신. 수비 라인 뒤에서 거리를 재어 길게 찔러 준다."
@@ -139,6 +150,7 @@
     "growth":    { "shoot": 0.85, "dribble": 1.25, "pass": 1, "defense": 1.1, "physical": 1 },
     "aptitude":  { "GK": "-", "DF": "A", "MF": "B", "FW": "C" },
     "innateSkillId": "sk_moon_hop",
+    "passiveIds": ["sk_rabbit_step", "sk_underdog", "sk_second_wind"],
     "trait": "runner",
     "portraitColor": "#f4a259",
     "bio": "들판 굴 마을의 토끼 수인 풀백. 겁은 많지만 한번 튀어 나가면 아무도 못 잡는다."
@@ -151,6 +163,7 @@
     "growth":    { "shoot": 0.9, "dribble": 1.3, "pass": 1.1, "defense": 0.95, "physical": 0.8 },
     "aptitude":  { "GK": "-", "DF": "B", "MF": "A", "FW": "C" },
     "innateSkillId": "sk_rapids",
+    "passiveIds": ["sk_current_dribble", "sk_chain_master", "sk_second_wind"],
     "trait": "carrier",
     "portraitColor": "#ff8a6b",
     "bio": "산호초 급류의 정령. 막아서는 다리 사이로 물처럼 공을 흘려 보낸다."
@@ -163,6 +176,7 @@
     "growth":    { "shoot": 1, "dribble": 1.1, "pass": 1.25, "defense": 0.8, "physical": 0.95 },
     "aptitude":  { "GK": "-", "DF": "-", "MF": "A", "FW": "B" },
     "innateSkillId": "sk_lightning_arrow",
+    "passiveIds": ["sk_target_read", "sk_chain_master", "sk_tiebreaker"],
     "trait": "crosser",
     "portraitColor": "#38bdf8",
     "bio": "폭풍 고원의 엘프 궁수 출신 측면 미드필더. 크로스를 화살처럼 머리 위 한 점에 꽂는다."
@@ -175,6 +189,7 @@
     "growth":    { "shoot": 1.15, "dribble": 0.95, "pass": 0.95, "defense": 1, "physical": 1.2 },
     "aptitude":  { "GK": "-", "DF": "B", "MF": "C", "FW": "A" },
     "innateSkillId": "sk_sky_header",
+    "passiveIds": ["sk_aerial_duel", "sk_focus_finish", "sk_second_wind"],
     "trait": "targetman",
     "portraitColor": "#e05a9c",
     "bio": "바닷바람 부는 절벽 등대 마을 출신. 공중볼은 전부 자기 것이라고 믿는다."
@@ -187,6 +202,7 @@
     "growth":    { "shoot": 1.25, "dribble": 1, "pass": 0.9, "defense": 0.95, "physical": 1.1 },
     "aptitude":  { "GK": "-", "DF": "C", "MF": "B", "FW": "A" },
     "innateSkillId": "sk_forge_finish",
+    "passiveIds": ["sk_tempered", "sk_focus_finish", "sk_underdog"],
     "trait": "finisher",
     "portraitColor": "#c0612b",
     "bio": "대장간 집 막내 드워프. 슛 한 발 한 발을 담금질한 작품이라고 부른다."

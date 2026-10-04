@@ -379,6 +379,8 @@ async function runScenario(browser, baseUrl, sc, prepared, opts) {
         ".lu-card-nm", ".lu-ult", ".lu-ult-nm", ".slot-card .slot-nm", ".char-pick.compact .cp-txt > span", ".char-pick.compact .cp-badge", ".cap-note",
         // 경기 컷인 (§19.8 E5, K4): 대사 한 줄 · 이름 · 작은 줄(이름 · 종류 칩), 배급 카드 받는 선수 이름 (확정 롱패스 "확정" 칸 옆)
         ".m-cutin .cut-line", ".m-cutin .cut-txt b", ".m-cutin .cut-txt small", ".dist-btn .act-rname",
+        // 패시브 (L48): 상점 칩 이름 · 설명(두 줄) · 작은 칩 값 줄 · 선수 칸, 편성 코치 칩 · 주 코치 칸 파티 패시브(두 줄), [✦ 패시브] 버튼
+        ".ps-chip .ps-name", ".ps-chip .ps-desc", ".ps-line", ".ps-who-nm", ".ps-who-sub", ".sp-chip-pp", ".bond-pp", ".ps-open", ".rw-hint-pl", ".ls-pinfo .pi-pas",
       ].join(", "))]
         .map((el) => {
           // 말줄임은 소수 픽셀만 넘쳐도 생긴다 → 정수 scrollWidth 대신 글자 Range 크기와 요소 크기(소수)를 비교
@@ -434,6 +436,18 @@ async function runScenario(browser, baseUrl, sc, prepared, opts) {
         const limit = sr.bottom - ((parseFloat(cs.paddingBottom) || 0) + (parseFloat(cs.borderBottomWidth) || 0)) * k; // 안쪽 여백까지 (글자가 테두리에 붙지 않게)
         const last = [...sideEl.querySelectorAll(".ls-foot-row, .ls-row")].reduce((m, el) => Math.max(m, rectOf(el).bottom), 0);
         if (last > limit + 0.5) overlaps.push(`레슨 옆 칸 넘침 ${(last - limit).toFixed(1)}px`);
+      }
+      // 아웃게임 패널 넘침 (L48): 내용이 패널 아래 테두리(안쪽 여백) 밖으로 나가는가 — 화면(.screen.og overflow hidden)이 잘라 스크롤로는 안 잡힌다.
+      // 경기 전 준비 왼쪽 칸 (파티 패시브 목록) · 주 선택 선수/코치 칸 · 상담 패시브 칸 · 편성 훈련 방침
+      for (const pSel of [".prep-screen .prep-opp", ".week-screen .roster", ".consult-screen .cs-skills", ".setup-screen .setup-policy"]) {
+        const pEl = document.querySelector(pSel);
+        if (!pEl || !vis(pEl)) continue;
+        const pr = rectOf(pEl);
+        const pcs = getComputedStyle(pEl);
+        const k = pEl.offsetHeight > 0 ? pr.height / pEl.offsetHeight : 1;
+        const limit = pr.bottom - ((parseFloat(pcs.paddingBottom) || 0) + (parseFloat(pcs.borderBottomWidth) || 0)) * k;
+        const last = [...pEl.querySelectorAll("*")].filter(vis).reduce((m, el) => Math.max(m, rectOf(el).bottom), 0);
+        if (last > limit + 0.5) overlaps.push(`패널 넘침 ${pSel} ${(last - limit).toFixed(1)}px`);
       }
       const piEl = document.querySelector(".lesson-screen .ls-pinfo.on");
       const scrEl = document.querySelector(".lesson-screen");

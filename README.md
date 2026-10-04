@@ -34,7 +34,7 @@ npm run serve        # python -m http.server 8080  →  http://localhost:8080
 
 ```bash
 npm i                # devDependency(jsdom) 설치 — UI 스모크 테스트용. 없어도 엔진 테스트는 돌아간다
-npm test             # node --test (rng · zones · cards · lesson · lessonRun · manager · cardEffects · lessonRules · run · match · v05 · challenge · layout · orient · stage · lineup · lessonLayout · outgame · lessonUi · ui 스모크 · ultimates, 365 테스트)
+npm test             # node --test (rng · zones · cards · lesson · lessonRun · manager · cardEffects · lessonRules · passives · run · match · v05 · challenge · layout · orient · stage · lineup · lessonLayout · outgame · lessonUi · ui 스모크 · ultimates, 370 테스트)
 npm run lesson-sim   # node tools/lesson_sim.mjs --runs 200 --seed 1  (카드 레슨 런: 감독 AI + 실제 경기, 방침별 스탯 · 승률 · 클리어율 · 부상 · 덱 · TP/SP, 구역 지표 — 기본 훈련 비중 · 고르게 크기 · 벤치 · 일반/특별 점수 p30/p90)
 npm run sim          # node tools/sim.mjs --runs 300 --seed 1  (옛 육성 런: 시즌별 승률·등급 분포·부상·우정 훈련·골 · 박스 연결 · GK 배급 · 마지막 공격 · 대이변)
 node tools/shot.mjs <출력폴더>   # 로컬 Chrome으로 경기(01~34 — 레슨 런의 친선전 · 경계전에서 찾음, 28 = 부상 선수 경기 출전, 29~34 = 새 필살기 종류 · 등급 컷인 · 풍뢰일섬 · 확정 배급)·아웃게임(og_* — 주 · 레슨 · 보상 · 상담 · 준비 · 도전 모드 등) 시나리오 스크린샷 (puppeteer-core, 1280×720). 요약 끝 줄 = 스크롤 · 잘린 글자 · HUD 겹침 · 상태 · 에러 검사에 걸린 시나리오

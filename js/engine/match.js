@@ -476,6 +476,7 @@ function initTeam(snapshot, side, m, data) {
   team.gaanpaTickets = Math.max(0, Math.round(num(tickets, 0)));
   const half = snapshot.gaanpaCostHalf != null ? snapshot.gaanpaCostHalf : team.modifiers.gaanpaCostHalf;
   team.gaanpaCostHalf = half === true || num(half, 0) > 0;
+  if (team.partyPassives != null && !Array.isArray(team.partyPassives)) throw new Error(`match: ${side} 팀 partyPassives 는 배열이어야 합니다`); // 코치 파티 패시브 (레슨판 L48)
   team.tension = num(m.tension && m.tension.start, 20);
   team.live = {};
   const uc = ultCfg(m);

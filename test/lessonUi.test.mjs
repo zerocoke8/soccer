@@ -7,7 +7,10 @@
 //  - 벤치: 명단 [벤치] → 벤치 칸 · 토큰 숨김 · 칸 누르기 = 복귀 · B 키 · 최대 2명 / [턴 끝] → 새 배치 · 벤치 비움 / 레슨 끝 → 보상 모달
 //  - 코치 지원 (§15.8): 붙은 카드 칩 · 코치 색 · 컷인 덮개 (누르기 · Esc · 시간 = 닫힘) · 짧은 판 · no-anim 안내 · 능력 알약
 //  - U4 보상: 클리어 카드 고르기 · 건너뛰기(TP) · 퍼펙트 무료 강화 그리드 · 실패 [계속]
-//  - U4 상담: 구매 · 강화(고른 카드는 다시 그려도 남음) · 고유 카드 삭제 확인 모달 · 스킬(배울 선수) · 오류 토스트 · 끝내기
+//  - U4 상담: 구매 · 강화(고른 카드는 다시 그려도 남음) · 고유 카드 삭제 확인 모달 · 오류 토스트 · 끝내기
+//  - L48 패시브: 상담 패시브 칸 (선수 7 × 3 칩 상태 · 칩 누르기 = 습득 · [크게 보기] 모달) · 주 [✦ 패시브 · SP] 배지 → 상점 모달
+//    (고유 먼저 · 할인 · 보유 · SP 부족 · 추천 · 사면 모달은 열린 채 · 저장 · 닫으면 다시 그림 · 오류 토스트) · 코치 칸 파티 패시브 ·
+//    경기 전 준비 파티 패시브 목록 · [✦ 패시브] (사도 편집 중 배치 유지) · 보상 SP 칩 · 선수 힌트 · 수업 바꾸기 = 액티브만
 // 연출은 prefers-reduced-motion 으로 줄여(타이머 0ms) 빨리 끝낸다. 끌기는 jsdom 에 레이아웃이 없어 lesson_layout.pointerToField 단위 테스트
 // (lessonLayout.test) + 브라우저 스크린샷(tools/shot.mjs og_lesson_drag*)으로 본다. 레이아웃(넘침 · 잘림 · 겹침)도 스크린샷으로.
 import { test } from "node:test";
@@ -736,11 +739,14 @@ test("jsdom: 레슨 화면 (구역) — 골격 · 조준 · 키보드 · 벤치 
   // =====================================================================
   const { perfectRewardState } = await import(pathToFileURL(path.join(ROOT, "tools/lesson_scenarios.mjs")).href);
   const savedRun = () => JSON.parse(window.localStorage.getItem(KEYS.run));
-  // 클리어 (퍼펙트 아님) 보상이 나오는 첫 시드 — 밸런스가 바뀌면 (L40 등) 시드 "lesson-ui" 의 레슨이 모두 퍼펙트일 수 있다
-  const clearWalk = ["lesson-ui", "lesson-ui-2", "lesson-ui-3", "lesson-ui-4", "lesson-ui-5"]
-    .map((seed) => walkLesson(data, { seed, until: (s) => s.phase === "reward" && s.pendingReward?.result?.status === "clear" && s.pendingReward.offer.length > 0 }))
-    .find(Boolean);
-  assert.ok(clearWalk, "클리어 보상 상태 (시드 5개 안에서)");
+  // 클리어 (퍼펙트 아님) 보상이 나오는 첫 시드 — 밸런스가 바뀌면 (L40 · L48 등) 시드 "lesson-ui" 의 레슨이 모두 퍼펙트일 수 있다 (L48: 숫자 시드 1 에서 나온다)
+  const clearSeeds = ["lesson-ui", "lesson-ui-2", "lesson-ui-3", 1, 2, 3, 4, 5, 6, 7, 8, 9];
+  let clearWalk = null;
+  for (const seed of clearSeeds) {
+    clearWalk = walkLesson(data, { seed, until: (s) => s.phase === "reward" && s.pendingReward?.result?.status === "clear" && s.pendingReward.offer.length > 0 });
+    if (clearWalk) break;
+  }
+  assert.ok(clearWalk, `클리어 보상 상태 (시드 ${clearSeeds.length}개 안에서)`);
   // 코치 수업 (§18.6) 이 남은 보상이면 화면 버튼으로 감독 추천대로 받고 (선수 칩 → [가르치기] / [배우지 않기]) 그 뒤 상태를 돌려준다
   const teachUi = (st) => {
     putRun(st);
@@ -773,11 +779,13 @@ test("jsdom: 레슨 화면 (구역) — 골격 · 조준 · 키보드 · 벤치 
   assert.ok(teachWalk, "수업 2개가 남은 보상 상태");
   const teach0 = teachWalk.state;
   const tList = teach0.pendingReward.teach;
-  // 두 수업을 모두 받을 수 있는 선수 하나를 가득 (습득 3 — 포지션 제한 없는 패시브) 으로 만들어 바꾸기 줄을 본다
-  const passives = data.skills.filter((k) => k.kind === "passive" && k.learnable && !(k.positions || []).length).map((k) => k.id);
+  // 두 수업을 모두 받을 수 있는 선수 하나를 가득 (액티브 3 — 포지션 제한 없는 액티브, 두 수업 스킬 말고) + 패시브 1 로 만들어 바꾸기 줄을 본다.
+  // L48: 스킬 칸 3 = 액티브 몫 — 패시브는 칸을 쓰지 않고 바꾸기 줄에도 없다 (엔진 resolveTeach 가 패시브 바꾸기를 거절)
+  const freeActs = data.skills.filter((k) => k.kind === "active" && k.learnable && !(k.positions || []).length && k.id !== tList[0].skillId && k.id !== tList[1].skillId).map((k) => k.id);
   const fullP = teach0.players.find((p) => lessonRun.canTeachSkill(teach0, data, tList[1].skillId, p.id).ok && lessonRun.canTeachSkill(teach0, data, tList[0].skillId, p.id).ok);
-  assert.ok(fullP && passives.length >= 3);
-  fullP.learnedSkillIds = passives.slice(0, 3);
+  assert.ok(fullP && freeActs.length >= 3);
+  const fullPas = lessonRun.getPassiveShopView(teach0, data).players.find((x) => x.id === fullP.id).rows.find((r) => r.ok).skillId;
+  fullP.learnedSkillIds = [...freeActs.slice(0, 3), fullPas];
   putRun(teach0);
   let tv = lessonRun.getRewardView(S.store.run, data).teach;
   assert.ok($(".reward-modal .rw-teach"), "수업 칸");
@@ -821,16 +829,19 @@ test("jsdom: 레슨 화면 (구역) — 골격 · 조준 · 키보드 · 벤치 
   const gray = tv.cur.players.find((p) => !p.ok);
   if (gray) assert.ok($(`.rw-teach-pl[data-pid="${gray.id}"]`).disabled && $(`.rw-teach-pl[data-pid="${gray.id}"]`).textContent.includes(gray.reason), "포지션 · 보유 이유 회색");
   assert.equal($$(".rw-teach-rep").length, 0, "고르기 전 바꿀 스킬 줄 없음");
+  assert.match($(`.rw-teach-pl[data-pid="${fullP.id}"]`).textContent, /●●● 가득 — 바꾸기/, "액티브 3 = 가득 (패시브는 세지 않는다)");
   $(`.rw-teach-pl[data-pid="${fullP.id}"]`).click();
-  assert.ok($(".rw-teach-rep"), "가득 → 바꿀 스킬 줄");
-  assert.equal($$(".rw-teach-rep .rw-rep-btn").length, 3, "습득 스킬 3개");
+  assert.ok($(".rw-teach-rep"), "가득 → 바꿀 액티브 줄");
+  assert.equal($$(".rw-teach-rep .rw-rep-btn").length, 3, "바꿀 수 있는 것 = 액티브 3개");
+  assert.deepEqual($$(".rw-teach-rep .rw-rep-btn").map((b) => b.dataset.skill), freeActs.slice(0, 3), "패시브는 바꾸기 목록에 없다");
+  assert.equal($$(`.rw-rep-btn[data-skill="${fullPas}"]`).length, 0, "패시브 버튼 없음");
   assert.ok($(".rw-teach-ok").disabled, "바꿀 스킬 고르기 전 [가르치기] 꺼짐");
-  const repId = passives[1];
+  const repId = freeActs[1];
   $(`.rw-rep-btn[data-skill="${repId}"]`).click();
   assert.ok(!$(".rw-teach-ok").disabled, "바꿀 스킬 고름 → 켜짐");
   assert.match($(".rw-summary").textContent, /→/);
   $(".rw-teach-ok").click();
-  assert.deepEqual(S.store.run.players.find((p) => p.id === fullP.id).learnedSkillIds, [passives[0], tList[1].skillId, passives[2]], "바꾸기 = 그 자리");
+  assert.deepEqual(S.store.run.players.find((p) => p.id === fullP.id).learnedSkillIds, [freeActs[0], tList[1].skillId, freeActs[2], fullPas], "바꾸기 = 그 자리 (패시브는 그대로)");
   assert.equal(S.store.run.pendingReward.teach[1].replaced, repId);
   // 수업이 모두 끝남 → 카드 고르기
   assert.ok(!$(".rw-teach") && $(".rw-offer .card-face"), "수업 끝 → 카드 고르기");
@@ -869,6 +880,19 @@ test("jsdom: 레슨 화면 (구역) — 골격 · 조준 · 키보드 · 벤치 
   assert.ok($(".rw-score-n").textContent === String(rv.result.score) && $(".rw-score-t").textContent.includes(String(rv.result.target)), "점수 · 목표");
   assert.equal($$(".rw-players .rw-pl").length, 7, "선수 7 상승");
   assert.ok($(".rw-chip.tp").textContent.includes(`+${rv.result.tp}`), "TP 칩");
+  // L48: SP 칩 = 이번 레슨 SP 합 (레슨 SP + 힌트 없음 SP) — TP 바로 옆
+  assert.ok(rv.result.sp > 0 && rv.result.spLesson > 0, "클리어 = 레슨 SP");
+  assert.ok($(".rw-chip.sp") && $(".rw-chip.sp").textContent.includes(`+${rv.result.sp}`), "SP 칩 = result.sp");
+  assert.equal($(".rw-chip.tp").nextElementSibling, $(".rw-chip.sp"), "SP 칩은 TP 칩 옆");
+  // L48: 선수 힌트 (src "player") = 선수 얼굴 + "울리카 · 측면 질주 Lv1"
+  const plHints = rv.result.hints.filter((x) => x.src === "player");
+  assert.ok(plHints.length >= 1, "클리어 = 선수 힌트");
+  assert.equal($$(".rw-chip.hint .rw-hint-pl").length, plHints.length, "선수 힌트 줄 = src player");
+  for (const x of plHints) {
+    const el = $(`.rw-chip.hint .rw-hint-pl[data-pid="${x.playerId}"]`);
+    assert.ok(el && el.querySelector(".avatar.rw-face"), `${x.playerName}: 선수 얼굴`);
+    assert.ok(el.textContent.includes(`${x.playerName} · ${x.name} Lv${x.level}`), `"${x.playerName} · ${x.name} Lv${x.level}"`);
+  }
   // 코치 지원 칩 (§15.8 ③): "코치 지원 N번" + 코치 얼굴, 컷인 힌트 = 얼굴 + "지원"
   assert.equal($$(".rw-chip.coach-sup").length, rv.result.cutins.length ? 1 : 0, "코치 지원 칩 (\"지원 N번\") = 컷인이 있으면");
   if (rv.result.cutins.length) {
@@ -971,10 +995,10 @@ test("jsdom: 레슨 화면 (구역) — 골격 · 조준 · 키보드 · 벤치 
   const consult0 = walkLesson(data, { seed: "lesson-ui", until: (s) => s.phase === "consult" }).state;
   consult0.trainingPoints = 200;
   consult0.skillPoints = 600;
-  // 상담은 패시브만 판다 (§18.5) — 편성 코치마다 첫 패시브 힌트
-  for (const st of consult0.supports) {
-    const id = (data.supports.find((x) => x.id === st.id)?.hintSkillIds || []).find((k) => data.skills.find((x) => x.id === k)?.kind === "passive");
-    if (id) consult0.hints[id] = 2;
+  // 패시브 힌트 (L48): 선수마다 고유 패시브에 힌트 Lv2 → 상점 할인 (원가 취소선 · Lv)
+  for (const p of lessonRun.getPassiveShopView(consult0, data).players) {
+    const uq = p.rows.find((r) => r.unique);
+    if (uq) consult0.hints[uq.skillId] = 2;
   }
   putRun(consult0);
   let cv = lessonRun.getConsultView(S.store.run, data);
@@ -982,17 +1006,34 @@ test("jsdom: 레슨 화면 (구역) — 골격 · 조준 · 키보드 · 벤치 
   assert.equal($$(".cs-stock .cs-item").length, cv.stock.length, "진열");
   assert.ok($$(".cs-stock .cs-item").every((e, i) => e.textContent.includes(`${cv.stock[i].price} TP`)), "가격");
   assert.equal($$(".cs-deck-grid .mini-card").length, cv.deck.length, "덱 그리드");
-  assert.equal($$(".cs-skill").length, cv.skills.length, "스킬 줄");
-  assert.ok(cv.skills.length >= 2);
-  // §18.5: 패시브만 · 액티브는 코치 수업 안내 한 줄 (옛 상태에 액티브 힌트가 남아도 진열하지 않는다)
-  assert.equal($(".cs-skills .og-panel-title").textContent, "패시브 스킬 (SP)", "스킬 칸 머리");
-  assert.ok(cv.skills.every((x) => x.kind === "passive") && $$(".cs-skill").every((e) => data.skills.find((k) => k.id === e.dataset.skill)?.kind === "passive"), "패시브만");
-  assert.equal($(".cs-active-note").textContent, "액티브 스킬은 레슨 보상에서 코치가 가르쳐 줍니다.", "액티브 안내");
-  assert.ok($$(".cs-wait-chip").every((e) => data.skills.find((k) => k.name === e.textContent)?.kind === "passive"), "힌트 대기도 패시브만");
+  // L48: 패시브 칸 = 선수 7 × 자기 패시브 3 (고유 먼저) — 상점 뷰 (getPassiveShopView) 와 같은 칩 상태 · 액티브는 코치 수업 안내
+  const shop0 = lessonRun.getPassiveShopView(S.store.run, data);
+  assert.equal($(".cs-skills .og-panel-title").textContent, "패시브 (SP)", "패시브 칸 머리");
+  assert.equal($$(".cs-skills .ps-grid.compact .ps-row").length, 7, "선수 7줄");
+  assert.equal($$(".cs-skill").length, 0, "옛 스킬 줄 (선수 select) 없음");
+  const chipKey = (r) => (r.owned ? "owned" : !r.ok ? "locked" : !r.affordable ? "poor" : "buy");
+  for (const p of shop0.players) {
+    const chips = $$(`.cs-skills .ps-row[data-pid="${p.id}"] .ps-chip`);
+    assert.equal(chips.length, p.rows.length, `${p.name}: 칩 = 자기 패시브 ${p.rows.length}`);
+    assert.ok(chips[0].classList.contains("unique") && chips[0].dataset.skill === p.rows.find((r) => r.unique).skillId, `${p.name}: 고유 먼저`);
+    for (const r of p.rows) {
+      const el = $(`.cs-skills .ps-chip[data-pid="${p.id}"][data-skill="${r.skillId}"]`);
+      assert.equal(el.dataset.state, chipKey(r), `${p.name} '${r.name}': 상태 ${chipKey(r)}`);
+      assert.equal(el.disabled, chipKey(r) !== "buy", `${p.name} '${r.name}': 살 수 있을 때만 켜짐`);
+      assert.ok(el.title.includes(r.description), `${p.name} '${r.name}': 설명은 title`);
+      if (chipKey(r) === "buy" && r.level > 0) {
+        assert.equal(el.querySelector(".ps-base")?.textContent, String(r.baseCost), `${r.name}: 원가 취소선`);
+        assert.ok(el.querySelector(".ps-cost b").textContent === String(r.cost) && el.querySelector(".ps-lv").textContent === `Lv${r.level}`, `${r.name}: 할인 값 · Lv`);
+      }
+      if (chipKey(r) === "locked") assert.ok(el.textContent.includes(r.reason), `${r.name}: 이유`);
+    }
+  }
+  assert.match($(".cs-active-note").textContent, /액티브 스킬은 레슨 보상에서 코치가 가르쳐 줍니다\./, "액티브 안내");
   assert.ok($(".cs-head .cs-tp").textContent.includes("200") && $(".cs-head .cs-sp").textContent.includes("600"), "TP · SP");
   assert.ok($(".cs-detail.empty"), "고른 카드 없음 안내");
   const crec = S.manager.recommendConsult(S.store.run, data);
   assert.ok($$(".consult-screen .recommended").length >= 1 || crec.op === "end", "추천 배지");
+  if (crec.op === "skill") assert.ok($(`.cs-skills .ps-chip[data-pid="${crec.playerId}"][data-skill="${crec.skillId}"]`).classList.contains("recommended"), "패시브 추천 = recommendConsult skill");
 
   // 구매
   const price0 = cv.stock[0].price;
@@ -1038,19 +1079,28 @@ test("jsdom: 레슨 화면 (구역) — 골격 · 조준 · 키보드 · 벤치 
   $(`.cs-deck-grid .mini-card[data-uid="${basicUid}"]`).click();
   assert.ok($(".cs-ops .cs-delete").disabled, "남은 삭제 0 → 꺼짐");
 
-  // 스킬: 선수 고르기(select) → [배우기]
-  cv = lessonRun.getConsultView(S.store.run, data);
-  const sk = cv.skills.find((x) => x.affordable && x.eligiblePlayers.length >= 2) || cv.skills.find((x) => x.affordable && x.eligiblePlayers.length);
-  const row = $(`.cs-skill[data-skill="${sk.skillId}"]`);
-  const who = sk.eligiblePlayers.at(-1);
-  const selEl = row.querySelector(".cs-sk-player");
-  selEl.value = who;
-  selEl.dispatchEvent(new window.Event("change", { bubbles: true }));
-  assert.equal(S.store.consultUi.skillPick[sk.skillId], who, "배울 선수 → consultUi");
+  // 패시브: 칩 누르기 = consultAction skill 1번 → 습득 · SP −(힌트 할인 값) · 저장 · 칩 ✓ 보유 (다시 그림)
+  const shopC = lessonRun.getPassiveShopView(S.store.run, data);
+  const buyP = shopC.players.find((p) => p.rows.some((r) => r.affordable && r.level > 0));
+  const buyR = buyP.rows.find((r) => r.affordable && r.level > 0);
   const sp0 = S.store.run.skillPoints;
-  row.querySelector(".cs-learn").click();
-  assert.ok(S.store.run.players.find((p) => p.id === who).learnedSkillIds.includes(sk.skillId), "스킬 습득");
-  assert.equal(S.store.run.skillPoints, sp0 - sk.cost, "SP −비용");
+  const passivesBefore = S.store.run.players.map((p) => p.learnedSkillIds.length);
+  $(`.cs-skills .ps-chip[data-pid="${buyP.id}"][data-skill="${buyR.skillId}"]`).click();
+  assert.ok(S.store.run.players.find((p) => p.id === buyP.id).learnedSkillIds.includes(buyR.skillId), "패시브 습득 (그 선수)");
+  assert.deepEqual(S.store.run.players.map((p, i) => p.learnedSkillIds.length - passivesBefore[i]), S.store.run.players.map((p) => (p.id === buyP.id ? 1 : 0)), "다른 선수는 그대로");
+  assert.equal(S.store.run.skillPoints, sp0 - buyR.cost, "SP −할인 값");
+  assert.ok(buyR.cost < buyR.baseCost, "힌트 할인이 걸린 값");
+  assert.ok(savedRun().players.find((p) => p.id === buyP.id).learnedSkillIds.includes(buyR.skillId), "저장");
+  assert.equal($(`.cs-skills .ps-chip[data-pid="${buyP.id}"][data-skill="${buyR.skillId}"]`).dataset.state, "owned", "칩 ✓ 보유");
+  assert.ok($(".cs-head .cs-sp").textContent.includes(String(sp0 - buyR.cost)), "머리 SP 갱신");
+  // [크게 보기] = 같은 상점 모달 (설명 줄) — 닫기
+  $(".cs-skills .cs-ps-open").click();
+  assert.ok($("#modal-root .modal.passive-shop"), "[크게 보기] → 상점 모달");
+  assert.equal($$("#modal-root .ps-row").length, 7, "모달: 선수 7줄");
+  assert.equal($$("#modal-root .ps-desc").length, shopC.players.reduce((n, p) => n + p.rows.length, 0), "모달: 칩마다 설명 줄");
+  assert.equal($(`#modal-root .ps-chip[data-pid="${buyP.id}"][data-skill="${buyR.skillId}"]`).dataset.state, "owned", "모달: 산 패시브 ✓");
+  $("#modal-root .ps-close").click();
+  assert.equal($$("#modal-root .overlay").length, 0, "모달 닫힘");
   noErrorToast("상담");
 
   // 오류는 토스트 · 상태 그대로 (이미 산 진열 카드를 다시 사기)
@@ -1083,5 +1133,139 @@ test("jsdom: 레슨 화면 (구역) — 골격 · 조준 · 키보드 · 벤치 
   putRun(prep0);
   assert.match($(".prep-opp").textContent, /부상 선수 없음 — 7명 모두 출전/);
   noErrorToast("경기 전 준비");
+
+  // =====================================================================
+  // L48 패시브: 주 [✦ 패시브 · SP] 버튼 · 배지 → 상점 모달 (칩 상태 · 사기 = 모달 열린 채 · 저장 · 닫으면 다시 그림) · 오류 토스트 ·
+  //            주 코치 칸 파티 패시브 · 경기 전 준비 파티 패시브 목록 · [✦ 패시브] (사도 편집 중인 배치 유지)
+  // =====================================================================
+  const week0 = walkLesson(data, { seed: "lesson-ui", until: (s) => s.phase === "week" && s.turn >= 2 }).state;
+  week0.skillPoints = 0;
+  putRun(week0);
+  let wv = lessonRun.getWeekView(S.store.run, data);
+  assert.equal(wv.shopBuyable, 0);
+  assert.ok($(".week-bar .ps-open") && /패시브 · SP 0/.test($(".week-bar .ps-open").textContent), "주: [✦ 패시브 · SP 0]");
+  assert.ok(!$(".week-bar .ps-badge") && !$(".week-bar .ps-open").classList.contains("has-buy"), "SP 0 → 배지 없음");
+  // 고유 패시브마다 힌트 Lv (1 ~ 3 돌아가며) · SP 100 (값 100 넘는 칩 = SP 부족)
+  lessonRun.getPassiveShopView(week0, data).players.forEach((p, i) => { const uq = p.rows.find((r) => r.unique && r.ok); if (uq) week0.hints[uq.skillId] = 1 + (i % 3); });
+  week0.skillPoints = 100;
+  putRun(week0);
+  wv = lessonRun.getWeekView(S.store.run, data);
+  assert.ok(wv.shopBuyable > 0);
+  assert.equal($(".week-bar .ps-open .ps-badge").textContent, String(wv.shopBuyable), "배지 = shopBuyable");
+  assert.ok($(".week-bar .ps-open").classList.contains("has-buy") && /SP 100/.test($(".week-bar .ps-open").textContent));
+  // 코치 칸 파티 패시브 (이름 · 글, 유대 80 = ★)
+  assert.ok(wv.partyPassives.length >= 1, "주 뷰 partyPassives");
+  for (const pp of wv.partyPassives) {
+    const el = $(`.roster .bond-row[data-coach="${pp.coachId}"] .bond-pp`);
+    assert.ok(el && el.textContent.includes(pp.name) && el.textContent.includes(pp.text), `코치 칸: ${pp.coachName} 파티 패시브 '${pp.name}'`);
+    assert.equal(el.classList.contains("up"), pp.upgraded);
+  }
+  // 상점 모달: 선수 7 × 3 — 고유 먼저 ("고유" 표시) · 상태 (보유 / 이유 / SP 부족 / 살 수 있음) · 힌트 할인 · 설명
+  $(".week-bar .ps-open").click();
+  assert.ok($("#modal-root .modal.modal-xl.passive-shop"), "주: [✦ 패시브] → 상점 모달");
+  let sv = lessonRun.getPassiveShopView(S.store.run, data);
+  assert.equal($$("#modal-root .ps-row").length, 7, "선수 7줄");
+  assert.match($("#modal-root .ps-sp").textContent, /SP 100/);
+  for (const p of sv.players) {
+    const row = $(`#modal-root .ps-row[data-pid="${p.id}"]`);
+    assert.ok(row.querySelector(".ps-who .avatar") && row.querySelector(".ps-who").textContent.includes(p.name) && row.querySelector(".ps-who").textContent.includes(`보유 ${p.owned}/${p.rows.length}`), `${p.name}: 얼굴 · 이름 · 보유 수`);
+    const chips = [...row.querySelectorAll(".ps-chip")];
+    assert.equal(chips.length, 3, `${p.name}: 칩 3`);
+    assert.ok(chips[0].classList.contains("unique") && chips[0].querySelector(".ps-uq").textContent === "고유" && chips.slice(1).every((c) => !c.querySelector(".ps-uq")), `${p.name}: 고유 먼저 · "고유" 표시`);
+    for (const r of p.rows) {
+      const el = row.querySelector(`.ps-chip[data-skill="${r.skillId}"]`);
+      assert.equal(el.dataset.state, chipKey(r), `${p.name} '${r.name}' 상태`);
+      assert.equal(el.querySelector(".ps-desc").textContent, r.description, `${r.name}: 설명 줄`);
+      if (chipKey(r) === "owned") assert.match(el.textContent, /✓ 보유/);
+      if (chipKey(r) === "poor") assert.ok(el.disabled && el.querySelector(".ps-cost.bad"), `${r.name}: SP 부족 = 꺼짐 · 빨간 값`);
+      if (r.level > 0 && chipKey(r) !== "owned" && r.ok) {
+        assert.equal(el.querySelector(".ps-base").textContent, String(r.baseCost), `${r.name}: 원가 취소선`);
+        assert.equal(el.querySelector(".ps-lv").textContent, `힌트 Lv${r.level}`);
+      }
+    }
+  }
+  const prec = S.manager.recommendPassive(S.store.run, data);
+  assert.ok(prec && $(`#modal-root .ps-chip[data-pid="${prec.playerId}"][data-skill="${prec.skillId}"]`).classList.contains("recommended"), "추천 = manager.recommendPassive");
+  // 꺼진 칩 (SP 부족) 누르기 = 아무것도 안 함
+  const poorRow = sv.players.flatMap((p) => p.rows.map((r) => ({ p, r }))).find((x) => chipKey(x.r) === "poor");
+  assert.ok(poorRow, "SP 100 → SP 부족 칩이 있다");
+  {
+    const snapP = JSON.stringify(S.store.run);
+    $(`#modal-root .ps-chip[data-pid="${poorRow.p.id}"][data-skill="${poorRow.r.skillId}"]`).click();
+    assert.equal(JSON.stringify(S.store.run), snapP, "SP 부족 칩 = 엔진 호출 없음");
+  }
+  // 사기: 추천 칩 → 엔진 buyPassive · SP −값 · 저장 · 모달은 열린 채 (칩 ✓ · 반짝) · 주는 그대로
+  const buyRow = sv.players.find((p) => p.id === prec.playerId).rows.find((r) => r.skillId === prec.skillId);
+  const wTurn = S.store.run.turn;
+  $(`#modal-root .ps-chip[data-pid="${prec.playerId}"][data-skill="${prec.skillId}"]`).click();
+  assert.ok(S.store.run.players.find((p) => p.id === prec.playerId).learnedSkillIds.includes(prec.skillId), "모달 사기 → 습득");
+  assert.equal(S.store.run.skillPoints, 100 - buyRow.cost, "SP −값");
+  assert.ok(savedRun().players.find((p) => p.id === prec.playerId).learnedSkillIds.includes(prec.skillId) && savedRun().skillPoints === 100 - buyRow.cost, "저장");
+  assert.equal(S.store.run.phase, "week", "주 그대로");
+  assert.equal(S.store.run.turn, wTurn, "주를 쓰지 않는다");
+  assert.ok($("#modal-root .passive-shop"), "모달은 열린 채");
+  const boughtEl = $(`#modal-root .ps-chip[data-pid="${prec.playerId}"][data-skill="${prec.skillId}"]`);
+  assert.ok(boughtEl.dataset.state === "owned" && boughtEl.classList.contains("just") && boughtEl.disabled, "산 칩 = ✓ 보유 (반짝)");
+  assert.match($("#modal-root .ps-sp").textContent, new RegExp(`SP ${100 - buyRow.cost}`), "모달 SP 갱신");
+  assert.ok($$("#toast-root .toast-info").some((e) => e.textContent.includes(buyRow.name)), "로그 토스트");
+  assert.ok(/SP 100/.test($(".week-bar .ps-open").textContent), "닫기 전 배경은 그대로");
+  $("#modal-root .ps-close").click();
+  assert.equal($$("#modal-root .overlay").length, 0, "닫기");
+  wv = lessonRun.getWeekView(S.store.run, data);
+  assert.ok(new RegExp(`SP ${100 - buyRow.cost}`).test($(".week-bar .ps-open").textContent), "닫으면 주 화면 다시 그림 (SP)");
+  assert.equal($(".week-bar .ps-badge")?.textContent ?? "0", String(wv.shopBuyable || 0), "배지 갱신");
+  noErrorToast("패시브 상점 (주)");
+  // 오류: 이미 가진 패시브를 다시 사기 → 오류 토스트 · 상태 그대로 · false
+  const snapW = JSON.stringify(S.store.run);
+  assert.equal(S.actions.buyPassive({ skillId: prec.skillId, playerId: prec.playerId }), false, "실패 = false");
+  assert.equal(JSON.stringify(S.store.run), snapW, "실패 = 상태 그대로");
+  assert.ok($$("#toast-root .toast-error").some((e) => /살 수 없습니다/.test(e.textContent)), "오류 토스트 (엔진 문구)");
+  for (const e of $$("#toast-root .toast")) e.remove();
+  consoleErrors.length = 0; // safe() 가 남긴 의도한 오류
+  // 유대 80 코치 = ★ 금색
+  const w80 = clone(S.store.run);
+  w80.supports[0].bond = data.lesson.bond.upgradeAt;
+  putRun(w80);
+  assert.ok($(`.roster .bond-row[data-coach="${w80.supports[0].id}"] .bond-pp.up`)?.textContent.includes("★"), "유대 80 = ★");
+
+  // 경기 전 준비: 왼쪽 칸 파티 패시브 목록 · 편집기 아래 [✦ 패시브] — 사도 편집 중인 배치 · 전술은 그대로, 상단 바 SP 만 갱신
+  const prepP = clone(prep0);
+  prepP.skillPoints = 300;
+  prepP.supports[0].bond = data.lesson.bond.upgradeAt;
+  putRun(prepP);
+  const pv = lessonRun.getPrepView(S.store.run, data);
+  assert.ok(pv.partyPassives.length >= 1 && pv.shopBuyable > 0);
+  assert.equal($$(".prep-opp .po-party .pp-item").length, pv.partyPassives.length, "준비: 파티 패시브 = 편성 코치");
+  assert.match($(".prep-opp .po-party").textContent, /이번 경기 내내/);
+  for (const pp of pv.partyPassives) {
+    const el = $(`.prep-opp .pp-item[data-coach="${pp.coachId}"]`);
+    assert.ok(el.querySelector(".avatar") && el.querySelector(".pp-name").textContent === pp.name && el.querySelector(".pp-text").textContent === pp.text, `준비: ${pp.coachName} — 얼굴 · 이름 · 글`);
+    assert.equal(!!el.querySelector(".pp-up"), pp.upgraded, `준비: ${pp.name} 유대 80 표시`);
+    if (!pp.upgraded && pp.text80) assert.ok(el.querySelector(".pp-80") && el.title.includes(pp.text80), `준비: ${pp.name} 유대 80 글`);
+  }
+  assert.equal($(".prep-edit .ps-open .ps-badge").textContent, String(pv.shopBuyable), "준비: [✦ 패시브] 배지");
+  const pDf2 = $('.prep-edit .lu-slot[data-slot="DF2"]').dataset.pid;
+  const pMf1 = $('.prep-edit .lu-slot[data-slot="MF1"]').dataset.pid;
+  $('.prep-edit .lu-slot[data-slot="DF2"]').click();
+  $('.prep-edit .lu-slot[data-slot="MF1"]').click(); // 탭으로 맞바꾸기 (편집기 안에서만)
+  assert.equal($('.prep-edit .lu-slot[data-slot="MF1"]').dataset.pid, pDf2, "준비: 편집 중 맞바꿈");
+  $(".prep-edit .ps-open").click();
+  assert.ok($("#modal-root .passive-shop"), "준비: 상점 모달");
+  const prec2 = S.manager.recommendPassive(S.store.run, data);
+  const cost2 = lessonRun.getPassiveShopView(S.store.run, data).players.find((p) => p.id === prec2.playerId).rows.find((r) => r.skillId === prec2.skillId).cost;
+  $(`#modal-root .ps-chip[data-pid="${prec2.playerId}"][data-skill="${prec2.skillId}"]`).click();
+  assert.equal(S.store.run.phase, "prep");
+  assert.equal(S.store.run.skillPoints, 300 - cost2, "준비: SP −값");
+  $("#modal-root .ps-close").click();
+  assert.equal($('.prep-edit .lu-slot[data-slot="MF1"]').dataset.pid, pDf2, "준비: 사고 닫아도 편집 중인 배치 그대로");
+  assert.equal($('.prep-edit .lu-slot[data-slot="DF2"]').dataset.pid, pMf1);
+  assert.ok($(".prep-screen .topbar").textContent.includes(`SP ${300 - cost2}`), "준비: 상단 바 SP 갱신");
+  assert.ok(new RegExp(`SP ${300 - cost2}`).test($(".prep-edit .ps-open").textContent), "준비: 버튼 SP 갱신");
+  $(".prep-edit .prep-go").click();
+  assert.equal(S.store.run.phase, "match", "준비: [경기 시작]");
+  assert.ok(S.store.run.players.find((p) => p.id === pDf2).slot === "MF1", "준비: 사기 전에 맞바꾼 배치로 경기");
+  noErrorToast("패시브 (준비)");
+  S.store.screen = "start"; // 경기 화면 타이머를 멈춘다 (render 가 matchUi.timer 를 지운다)
+  S.render();
   assert.deepEqual(consoleErrors, [], "console.error 없음");
 });

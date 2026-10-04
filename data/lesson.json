@@ -46,8 +46,8 @@
   "rewards": {
     "offer": 3,
     "skipTp": 10,
-    "clear": { "tp": 10, "hints": 1 },
-    "perfect": { "tp": 20, "hints": 2, "freeUpgrades": 1 },
+    "clear": { "tp": 10, "sp": 20, "hints": 1, "playerHints": 1 },
+    "perfect": { "tp": 20, "sp": 35, "hints": 1, "playerHints": 2, "freeUpgrades": 1 },
     "plusChance": { "special": 0.3, "perfect": 0.5, "max": 0.7 },
     "weights": { "common": 1, "policy": 1, "coachBase": 2, "coachRef": 0.4, "uniquePlus": 0.5 },
     "noHintSp": 10,

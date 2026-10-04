@@ -1,7 +1,7 @@
 // js/ui/screens/reward.js — 레슨 결과 · 보상 모달 (phase reward, 배경 = 레슨 화면 inert)
 // LESSON_PROTO_PLAN §6.3 "보상 모달" (openModal closable:false, 'modal-xl reward-modal'):
 //   ┌ ➡️ 패스 중점 ★특별 레슨 · 퍼펙트!  점수 [█████████████|] 702 / 목표 495 / 퍼펙트 624      카드 12 · 벤치 1 · 실패 0 ┐
-//   │ TP +20 · 힌트 스루패스 Lv2 · 팀워크 +3 (레슨 중 +5) · 유대 오르넬라 +13 …                                          │
+//   │ TP +20 · SP +35 · 힌트 (얼굴) 울리카 · 측면 질주 Lv1 · 팀워크 +3 (레슨 중 +5) · 유대 오르넬라 +13 …                 │
 //   │ (선수 7) 실루엔 +62 ➡️40 🦶22 / 기본 30 / 카드 32 · 부+18 …  (구역 스탯 상승 = 기본 훈련 + 분위기 + 카드)                │
 //   ├ 카드 1장을 고르세요 ─ [cardFace][cardFace +][cardFace 코치] [건너뛰기 TP +10] │ 고른 카드 설명                        ┤
 //   ├ 무료 강화 1장 (퍼펙트) ─ 덱 miniCard 8열 · 고른 카드 "강화 후" 한 줄                                                ┤
@@ -9,7 +9,7 @@
 // 실패 = 결과 머리 + "보상 없음" + [계속]. [확인] · [계속] = resolveReward({ pick, upgradeUid }) 1번 (연타 방지).
 // 코치 수업 (§18.6): 남은 수업(v.teach.cur)이 있으면 카드 고르기 · 무료 강화 대신 수업 칸 —
 //   ├ 코치 수업 1/2 ─ (코치 얼굴) 하르나 코치가 '파워 슛'을 가르쳐 줍니다 [액티브] FW · 설명                         ┤
-//   │ 받을 선수 7 (얼굴 · 이름 · 슬롯 · 스킬 칸 ●●○ · 이유는 회색 · 가득 — 바꾸기 · 추천) / 가득이면 바꿀 스킬 줄       │
+//   │ 받을 선수 7 (얼굴 · 이름 · 슬롯 · 액티브 칸 ●●○ · 이유는 회색 · 가득 — 바꾸기 · 추천) / 가득이면 바꿀 액티브 줄   │
 //   └ [배우지 않기 · SP +20]                                고른 것 요약                              [가르치기] ┘
 //   [가르치기] · [배우지 않기] = actions.resolveTeach 1번 (저장 · 다시 그리기) → 다음 수업 → 모두 끝나면 지금 모달.
 // 고르기(카드 · 건너뛰기 · 무료 강화 카드)는 모달 안에서만 바뀐다 (모달 내용만 다시 그린다 — 엔진 호출 없음).
@@ -112,8 +112,15 @@ export function renderRewardModal(ctx) {
   const supportOf = (id) => (data.supports || []).find((x) => x.id === id) || null;
   const shortOf = (name) => String(name || '').trim().split(/\s+/).pop(); // "코치 하르나" → "하르나" (얼굴 글자)
   const hints = failed ? (r.hints || []).filter((x) => x.src === 'cutin') : (r.hints || []);
+  // 선수 힌트 (L48, src "player"): 이번 레슨에서 많이 큰 선수의 패시브 — 선수 얼굴 + "울리카 · 측면 질주 Lv1" (패시브 상점 할인)
   const hintItems = hints.map((x, i) => {
     const sp = x.src === 'cutin' ? supportOf(x.supportId) : null;
+    const pl = x.src === 'player' ? players.find((p) => p.id === x.playerId) || null : null;
+    if (x.src === 'player') {
+      const who = x.playerName ?? pl?.name ?? x.playerId ?? '';
+      return h('b', { class: 'rw-hint-pl', dataset: { pid: x.playerId ?? '' }, title: `${who} 패시브 '${x.name ?? x.skillId}' 힌트 Lv${x.level} — 패시브 상점에서 ${x.level * 10}% 할인` },
+        i ? ' · ' : '', avatar(pl?.portraitColor, who, 'xs', 'rw-face'), `${who} · ${x.name ?? x.skillId} Lv${x.level}`);
+    }
     return h('b', { class: sp ? 'rw-hint-cut' : '' }, i ? ' · ' : '', sp ? avatar(sp.portraitColor, shortOf(sp.name), 'xs', 'rw-face') : null,
       `${x.name ?? x.skillId} Lv${x.level}`, sp ? h('span', { class: 'rw-hint-src' }, '지원') : null);
   });
@@ -132,14 +139,21 @@ export function renderRewardModal(ctx) {
       : t.result === 'none' ? `받을 선수 없음, SP +${t.sp ?? 0}` : `받지 않음, SP +${t.sp ?? 0}`}`;
     return c;
   });
+  // SP (L48): r.sp = 이번 레슨 SP 합 (레슨 SP spLesson + 힌트 후보가 없어 받은 SP) — TP 옆. 옛 저장본(spLesson 없음)은 전부 "힌트 없음"
+  const spAll = Number(r.sp) || 0;
+  const spNoHint = r.spLesson == null ? spAll : Math.max(0, spAll - (Number(r.spLesson) || 0));
+  const spChip = spAll
+    ? chip('sp', 'SP ', h('b', {}, signed(spAll)), spNoHint ? h('span', { class: 'muted' }, spNoHint === spAll ? ' (힌트 없음)' : ` (힌트 없음 +${spNoHint})`) : null)
+    : null;
+  if (spChip) spChip.title = `SP ${signed(spAll)}${r.spLesson ? ` = 레슨 ${signed(r.spLesson)}` : ''}${spNoHint && r.spLesson ? ` + 힌트 없음 ${signed(spNoHint)}` : ''} — 패시브 상점에서 쓴다`;
   const chips = failed
-    ? [chip('bad', hintChip ? '실패 — TP · 보상 카드 없음' : '실패 — TP · 힌트 · 보상 카드 없음'), cutChip, hintChip, ...teachChips]
+    ? [chip('bad', hintChip ? '실패 — TP · 보상 카드 없음' : '실패 — TP · 힌트 · 보상 카드 없음'), spChip, cutChip, hintChip, ...teachChips]
     : [
       chip('tp', 'TP ', h('b', {}, signed(r.tp ?? 0))),
+      spChip,
       cutChip,
       hintChip,
       ...teachChips,
-      r.sp ? chip('sp', 'SP ', h('b', {}, signed(r.sp)), h('span', { class: 'muted' }, ' (힌트 없음)')) : null,
       chip('tw', '팀워크 ', h('b', {}, signed(r.teamwork ?? 0)), r.twAccrued ? h('span', { class: 'muted' }, ` (레슨 중 +${r.twAccrued})`) : null),
       r.condition ? chip('cond', '컨디션 ', h('b', {}, signed(r.condition))) : null,
       r.prepBonus ? chip('prep', '경계전 컨디션 +1 (대비)') : null,
@@ -212,17 +226,21 @@ export function renderRewardModal(ctx) {
     const nextText = failed ? '수업이 끝나면 다음 주로' : hasOffer ? '수업이 끝나면 카드 고르기' : '수업이 끝나면 계속';
 
     const plEls = tpl.map((p) => {
-      const n = Array.isArray(p.learned) ? p.learned.length : 0;
+      // 스킬 칸 3 = 액티브 몫 (L48 — 패시브는 자기 목록 3개로 따로, 칸을 쓰지 않는다)
+      const learned = Array.isArray(p.learned) ? p.learned : [];
+      const acts = learned.filter((x) => x.kind === 'active');
+      const pas = learned.filter((x) => x.kind !== 'active');
+      const n = acts.length;
       const dots = `${'●'.repeat(Math.min(3, n))}${'○'.repeat(Math.max(0, 3 - n))}`;
       const sub = !p.ok ? p.reason ?? '받을 수 없음' : p.full ? '가득 — 바꾸기' : `빈 칸 ${Math.max(0, 3 - n)}`;
-      const learnedText = n ? p.learned.map((x) => `${x.name}${x.kind ? ` (${L.SKILL_KIND_LABELS[x.kind] ?? x.kind})` : ''}`).join(' · ') : '습득 스킬 없음';
+      const learnedText = (n ? acts.map((x) => x.name).join(' · ') : '액티브 없음') + (pas.length ? ` / 패시브 ${pas.map((x) => x.name).join(' · ')}` : '');
       return h('button', {
         type: 'button',
         class: ['rw-teach-pl', p.ok ? '' : 'off', p.full && p.ok ? 'full' : '', tsel.pid === p.id ? 'selected' : '', recPid === p.id ? 'recommended' : ''],
         dataset: { pid: p.id },
         disabled: !p.ok,
         'aria-pressed': tsel.pid === p.id ? 'true' : 'false',
-        title: `${p.name} · ${p.slot ?? ''}${p.injured ? ' · 부상 (레슨만 쉰다 — 수업은 받는다)' : ''}\n습득 ${n}/3: ${learnedText}${p.ok ? '' : `\n${p.reason ?? ''}`}`,
+        title: `${p.name} · ${p.slot ?? ''}${p.injured ? ' · 부상 (레슨만 쉰다 — 수업은 받는다)' : ''}\n액티브 칸 ${n}/3: ${learnedText}${p.ok ? '' : `\n${p.reason ?? ''}`}`,
         onclick: () => {
           if (!p.ok) return;
           tsel.pid = tsel.pid === p.id ? null : p.id;
@@ -232,7 +250,7 @@ export function renderRewardModal(ctx) {
       },
       avatar(p.portraitColor, p.name, 'sm', p.ok ? '' : 'dim'),
       h('span', { class: 'tp-nm' }, p.name, h('span', { class: 'tp-slot' }, p.slot ?? ''), p.injured ? h('span', { class: 'tp-inj', title: '부상 — 레슨만 쉰다' }, '🚑') : null),
-      h('span', { class: ['tp-sub', p.ok ? (p.full ? 'warn' : '') : 'muted'] }, h('span', { class: 'tp-dots', 'aria-label': `스킬 칸 ${n}/3` }, dots), ` ${sub}`),
+      h('span', { class: ['tp-sub', p.ok ? (p.full ? 'warn' : '') : 'muted'] }, h('span', { class: 'tp-dots', 'aria-label': `액티브 칸 ${n}/3` }, dots), ` ${sub}`),
       recPid === p.id ? h('span', { class: 'cf-rec tp-rec' }, '추천') : null);
     });
 
@@ -256,8 +274,9 @@ export function renderRewardModal(ctx) {
           ` (${t.positions?.length ? `${posText} 선수가 모두 이미 보유` : '모두 이미 보유'}) — 대신 SP +${declineSp}`)
         : needRep
           ? h('div', { class: 'rw-teach-rep' },
-            h('span', { class: 'small' }, h('b', {}, picked.name), ' — 바꿀 스킬'),
-            picked.learned.map((x) => h('button', {
+            h('span', { class: 'small' }, h('b', {}, picked.name), ' — 바꿀 액티브'),
+            // 바꿀 수 있는 것은 액티브만 (L48 — 패시브는 칸을 쓰지 않고 바꿀 수 없다: 엔진 resolveTeach 가 거절)
+            (picked.learned || []).filter((x) => x.kind === 'active').map((x) => h('button', {
               type: 'button',
               class: ['rw-rep-btn', tsel.rep === x.skillId ? 'selected' : ''],
               dataset: { skill: x.skillId },
@@ -270,7 +289,7 @@ export function renderRewardModal(ctx) {
     let summary;
     if (t.noneEligible) summary = h('span', { class: 'muted' }, `'${t.name}' — 받을 선수 없음, SP +${declineSp}`);
     else if (!picked) summary = h('span', { class: 'muted' }, '받을 선수를 고르세요');
-    else if (needRep && !tsel.rep) summary = h('span', {}, h('b', {}, picked.name), ' — 슬롯이 가득입니다. 바꿀 스킬을 고르세요');
+    else if (needRep && !tsel.rep) summary = h('span', {}, h('b', {}, picked.name), ' — 액티브 칸이 가득입니다. 바꿀 액티브를 고르세요');
     else if (needRep) summary = h('span', {}, h('b', {}, picked.name), `: '${picked.learned.find((x) => x.skillId === tsel.rep)?.name ?? tsel.rep}' → `, h('b', {}, `'${t.name}'`));
     else summary = h('span', {}, h('b', {}, picked.name), `에게 '${t.name}' — 빈 칸에 배웁니다`);
 
@@ -287,7 +306,7 @@ export function renderRewardModal(ctx) {
         type: 'button',
         class: 'btn btn-primary btn-lg rw-teach-ok',
         disabled: !canTeach,
-        title: !picked ? '받을 선수를 고르세요' : needRep && !tsel.rep ? '바꿀 스킬을 고르세요' : '',
+        title: !picked ? '받을 선수를 고르세요' : needRep && !tsel.rep ? '바꿀 액티브를 고르세요' : '',
         onclick: () => { if (canTeach) teachCall({ playerId: picked.id, replaceSkillId: needRep ? tsel.rep : null }); },
       }, '가르치기'));
     return [sec, foot];
@@ -295,6 +314,8 @@ export function renderRewardModal(ctx) {
 
   const draw = () => {
     const parts = [head, chipRow, playerRow];
+    // 무료 강화 덱이 16장을 넘으면 (촘촘한 그리드 3 ~ 4줄) 선수 칩의 "기본 / 카드" 줄을 접는다 (값은 title) — 칩 줄이 두 줄이어도 [확인]이 화면 안 (L48)
+    body.classList.toggle('rw-tight', !teachCur && freeOn && deck.length > 16);
     if (teachCur) {
       body.replaceChildren(...parts, ...drawTeach());
       return;

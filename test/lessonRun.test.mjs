@@ -38,7 +38,11 @@ function checkInvariants(state) {
   // §18.3: 레슨 런의 힌트에는 액티브가 남지 않는다 (액티브는 코치 수업) · 습득 ≤ 3 · 중복 없음
   for (const id of Object.keys(state.hints)) assert.notEqual(data.skills.find((k) => k.id === id).kind, "active", `액티브 힌트 ${id}`);
   for (const p of state.players) {
-    assert.ok(p.learnedSkillIds.length <= 3, `${p.id} 습득 ${p.learnedSkillIds.length}`);
+    // 슬롯 3 = 액티브 몫, 패시브는 자기 목록 3개 안에서 (L48)
+    const kinds = p.learnedSkillIds.map((id) => data.skills.find((k) => k.id === id).kind);
+    assert.ok(kinds.filter((k) => k === "active").length <= 3, `${p.id} 액티브 ${kinds}`);
+    const list = data.characters.find((c) => c.id === p.charId).passiveIds;
+    for (const id of p.learnedSkillIds) if (data.skills.find((k) => k.id === id).kind === "passive") assert.ok(list.includes(id), `${p.id} 목록 밖 패시브 ${id}`);
     assert.equal(new Set([...p.learnedSkillIds, p.innateSkillId]).size, p.learnedSkillIds.length + 1, `${p.id} 스킬 중복`);
   }
   assert.ok(Array.isArray(state.pendingTeach));
@@ -454,7 +458,7 @@ test("주 행동: 휴식 · 외출 · 미팅 · 상담 · 친선전 · 레슨, �
   checkInvariants(s);
 });
 
-test("레슨 → 보상 → 주: 클리어 보상 · 건너뛰기 TP · 중점 구역 = 코치 타입 유대 +5 · 힌트 1 · 기록 · perPlayer", () => {
+test("레슨 → 보상 → 주: 클리어 보상 · 건너뛰기 TP · SP 20 · 중점 구역 = 코치 타입 유대 +5 · 선수 힌트 1 (많이 큰 선수 목록) · 코치 수업 · 기록 · perPlayer", () => {
   const s = newRun();
   startLessonWeek(s, "shoot");
   const harr0 = sup(s, "sp_coach_harr").bond;
@@ -469,7 +473,19 @@ test("레슨 → 보상 → 주: 클리어 보상 · 건너뛰기 TP · 중점 �
   assert.equal(sup(s, "sp_wind_dancer").bond, data.supports.find((x) => x.id === "sp_wind_dancer").initialBond);
   assert.equal(Object.values(s.hints).reduce((a, b) => a + b, 0), 1);
   const hintId = Object.keys(s.hints)[0];
-  assert.ok(s.supports.some((st) => data.supports.find((x) => x.id === st.id).hintSkillIds.includes(hintId)));
+  // 선수 힌트 (L48): 이번 레슨에서 가장 많이 큰 선수의 패시브 목록에서
+  const ph = s.pendingReward.result.hints[0];
+  assert.deepEqual([ph.skillId, ph.src, ph.supportId], [hintId, "player", null]);
+  const grower = s.players.find((p) => p.id === ph.playerId);
+  assert.ok(data.characters.find((c) => c.id === grower.charId).passiveIds.includes(hintId));
+  const growth = (x) => Object.values(x.byStat).reduce((a, n) => a + n, 0);
+  const pps = s.pendingReward.result.perPlayer;
+  assert.equal(growth(pps.find((x) => x.id === ph.playerId)), Math.max(...pps.map(growth)), "가장 많이 큰 선수");
+  assert.equal(ph.playerName, grower.name);
+  // 코치 힌트 = 코치 수업 (액티브 — 코치 teachSkillIds)
+  assert.equal(s.pendingReward.teach.length, 1);
+  assert.ok(s.supports.some((st) => data.supports.find((x) => x.id === st.id).teachSkillIds.includes(s.pendingReward.teach[0].skillId)));
+  assert.equal(s.skillPoints, data.lesson.rewards.clear.sp, "클리어 SP");
   const rec = s.record.lessons.at(-1);
   assert.deepEqual(Object.keys(rec).sort(), ["attaches", "benches", "cap", "cutins", "fails", "injuries", "plays", "prep", "result", "score", "special", "target", "turnIndex", "turns", "zone"]);
   assert.equal(rec.result, "clear");
@@ -487,6 +503,8 @@ test("레슨 → 보상 → 주: 클리어 보상 · 건너뛰기 TP · 중점 �
   assert.equal(JSON.stringify(s), before);
   assert.equal(v.result.status, "clear");
   assert.equal(v.result.tp, 10);
+  assert.equal(v.result.sp, 20);
+  assert.equal(v.result.spLesson, 20);
   assert.equal(v.result.hints.length, 1);
   assert.equal(v.result.teamwork, 3);
   assert.ok(v.result.bond.some((b) => b.id === "sp_coach_harr" && b.gain === 5));
@@ -518,7 +536,7 @@ test("레슨 → 보상 → 주: 클리어 보상 · 건너뛰기 TP · 중점 �
   rejects(s, () => LR.resolveReward(s, data, { pick: null, upgradeUid: "k1" }));
   rejects(s, () => LR.applyWeekAction(s, data, { type: "rest" }));
 
-  LR.resolveReward(s, data, { pick: null });
+  finishReward(s, { pick: null });
   assert.equal(s.trainingPoints, 20);
   assert.equal(s.lesson, null);
   assert.equal(s.pendingReward, null);
@@ -538,7 +556,7 @@ test("보상: 코치 카드 획득 유대 +15, 고유 강화 후보, 퍼펙트 T
   ];
   const b0 = sup(s, "sp_coach_harr").bond;
   const n0 = s.deck.length;
-  LR.resolveReward(s, data, { pick: 0 });
+  finishReward(s, { pick: 0 });
   assert.equal(s.deck.length, n0 + 1);
   assert.equal(s.deck.at(-1).cardId, "cd_c_harr");
   assert.equal(s.deck.at(-1).uid, `k${n0 + 1}`);
@@ -550,7 +568,7 @@ test("보상: 코치 카드 획득 유대 +15, 고유 강화 후보, 퍼펙트 T
   startLessonWeek(s, "pass");
   clearLesson(s);
   s.pendingReward.offer = [{ cardId: "cd_u_neria", plus: true, kind: "upgrade", uid: uidOf(s, "cd_u_neria") }];
-  LR.resolveReward(s, data, { pick: 0 });
+  finishReward(s, { pick: 0 });
   assert.equal(s.deck.find((e) => e.cardId === "cd_u_neria").plus, true);
   assert.equal(s.deck.length, 10);
 
@@ -562,8 +580,11 @@ test("보상: 코치 카드 획득 유대 +15, 고유 강화 후보, 퍼펙트 T
   assert.equal(s.phase, "reward");
   assert.equal(s.lesson.status, "perfect");
   assert.equal(s.trainingPoints, data.lesson.rewards.perfect.tp);
-  // 힌트 2번 = 패시브 힌트 레벨 + 액티브 코치 수업 (§18.3 — §19.12 ③ 바르바라 목록에 철의 태클)
-  assert.equal(Object.values(s.hints).reduce((a, b) => a + b, 0) + s.pendingReward.teach.length, 2);
+  // 퍼펙트 (L48): 코치 힌트 1 (= 액티브 코치 수업) + 선수 힌트 2 (많이 큰 두 선수, 패시브 힌트 레벨) · SP 35
+  assert.equal(s.pendingReward.teach.length, data.lesson.rewards.perfect.hints);
+  assert.equal(Object.values(s.hints).reduce((a, b) => a + b, 0), data.lesson.rewards.perfect.playerHints);
+  assert.equal(new Set(s.pendingReward.result.hints.map((h) => h.playerId)).size, 2, "두 선수에게 1개씩");
+  assert.equal(s.skillPoints, data.lesson.rewards.perfect.sp);
   assert.equal(s.pendingReward.freeUpgrades, 1);
   assert.equal(s.teamwork >= 3, true);
   assert.equal(sup(s, "sp_iron_captain").bond, 20 + 5);
@@ -586,7 +607,7 @@ test("보상: 코치 카드 획득 유대 +15, 고유 강화 후보, 퍼펙트 T
   checkInvariants(s);
 });
 
-test("보상: 실패 → 후보 없음 · TP 없음, 힌트 후보가 없으면 SP +10, 퍼펙트 강화판 확률은 후보에만", () => {
+test("보상: 실패 → 후보 없음 · TP · SP 없음, 힌트 후보가 없으면 SP +10 (코치 · 선수 따로), 퍼펙트 강화판 확률은 후보에만", () => {
   let s = newRun();
   startLessonWeek(s, "dribble");
   endToEnd(s);
@@ -604,23 +625,22 @@ test("보상: 실패 → 후보 없음 · TP 없음, 힌트 후보가 없으면 
   assert.equal(s.trainingPoints, 0);
   assert.equal(s.phase, "week");
 
-  // 패시브 힌트가 모두 레벨 3 → 액티브만 후보 → 코치 수업 1개 (§18.3, SP 없음)
+  // 선수 패시브 힌트가 모두 레벨 3 → 선수 힌트 대신 SP +10, 코치 힌트는 코치 수업 1개 (§18.3)
+  const allPassives = (st) => { for (const p of st.players) for (const id of data.characters.find((c) => c.id === p.charId).passiveIds) st.hints[id] = MAX_HINT_LEVEL; };
   s = newRun();
-  for (const st of s.supports) {
-    for (const id of data.supports.find((x) => x.id === st.id).hintSkillIds) if (data.skills.find((k) => k.id === id).kind === "passive") s.hints[id] = MAX_HINT_LEVEL;
-  }
+  allPassives(s);
   startLessonWeek(s, "dribble");
   clearLesson(s);
-  assert.equal(s.skillPoints, 0);
+  assert.equal(s.skillPoints, data.lesson.rewards.clear.sp + data.lesson.rewards.noHintSp);
   assert.equal(s.pendingReward.result.hints.length, 0);
   assert.equal(s.pendingReward.teach.length, 1);
   assert.equal(data.skills.find((k) => k.id === s.pendingReward.teach[0].skillId).kind, "active");
 
-  // 패시브는 레벨 3 · 액티브는 누구도 새로 배울 수 없다 (FW 모두 이미 보유) → 힌트 대신 SP +10
+  // 코치 액티브도 누구도 새로 배울 수 없다 (FW 모두 이미 보유) → 코치 힌트 대신 SP +10 도
   const d2 = clone(data);
-  for (const sc of d2.supports) sc.hintSkillIds = ["sk_power_shot", "sk_focus_finish"];
+  for (const sc of d2.supports) sc.teachSkillIds = ["sk_power_shot"];
   s = LR.createRun({ data: d2, seed: 11 });
-  s.hints.sk_focus_finish = MAX_HINT_LEVEL;
+  allPassives(s);
   for (const p of s.players) if (p.position === "FW") p.learnedSkillIds.push("sk_power_shot");
   s.weekOffer = { kind: "lesson", specials: [] };
   LR.applyWeekAction(s, d2, { type: "lesson", zone: "dribble" });
@@ -628,13 +648,13 @@ test("보상: 실패 → 후보 없음 · TP 없음, 힌트 후보가 없으면 
   s.lesson.score = s.lesson.target;
   LR.endLessonTurn(s, d2);
   assert.equal(s.pendingReward.result.status, "clear");
-  assert.equal(s.skillPoints, data.lesson.rewards.noHintSp);
-  assert.equal(s.pendingReward.result.sp, 10);
+  assert.equal(s.skillPoints, data.lesson.rewards.clear.sp + 2 * data.lesson.rewards.noHintSp);
+  assert.equal(s.pendingReward.result.sp, 40);
   assert.equal(s.pendingReward.result.hints.length, 0);
   assert.deepEqual(s.pendingReward.teach, []);
   // FW 한 명이 파워 슛을 잃으면 다시 후보 → 수업
   const t = LR.createRun({ data: d2, seed: 11 });
-  t.hints.sk_focus_finish = MAX_HINT_LEVEL;
+  allPassives(t);
   P(t, "p6").learnedSkillIds.push("sk_power_shot");
   t.weekOffer = { kind: "lesson", specials: [] };
   LR.applyWeekAction(t, d2, { type: "lesson", zone: "dribble" });
@@ -643,7 +663,7 @@ test("보상: 실패 → 후보 없음 · TP 없음, 힌트 후보가 없으면 
   LR.endLessonTurn(t, d2);
   assert.equal(t.pendingReward.teach.length, 1);
   assert.equal(t.pendingReward.teach[0].skillId, "sk_power_shot");
-  assert.equal(t.skillPoints, 0);
+  assert.equal(t.skillPoints, data.lesson.rewards.clear.sp + data.lesson.rewards.noHintSp, "선수 힌트 후보는 여전히 없다");
 });
 
 test("코치 카드: 낼 때 유대 +8 (보상 결과에 보인다), 유대 80 이상이면 강화판", () => {
@@ -669,7 +689,7 @@ test("코치 카드: 낼 때 유대 +8 (보상 결과에 보인다), 유대 80 �
   assert.equal(v.offer[0].bond80, true);
   assert.equal(v.offer[0].power, 24);
   assert.equal(v.offer[1].power, 30); // 강화판 = bond80 power × 1.25
-  LR.resolveReward(s, data, { pick: 0 });
+  finishReward(s, { pick: 0 });
   assert.equal(sup(s, "sp_wind_dancer").bond, 95);
   const wv = LR.getWeekView(s, data);
   assert.equal(wv.coaches.find((c) => c.id === "sp_wind_dancer").upgraded, true);
@@ -1167,11 +1187,12 @@ test("§15.5 컷인 힌트: 레슨 끝에 그 코치의 힌트 1개 (실패한 �
   endToEnd(s);
   assert.equal(s.phase, "reward");
   assert.equal(s.pendingReward.result.status, "fail");
-  // 패시브면 힌트 (레벨 +1), 액티브면 코치 수업 (§18.3) — 둘 중 하나
+  // 코치 힌트 = 그 코치 teachSkillIds 의 액티브 → 코치 수업 (§18.3 · L48)
   let v = LR.getRewardView(s, data);
   const got = [...v.result.hints.map((h) => [h.skillId, h.src, h.supportId]), ...v.teach.list.map((t) => [t.skillId, t.src, t.supportId])];
   assert.equal(got.length, 1);
-  assert.ok(sage.hintSkillIds.includes(got[0][0]));
+  assert.equal(v.result.hints.length, 0);
+  assert.ok(sage.teachSkillIds.includes(got[0][0]));
   assert.deepEqual(got[0].slice(1), ["cutin", "sp_elder_sage"]);
   assert.equal(Object.keys(s.hints).length, v.result.hints.length);
   assert.equal(v.result.sp, 0);
@@ -1184,17 +1205,17 @@ test("§15.5 컷인 힌트: 레슨 끝에 그 코치의 힌트 1개 (실패한 �
   clearLesson(s);
   v = LR.getRewardView(s, data);
   const srcs = [...v.result.hints, ...v.teach.list];
-  assert.equal(srcs.length, 2);
+  assert.equal(srcs.length, 3, "코치 클리어 힌트 + 컷인 힌트 + 선수 힌트");
+  assert.equal(v.result.hints.filter((h) => h.src === "player").length, 1);
   const cut = srcs.filter((h) => h.src === "cutin");
   assert.equal(cut.length, 1);
   assert.equal(cut[0].supportId, "sp_elder_sage");
-  for (const list of [v.result.hints, v.teach.list]) assert.deepEqual(list.map((h) => h.src), list.map((h) => h.src).sort(), "clear 가 cutin 보다 먼저");
+  assert.deepEqual(v.teach.list.map((h) => h.src), ["clear", "cutin"], "clear 가 cutin 보다 먼저");
 
   // 그 코치 패시브는 레벨 3 · 액티브는 받을 선수가 없다 (MF · DF 가 이미 보유) → SP
   s = newRun();
-  for (const id of sage.hintSkillIds) if (data.skills.find((k) => k.id === id).kind === "passive") s.hints[id] = MAX_HINT_LEVEL;
   for (const p of s.players) {
-    if (p.position === "MF") p.learnedSkillIds.push("sk_through_pass", "sk_eagle_eye");
+    if (p.position === "MF") p.learnedSkillIds.push("sk_through_pass", "sk_eagle_eye", "sk_pickpocket");
     if (p.position === "DF") p.learnedSkillIds.push("sk_eagle_eye");
   }
   const sp0 = s.skillPoints;
@@ -1298,13 +1319,18 @@ const lastLog = (state) => {
 };
 
 /** 하르나 패시브를 레벨 3 으로 두고 실패한 레슨에 하르나 컷인 힌트 n개 → 파워 슛 수업 n개 */
+/** 하르나 수업 목록을 파워 슛 하나로 둔 데이터 (컷인 수업이 늘 파워 슛 — 레슨 끝에만 쓴다) */
+const HARR_PS = (() => {
+  const d = clone(data);
+  d.supports.find((x) => x.id === "sp_coach_harr").teachSkillIds = ["sk_power_shot"];
+  return d;
+})();
+
 function harrTeachReward(n, opts = {}) {
   const s = newRun(opts);
-  s.hints.sk_focus_finish = MAX_HINT_LEVEL;
-  s.hints.sk_tiebreaker = MAX_HINT_LEVEL;
   startLessonWeek(s, "pass");
   s.lesson.attach.hints = Array(n).fill("sp_coach_harr");
-  endToEnd(s);
+  while (s.phase === "lesson") LR.endLessonTurn(s, HARR_PS);
   return s;
 }
 
@@ -1368,17 +1394,20 @@ test("§18.3 · §18.4 코치 수업: 실패한 레슨의 컷인 액티브 → t
   assert.equal(v.teach.cur.players.find((p) => p.id === "p6").reason, "이미 보유");
   assert.equal(v.teach.cur.players.find((p) => p.id === "p6").injured, true);
 
-  // 가득인 선수: 바꿀 스킬 필수 · 고유 스킬 · 없는 스킬은 오류 · 바꾸면 그 자리에
-  P(s, "p7").learnedSkillIds = ["sk_focus_finish", "sk_tiebreaker", "sk_underdog"];
+  // 가득인 선수 (L48 — 슬롯 3 = 액티브만, 패시브는 세지 않는다): 바꿀 스킬 필수 · 고유 · 없는 스킬 · 패시브는 오류 · 바꾸면 그 자리에
+  P(s, "p7").learnedSkillIds = ["sk_focus_finish", "sk_burst_dribble"];
+  assert.deepEqual(LR.canTeachSkill(s, data, "sk_power_shot", "p7"), { ok: true, reason: null, full: false }, "패시브 1 + 액티브 1 = 빈 슬롯");
+  P(s, "p7").learnedSkillIds = ["sk_focus_finish", "sk_burst_dribble", "sk_see_through", "sk_line_breaker"];
   assert.deepEqual(LR.canTeachSkill(s, data, "sk_power_shot", "p7"), { ok: true, reason: null, full: true });
   rejects(s, () => LR.resolveTeach(s, data, { playerId: "p7" }));
   rejects(s, () => LR.resolveTeach(s, data, { playerId: "p7", replaceSkillId: P(s, "p7").innateSkillId }));
   rejects(s, () => LR.resolveTeach(s, data, { playerId: "p7", replaceSkillId: "sk_power_shot" }));
+  rejects(s, () => LR.resolveTeach(s, data, { playerId: "p7", replaceSkillId: "sk_focus_finish" })); // 패시브는 바꿀 수 없다
   rejects(s, () => LR.resolveTeach(s, data, { playerId: "p6" })); // 이미 보유
-  LR.resolveTeach(s, data, { playerId: "p7", replaceSkillId: "sk_tiebreaker" });
-  assert.deepEqual(P(s, "p7").learnedSkillIds, ["sk_focus_finish", "sk_power_shot", "sk_underdog"]);
-  assert.equal(s.pendingReward.teach[1].replaced, "sk_tiebreaker");
-  assert.match(lastLog(s), /\('승부사' 대신\)$/);
+  LR.resolveTeach(s, data, { playerId: "p7", replaceSkillId: "sk_see_through" });
+  assert.deepEqual(P(s, "p7").learnedSkillIds, ["sk_focus_finish", "sk_burst_dribble", "sk_power_shot", "sk_line_breaker"]);
+  assert.equal(s.pendingReward.teach[1].replaced, "sk_see_through");
+  assert.match(lastLog(s), /\('꿰뚫어보기' 대신\)$/);
   assert.equal(LR.getRewardView(s, data).teach.cur, null);
   assert.equal(LR.getRewardView(s, data).teach.index, 2);
   rejects(s, () => LR.resolveTeach(s, data, { playerId: null }));
@@ -1522,7 +1551,10 @@ test("§18.7 저장 v2 → v3: 액티브 힌트 → 레벨 × noHintSp SP · 패
   assert.equal(cv2.phase, "consult");
   assert.deepEqual(cv2.hints, {});
   assert.equal(cv2.skillPoints, 3 * noHint);
-  assert.deepEqual(LR.getConsultView(cv2, data).skills, []);
+  // 상담 진열 = 선수마다 자기 패시브 목록 (L48) — 힌트 없음 · SP 30 으로는 못 산다
+  const cskills = LR.getConsultView(cv2, data).skills;
+  assert.equal(cskills.length, 21);
+  assert.ok(cskills.every((r) => r.level === 0 && !r.affordable));
 
   // 보상 중: result.hints 의 액티브 항목을 빼고 teach 필드를 채운다 → 그대로 이어서 보상을 고른다
   const r = newRun();
@@ -1544,8 +1576,6 @@ test("§18.7 저장 v2 → v3: 액티브 힌트 → 레벨 × noHintSp SP · 패
 
   // 레슨 중: 레슨은 그대로, 끝나면 새 규칙
   const l = newRun();
-  l.hints.sk_focus_finish = MAX_HINT_LEVEL;
-  l.hints.sk_tiebreaker = MAX_HINT_LEVEL;
   startLessonWeek(l, "pass");
   l.lesson.attach.hints = ["sp_coach_harr"];
   const lv2 = asV2(l, { sk_power_shot: 1 });
@@ -1553,7 +1583,7 @@ test("§18.7 저장 v2 → v3: 액티브 힌트 → 레벨 × noHintSp SP · 패
   LR.migrateLessonRun(lv2, data);
   assert.equal(lv2.version, 4);
   assert.equal(JSON.stringify(lv2.lesson), lessonBefore);
-  endToEnd(lv2);
+  while (lv2.phase === "lesson") LR.endLessonTurn(lv2, HARR_PS);
   assert.equal(lv2.pendingReward.teach.length, 1);
   assert.equal(lv2.pendingReward.teach[0].skillId, "sk_power_shot");
   checkInvariants(lv2);

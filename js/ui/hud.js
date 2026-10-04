@@ -3,7 +3,7 @@
 // 주 선택 · 경기 전 준비 · 상담 화면이 같이 쓴다. 엔진 로직은 없다 — 뷰 값만 그린다.
 //
 //   hudTopbar(view, ctx)  → <header class="topbar">  시즌 · 주 점(●●○○⚔) · 주 종류 │ 다음 경계전 상대 │ 컨디션 · 팀워크 · SP · TP · seed
-//   hudRoster(view, ctx)  → <aside class="og-panel roster">  선수 7 (체력 · 스탯, 주 스탯 쌍 강조, 결장) + 코치 유대 (눈금 = 강화 유대)
+//   hudRoster(view, ctx)  → <aside class="og-panel roster">  선수 7 (체력 · 스탯, 주 스탯 쌍 강조, 결장) + 코치 유대 (눈금 = 강화 유대) · 파티 패시브 (L48)
 //   openRecords(view, ctx) → 유물 · 보정 · 최근 기록 모달
 import { h, avatar, bar, signed, gradeBadge, gradeOf, openModal, closeOverlays } from './dom.js';
 import * as L from './labels.js';
@@ -79,7 +79,8 @@ export function hudTopbar(view, ctx) {
 
 /**
  * 선수 7 + 코치 유대 패널. view.players = lessonRun playerView (stamina · injuredTurns · stats · mainStats …),
- * view.coaches = [{ id, name, type, bond, cardId, upgraded, portraitColor }]
+ * view.coaches = [{ id, name, type, bond, cardId, upgraded, portraitColor }],
+ * view.partyPassives = [{ coachId, name, text, text80, upgraded }] (L48 — 코치 칸 아래 줄 "⚑ 이름 글", 유대 80 이면 금색 ★)
  */
 export function hudRoster(view, ctx) {
   const data = ctx?.data || {};
@@ -87,6 +88,7 @@ export function hudRoster(view, ctx) {
   const upgradeAt = Number(data.lesson?.bond?.upgradeAt) || 80;
   const players = Array.isArray(view.players) ? view.players : [];
   const coaches = Array.isArray(view.coaches) ? view.coaches : [];
+  const party = new Map((Array.isArray(view.partyPassives) ? view.partyPassives : []).map((pp) => [pp.coachId, pp]));
   const cardName = (id) => (Array.isArray(data.cards?.cards) ? data.cards.cards.find((c) => c.id === id)?.name : null) ?? id ?? '';
   return h('aside', { class: 'og-panel roster' },
     h('div', { class: 'og-panel-head' },
@@ -111,19 +113,24 @@ export function hudRoster(view, ctx) {
       })));
     })),
     h('div', { class: 'og-panel-head bond-head' },
-      h('h3', { class: 'og-panel-title' }, '코치 유대'),
-      h('span', { class: 'tiny muted' }, `유대 ${upgradeAt}+ = 코치 카드 강화`)),
+      h('h3', { class: 'og-panel-title' }, '코치 유대 · 파티 패시브'),
+      h('span', { class: 'tiny muted' }, `유대 ${upgradeAt}+ = 카드 · 패시브 강화`)),
     h('div', { class: 'bond-grid' }, coaches.map((c) => {
       const b = Number(c.bond) || 0;
       const cname = c.cardId ? cardName(c.cardId) : '';
+      const pp = party.get(c.id) || null;
       return h('div', {
         class: ['bond-row', c.upgraded ? 'max' : ''],
-        title: `${c.name} · ${L.SUPPORT_TYPE_LABELS[c.type] ?? c.type ?? ''} · 유대 ${b}${cname ? ` · 코치 카드 「${cname}」${c.upgraded ? ' (유대 강화)' : ''}` : ''}`,
+        dataset: { coach: c.id },
+        title: `${c.name} · ${L.SUPPORT_TYPE_LABELS[c.type] ?? c.type ?? ''} · 유대 ${b}${cname ? ` · 코치 카드 「${cname}」${c.upgraded ? ' (유대 강화)' : ''}` : ''}`
+          + (pp ? `\n파티 패시브 '${pp.name}' — ${pp.text}${pp.upgraded ? ' (유대 80)' : pp.text80 ? ` · 유대 ${upgradeAt}: ${pp.text80}` : ''}` : ''),
       },
       avatar(c.portraitColor, c.name, 'xs'),
       h('span', { class: 'bond-nm ellipsis' }, c.name, h('span', { class: 'tiny muted' }, ` ${L.STAT_SHORT[c.type] ?? ''}`)),
       h('span', { class: 'bond-bar' }, bar(b / 100, c.upgraded ? 'good' : ''), h('i', { class: 'bond-th', style: { left: `${upgradeAt}%` } })),
-      h('b', { class: 'bond-n' }, b));
+      h('b', { class: 'bond-n' }, b),
+      pp ? h('span', { class: ['bond-pp', pp.upgraded ? 'up' : ''] },
+        h('b', { class: 'bond-pp-nm' }, pp.upgraded ? '★ ' : '⚑ ', pp.name), ' ', pp.text) : null);
     })),
   );
 }

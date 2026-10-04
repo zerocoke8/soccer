@@ -34,20 +34,32 @@
 /* ================================================================== */
 /* 편성: 훈련 방침 패널 (전술 패널 아래, 버튼 5개 — <select> 아님)          */
 /* ================================================================== */
-/* 방침 패널이 들어가도 코치 칩 8장(4줄)이 스크롤 없이 보이게 옆 열을 조인다: 전술 4개 = 2×2 (이름 위 · 선택 아래), 칩 · 여백 조금씩 */
-/* 16명 풀 2줄 (§19.14 ①, K3): 방침은 전술 패널 안 아래 칸 (.setup-policy = 구분선 + 작은 머리), 칩 · 선택 높이를 조금 더 조인다 */
+/* 16명 풀 2줄 (§19.14 ①, K3) + 코치 칩 파티 패시브 (L48): 옆 칸 = 코치 칩 8장(2열 × 4줄, 칩 = 이름 · 희귀도 타입 · ⚑ 파티 패시브 두 줄) + 훈련 방침.
+   전술 지시 4개는 미니 필드 아래 한 줄 (.setup-tactics — 라벨 + 선택 4칸). 방침 설명은 방침 패널 머리 오른쪽 한 줄 */
 .setup-side { gap: 6px; }
 .setup-side > .og-panel { padding: 8px 12px; gap: 5px; }
 .setup-supports .sp-chips { gap: 4px 6px; }
-.setup-supports .sp-chip { min-height: 29px; padding-top: 0; padding-bottom: 0; }
-.setup-tactics .tac-rows { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px 8px; }
-.setup-tactics .tac-row { grid-template-columns: minmax(0, 1fr); gap: 0; }
-.setup-tactics .tac-row > .tiny { line-height: 15px; }
-.setup-tactics .tac-row .select { min-height: 28px; padding: 2px 6px; font-size: 12.5px; }
-.setup-tactics > .og-panel-body { gap: 5px; }
-.setup-policy { display: flex; flex-direction: column; flex: none; gap: 4px; padding-top: 6px; border-top: 1px solid var(--border); }
+.setup-supports .sp-chip { flex-wrap: wrap; align-content: flex-start; row-gap: 2px; min-height: 0; padding: 4px 22px 4px 7px; }
+.setup-supports .sp-check { top: 9px; transform: none; }
+/* 파티 패시브 (data.supports[].partyPassive): 칩 폭 전체 두 줄 — 글 + "· 80: +10%" (유대 80 글, 흐리게). 이름 · 전체 글은 칩 title */
+.sp-chip-pp {
+  flex: 1 0 100%; min-width: 0; margin-right: -16px; font-size: 10.5px; line-height: 13px; color: #c9d2e0;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.sp-pp-ico { margin-right: 3px; color: var(--accent-2); font-weight: 800; }
+.sp-pp-80 { color: var(--muted); }
+.sp-chip:disabled .sp-chip-pp { color: var(--muted); }
+.setup-tactics { flex: none; display: flex; align-items: center; gap: 10px; min-width: 0; }
+.setup-tac-head { flex: none; font-weight: 700; }
+.setup-tactics .tac-rows { flex: 1 1 auto; min-width: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.setup-tactics .tac-row { grid-template-columns: auto minmax(0, 1fr); gap: 6px; }
+.setup-tactics .tac-row > .tiny { white-space: nowrap; }
+.setup-tactics .tac-row .select { min-height: 30px; padding: 2px 6px; font-size: 12.5px; }
+.setup-policy { flex: none; }
 .setup-policy .og-panel-head { min-height: 18px; }
+.setup-policy .og-panel-head .og-panel-title { flex: none; }
 .setup-policy .policy-btn { min-height: 28px; }
+.setup-policy .policy-desc { min-width: 0; }
 .policy-row { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 5px; }
 .policy-btn { min-height: 30px; padding: 3px 2px; justify-content: center; font-size: 12.5px; white-space: nowrap; }
 .policy-btn.active { font-weight: 700; }
@@ -557,6 +569,12 @@
 .pi-foot b.good { color: var(--good); }
 .pi-foot b.bad { color: #ff8a8a; }
 .pi-foot b.muted { color: var(--muted); }
+/* 패시브 3 (L48): 보유 = ✓ 초록, 아직 = 흐리게, 고유 = 금색 테 */
+.pi-pas { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 4px; padding-top: 5px; border-top: 1px dashed var(--border); font-size: 11px; line-height: 15px; }
+.pi-pas-k { margin-right: 2px; font-weight: 700; color: var(--muted); }
+.pi-pa { padding: 0 6px; border-radius: 6px; background: rgba(255, 255, 255, .05); color: var(--muted); white-space: nowrap; }
+.pi-pa.uq { box-shadow: inset 0 0 0 1px rgba(255, 209, 102, .45); }
+.pi-pa.on { background: rgba(61, 220, 132, .14); color: var(--good); font-weight: 700; }
 .lesson-screen .tok.info-on .tok-face { outline: 2px solid var(--accent-2); outline-offset: 3px; }
 .lesson-screen:not(.aiming) .tok:not(.off) { cursor: pointer; }
 
@@ -716,7 +734,7 @@ button.mini-card { cursor: pointer; }
 /*   머리(제목 · 점수 막대 · 숫자) · 보상 칩 · 선수 7 · 카드 3 + 건너뛰기 + 설명 · 무료 강화 덱 8열 · 아래 줄 [확인] */
 /* ================================================================== */
 .modal.reward-modal { padding: 16px 20px 14px; gap: 0; }
-.reward-body { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.reward-body { display: flex; flex-direction: column; gap: 8px; min-width: 0; } /* L48: SP 칩 · 선수 힌트로 칩 줄이 두 줄이 되어도 퍼펙트 + 무료 강화 2줄이 스크롤 없이 */
 .rw-head { display: grid; grid-template-columns: 290px minmax(0, 1fr) auto; align-items: center; gap: 20px; }
 .rw-title { display: flex; align-items: center; gap: 12px; min-width: 0; white-space: nowrap; }
 .rw-ico { font-size: 36px; line-height: 1; }
@@ -731,8 +749,8 @@ button.mini-card { cursor: pointer; }
 .rw-score.perfect .rw-fill { background: linear-gradient(90deg, var(--good), var(--gold)); }
 .rw-mark { position: absolute; top: -4px; bottom: -4px; width: 3px; margin-left: -1px; border-radius: 2px; background: var(--text); box-shadow: 0 0 0 1px rgba(0, 0, 0, .5); }
 .rw-stats { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.rw-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.rw-chip { padding: 3px 11px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--border); font-size: 12.5px; line-height: 18px; white-space: nowrap; }
+.rw-chips { display: flex; flex-wrap: wrap; gap: 5px 6px; }
+.rw-chip { padding: 2px 11px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--border); font-size: 12.5px; line-height: 18px; white-space: nowrap; }
 .rw-chip.tp b { color: var(--gold); }
 .rw-chip.hint b, .rw-chip.sp b { color: var(--purple); }
 .rw-chip.tw b, .rw-chip.cond b { color: var(--good); }
@@ -759,7 +777,7 @@ button.mini-card { cursor: pointer; }
 .rw-auto { flex: none; padding: 0 5px; border-radius: 6px; font-size: 10px; line-height: 15px; font-weight: 700; background: rgba(124, 196, 255, .15); color: var(--accent-2); }
 .rw-none { display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; border-radius: 12px; background: var(--panel-2); }
 .rw-none b { font-size: 18px; }
-.rw-sec { display: flex; flex-direction: column; gap: 6px; padding-top: 8px; border-top: 1px solid var(--border); }
+.rw-sec { display: flex; flex-direction: column; gap: 6px; padding-top: 7px; border-top: 1px solid var(--border); }
 .rw-sec-head { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
 .rw-sec-head h4 { flex: none; font-size: 15px; }
 .rw-offer { display: flex; align-items: stretch; gap: 12px; padding-top: 12px; }
@@ -786,6 +804,8 @@ button.mini-card { cursor: pointer; }
 .rw-deck.dense { gap: 5px; } /* 8칸 2줄(16장)을 넘으면 문구 줄을 접고 낮춘다 — 4줄(32장)까지 [확인]이 화면 안 (ZI 브라우저 점검) */
 .rw-deck.dense .mc-desc { display: none; }
 .rw-deck.dense .mini-card { padding-top: 3px; padding-bottom: 4px; }
+.reward-body.rw-tight .rw-pl-split { display: none; } /* 덱 17장 이상 + 무료 강화 (reward.js): 선수 칩 셋째 줄 접기 */
+.reward-body.rw-tight .rw-offer { padding-top: 10px; }
 .rw-up-line { min-width: 0; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rw-up-line b { color: var(--gold); }
 .rw-foot { align-items: center; gap: 14px; padding-top: 4px; }
@@ -842,34 +862,9 @@ button.mini-card { cursor: pointer; }
 .cs-ops .btn-danger .btn-sub { color: inherit; opacity: .85; }
 .cs-ops .btn.recommended { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
 .cs-unsel { align-self: center; }
-/* 스킬 (SP): 힌트를 얻은 스킬 줄 + 힌트 대기(회색) */
-.cs-skill-list { display: flex; flex-direction: column; gap: 7px; }
-.cs-skill { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border-radius: 10px; background: var(--panel-2); border: 1px solid transparent; }
-.cs-skill.recommended { border-color: var(--accent); }
-.cs-skill.disabled .cs-sk-top, .cs-skill.disabled .cs-sk-desc { opacity: .6; }
-.cs-sk-top { display: flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap; }
-.cs-sk-name { min-width: 0; font-size: 14px; }
-.cs-sk-lv { flex: none; font-size: 10.5px; padding: 1px 6px; }
-.cs-sk-cost { flex: none; font-variant-numeric: tabular-nums; }
-.cs-sk-desc { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.cs-sk-buy { display: flex; align-items: center; gap: 6px; min-height: 30px; }
-.cs-sk-player { flex: 1 1 auto; min-width: 0; min-height: 30px; padding: 3px 8px; font-size: 12.5px; }
-.cs-learn { flex: none; min-width: 72px; min-height: 30px; padding: 3px 10px; justify-content: center; }
-/* 스킬이 6개 이상이면 설명 줄을 빼고(.compact), 9개 이상이면 여백 · 종류를 더 줄인다(.tight) — 스크롤 없이 */
-.cs-skill-list.compact { gap: 4px; }
-.cs-skill-list.compact .cs-skill { padding: 5px 10px; gap: 3px; }
-.cs-skill-list.compact .cs-sk-buy { min-height: 26px; }
-.cs-skill-list.compact .cs-sk-player, .cs-skill-list.compact .cs-learn { min-height: 26px; padding-top: 1px; padding-bottom: 1px; font-size: 12px; }
-.cs-skill-list.tight .cs-skill { padding: 3px 8px; }
-.cs-skill-list.tight .cs-sk-kind { display: none; }
-.cs-skill-list.tight .cs-sk-player, .cs-skill-list.tight .cs-learn { min-height: 24px; }
+/* 패시브 (SP, L48): 선수 7줄 × 칩 3 (js/ui/passives.js passiveShopGrid compact — 모양은 아래 "패시브" 절) + 액티브 안내 (맨 아래) */
 .cs-sk-none { line-height: 1.45; word-break: keep-all; }
-.cs-skills > .og-panel-body { flex: 1 1 auto; }
-.cs-wait { display: flex; flex-direction: column; gap: 5px; margin-top: auto; padding-top: 8px; border-top: 1px dashed var(--border); }
-.cs-wait-chips { display: flex; flex-wrap: wrap; gap: 4px; }
-.cs-wait-chip { padding: 1px 8px; border-radius: 999px; background: var(--panel-2); color: var(--muted); font-size: 11px; line-height: 17px; white-space: nowrap; opacity: .8; }
-.cs-active-note { margin: 0; padding-top: 6px; color: var(--accent-2); line-height: 1.4; word-break: keep-all; }
-.cs-skills > :not(.cs-wait) + .cs-active-note { margin-top: auto; border-top: 1px dashed var(--border); padding-top: 8px; } /* 힌트 대기 줄이 없으면 안내가 아래로 */
+.cs-active-note { margin: auto 0 0; padding-top: 8px; border-top: 1px dashed var(--border); color: var(--accent-2); line-height: 1.4; word-break: keep-all; }
 .cs-confirm { gap: 10px; }
 .cs-confirm p { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; line-height: 1.45; }
 
@@ -884,13 +879,14 @@ button.mini-card { cursor: pointer; }
 }
 .prep-screen.og-error { display: flex; }
 .prep-opp { grid-area: opp; }
-.prep-opp > .og-panel-body { flex: 1 1 auto; gap: 10px; }
+.prep-opp > .og-panel-body { flex: 1 1 auto; gap: 8px; }
 .po-name { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .po-vs { font-size: 30px; color: var(--warn); }
 .po-title { font-size: 21px; }
-.po-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
-.po-fact { display: flex; flex-direction: column; gap: 1px; padding: 6px 10px; border-radius: 9px; background: var(--panel-2); min-width: 0; white-space: nowrap; }
-.po-fact b { font-size: 15px; }
+/* 원소 · 스타일 · 포메이션 · 포제션 한 줄 (L48 — 코치 파티 패시브 목록 자리, 부상 · 주장 2명이 함께여도 안내 줄까지 칸 안) */
+.po-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
+.po-fact { display: flex; flex-direction: column; gap: 1px; padding: 5px 8px; border-radius: 9px; background: var(--panel-2); min-width: 0; white-space: nowrap; }
+.po-fact b { font-size: 14px; }
 .po-hint { display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; border-radius: 9px; background: var(--panel-2); }
 .po-hint > b { font-size: 16px; color: var(--warn); }
 .po-hint .tiny b { color: var(--accent-2); }
@@ -1119,8 +1115,115 @@ button.card-face.attached:hover:not(:disabled) { border-color: var(--coach); }
 .rw-rep-note { margin-left: auto; }
 .rw-teach-none { padding: 8px 12px; border-radius: 10px; background: var(--panel-2); }
 .rw-teach-ok { min-width: 160px; }
+/* 보상 모달: 선수 힌트 (L48, src "player") — 선수 얼굴 + "울리카 · 측면 질주 Lv1" */
+.rw-hint-pl .rw-face { margin-right: 3px; vertical-align: -3px; }
+
+/* ================================================================== */
+/* 패시브 (L48, js/ui/passives.js): [✦ 패시브] 버튼 · SP 상점 모달 · 상담 칸(compact) · 코치 파티 패시브      */
+/*   상점 칩: 고유 = 금색 왼쪽 띠 + "고유" · 보유 = 초록 ✓ · 살 수 없음 = 회색 이유 · SP 부족 = 흐리게 (값 빨강) · 추천 = 파랑      */
+/* ================================================================== */
+/* [✦ 패시브 · SP 140 ③] — 살 수 있으면 보라 테두리 + 숫자 배지 */
+.ps-open { position: relative; gap: 5px; white-space: nowrap; }
+.ps-open b { font-variant-numeric: tabular-nums; }
+.ps-open-ico { color: var(--purple); }
+.ps-open.has-buy { border-color: rgba(179, 136, 255, .65); background: linear-gradient(180deg, rgba(179, 136, 255, .16), var(--panel-2)); }
+.ps-badge {
+  position: absolute; top: -8px; right: -7px; min-width: 19px; height: 19px; padding: 0 5px; border-radius: 999px;
+  background: var(--purple); color: #1a0f33; font-size: 11px; line-height: 19px; font-weight: 800; text-align: center; box-shadow: 0 0 0 2px var(--frame);
+}
+.week-bar .ps-open { min-height: 46px; }
+.prep-shop { min-height: 48px; }
+
+/* 상점 모달 (modal-xl): 머리 줄 · 선수 7줄 (선수 칸 168 | 칩 3) · 안내 한 줄 — 1280×720 에 스크롤 없이 */
+.modal.passive-shop { padding: 16px 20px 12px; gap: 0; }
+.ps-modal { gap: 10px; }
+.ps-head { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.ps-head h3 { flex: none; font-size: 18px; }
+.ps-rule { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ps-sp b { color: var(--purple); }
+.ps-foot { margin: 0; line-height: 1.4; }
+.ps-grid { display: flex; flex-direction: column; gap: 6px; }
+.ps-row { display: grid; grid-template-columns: 168px repeat(3, minmax(0, 1fr)); gap: 8px; align-items: stretch; }
+.ps-who { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 0 4px; }
+.ps-who-txt { display: flex; flex-direction: column; min-width: 0; line-height: 1.3; }
+.ps-who-nm { display: flex; align-items: baseline; gap: 5px; white-space: nowrap; font-size: 14px; }
+.ps-slot { font-size: 11px; font-weight: 700; color: var(--muted); }
+.ps-who-sub { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.ps-can { color: var(--purple); font-weight: 700; }
+.ps-row.full .ps-who-sub { color: var(--good); }
+.ps-chip {
+  position: relative; display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 6px 10px 7px;
+  border-radius: 10px; border: 1px solid var(--border); background: var(--panel-2); color: var(--text);
+  font: inherit; text-align: left; cursor: pointer; transition: border-color .12s, background-color .12s;
+}
+.ps-chip:hover:not(:disabled) { border-color: var(--purple); background: rgba(179, 136, 255, .1); }
+.ps-chip:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 2px; }
+.ps-chip:disabled { cursor: default; }
+.ps-chip.unique { box-shadow: inset 3px 0 0 var(--gold); }
+.ps-chip.st-owned { border-color: rgba(61, 220, 132, .55); background: rgba(61, 220, 132, .08); }
+.ps-chip.st-locked { opacity: .5; }
+.ps-chip.st-poor { opacity: .6; }
+.ps-chip.recommended { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.ps-chip.unique.recommended { box-shadow: inset 3px 0 0 var(--gold), 0 0 0 1px var(--accent); }
+.ps-chip.just { animation: ps-just .9s ease-out; }
+@keyframes ps-just { 0% { box-shadow: 0 0 0 3px var(--good); } 100% { box-shadow: 0 0 0 0 transparent; } }
+.ps-top { display: flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap; }
+.ps-uq { flex: none; font-size: 10px; padding: 0 6px; }
+.ps-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 13.5px; }
+.ps-lv { flex: none; font-size: 10px; padding: 0 6px; }
+.ps-cost { flex: none; display: inline-flex; align-items: baseline; gap: 4px; font-size: 12px; font-variant-numeric: tabular-nums; }
+.ps-cost b { font-size: 14px; color: var(--purple); }
+.ps-cost.bad b { color: var(--bad); }
+.ps-base { color: var(--muted); font-size: 11px; }
+.ps-own { flex: none; color: var(--good); font-size: 12px; font-weight: 800; }
+.ps-why { flex: none; color: var(--muted); font-size: 11.5px; }
+.ps-desc {
+  min-height: 30px; font-size: 11.5px; line-height: 15px; color: #c9d2e0;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.ps-rec { position: absolute; top: -8px; right: 8px; padding: 0 6px; border-radius: 999px; font-size: 10px; line-height: 15px; font-weight: 800; background: var(--accent); color: #041224; pointer-events: none; }
+/* 상담 오른쪽 칸 (compact): 선수 줄 = 얼굴 · 이름 · 보유 n/3 · 살 수 있는 수 / 아래 칩 3 (이름 · 값) — 설명은 title · [크게 보기] */
+.cs-ps-open { min-height: 28px; padding: 3px 10px; font-size: 12px; }
+.ps-grid.compact { gap: 6px; }
+.ps-grid.compact .ps-row { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px 5px; }
+.ps-grid.compact .ps-who { grid-column: 1 / -1; gap: 6px; padding: 0 2px; }
+.ps-grid.compact .ps-who-txt { flex-direction: row; align-items: baseline; gap: 8px; }
+.ps-grid.compact .ps-who-nm { font-size: 13px; }
+.ps-grid.compact .ps-chip { gap: 1px; padding: 3px 6px 4px 7px; border-radius: 8px; }
+.ps-grid.compact .ps-name { font-size: 11px; font-weight: 700; letter-spacing: -.02em; white-space: nowrap; }
+.ps-grid.compact .ps-chip.unique .ps-name { color: var(--gold); }
+.ps-line { display: flex; align-items: baseline; gap: 4px; min-width: 0; white-space: nowrap; font-size: 11px; }
+.ps-grid.compact .ps-cost b { font-size: 12px; }
+.ps-grid.compact .ps-own, .ps-grid.compact .ps-why { font-size: 11px; }
+.ps-grid.compact .ps-lv { padding: 0 4px; font-size: 9.5px; }
+.ps-grid.compact .ps-rec { display: none; } /* 좁은 칩: 추천 = 파란 테두리만 (알약은 선수 줄 · 이름을 가린다, "감독 추천" 은 title) */
+
+/* 코치 파티 패시브 줄 (경기 전 준비 · partyPassiveRows): 코치 얼굴 · 이름(유대 80 = 금색) · 글 · "80: +10%" */
+.po-party { display: flex; flex-direction: column; gap: 4px; }
+.pp-list { display: flex; flex-direction: column; gap: 3px; }
+.pp-item { display: flex; align-items: flex-start; gap: 6px; min-width: 0; font-size: 11.5px; line-height: 15px; }
+.pp-item > .avatar { width: 18px; height: 18px; font-size: 9.5px; margin-top: -1px; }
+.pp-txt { min-width: 0; color: #c9d2e0; }
+.pp-name { color: var(--accent-2); }
+.pp-item.up .pp-name { color: var(--gold); }
+.pp-up { margin-left: 4px; padding: 0 5px; font-size: 9.5px; vertical-align: 1px; }
+.pp-80 { color: var(--muted); }
+/* 주 선택 코치 칸 (hud.js hudRoster): 이름 · 유대 막대 아래 "⚑ 이름 글" 두 줄까지 (유대 80 = ★ 금색) */
+.bond-row { grid-template-rows: auto auto auto; }
+.bond-pp {
+  grid-row: 3; grid-column: 1 / -1; min-width: 0; font-size: 10.5px; line-height: 13px; color: #c9d2e0;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.bond-pp-nm { color: var(--accent-2); }
+.bond-pp.up .bond-pp-nm { color: var(--gold); }
+/* 코치 칸이 두 줄 늘어난 만큼 선수 줄 · 코치 칸 간격을 조인다 (선수 7 + 코치 6 이 패널 안에) */
+.roster .ro-list { gap: 4px; }
+.roster .ro-row { padding-top: 3px; padding-bottom: 3px; }
+.roster .bond-grid { row-gap: 5px; }
+.roster .bond-head { margin-top: 0; }
 
 @media (prefers-reduced-motion: reduce) {
   .card-face.attached .cf-band, .card-face.attached::after, .card-face.att-new, .card-face.att-new .cf-coach, .ls-abil { animation: none !important; }
+  .ps-chip.just { animation: none; }
 }
 .lesson-screen.no-anim .card-face.attached .cf-band, .lesson-screen.no-anim .card-face.attached::after, .lesson-screen.no-anim .card-face.att-new .cf-coach { animation: none !important; }

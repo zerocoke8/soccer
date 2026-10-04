@@ -131,8 +131,32 @@ function walkRewardOrThrow(name, data, opts) {
 /** 코치 수업이 남은 보상 (§18.6) — minPending 개 이상, status 가 주어지면 그 결과 */
 const teachPending = (minPending = 1, status = null) => (s) => s.phase === "reward"
   && (s.pendingReward?.teach || []).filter((t) => t.result === null).length >= minPending && (!status || s.pendingReward.result?.status === status);
-/** 포지션 제한 없는 패시브 3개 (가득 장면 주입) */
-const freePassives = (data) => data.skills.filter((k) => k.kind === "passive" && k.learnable && !(k.positions || []).length).slice(0, 3).map((k) => k.id);
+/** 포지션 제한 없는 액티브 3개 (가득 장면 주입 — L48: 스킬 칸 3 = 액티브 몫, 패시브는 칸을 쓰지 않는다) */
+const freeActives = (data) => data.skills.filter((k) => k.kind === "active" && k.learnable && !(k.positions || []).length).map((k) => k.id);
+
+/**
+ * 패시브 상점 장면 (L48): SP · 힌트 레벨 · 보유를 섞어 주입 — 칩 상태 4가지 (보유 ✓ · 살 수 있음 · SP 부족 · 포지션 밖) 와 힌트 할인 (취소선) 이 한 화면에.
+ * 선수마다 첫 패시브(고유)에 힌트 Lv (1 ~ 3 돌아가며), 첫 두 선수는 공용 패시브 하나 보유.
+ */
+function shopInject(data, st, sp = 120) {
+  st.skillPoints = sp;
+  const view = lessonRun.getPassiveShopView(st, data);
+  view.players.forEach((p, i) => {
+    const uq = p.rows.find((r) => r.unique && r.ok);
+    if (uq) st.hints[uq.skillId] = Math.max(st.hints[uq.skillId] || 0, 1 + (i % 3));
+    const pl = st.players.find((x) => x.id === p.id);
+    const common = p.rows.find((r) => !r.unique && r.ok);
+    if (i < 2 && common && !pl.learnedSkillIds.includes(common.skillId)) pl.learnedSkillIds.push(common.skillId);
+  });
+  return st;
+}
+/** 편성 코치 하나를 유대 80 으로 (파티 패시브 한 단계 위 · ★ 표시) */
+function bond80(data, st, at = 0) {
+  const up = Number(data.lesson?.bond?.upgradeAt) || 80;
+  const sup = st.supports[at];
+  if (sup) sup.bond = Math.max(sup.bond, up);
+  return sup;
+}
 
 // ---- 레슨 화면 (U3) 시나리오 도우미 ----
 const playingLesson = (s) => s.phase === "lesson" && s.lesson?.status === "playing";
@@ -377,6 +401,64 @@ export const LESSON_OG_SCENARIOS = [
     },
     ready: ".week-bar .free-outing",
     expect: { screen: "run", phase: "week", modal: false },
+  },
+  // ---- 패시브 (L48): [✦ 패시브] 상점 모달 · 코치 파티 패시브 ----
+  {
+    // 시즌 2 레슨 주 + 첫 코치 유대 80 (주입): 코치 칸 파티 패시브 (★ = 유대 80) · 아래 줄 [✦ 패시브 · SP ③]
+    name: "og_week_party",
+    title: "주 선택 — 코치 칸 파티 패시브 (유대 80 ★) · [✦ 패시브] 배지",
+    outgame: true,
+    build: (data, { runSeed }) => {
+      const b = walkOrThrow("og_week_party", data, { seed: runSeed, until: (s) => s.phase === "week" && s.season === 2 && s.weekOffer?.kind === "lesson" });
+      shopInject(data, b.runState);
+      const sup = bond80(data, b.runState, 0);
+      return { ...b, summary: `${b.summary} (SP 120 · 힌트 · 보유 · ${sup?.id} 유대 80 주입)` };
+    },
+    ready: ".week-screen .roster .bond-pp.up",
+    expect: { screen: "run", phase: "week", modal: false },
+  },
+  {
+    // [✦ 패시브] → 상점 모달: 선수 7 × 3 (고유 먼저) · 힌트 할인 취소선 · 보유 ✓ · SP 부족 흐리게 · 포지션 밖 회색 이유 · 추천
+    name: "og_passive_shop",
+    title: "패시브 상점 모달 (주 선택) — 선수 7 × 고유 1 + 공용 2 · 할인 · 보유 · SP 부족 · 추천",
+    outgame: true,
+    build: (data, { runSeed }) => {
+      const b = walkOrThrow("og_passive_shop", data, { seed: runSeed, until: (s) => s.phase === "week" && s.season === 2 && s.weekOffer?.kind === "lesson" });
+      shopInject(data, b.runState);
+      return { ...b, summary: `${b.summary} (SP 120 · 고유 힌트 Lv1~3 · 첫 두 선수 공용 1 보유 주입)` };
+    },
+    steps: [{ click: ".week-bar .ps-open" }],
+    ready: "#modal-root .passive-shop .ps-chip.st-owned",
+    expect: { screen: "run", phase: "week", modal: ".passive-shop" },
+  },
+  {
+    // 상점에서 추천 칩을 눌러 산 직후: 그 칩 ✓ 보유 (초록 반짝) · SP 줄어듦 · 모달은 열린 채 · 토스트 "패시브: … 습득"
+    name: "og_passive_shop_bought",
+    title: "패시브 상점 — 추천 칩을 눌러 산 직후 (✓ 보유 · SP 감소 · 모달 그대로)",
+    outgame: true,
+    build: (data, { runSeed }) => {
+      const b = walkOrThrow("og_passive_shop_bought", data, { seed: runSeed, until: (s) => s.phase === "week" && s.season === 2 && s.weekOffer?.kind === "lesson" });
+      shopInject(data, b.runState);
+      return { ...b, summary: `${b.summary} (SP 120 · 힌트 · 보유 주입 → 추천 칩 구매)` };
+    },
+    steps: [{ click: ".week-bar .ps-open" }, { click: "#modal-root .ps-chip.recommended" }, { pauseAnim: true }],
+    ready: "#modal-root .passive-shop .ps-chip.just.st-owned",
+    expect: { screen: "run", phase: "week", modal: ".passive-shop" },
+  },
+  {
+    // 터치 915×412 (가로 폰): [✦ 패시브] 탭 → 상점 모달 (무대가 통째로 줄어도 잘림 · 스크롤 없음)
+    name: "og_passive_shop_touch",
+    title: "패시브 상점 — 터치 915×412: 버튼 탭 → 모달 (잘림 · 스크롤 없음)",
+    outgame: true,
+    viewport: { width: 915, height: 412, deviceScaleFactor: 1, isMobile: true, hasTouch: true },
+    build: (data, { runSeed }) => {
+      const b = walkOrThrow("og_passive_shop_touch", data, { seed: runSeed, until: (s) => s.phase === "week" && s.season === 2 && s.weekOffer?.kind === "lesson" });
+      shopInject(data, b.runState);
+      return { ...b, summary: `${b.summary} (SP 120 · 힌트 · 보유 주입, 터치)` };
+    },
+    steps: [{ tap: ".week-bar .ps-open" }],
+    ready: "#modal-root .passive-shop .ps-chip",
+    expect: { screen: "run", phase: "week", modal: ".passive-shop" },
   },
   {
     name: "og_outing",
@@ -1167,6 +1249,18 @@ export const LESSON_OG_SCENARIOS = [
     expect: { screen: "run", phase: "reward", modal: ".reward-modal" },
   },
   {
+    // 선수 힌트 (L48, src "player"): 퍼펙트 보상 = 선수 힌트 2 — 힌트 칩 "(얼굴) 울리카 · 측면 질주 Lv1" · SP 칩 (TP 옆, 레슨 SP)
+    name: "og_reward_player_hint",
+    title: "레슨 결과 — 선수 힌트 (얼굴 · 선수 · 패시브 Lv) · SP 칩 (TP 옆)",
+    outgame: true,
+    build: (data, { runSeed }) => walkRewardOrThrow("og_reward_player_hint", data, {
+      seed: runSeed,
+      until: (s) => s.phase === "reward" && s.pendingReward?.offer.length > 0 && (s.pendingReward.result?.hints || []).filter((x) => x.src === "player").length >= 2,
+    }),
+    ready: "#modal-root .reward-modal .rw-chip.hint .rw-hint-pl",
+    expect: { screen: "run", phase: "reward", modal: ".reward-modal" },
+  },
+  {
     // 보상 후보에 고유 카드 강화 (주입 — 후보 첫 장 = 덱의 네리아 고유 카드 강화판): 앞면 모양 칩 · 아이콘 · 배율 칩
     name: "og_reward_unique",
     title: "레슨 결과 — 보상 후보에 고유 카드 강화 (모양 칩 · 배율 칩)",
@@ -1267,19 +1361,21 @@ export const LESSON_OG_SCENARIOS = [
     expect: { screen: "run", phase: "reward", modal: ".reward-modal" },
   },
   {
-    // 수업 2개 보상에서 첫 수업을 엔진으로 끝낸 뒤 (칩 "수업 … → 선수") 둘째 수업: 받을 수 있는 첫 선수를 가득(패시브 3) 으로 주입 → 그 선수 고름 →
-    // 바꿀 스킬 줄 · 둘째 스킬 고름 (취소선)
+    // 수업 2개 보상에서 첫 수업을 엔진으로 끝낸 뒤 (칩 "수업 … → 선수") 둘째 수업: 받을 수 있는 첫 선수를 가득(액티브 3 + 패시브 1) 으로 주입 → 그 선수 고름 →
+    // 바꿀 액티브 줄 (패시브는 칸을 쓰지 않아 목록에 없다 — L48) · 둘째 액티브 고름 (취소선)
     name: "og_reward_teach_full",
-    title: "레슨 결과 — 코치 수업 2/2: 가득인 선수 → 바꿀 스킬 줄 (고른 스킬은 사라짐)",
+    title: "레슨 결과 — 코치 수업 2/2: 가득인 선수 → 바꿀 액티브 줄 (패시브는 빠짐 · 고른 스킬은 사라짐)",
     outgame: true,
     build: (data, { runSeed }) => {
       const b = walkOrThrow("og_reward_teach_full", data, { seed: runSeed, until: teachPending(2) });
       const st = b.runState;
       lessonRun.resolveTeach(st, data, manager.recommendTeach(st, data));
       const cur = lessonRun.getRewardView(st, data).teach.cur;
+      const acts = freeActives(data).filter((id) => id !== cur.skillId).slice(0, 3);
       const p = st.players.find((x) => cur.players.find((c) => c.id === x.id)?.ok);
-      p.learnedSkillIds = freePassives(data);
-      return { ...b, info: { pid: p.id, rep: p.learnedSkillIds[1] }, summary: `${b.summary} (첫 수업 처리 · ${p.name} 습득 3 주입)` };
+      const pas = lessonRun.getPassiveShopView(st, data).players.find((x) => x.id === p.id).rows.find((r) => r.ok)?.skillId;
+      p.learnedSkillIds = [...acts.slice(0, 3), ...(pas ? [pas] : [])];
+      return { ...b, info: { pid: p.id, rep: p.learnedSkillIds[1] }, summary: `${b.summary} (첫 수업 처리 · ${p.name} 액티브 3 + 패시브 1 주입)` };
     },
     steps: (prepared) => [{ click: `#modal-root .rw-teach-pl[data-pid="${prepared.info.pid}"]` }, { click: `#modal-root .rw-rep-btn[data-skill="${prepared.info.rep}"]` }],
     ready: "#modal-root .rw-teach-rep .rw-rep-btn.selected",
@@ -1371,9 +1467,9 @@ export const LESSON_OG_SCENARIOS = [
     expect: { screen: "run", phase: "consult", modal: false },
   },
   {
-    // 꽉 찬 상담 (주입): 힌트 스킬 7개 · 덱 +10장(24장) · TP 200 · SP 600 — 스킬 줄 압축 · 덱 6줄이 스크롤 없이 들어가는지
+    // 꽉 찬 상담 (주입): 패시브 힌트 7개 · 덱 +10장(24장) · TP 200 · SP 600 — 패시브 칸 (선수 7 × 3) · 덱 6줄이 스크롤 없이 들어가는지
     name: "og_consult_full",
-    title: "상담 — 꽉 참: 패시브 스킬 7 (압축) · 덱 24장 (TP · SP 주입)",
+    title: "상담 — 꽉 참: 패시브 힌트 7 · SP 600 (선수 7 × 3 칩) · 덱 24장 (TP · SP 주입)",
     outgame: true,
     build: (data, { runSeed }) => {
       const b = walkOrThrow("og_consult_full", data, { seed: runSeed, until: (s) => s.phase === "consult" });
@@ -1389,29 +1485,55 @@ export const LESSON_OG_SCENARIOS = [
       while (st.deck.length < 24) { st.deck.push({ uid: `k${st.nextUid}`, cardId: extra[st.deck.length % extra.length], plus: st.deck.length % 3 === 0 }); st.nextUid += 1; }
       return { ...b, summary: `${b.summary} (힌트 7 · 덱 24 · TP 200 · SP 600 주입)` };
     },
-    ready: ".consult-screen .cs-skill",
+    ready: ".consult-screen .ps-grid.compact .ps-chip",
     expect: { screen: "run", phase: "consult", modal: false },
   },
   {
-    // 상담 패시브만 (§18.5): 편성 코치의 패시브 힌트 2개 · SP 300 (주입) — 스킬 칸 머리 "패시브 스킬 (SP)" · 힌트 대기 (패시브) · 액티브 안내 한 줄
+    // 상담 패시브 칸 (L48): 걸어 온 그대로 + SP 300 (주입) — 머리 "패시브 (SP)" · 선수 7 × 3 칩 · 액티브 안내 한 줄
     name: "og_consult_passive",
-    title: "상담 — 패시브 스킬만 (SP) · 액티브는 코치 수업 안내",
+    title: "상담 — 패시브 칸 (선수 7 × 고유 1 + 공용 2) · 액티브는 코치 수업 안내",
     outgame: true,
     build: (data, { runSeed }) => {
       const b = walkOrThrow("og_consult_passive", data, { seed: runSeed, until: (s) => s.phase === "consult" });
       const st = b.runState;
       st.skillPoints = Math.max(st.skillPoints, 300);
-      const ids = st.supports.flatMap((x) => (data.supports.find((d) => d.id === x.id)?.hintSkillIds || [])).filter((id) => data.skills.find((k) => k.id === id)?.kind === "passive");
-      for (const id of [...new Set(ids)].slice(0, 2)) st.hints[id] = Math.max(st.hints[id] || 0, 2);
-      return { ...b, summary: `${b.summary} (패시브 힌트 2 · SP 300 주입)` };
+      return { ...b, summary: `${b.summary} (SP 300 주입)` };
     },
-    ready: ".consult-screen .cs-active-note",
+    ready: ".consult-screen .ps-grid.compact .ps-chip",
     expect: { screen: "run", phase: "consult", modal: false },
   },
   {
-    // 옛 고유 패시브 4개 (L45 — 이제 SP 패시브 풀, §19.12 ②): 밀물의 벽(GK만) · 주장의 외침 · 지치지 않는 다리 · 고양이 페인트(FW · MF) — 배울 선수 목록이 포지션 제한을 따른다
+    // 상담 패시브 칸 (L48, 주입 shopInject): 힌트 할인 (취소선 · Lv) · 보유 ✓ · SP 부족 · 포지션 밖 · 추천 (recommendConsult skill)
+    name: "og_consult_passives",
+    title: "상담 — 패시브 칸: 힌트 할인 · 보유 ✓ · SP 부족 · 추천 (SP 120 · 힌트 · 보유 주입)",
+    outgame: true,
+    build: (data, { runSeed }) => {
+      const b = walkOrThrow("og_consult_passives", data, { seed: runSeed, until: (s) => s.phase === "consult" });
+      shopInject(data, b.runState);
+      return { ...b, summary: `${b.summary} (SP 120 · 고유 힌트 Lv1~3 · 첫 두 선수 공용 1 보유 주입)` };
+    },
+    ready: ".consult-screen .ps-grid.compact .ps-chip.st-owned",
+    expect: { screen: "run", phase: "consult", modal: false },
+  },
+  {
+    // 상담 [크게 보기] → 같은 상점 모달 (설명 줄까지)
+    name: "og_consult_passives_modal",
+    title: "상담 — [크게 보기] → 패시브 상점 모달 (주 · 경기 전 준비와 같은 모달)",
+    outgame: true,
+    build: (data, { runSeed }) => {
+      const b = walkOrThrow("og_consult_passives_modal", data, { seed: runSeed, until: (s) => s.phase === "consult" });
+      shopInject(data, b.runState);
+      return { ...b, summary: `${b.summary} (SP 120 · 힌트 · 보유 주입)` };
+    },
+    steps: [{ click: ".consult-screen .cs-ps-open" }],
+    ready: "#modal-root .passive-shop .ps-chip",
+    expect: { screen: "run", phase: "consult", modal: ".passive-shop" },
+  },
+  {
+    // 옛 고유 패시브 4개 (L45) → L48 에서 그 캐릭터의 고유 패시브: 밀물의 벽 = 네리아(GK) · 주장의 외침 = 아델린 · 지치지 않는 다리 = 타리아 ·
+    // 고양이 페인트 = 미르카 (기본 편성에 없음). 힌트 Lv1 주입 → 그 선수 칩에 할인 · Lv
     name: "og_consult_old_innate",
-    title: "상담 — 옛 고유 패시브 4개 (밀물의 벽 GK만 · 주장의 외침 · 지치지 않는 다리 · 고양이 페인트 FW·MF)",
+    title: "상담 — 옛 고유 패시브 (L48: 네리아 · 아델린 · 타리아 고유) 힌트 Lv1 할인",
     outgame: true,
     build: (data, { runSeed }) => {
       const b = walkOrThrow("og_consult_old_innate", data, { seed: runSeed, until: (s) => s.phase === "consult" });
@@ -1420,7 +1542,7 @@ export const LESSON_OG_SCENARIOS = [
       for (const id of ["sk_tide_wall", "sk_captain_call", "sk_tireless", "sk_feint"]) st.hints[id] = Math.max(st.hints[id] || 0, 1);
       return { ...b, summary: `${b.summary} (옛 고유 패시브 힌트 4 · SP 400 주입)` };
     },
-    ready: '.consult-screen .cs-skill[data-skill="sk_tide_wall"]',
+    ready: '.consult-screen .ps-chip[data-skill="sk_tide_wall"]',
     expect: { screen: "run", phase: "consult", modal: false },
   },
   {
@@ -1486,6 +1608,47 @@ export const LESSON_OG_SCENARIOS = [
     build: (data, { runSeed }) => walkOrThrow("og_prep_captain2", data, { seed: runSeed, slots: { GK: "ch_giant_keeper" }, until: (s) => s.phase === "prep" }),
     ready: ".prep-screen .po-cap .cap-note",
     expect: { screen: "run", phase: "prep", modal: false },
+  },
+  {
+    // 경기 전 준비 (L48): 왼쪽 칸 코치 파티 패시브 6 (첫 코치 유대 80 ★ 주입) · 편집기 아래 [✦ 패시브 · SP ③] [경기 시작]
+    name: "og_prep_party",
+    title: "경기 전 준비 — 코치 파티 패시브 6 (유대 80 하나) · [✦ 패시브] 버튼",
+    outgame: true,
+    build: (data, { runSeed }) => {
+      const b = walkOrThrow("og_prep_party", data, { seed: runSeed, until: (s) => s.phase === "prep" });
+      shopInject(data, b.runState);
+      const sup = bond80(data, b.runState, 0);
+      return { ...b, summary: `${b.summary} (SP 120 · 힌트 · 보유 · ${sup?.id} 유대 80 주입)` };
+    },
+    ready: ".prep-screen .po-party .pp-item.up",
+    expect: { screen: "run", phase: "prep", modal: false },
+  },
+  {
+    // 경기 전 준비 + 부상 + 주장 2명 (가장 긴 왼쪽 칸): 파티 패시브 목록이 아래 안내와 겹치지 않는가
+    name: "og_prep_party_long",
+    title: "경기 전 준비 — 파티 패시브 + 부상 1 + 주장 2명 (왼쪽 칸이 가장 길 때)",
+    outgame: true,
+    build: (data, { runSeed }) => {
+      const b = walkOrThrow("og_prep_party_long", data, { seed: runSeed, slots: { GK: "ch_giant_keeper" }, until: (s) => s.phase === "prep" });
+      b.runState.players[2].injuredTurns = 2;
+      return { ...b, summary: `${b.summary} (GK 헤르타 · ${b.runState.players[2].name} 부상 2 주입)` };
+    },
+    ready: ".prep-screen .po-party .pp-item",
+    expect: { screen: "run", phase: "prep", modal: false },
+  },
+  {
+    // 경기 전 준비에서 [✦ 패시브] → 상점 모달 (편집기 뒤)
+    name: "og_prep_shop",
+    title: "경기 전 준비 — [✦ 패시브] → 상점 모달",
+    outgame: true,
+    build: (data, { runSeed }) => {
+      const b = walkOrThrow("og_prep_shop", data, { seed: runSeed, until: (s) => s.phase === "prep" });
+      shopInject(data, b.runState);
+      return { ...b, summary: `${b.summary} (SP 120 · 힌트 · 보유 주입)` };
+    },
+    steps: [{ click: ".prep-edit .ps-open" }],
+    ready: "#modal-root .passive-shop .ps-chip",
+    expect: { screen: "run", phase: "prep", modal: ".passive-shop" },
   },
   // ---- 이벤트 · 유물 · 루트 · 결과 (레슨 런, I1) ----
   {

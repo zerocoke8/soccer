@@ -79,14 +79,14 @@
 .seed-field .input { width: 128px; min-height: 38px; padding: 6px 10px; font-size: 13px; }
 .setup-main {
   flex: 1 1 auto; min-height: 0; display: grid; gap: 12px;
-  grid-template-columns: minmax(0, 1fr) 350px;
+  grid-template-columns: minmax(0, 1fr) 380px; /* 옆 칸 380 = 코치 칩 2열에 파티 패시브 두 줄 (L48) */
   grid-template-rows: minmax(0, 1fr) auto;
   grid-template-areas: "pitch side" "pool pool";
 }
 .setup-pitch { grid-area: pitch; }
 .setup-pitch > .og-panel-body { flex: 1 1 auto; }
 .setup-side { grid-area: side; display: flex; flex-direction: column; gap: 12px; min-height: 0; }
-.setup-side > .og-panel:not(.grow-panel) { flex: none; } /* 전술은 줄어들지 않는다 — 서포트 칩(.grow-panel)만 안쪽 스크롤 */
+.setup-side > .og-panel:not(.grow-panel) { flex: none; } /* 훈련 방침은 줄어들지 않는다 — 서포트 칩(.grow-panel)만 안쪽 스크롤 */
 .setup-pool { grid-area: pool; padding-bottom: 8px; }
 .formation-sel .select { width: 290px; min-height: 32px; padding: 4px 10px; font-size: 13px; }
 .mini-pitch {

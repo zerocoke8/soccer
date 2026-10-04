@@ -1,12 +1,15 @@
 // js/ui/screens/setup.js — 편성 화면 (런 시작 전)
 // 가로 스테이지(1280×720), 페이지 스크롤 없음:
 //   ┌ 머리 줄: ← 처음으로 · 편성 · 조작 안내 ················ seed · [기본 편성으로 시작] [런 시작] ┐
-//   │ 포메이션 · 배치: 가로 미니 필드(우리 골 왼쪽 — 경기 화면과 같은 방향), 슬롯 7개 │ 코치 (서포트 칩 2열, n/6)       │
-//   │ 원소 공명 · 경고                                                         │ 전술 지시 4개 (+ 배급)           │
+//   │ 포메이션 · 배치 · 전술: 가로 미니 필드(우리 골 왼쪽 — 경기 화면과 같은 방향), 슬롯 7개 │ 코치 (서포트 칩 2열, n/6)       │
+//   │ 원소 공명 · 경고                                                         │  칩 = 이름 · 희귀도 · 타입 ·    │
+//   │ 전술 지시 4개 한 줄 (공격 성향 · 슛 타이밍 · 수비 성향 · 배급)               │  ⚑ 파티 패시브 글 · 80: 유대 80 │
 //   │                                                                          │ 훈련 방침 5개 (레슨 버프 — 경기 전술 아님) │
 //   │ 선수 풀: 캐릭터 전원 카드 2줄 × 8장 (필드 선수 슬롯 순서 → 벤치 레어도 순, LESSON_PROTO_PLAN §19.14 ①)        │
 //   └──────────────────────────────────────────────────────────────────────────────────────┘
 // 배치는 라인업 보드(js/ui/lineup.js): 선수 카드를 끌어 슬롯에 놓기 (초록 = 가능 · 빨강 = 불가), 눌러서 고른 뒤 자리 누르기도 된다.
+// L48: 코치 칩에 파티 패시브 (data.supports[].partyPassive — 글 + "80: …" 유대 80 글, 이름 · 전체 글은 title). 칩이 커져
+//   전술 지시 4개는 옆 칸에서 미니 필드 아래 한 줄로 옮겼다 (옆 칸 = 코치 · 훈련 방침).
 import { h, avatar, select, toast, panel, openModal, closeOverlays } from '../dom.js';
 import {
   STATS, POSITIONS, slotsOf, positionOfSlot, POSITION_LABELS, ELEMENT_LABELS, ELEMENT_ICONS, STYLE_LABELS,
@@ -14,6 +17,7 @@ import {
   APTITUDE_ORDER, FORMATIONS, randomSeed, traitInfo, POLICIES, policyInfo, ultimateInfo, captainCount, captainNote,
 } from '../labels.js';
 import { lineupBoard, reseat, slotSpot, slotOfId, checkMove, applyMove, badText, poolOrder, ultChip, ultMark } from '../lineup.js';
+import { setupPartyLine } from '../passives.js';
 
 export { slotSpot }; // 예전 위치 (test/outgame.test.mjs) — 이제 js/ui/lineup.js
 
@@ -224,13 +228,14 @@ export function renderSetup(root, ctx) {
   const supportGrid = h('div', { class: 'sp-chips' }, supports.map((sp) => {
     const selected = s.supportIds.includes(sp.id);
     const type = SUPPORT_TYPE_LABELS[sp.type] ?? sp.type ?? '';
+    const pp = setupPartyLine(sp); // 파티 패시브 (L48): 편성하면 런 내내 경기 전체에, 유대 80 = 한 단계 위
     const detail = [
       `${sp.name}${sp.rarity ? ` (${sp.rarity})` : ''}`,
       `타입 ${type}`,
       sp.trainingBonus ? `훈련 효율 +${Math.round(sp.trainingBonus * 100)}%` : null,
       sp.initialBond != null ? `초기 유대 ${sp.initialBond}` : null,
       sp.description || null,
-    ].filter(Boolean).join(' · ');
+    ].filter(Boolean).join(' · ') + (pp ? `\n${pp.title}` : '');
     return h('button', {
       type: 'button',
       class: ['sp-chip', 'support-card', selected ? 'selected' : ''], // support-card = 예전 이름 (test/ui.smoke.test.mjs 가 찾는다), 모양은 .sp-chip
@@ -249,11 +254,14 @@ export function renderSetup(root, ctx) {
       h('span', { class: 'tiny muted ellipsis' },
         sp.rarity ? h('span', { class: `rarity-${sp.rarity}` }, sp.rarity) : null, ` ${type}`,
         sp.trainingBonus ? ` +${Math.round(sp.trainingBonus * 100)}%` : '')),
+    pp ? h('span', { class: 'sp-chip-pp', 'aria-label': `파티 패시브 ${pp.name}: ${pp.text}` },
+      h('span', { class: 'sp-pp-ico', 'aria-hidden': 'true' }, '⚑'), pp.text,
+      pp.more ? h('span', { class: 'sp-pp-80' }, ` · 80: ${pp.more}`) : null) : null,
     selected ? h('span', { class: 'sp-check', 'aria-hidden': 'true' }, '✔') : null,
     );
   }));
 
-  // ---- 전술 (한 줄 = 라벨 + 선택): 공격 성향 · 슛 타이밍 · 수비 성향 · 배급 (GK 배급 2026-09-29) ----
+  // ---- 전술 (미니 필드 아래 한 줄 = 라벨 + 선택 4칸): 공격 성향 · 슛 타이밍 · 수비 성향 · 배급 (GK 배급 2026-09-29) ----
   const tacticsEl = h('div', { class: 'tac-rows' }, TACTIC_SETUP_KEYS.map((key) =>
     h('label', { class: 'tac-row' },
       h('span', { class: 'tiny muted' }, TACTIC_LABELS[key]),
@@ -263,6 +271,8 @@ export function renderSetup(root, ctx) {
   const pids = policyIds(data);
   if (!pids.includes(s.policy)) s.policy = pids.includes(data?.lesson?.defaultPolicy) ? data.lesson.defaultPolicy : pids[0];
   const curPolicy = policyInfo(s.policy, data);
+  // 고른 방침 설명 = 패널 머리 오른쪽 한 줄 ("경기 전술 아님" 은 title)
+  const policyDesc = h('span', { class: 'tiny muted policy-desc', title: `${curPolicy.name} — ${curPolicy.desc}\n레슨에서 붙는 버프가 바뀝니다 (경기 전술 아님).` }, curPolicy.desc);
   const policyEl = h('div', { class: 'policy-pick' },
     h('div', { class: 'policy-row', role: 'radiogroup', 'aria-label': '훈련 방침' }, pids.map((id) => {
       const info = policyInfo(id, data);
@@ -276,8 +286,7 @@ export function renderSetup(root, ctx) {
         title: `${info.name} — ${info.desc}`,
         onclick: () => { if (!on) { s.policy = id; rerender(); } },
       }, info.name);
-    })),
-    h('p', { class: 'tiny muted policy-desc' }, curPolicy.desc));
+    })));
 
   // ---- 시작 ----
   function startCustom() {
@@ -334,24 +343,22 @@ export function renderSetup(root, ctx) {
         h('button', { class: 'btn btn-primary', onclick: startCustom }, '런 시작'))),
 
     h('div', { class: 'setup-main' },
-      panel('포메이션 · 배치', { cls: 'setup-pitch', right: h('div', { class: 'formation-sel' }, formationSel) },
-        board.pitch, resonanceEl),
+      panel('포메이션 · 배치 · 전술', { cls: 'setup-pitch', right: h('div', { class: 'formation-sel' }, formationSel) },
+        board.pitch, resonanceEl,
+        // 전술 지시 4개 (L48 — 코치 칩이 파티 패시브로 커져 옆 칸에서 옮겼다): 라벨 + 선택 한 줄
+        h('div', { class: 'setup-tactics' },
+          h('span', { class: 'tiny muted setup-tac-head', title: '텐션 사용·듀얼 담당은 기본값을 따르며 런 중 전술 미팅에서 바꿀 수 있습니다.' }, '전술 지시'),
+          tacticsEl)),
 
       h('div', { class: 'setup-side' },
-        // 서포트 칩은 데이터 개수만큼 늘어난다 → 이 패널만 남는 높이를 쓰고 안쪽 스크롤 (전술 패널은 늘 보인다 — outgame.css)
+        // 서포트 칩은 데이터 개수만큼 늘어난다 → 이 패널만 남는 높이를 쓰고 안쪽 스크롤 (훈련 방침 패널은 늘 보인다 — outgame.css)
         panel(`코치 ${s.supportIds.length}/${supportCount}`, {
           cls: ['grow-panel', 'setup-supports', s.supportIds.length === supportCount ? 'done' : ''].filter(Boolean).join(' '),
           scroll: true,
-          right: h('span', { class: 'tiny muted' }, `${supports.length}명 중 ${supportCount}명 · 누르면 선택/해제`),
+          right: h('span', { class: 'tiny muted' }, `${supports.length}명 중 ${supportCount}명 · ⚑ = 파티 패시브`),
         }, supportGrid),
-        // 전술 지시 + 훈련 방침 = 한 패널 (16명 풀 2줄이 들어가도 코치 칩 4줄이 스크롤 없이 보이게 — §19.19 K3)
-        panel('전술 지시', { cls: 'setup-tactics', right: h('span', { class: 'tiny muted', title: '텐션 사용·듀얼 담당은 기본값을 따르며 런 중 전술 미팅에서 바꿀 수 있습니다.' }, '텐션·듀얼 담당은 미팅에서') },
-          tacticsEl,
-          h('div', { class: 'setup-policy' },
-            h('div', { class: 'og-panel-head' },
-              h('h3', { class: 'og-panel-title' }, '훈련 방침'),
-              h('span', { class: 'tiny muted', title: '레슨에서 붙는 버프가 바뀝니다. 경기 전술과는 상관없습니다.' }, '경기 전술 아님')),
-            policyEl))),
+        // 훈련 방침 (레슨 버프 — 경기 전술 아님): 머리 = 고른 방침 설명, 버튼 5
+        panel('훈련 방침', { cls: 'setup-policy', right: policyDesc }, policyEl)),
 
       poolPanel,
     ),

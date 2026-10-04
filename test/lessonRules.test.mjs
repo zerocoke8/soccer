@@ -160,8 +160,10 @@ test("10.1 키 매핑: hintRate 는 클리어 때 힌트 1개 더 (확률), 실�
   startLessonWeek(s, "pass");
   clearLesson(s);
   assert.equal(s.pendingReward.result.status, "clear");
-  // 힌트 = 패시브 힌트 + 코치 수업 (액티브, §18.3) + 후보 없음 SP
-  assert.equal(s.pendingReward.result.hints.length + s.pendingReward.teach.length + s.pendingReward.result.sp / data.lesson.rewards.noHintSp, 2);
+  // 힌트 = 선수 패시브 힌트 + 코치 수업 (액티브, §18.3) + 후보 없음 SP — 코치 1 + hintRate 1 + 선수 1 (L48)
+  const rs = s.pendingReward.result;
+  assert.equal(rs.spLesson, data.lesson.rewards.clear.sp, "클리어 SP (L48)");
+  assert.equal(rs.hints.length + s.pendingReward.teach.length + (rs.sp - rs.spLesson) / data.lesson.rewards.noHintSp, data.lesson.rewards.clear.hints + 1 + data.lesson.rewards.clear.playerHints);
 
   const t = newRun();
   t.modifiers.push({ key: "hintRate", amount: 1, untilSeason: null });
@@ -191,7 +193,7 @@ test("10.1 키 매핑 · D30 (L36): restEffect 는 주 휴식에만, 레슨 벤�
   assert.deepEqual(s.lesson.bench, [], "다음 턴 시작에 벤치를 비운다");
 });
 
-test("D5 · D6: 턴 끝 기본 훈련으로 상한에 닿아도 퍼펙트 — 그 턴까지 쓴 것으로 세고, 보상은 TP 20 · 힌트 2 · 무료 강화 1 (클리어 보상과 겹치지 않음)", () => {
+test("D5 · D6: 턴 끝 기본 훈련으로 상한에 닿아도 퍼펙트 — 그 턴까지 쓴 것으로 세고, 보상은 TP 20 · SP 35 · 코치 힌트 1 · 선수 힌트 2 · 무료 강화 1 (클리어 보상과 겹치지 않음)", () => {
   const s = newRun({ policy: "team" });
   startLessonWeek(s, "pass");
   const L = s.lesson;
@@ -208,7 +210,8 @@ test("D5 · D6: 턴 끝 기본 훈련으로 상한에 닿아도 퍼펙트 — �
   assert.equal(r.status, "perfect");
   assert.equal(r.turnReached, 3);
   assert.equal(s.trainingPoints - tp0, data.lesson.rewards.perfect.tp);
-  assert.equal(r.hints.length + s.pendingReward.teach.length + r.sp / data.lesson.rewards.noHintSp, data.lesson.rewards.perfect.hints);
+  assert.equal(r.spLesson, data.lesson.rewards.perfect.sp, "퍼펙트 SP (L48)");
+  assert.equal(r.hints.length + s.pendingReward.teach.length + (r.sp - r.spLesson) / data.lesson.rewards.noHintSp, data.lesson.rewards.perfect.hints + data.lesson.rewards.perfect.playerHints);
   assert.equal(s.pendingReward.freeUpgrades, 1);
   assert.equal(s.teamwork - tw0, data.lesson.teamwork.clear);
   // 체력: 기본 훈련 −1 (경기장) · 벤치 +15 (p1) → 퍼펙트 5 × (6 − 3). 자율 훈련은 없다.

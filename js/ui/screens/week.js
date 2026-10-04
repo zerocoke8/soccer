@@ -6,8 +6,9 @@
 //   │ 자유 주: 행동 카드 3장(220×260, 보장 배지) + [휴식]              │ 코치 유대 (눈금 = 80)       │
 //   │ 대비 주: 대비 카드 2장 미리보기                                  │                            │
 //   │ 시즌 일정 줄 (1~5주 · 보장 행동 · ⚔ 경계전)                      │                            │
-//   ├ 아래 줄: [덱 보기 N] [유물 · 보정 · 기록]   (♨️ 무료 외출 — 온천)  │                            │
+//   ├ 아래 줄: [덱 보기 N] [유물 · 보정 · 기록] [✦ 패시브 · SP ③]  (♨️ 무료 외출 — 온천)  │ 코치 파티 패시브 (코치마다) │
 //   └────────────────────────────────────────────────────────────────┴────────────────────────────┘
+// [✦ 패시브] = SP 패시브 상점 모달 (js/ui/passives.js, L48 — ③ = 지금 SP 로 살 수 있는 수 view.shopBuyable). 사고 닫으면 다시 그린다.
 // 추천 = manager.recommendWeek → 그 카드 · 버튼에 .recommended + "추천" 배지 (이유는 title). 자동 진행 버튼은 없다 (§5.5).
 // 자유 주 행동: 상담 → 상담 화면, 전술 미팅 → meetingEditor 모달(modal-xl), 외출 → 선수 고르기 모달(modal-md), 친선전 → 확인 모달.
 // inert (이벤트 · 유물 배경): 모든 버튼 disabled + .inert.
@@ -16,6 +17,7 @@ import * as L from '../labels.js';
 import { hudTopbar, hudRoster, openRecords, stamCls } from '../hud.js';
 import { meetingEditor } from '../meeting.js';
 import { targetText } from '../cards.js';
+import { passiveShopButton, openPassiveShop } from '../passives.js';
 
 export function renderWeek(root, ctx, { inert = false } = {}) {
   const { store, data, run, manager, safe, actions } = ctx;
@@ -153,6 +155,7 @@ export function renderWeek(root, ctx, { inert = false } = {}) {
     h('button', { class: 'btn', disabled: inert, onclick: openDeck }, `덱 보기 ${deck.length}`),
     h('button', { class: 'btn btn-ghost', disabled: inert, onclick: () => openRecords(view, ctx) },
       `📜 유물 ${(view.relics || []).length} · 보정 ${(view.modifiers || []).length} · 기록`),
+    passiveShopButton(view, { disabled: !live, onClick: openShop }),
     h('span', { class: 'grow' }),
     view.freeOuting
       ? h('button', {
@@ -166,9 +169,18 @@ export function renderWeek(root, ctx, { inert = false } = {}) {
   screen.append(hudTopbar(view, ctx), main, hudRoster(view, ctx), barEl);
 
   // ---------- 도우미 ----------
+  /** SP 패시브 상점 (L48): 사면 모달 안만 다시 그리고, 닫을 때 산 게 있으면 주 화면을 다시 그린다 (SP · 배지) */
+  function openShop() {
+    if (!live) return;
+    openPassiveShop(ctx, {
+      onBuy: (args) => actions.buyPassive(args, { render: false }),
+      onClose: ({ bought }) => { if (bought) ctx.render(); },
+    });
+  }
+
   function freeActionText(type) {
     const v = data.config?.meeting?.teamwork ?? 10;
-    if (type === 'consult') return ['카드 구매 · 강화 · 삭제 (TP)', '패시브 스킬 배우기 (SP)', `지금 TP ${view.status?.tp ?? 0} · SP ${view.status?.sp ?? 0}`];
+    if (type === 'consult') return ['카드 구매 · 강화 · 삭제 (TP)', '패시브 사기 (SP)', `지금 TP ${view.status?.tp ?? 0} · SP ${view.status?.sp ?? 0}`];
     if (type === 'meeting') return [`팀워크 +${v}`, '전술 · 포메이션 · 배치 변경', `지금 팀워크 ${view.status?.teamwork ?? 0}`];
     if (type === 'friendly') return [`전원 체력 −${fr.staminaCost ?? 30}`, `승리 SP +${fr.skillPointsWin ?? 20} · 패배 SP +${fr.skillPointsLoss ?? 10}`, '승리하면 유물 기회'];
     if (type === 'outing') return [`고른 선수 체력 +${outingCfg.picked ?? 20}`, `전원 체력 +${outingCfg.team ?? 10}`, `컨디션 +${outingCfg.condition ?? 1}`];
@@ -267,7 +279,7 @@ export function renderWeek(root, ctx, { inert = false } = {}) {
           h('span', { class: 'badge badge-accent' }, `팀워크 +${data.config?.meeting?.teamwork ?? 10}`),
           h('span', { class: 'tiny muted' }, '주를 씁니다')),
       ],
-      footNote: '패시브는 상담에서 SP로, 액티브는 코치 수업으로 배웁니다.',
+      footNote: '패시브는 [✦ 패시브]에서 SP로, 액티브는 코치 수업으로 배웁니다.',
       submitLabel: '미팅 진행',
       onCancel: closeOverlays,
       onSubmit: (a) => { closeOverlays(); act({ type: 'meeting', ...a }); },

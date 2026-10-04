@@ -238,6 +238,17 @@ test("jsdom: 아웃게임 화면 전부 스테이지 안에 그려지고 주요 
   assert.ok($$(".setup-supports .sp-chip:not(.selected)").every((c) => !c.disabled), "편성: 5장이면 고를 수 있다");
   $$(".setup-supports .sp-chip:not(.selected)")[0].click();
   await until(() => $$(".setup-supports .sp-chip.selected").length === data.config.defaultSupports.length);
+  // L48: 코치 칩 = 파티 패시브 글 + "80: …" (유대 80 글 짧게), 이름 · 유대 80 글 전체는 title
+  const ppSups = data.supports.filter((x) => x.partyPassive);
+  assert.ok(ppSups.length >= 1, "데이터: 코치 파티 패시브");
+  for (const sp of ppSups) {
+    const chip = $$(".setup-supports .sp-chip").find((c) => c.querySelector(".sp-chip-nm").textContent === sp.name);
+    const ppEl = chip?.querySelector(".sp-chip-pp");
+    assert.ok(ppEl && ppEl.textContent.includes(sp.partyPassive.text), `편성: ${sp.name} 칩에 파티 패시브 글`);
+    assert.ok(chip.title.includes(sp.partyPassive.name) && chip.title.includes(`유대 80: ${sp.partyPassive.text80}`), `편성: ${sp.name} title = 이름 · 유대 80 글`);
+    if (sp.partyPassive.text80 && sp.partyPassive.text80 !== sp.partyPassive.text) assert.ok(ppEl.querySelector(".sp-pp-80")?.textContent.startsWith(" · 80: "), `편성: ${sp.name} 유대 80 (둘째)`);
+  }
+  assert.ok($(".setup-pitch .setup-tactics .tac-rows"), "편성: 전술 지시 = 미니 필드 아래 한 줄 (L48)");
   assert.equal($$(".setup-tactics .tac-row select").length, 4, "편성: 전술 4개 (공격 성향 · 슛 타이밍 · 수비 성향 · 배급)");
   // 훈련 방침: 전술 패널 아래 별도 패널, <select> 가 아닌 버튼 5개 (편성 화면의 select 는 포메이션 + 전술 4)
   inStage(".setup-side .setup-policy .policy-row", "편성 방침");
@@ -468,6 +479,8 @@ test("jsdom: 아웃게임 화면 전부 스테이지 안에 그려지고 주요 
   assert.equal($$(".week-plan .wp-item.cur").length, 1, "시즌 일정: 이번 주");
   assert.ok(!btnByText(/감독 추천대로/), "자동 진행 버튼 없음 (추천 배지만)");
   assert.equal($$(".week-bar .free-outing").length, 0, "무료 외출 없음 (온천 아님)");
+  assert.ok($(".week-bar .ps-open") && /패시브 · SP \d+/.test($(".week-bar .ps-open").textContent), "아래 줄 [✦ 패시브 · SP] (L48)");
+  assert.equal($$(".roster .bond-pp").length, (wv.partyPassives || []).length, "코치 칸 파티 패시브 (L48)");
   // 덱 · 기록 모달
   btnByText(/^덱 보기 \d+$/, $(".week-bar")).click();
   inStage("#modal-root .modal.modal-lg .deck-list", "덱");

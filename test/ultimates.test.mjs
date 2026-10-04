@@ -771,24 +771,29 @@ test("K2 데이터: 합체기 5개 (§19.11) — a = 필살 패스, b = 받은 �
   assert.equal(match.comboName(real, "sk_prairie_gale", "sk_meteor_shot") ?? null, null);
 });
 
-test("K2 데이터: 옛 고유 6개 = 배울 수 있는 스킬 (id · 효과 그대로) · 코치 힌트 목록 맨 뒤 (§19.12 ②③) · 액티브 2개는 코치 수업", () => {
+test("K2 데이터: 옛 고유 6개 = 배울 수 있는 스킬 (id · 효과 그대로) · 옛 런 코치 힌트 목록 맨 뒤 (§19.12 ②③) · 패시브 4개는 그 캐릭터의 고유 패시브 (L48) · 액티브 2개는 코치 수업", () => {
   const real = loadData();
   const S = Object.fromEntries(real.skills.map((s) => [s.id, s]));
+  // [kind, 값 (L48 에 SP 상점 값으로 바꿈), positions, 옛 런 힌트 코치, 레슨판 주인 캐릭터 (패시브) | 수업 코치 (액티브)]
   const OLD = {
-    sk_tide_wall: ["passive", 180, ["GK"], "sp_river_scholar"],
-    sk_captain_call: ["passive", 140, null, "sp_bard_lumi"],
-    sk_tireless: ["passive", 120, null, "sp_mountain_monk"],
-    sk_feint: ["passive", 100, ["FW", "MF"], "sp_street_striker"],
-    sk_iron_tackle: ["active", 130, null, "sp_iron_captain"],
-    sk_line_breaker: ["active", 140, null, "sp_wind_dancer"],
+    sk_tide_wall: ["passive", 140, ["GK"], "sp_river_scholar", "ch_spirit_keeper"],
+    sk_captain_call: ["passive", 130, null, "sp_bard_lumi", "ch_human_captain"],
+    sk_tireless: ["passive", 120, null, "sp_mountain_monk", "ch_human_runner"],
+    sk_feint: ["passive", 120, ["FW", "MF"], "sp_street_striker", "ch_cat_trickster"],
+    sk_iron_tackle: ["active", 130, null, "sp_iron_captain", "sp_iron_captain"],
+    sk_line_breaker: ["active", 140, null, "sp_wind_dancer", "sp_wind_dancer"],
   };
-  for (const [id, [kind, cost, positions, coach]] of Object.entries(OLD)) {
+  for (const [id, [kind, cost, positions, coach, home]] of Object.entries(OLD)) {
     const s = S[id];
     assert.deepEqual([s.kind, s.learnable, s.cost, s.positions, s.ultimate], [kind, true, cost, positions, null], id);
     const sp = real.supports.find((x) => x.id === coach);
     assert.equal(sp.hintSkillIds.at(-1), id, `${id} → ${sp.name} 힌트 목록 맨 뒤`);
     assert.equal(real.supports.filter((x) => x.hintSkillIds.includes(id)).length, 1, `${id} 코치 1명`);
     assert.ok(!real.characters.some((c) => c.innateSkillId === id), `${id} 는 더 이상 고유가 아니다`);
+    if (kind === "passive") {
+      assert.equal(s.ownerCharId, home, `${id} 고유 패시브 주인`);
+      assert.equal(real.characters.find((c) => c.id === home).passiveIds[0], id, `${id} = 주인 패시브 목록 첫째`);
+    } else assert.ok(real.supports.find((x) => x.id === home).teachSkillIds.includes(id), `${id} 수업 코치`);
   }
   assert.deepEqual(S.sk_iron_tackle.active.params, { defense: 1.4, noMissPenalty: true });
   assert.equal(S.sk_line_breaker.active.effect, "extraLine");
