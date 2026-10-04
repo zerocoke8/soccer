@@ -317,35 +317,35 @@ const CASES = [
     check: both(twGain(1), buffIs({ nextNoFail: false })) },
   { id: "cd_u_neria", plus: true, playerId: "p6", rows: [["p1", "defense", 25], ["p6", "shoot", 25, 1.3]], cost: 8, setup: setStamina(["p1"], 50), selfHeal: { p1: 15 } },
   // 철벽 스쿼트 (도르비나): 주인 둘레 작은 원 (8u) · 실패 판정 없음 · GK·DF 체력 +10 (+15)
-  { id: "cd_u_dorbina", rows: [["p2", "defense", 22], ["p1", "defense", 22]], cost: 9, setup: setStamina(ALL7, 50), selfHeal: { p1: 10, p2: 10 },
+  { id: "cd_u_dorbina", rows: [["p2", "defense", 21], ["p1", "defense", 21]], cost: 8, setup: setStamina(ALL7, 50), selfHeal: { p1: 10, p2: 10 },
     check: both(healed(["p3"], 10), healed(["p4", "p5", "p6", "p7"], 0), twGain(1)) },
-  { id: "cd_u_dorbina", plus: true, layout: { p2: "shoot" }, rows: [["p2", "shoot", 28], ["p6", "shoot", 28]], cost: 9, setup: setStamina(ALL7, 50), selfHeal: { p2: 15 },
+  { id: "cd_u_dorbina", plus: true, layout: { p2: "shoot" }, rows: [["p2", "shoot", 26], ["p6", "shoot", 26]], cost: 8, setup: setStamina(ALL7, 50), selfHeal: { p2: 15 },
     check: healed(["p1", "p3"], 15) },
-  { id: "cd_u_dorbina", rows: [["p2", "defense", 22], ["p1", "defense", 22]], cost: 9, setup: setStamina(["p1", "p2"], 15), selfHeal: { p1: 10, p2: 10 },
+  { id: "cd_u_dorbina", rows: [["p2", "defense", 21], ["p1", "defense", 21]], cost: 8, setup: setStamina(["p1", "p2"], 15), selfHeal: { p1: 10, p2: 10 },
     check: ({ pv }, label) => assert.deepEqual([pv.failRate, pv.failerId], [0, null], `${label}: 체력 15 여도 실패 없음`) },
   // 주장의 호령 (아델린): 주인 구역 전원 · 팀워크 +2 (모양) + L10 · 체력 전원 +3 (+5) · 팀워크 +3 은 지웠다
-  { id: "cd_u_adeline", rows: [["p3", "physical", 20]], cost: 8, setup: setStamina(ALL7, 50), selfHeal: { p3: 3 }, check: both(twGain(2), healed(["p1", "p7"], 3)) },
-  { id: "cd_u_adeline", plus: true, layout: { p1: "physical" }, rows: [["p3", "physical", 25], ["p1", "physical", 25]], cost: 8, setup: setStamina(ALL7, 50), selfHeal: { p1: 5, p3: 5 },
+  { id: "cd_u_adeline", rows: [["p3", "physical", 19]], cost: 8, setup: setStamina(ALL7, 50), selfHeal: { p3: 3 }, check: both(twGain(2), healed(["p1", "p7"], 3)) },
+  { id: "cd_u_adeline", plus: true, layout: { p1: "physical" }, rows: [["p3", "physical", 24], ["p1", "physical", 24]], cost: 8, setup: setStamina(ALL7, 50), selfHeal: { p1: 5, p3: 5 },
     check: both(twGain(2 + 1), healed(["p2"], 5)) },
   // 킬패스 리허설 (실루엔): 연결 · 고른 선수 ×1.5 · 다음 카드 +40% 는 지웠다
   { id: "cd_u_silluen", playerId: "p7", rows: [["p4", "pass", 20], ["p7", "dribble", 20, 1.5]], cost: 8, check: both(buffIs({ nextPct: 0 }), twGain(1)) },
   { id: "cd_u_silluen", plus: true, playerId: "p6", rows: [["p4", "pass", 25], ["p6", "shoot", 25, 1.5]], cost: 8 },
   // 침투 스프린트 (타리아): 자리 옮기기 · 옮긴 구역 ×1.3 · 다음 턴 손패 +1 (+2)
-  { id: "cd_u_taria", zone: "shoot", rows: [["p5", "shoot", 30, 1.3]], cost: 12,
+  { id: "cd_u_taria", zone: "shoot", rows: [["p5", "shoot", 33, 1.3]], cost: 13,
     check: both(drawNextIs(1), ({ L }, label) => assert.equal(L.zones.p5, "shoot", `${label}: 옮겼다`)) },
-  { id: "cd_u_taria", plus: true, zone: "pass", rows: [["p5", "pass", 38, 1.3]], cost: 12, check: drawNextIs(2) },
+  { id: "cd_u_taria", plus: true, zone: "pass", rows: [["p5", "pass", 41, 1.3]], cost: 13, check: drawNextIs(2) },
   // 측면 왕복 크로스 (울리카): 슈팅 구역 1명과 · 팀워크 +1 (모양) + L10 · 다음 작은 원 +50% 는 지웠다
-  { id: "cd_u_ulrika", layout: { p7: "shoot" }, playerId: "p7", rows: [["p6", "shoot", 24], ["p7", "shoot", 24]], cost: 10,
+  { id: "cd_u_ulrika", layout: { p7: "shoot" }, playerId: "p7", rows: [["p6", "shoot", 28], ["p7", "shoot", 28]], cost: 11,
     check: both(twGain(1 + 1), buffIs({ nextPairPct: 0 })) },
-  { id: "cd_u_ulrika", plus: true, layout: { p1: "shoot" }, playerId: "p1", rows: [["p6", "shoot", 30], ["p1", "shoot", 30]], cost: 10, check: twGain(2) },
+  { id: "cd_u_ulrika", plus: true, layout: { p1: "shoot" }, playerId: "p1", rows: [["p6", "shoot", 35], ["p1", "shoot", 35]], cost: 11, check: twGain(2) },
   // 포스트 플레이 (그레타): 주인 둘레 중간 원 (15u) · 주인 ×1.5 · 다음 카드 비용 0 (강화: + 주인 체력 +10)
-  { id: "cd_u_greta", rows: [["p7", "dribble", 17, 1.5]], cost: 7, setup: setStamina(["p7"], 50), check: buffIs({ nextCostZero: true }) },
-  { id: "cd_u_greta", plus: true, layout: { p5: "dribble" }, rows: [["p7", "dribble", 21, 1.5], ["p5", "dribble", 21]], cost: 7, setup: setStamina(["p7"], 50), selfHeal: { p7: 10 },
+  { id: "cd_u_greta", rows: [["p7", "dribble", 20, 1.5]], cost: 8, setup: setStamina(["p7"], 50), check: buffIs({ nextCostZero: true }) },
+  { id: "cd_u_greta", plus: true, layout: { p5: "dribble" }, rows: [["p7", "dribble", 25, 1.5], ["p5", "dribble", 25]], cost: 8, setup: setStamina(["p7"], 50), selfHeal: { p7: 10 },
     check: both(buffIs({ nextCostZero: true }), twGain(1)) },
   // 고양이 발재간 (미르카 = MF2 자리 p5, 패스): 가로지르기 · 두 구역 스탯 · 비용 1번 · 추가 사용 +1 · 주인 체력 −5 (강화: −5 없음)
-  { id: "cd_u_mirka", squad: MIRKA_SQUAD, zone: "defense", rows: [["p5", "pass", 22], ["p5", "defense", 22]], cost: 9, extra: 1, setup: setStamina(["p5"], 50), selfHeal: { p5: -5 },
+  { id: "cd_u_mirka", squad: MIRKA_SQUAD, zone: "defense", rows: [["p5", "pass", 25], ["p5", "defense", 25]], cost: 10, extra: 1, setup: setStamina(["p5"], 50), selfHeal: { p5: -5 },
     check: both(twGain(0), ({ L }, label) => assert.equal(L.zones.p5, "defense", `${label}: 놓은 구역에 선다`)) },
-  { id: "cd_u_mirka", squad: MIRKA_SQUAD, plus: true, at: C.shoot, rows: [["p5", "pass", 28], ["p5", "shoot", 28]], cost: 9, extra: 1, setup: setStamina(["p5"], 50) },
+  { id: "cd_u_mirka", squad: MIRKA_SQUAD, plus: true, at: C.shoot, rows: [["p5", "pass", 31], ["p5", "shoot", 31]], cost: 10, extra: 1, setup: setStamina(["p5"], 50) },
 
   // ── 코치 8 (대상이 코치 타입 구역에 서 있을 때만 ×1.3, 유대 80 이상이면 bond80, 강화판 = 그 시점 위력 × 1.25, 비용은 기본 위력 기준, 낼 때 유대 +8) ──
   { id: "cd_c_harr", layout: { p7: "shoot" }, at: C.shoot, T: ["p6", "p7"], per: 18, zm: { shoot: 1.3 }, cost: 11, check: coachBond("sp_coach_harr", 8) },
@@ -438,7 +438,7 @@ test("카드 효과 표: 방침 게이트 (D38) — 다른 방침에서는 패�
 });
 
 test("카드 효과 표: 고유 카드는 대상 카드라 일회성 버프를 쓴다 (호조 −1 · nextPct · nextNoFail), 효과의 nextCostZero 는 그 뒤에 켜진다", () => {
-  const r = runCase({ id: "cd_u_greta", policy: "ace", rows: [["p7", "dribble", 17, 1.5]], mult: 1.5 * 1.4, cost: 7,
+  const r = runCase({ id: "cd_u_greta", policy: "ace", rows: [["p7", "dribble", 20, 1.5]], mult: 1.5 * 1.4, cost: 8,
     setup: (s, L) => Object.assign(L.buffs, { hojo: 2, nextPct: 0.4, nextNoFail: true }),
     check: buffIs({ hojo: 1, nextPct: 0, nextNoFail: false, nextCostZero: true }) });
   assert.deepEqual(r.L.targeted, { p7: 1 });

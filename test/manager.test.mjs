@@ -7,6 +7,7 @@ import { loadData, clone, match } from "./helpers.mjs";
 import * as LR from "../js/engine/lessonRun.js";
 import * as M from "../js/engine/manager.js";
 import { mainStatsOf as cardsMainOf } from "../js/engine/cards.js";
+import { ZONE_IDS } from "../js/engine/zones.js";
 
 const data = loadData();
 const same = (a, b) => assert.equal(JSON.stringify(a), JSON.stringify(b));
@@ -48,9 +49,18 @@ function checkValid(state, rec) {
       if (rec.kind === "play") {
         const h = v.hand.find((x) => x.uid === rec.uid && x.playable);
         assert.ok(h, "낼 수 있는 카드");
-        const pv = LR.previewCard(state, data, { uid: rec.uid, at: rec.at, playerId: rec.playerId });
+        const pv = LR.previewCard(state, data, { uid: rec.uid, at: rec.at, playerId: rec.playerId, zone: rec.zone });
         assert.ok(pv.ok, "미리보기 ok");
         if (["single", "circle", "all", "owner"].includes(h.targetKind) && !h.heal) assert.ok(pv.targets.length >= 1, "놓을 점에 대상 ≥ 1");
+        // 고유 카드 모양 (§16.9): 구역이 필요한 모양은 zone, 받는 선수가 필요한 모양은 주인이 아닌 경기장 선수
+        const needs = h.shape ? h.shape.needs : null;
+        if (needs === "zone") assert.ok(ZONE_IDS.includes(rec.zone), `구역 ${rec.zone}`);
+        else assert.equal(rec.zone, undefined, "구역이 필요 없는 카드에 zone");
+        if (needs === "player") {
+          assert.ok(rec.playerId in v.positions && rec.playerId !== h.ownerId, `받는 선수 ${rec.playerId}`);
+          assert.equal(pv.shape.receiverId, rec.playerId);
+        }
+        if (h.shape && h.shape.kind === "carry") assert.notEqual(rec.zone, state.lesson.zones[h.ownerId], "가로지르기는 다른 구역");
       } else if (rec.kind === "bench") {
         assert.ok(v.canBench && rec.playerId in v.positions, "벤치로 보낼 수 있는 경기장 선수");
       } else assert.ok(v.canEndTurn);
@@ -67,9 +77,10 @@ function checkValid(state, rec) {
   }
 }
 
-function playManagerRun(seed, policy, { roundtrip = false } = {}) {
-  let state = LR.createRun({ data, seed, policy });
+function playManagerRun(seed, policy, { roundtrip = false, squad } = {}) {
+  let state = LR.createRun({ data, seed, policy, ...(squad ? { squad } : {}) });
   const phases = {};
+  const uniquePlays = {};
   let steps = 0;
   while (state.phase !== "finished") {
     if (++steps > 400) throw new Error(`정해진 단계 수 안에 끝나지 않습니다 (${state.phase})`);
@@ -77,12 +88,14 @@ function playManagerRun(seed, policy, { roundtrip = false } = {}) {
     const rec = recommendFor(state);
     assert.equal(JSON.stringify(state), before, "추천이 상태(rngState 포함)를 바꿨습니다");
     if (rec) checkValid(state, rec);
+    const playedId = rec && state.phase === "lesson" && rec.kind === "play" ? (state.deck.find((e) => e.uid === rec.uid) || {}).cardId : null;
     const r = M.autoStep(state, data, { playMatch });
     phases[r.phase] = (phases[r.phase] || 0) + 1;
     if (rec) same(r.action, rec);
+    if (playedId && playedId.startsWith("cd_u_")) uniquePlays[playedId] = (uniquePlays[playedId] || 0) + 1;
     if (roundtrip) state = clone(state);
   }
-  return { state, phases, steps };
+  return { state, phases, steps, uniquePlays };
 }
 
 // ---------------------------------------------------------------------------
@@ -389,4 +402,82 @@ test("코치 지원 (§15.6): 붙은 카드 = 능력 effects 가치 + ATTACH_BON
   assert.equal(r.uid, two[1]);
   // 감독 AI 는 상태를 바꾸지 않는다
   assert.equal(L.attach.cur.uid, two[1]);
+});
+
+test("고유 카드 모양 (§16.9): 자리 옮기기 = 특별 중점 구역으로 · EV 에 baseDelta (기본 훈련 변화) 그대로", () => {
+  for (const zone of ["defense", "physical", "shoot"]) {
+    const s = LR.createRun({ data, seed: 3, policy: "team" });
+    if (!s.deck.some((e) => e.cardId === "cd_u_taria")) s.deck.push({ uid: `k${s.nextUid++}`, cardId: "cd_u_taria", plus: false });
+    s.weekOffer = { kind: "lesson", specials: [zone] };
+    LR.applyWeekAction(s, data, { type: "lesson", zone });
+    s.lesson.zones = { ...LAYOUT };
+    for (const p of s.players) p.stamina = 90;
+    const taria = uidOf(s, "cd_u_taria");
+    keepHand(s, [taria]);
+    const owner = s.players.find((p) => p.charId === "ch_human_runner").id;
+    assert.equal(s.lesson.zones[owner], "dribble");
+    const r = M.recommendCard(s, data);
+    assert.equal(r.kind, "play");
+    assert.equal(r.uid, taria);
+    assert.equal(r.zone, zone, `특별 ${zone} 구역으로 옮긴다`);
+    // 기본 훈련 변화만 바꾼다 (분위기 → 기본 훈련 단위): 점수 차 = baseDelta 차 (카드 상승은 그대로)
+    const pv0 = LR.previewCard(s, data, { uid: taria, zone });
+    s.lesson.buffs.mood = 10;
+    const r10 = M.recommendCard(s, data);
+    const pv10 = LR.previewCard(s, data, { uid: taria, zone });
+    same(pv10.targets.map((t) => t.gain), pv0.targets.map((t) => t.gain));
+    assert.ok(pv10.shape.baseDelta > pv0.shape.baseDelta, `${pv0.shape.baseDelta} → ${pv10.shape.baseDelta}`);
+    assert.equal(r10.zone, zone);
+    assert.equal(Math.round((r10.score - r.score) * 100) / 100, pv10.shape.baseDelta - pv0.shape.baseDelta);
+    // 낸다: 타리아가 그 구역으로 옮기고, 턴 끝 기본 훈련도 그 구역 (내기 1번으로 턴이 끝나 다음 턴 흩어지기가 온다 — fx 로 본다)
+    LR.playCard(s, data, { uid: r10.uid, at: r10.at, playerId: r10.playerId, zone: r10.zone });
+    const fx = s.lesson.lastFx;
+    assert.ok(fx.some((f) => f.t === "move" && f.id === owner && f.from === "dribble" && f.to === zone));
+    const end = fx.findIndex((f) => f.t === "turnEnd");
+    const base = fx.slice(0, end).find((f) => f.t === "base" && f.id === owner);
+    assert.ok(base && base.stat === zone, `기본 훈련 ${base && base.stat}`);
+  }
+});
+
+test("고유 카드 모양 (§16.9): 이어 주기 · 연결 · 크로스 = 받는 선수, 가로지르기 = 다른 구역 · 후보 미리보기 모두 ok · 상태 불변", () => {
+  const s = LR.createRun({ data, seed: 3, policy: "team", squad: { ...data.config.defaultSquad.slots, FW2: "ch_cat_trickster" } });
+  s.weekOffer = { kind: "lesson", specials: [] };
+  LR.applyWeekAction(s, data, { type: "lesson", zone: "pass" });
+  s.lesson.zones = { ...LAYOUT };
+  for (const p of s.players) p.stamina = 90;
+  for (const cardId of ["cd_u_neria", "cd_u_silluen", "cd_u_ulrika", "cd_u_mirka"]) {
+    if (!s.deck.some((e) => e.cardId === cardId)) s.deck.push({ uid: `k${s.nextUid++}`, cardId, plus: false });
+    const uid = uidOf(s, cardId);
+    keepHand(s, [uid]);
+    const r = M.recommendCard(s, data);
+    assert.equal(r.kind, "play", cardId);
+    checkValid(s, r);
+    const h = LR.getLessonView(s, data).hand.find((x) => x.uid === uid);
+    if (cardId === "cd_u_ulrika") assert.equal(s.lesson.zones[r.playerId], "shoot", "크로스는 슈팅 구역 선수");
+    if (cardId === "cd_u_mirka") {
+      assert.equal(h.shape.kind, "carry");
+      assert.notEqual(r.zone, s.lesson.zones[h.ownerId]);
+    }
+    // 같은 후보 중 최고: 후보마다 다른 받는 선수 · 구역을 강제로 넣어 비교한다 (rng 없음)
+    const cands = LR.dropCandidates(s, data, { uid });
+    assert.ok(cands.length >= 1);
+    const before = JSON.stringify(s);
+    for (const c of cands) {
+      const pv = LR.previewCard(s, data, { uid, at: c.at, playerId: c.playerId, zone: c.zone });
+      assert.ok(pv.ok, `${cardId} 후보 ${c.playerId ?? c.zone}`);
+    }
+    assert.equal(JSON.stringify(s), before);
+  }
+});
+
+test("감독 AI 15주 완주 · 미르카 편성 (FW2 = 미르카): 가로지르기 추천이 유효하고 고유 카드 모양이 나온다", () => {
+  const squad = { ...data.config.defaultSquad.slots, FW2: "ch_cat_trickster" };
+  const a = playManagerRun(1, "team", { squad, roundtrip: true });
+  const b = playManagerRun(1, "team", { squad });
+  same(a.state, b.state);
+  assert.equal(a.state.phase, "finished");
+  assert.equal(a.state.record.goalMatches.length, 3);
+  assert.ok(a.state.players.some((p) => p.charId === "ch_cat_trickster"));
+  assert.ok((a.uniquePlays.cd_u_mirka || 0) >= 1, `미르카 카드 ${JSON.stringify(a.uniquePlays)}`);
+  assert.ok(Object.keys(a.uniquePlays).length >= 4, `고유 카드 종류 ${JSON.stringify(a.uniquePlays)}`);
 });

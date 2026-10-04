@@ -179,7 +179,8 @@ function buffValue(state, data, c) {
 
 /**
  * 후보 점 1개의 점수 (§14.14 EV). 낼 수 없으면 null.
- *   EV = Σ gain_i × pref_i × (1 − f) − f × (5 + 40) + 버프 가치 − 0.15 × Σ cost − 10 × (체력 40 미만 대상 수)
+ *   EV = Σ gain_i × pref_i × (1 − f) − f × (5 + 40) + baseDelta + 버프 가치 − 0.15 × Σ cost − 10 × (체력 40 미만 대상 수)
+ *   i = 미리보기 행 (고유 카드 가로지르기는 주인 2행 — 행마다 그 구역으로 pref), baseDelta = 옮기기의 기본 훈련 변화 (§16.9)
  *   pref_i = 주 스탯 구역이면 1.2 × even_i (덜 큰 선수 보너스 evenWeights, [가정 Q1-b]), 아니면 0.8
  *   방침별 한 줄: counter 탈취 ≥ 3이면 공격 구역 대상이 있는 카드 +30 · poss 실패 비용 + poss×8 (가드가 없을 때), 패스 구역 대상이 없는 카드 −min(2, poss)×8
  */
@@ -213,6 +214,9 @@ function scoreDrop(state, data, hv, def, cand, evenW) {
   let failLoss = data.lesson.lesson.failStatLoss + FAIL_EXTRA;
   if (state.policy === "poss" && T.length && !(Number(B.possGuard) > 0)) failLoss += poss * 8;
   let ev = gain * (1 - f) - f * failLoss;
+  // 자리 옮기기 · 가로지르기: 이번 턴 끝 주인 기본 훈련이 바뀌는 몫 (§16.9 [가정] — 미리보기 값 그대로, pref · 실패와 상관없음:
+  // 옮기기는 실패해도 일어난다)
+  if (pv.shape && pv.shape.baseDelta) ev += pv.shape.baseDelta;
   ev += buffValue(state, data, { f, T, effects, mods, consumes, rowZones, healId: pv.healId });
   ev -= COST_K * cost;
   ev -= LOW_TARGET_PENALTY * ps.filter((p) => p.stamina < 40).length;

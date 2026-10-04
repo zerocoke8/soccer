@@ -150,9 +150,10 @@ const TABLE = {
   cd_drop_line: ["none", null, null, 0], cd_all_out: ["all", 5, 6, 3], cd_gegen: ["circle large", 14, 18, 8],
   cd_triangle: ["circle small", 18, 23, 11], cd_mid_control: ["circle medium", 15, 19, 9], cd_circulate: ["none", null, null, 0],
   cd_tempo: ["none", null, null, 0], cd_dominate: ["circle large", 11, 14, 7], cd_back_build: ["circle large", 12, 15, 7],
-  cd_u_neria: ["owner", 20, 25, 8], cd_u_dorbina: ["owner", 22, 28, 9], cd_u_adeline: ["owner", 20, 25, 8],
-  cd_u_silluen: ["owner", 20, 25, 8], cd_u_taria: ["owner", 30, 38, 12], cd_u_ulrika: ["owner", 24, 30, 10],
-  cd_u_greta: ["owner", 17, 21, 7], cd_u_mirka: ["owner", 22, 28, 9],
+  // L40 고유 카드: U2 보정 (§16.11 — 위력만, 강화 = round(×1.25), 비용 = roundCost(1인 × 0.4))
+  cd_u_neria: ["owner", 20, 25, 8], cd_u_dorbina: ["owner", 21, 26, 8], cd_u_adeline: ["owner", 19, 24, 8],
+  cd_u_silluen: ["owner", 20, 25, 8], cd_u_taria: ["owner", 33, 41, 13], cd_u_ulrika: ["owner", 28, 35, 11],
+  cd_u_greta: ["owner", 20, 25, 8], cd_u_mirka: ["owner", 25, 31, 10],
   // 코치: 강화판 = 그 시점 위력 × 1.25 (plus 없음)
   cd_c_harr: ["circle medium", 18, 23, 11], cd_c_celia: ["circle small", 20, 25, 12], cd_c_ornella: ["circle large", 15, 19, 9],
   cd_c_barbara: ["circle large", 15, 19, 9], cd_c_hanna: ["all", 6, 8, 4], cd_c_joy: ["circle small", 24, 30, 14],
@@ -196,7 +197,7 @@ test("§14.9 · §15.7 변환표: 대상 · 1인 위력 · 강화판 · 1인 비
   assert.equal(cards.staminaCost(def("cd_coaching"), { costZero: true }), 0);
   // 고유 카드 비용 기준 = 1인 위력 그대로 (L40 — mainMult 인자는 없어졌다, 넘겨도 무시)
   assert.equal(cards.costBase(def("cd_u_neria"), { mainMult: 1.5 }), 20);
-  assert.equal(cards.staminaCost(def("cd_u_taria"), { mainMult: 1.5 }), 12);
+  assert.equal(cards.staminaCost(def("cd_u_taria"), { mainMult: 1.5 }), 13); // 33 × 0.4 = 13.2
 });
 
 test("위력 없는 카드의 강화판 · 고유 카드 effects = 예전 지원 효과 (§14.8)", () => {

@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 // tools/lesson_sim.mjs — 카드 레슨 런 헤드리스 시뮬 (LESSON_PROTO_PLAN §10.1)
 //   node tools/lesson_sim.mjs --runs 200 --seed 1 [--policy all|ace|team|counter|press|poss] [--formation 2-2-2] [--no-match] [--json]
-//                             [--special-rate r]
+//                             [--special-rate r] [--slot SLOT=charId]... [--unique-report]
+//   --slot SLOT=charId: 편성의 그 자리를 다른 캐릭터로 (여러 번 가능 — 미르카 측정은 --slot FW2=ch_cat_trickster, §16.11).
+//   --unique-report: 고유 카드 (L40 모양) 표 — 카드 · 모양별 낸 수 / 런 · 손에 든 턴 / 런 · 직접 상승 / 장 · 실패 % · 비용 / 장 ·
+//                    감독 AI EV / 장 · 강화 % + 낼 수 없는 턴 비율 + 자리 옮기기 · 가로지르기 구역 분포 + 이어 주기 · 연결 · 크로스
+//                    받는 선수 포지션 분포. 직접 상승 = 카드를 낸 행동의 lastFx (턴 끝 앞까지) 상승 − 실패 손실 (U0 기준과 같은 방법).
 //   --special-rate r: 감독 AI 는 특별 표시 구역을 늘 고른다 (§14.14). r < 1 이면 레슨 주마다 확률 r 로만 특별을 고르고, 아니면
 //                     특별 표시가 없을 때의 감독 AI 선택 (7명 합이 가장 낮은 구역) 을 쓴다 — 일반 레슨 점수를 재려는 시뮬 쪽 옵션
 //                     (보정 시뮬은 0.7). 결정은 시뮬 전용 rng (seed · 주 번호) 라 같은 시드면 같은 결과.
@@ -17,7 +21,8 @@ import * as LR from "../js/engine/lessonRun.js";
 import * as M from "../js/engine/manager.js";
 import * as match from "../js/engine/match.js";
 import { formationSlots } from "../js/engine/run.js";
-import { mainStatsOf } from "../js/engine/cards.js";
+import { mainStatsOf, deadReason, getCard } from "../js/engine/cards.js";
+import { lessonCardDef } from "../js/engine/lesson.js";
 import { createRng } from "../js/engine/rng.js";
 
 const DATA_FILES = ["config", "characters", "supports", "events", "skills", "relics", "opponents", "routes", "traits", "combos", "cards", "lesson", "policies"];
@@ -37,7 +42,7 @@ export function loadData() {
 }
 
 export function parseArgs(argv) {
-  const out = { runs: 200, seed: "1", policy: "all", formation: null, match: true, json: false, specialRate: 1 };
+  const out = { runs: 200, seed: "1", policy: "all", formation: null, match: true, json: false, specialRate: 1, slots: {}, uniqueReport: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--runs") out.runs = Math.max(1, parseInt(argv[++i], 10) || 200);
@@ -47,8 +52,13 @@ export function parseArgs(argv) {
     else if (a === "--no-match") out.match = false;
     else if (a === "--json") out.json = true;
     else if (a === "--special-rate") out.specialRate = Math.max(0, Math.min(1, Number(argv[++i])));
+    else if (a === "--slot") {
+      const [slot, charId] = String(argv[++i] || "").split("=");
+      if (!slot || !charId) throw new Error(`--slot 은 SLOT=charId 형식입니다: ${argv[i]}`);
+      out.slots[slot] = charId;
+    } else if (a === "--unique-report") out.uniqueReport = true;
     else if (a === "--help" || a === "-h") {
-      console.log("usage: node tools/lesson_sim.mjs --runs N --seed S [--policy all|ace|team|counter|press|poss] [--formation 2-2-2] [--no-match] [--json] [--special-rate r]");
+      console.log("usage: node tools/lesson_sim.mjs --runs N --seed S [--policy all|ace|team|counter|press|poss] [--formation 2-2-2] [--no-match] [--json] [--special-rate r] [--slot SLOT=charId]... [--unique-report]");
       process.exit(0);
     }
   }
@@ -56,12 +66,23 @@ export function parseArgs(argv) {
   return out;
 }
 
-/** 기본 편성이 아닌 포메이션: 기본 편성의 7명을 슬롯 순서대로 새 슬롯에 놓는다 */
-function squadFor(data, formation) {
+/**
+ * 편성: 기본 편성이 아닌 포메이션이면 기본 편성의 7명을 슬롯 순서대로 새 슬롯에 놓는다. slots (--slot) 는 그 위에 자리를 바꾼다.
+ * 바꿀 것이 없으면 undefined (createRun 기본 편성).
+ */
+export function squadFor(data, formation, slots = {}) {
   const def = data.config.defaultSquad;
-  if (!formation || formation === def.formation) return undefined;
+  const hasSlots = Object.keys(slots).length > 0;
+  const f = formation || def.formation;
+  if (f === def.formation && !hasSlots) return undefined;
   const chars = formationSlots(def.formation).map((slot) => def.slots[slot]);
-  return Object.fromEntries(formationSlots(formation).map((slot, i) => [slot, chars[i]]));
+  const base = f === def.formation ? { ...def.slots } : Object.fromEntries(formationSlots(f).map((slot, i) => [slot, chars[i]]));
+  for (const [slot, charId] of Object.entries(slots)) {
+    if (!(slot in base)) throw new Error(`--slot: 포메이션 ${f} 에 ${slot} 자리가 없습니다`);
+    if (!(data.characters || []).some((c) => c.id === charId)) throw new Error(`--slot: 모르는 캐릭터 ${charId}`);
+    base[slot] = charId;
+  }
+  return base;
 }
 
 const NO_MATCH_RESULT = { winner: "home", homeGoals: 1, awayGoals: 0 };
@@ -82,7 +103,7 @@ function specialRateAction(state, data, seed, rate) {
   return alt.type === "lesson" ? { type: "lesson", zone: alt.zone } : null;
 }
 
-export function simulateOne(data, { seed, policy, formation, playMatches, specialRate = 1 }) {
+export function simulateOne(data, { seed, policy, formation, slots = {}, playMatches, specialRate = 1 }) {
   const playMatch = playMatches
     ? (setup) => {
         const ms = match.createMatch({ data, seed: setup.seed, home: setup.home, away: setup.away, possessions: setup.possessions, kind: setup.kind });
@@ -90,7 +111,8 @@ export function simulateOne(data, { seed, policy, formation, playMatches, specia
         return match.getResult(ms);
       }
     : () => ({ ...NO_MATCH_RESULT });
-  const state = LR.createRun({ data, seed, policy, ...(formation ? { formation, squad: squadFor(data, formation) } : {}) });
+  const squad = squadFor(data, formation, slots);
+  const state = LR.createRun({ data, seed, policy, ...(formation ? { formation } : {}), ...(squad ? { squad } : {}) });
   const startStats = Object.fromEntries(state.players.map((p) => [p.id, { ...p.stats }]));
   const m = {
     weekRests: 0, benches: 0, benchTurns: 0, lessonTurns: 0, hints: 0,
@@ -99,8 +121,10 @@ export function simulateOne(data, { seed, policy, formation, playMatches, specia
     attachLessons: [], fires: {}, attachBy: {}, cutinHints: {}, cutinCond: 0, cutinBond: {},
     coachAcquired: 0, targeted: Object.fromEntries(state.players.map((p) => [p.id, 0])),
     actionsPerLesson: [], steps: 0, consultBuys: 0, consultUpgrades: 0, consultDeletes: 0, skillsBought: 0, rewardSkips: 0,
+    uniq: {},
   };
   const benchTurnKeys = new Set();
+  const uniqTurnKeys = new Set();
   let guard = 0;
   while (state.phase !== "finished") {
     if (++guard > 2000) throw new Error(`런이 끝나지 않습니다 (seed ${seed}, phase ${state.phase})`);
@@ -109,6 +133,8 @@ export function simulateOne(data, { seed, policy, formation, playMatches, specia
     const coach0 = state.deck.filter((e) => e.cardId.startsWith("cd_c_")).length;
     const wasLesson = state.phase === "lesson";
     const pressBefore = wasLesson ? Number(state.lesson.buffs.press) || 0 : 0;
+    if (wasLesson && state.lesson.status === "playing") uniqueTurnStart(state, data, m.uniq, uniqTurnKeys);
+    const uniqFrom = wasLesson ? { ...state.lesson.zones } : null;
     const forced = specialRateAction(state, data, seed, specialRate);
     let r;
     if (forced) {
@@ -127,6 +153,7 @@ export function simulateOne(data, { seed, policy, formation, playMatches, specia
       benchTurnKeys.add(`${state.record.lessons.length}-${state.lesson.turn}`);
     }
     if (r.phase === "lesson" && r.action.kind === "play") {
+      uniquePlay(state, data, m.uniq, r.action, uniqFrom);
       if (policy === "press") {
         m.pressSum += pressBefore;
         m.pressN += 1;
@@ -212,6 +239,78 @@ export function simulateOne(data, { seed, policy, formation, playMatches, specia
   };
 }
 
+// ---------------------------------------------------------------------------
+// 고유 카드 (L40 모양) 지표 — --unique-report (§16.11)
+// ---------------------------------------------------------------------------
+
+const UNIQ_KEYS = ["plays", "gain", "fails", "cost", "score", "plus", "seen", "dead", "turns", "rows", "distinct"];
+
+/** 고유 카드 1장 몫의 누계 */
+function uniqRow(u, cardId) {
+  return (u[cardId] ||= { plays: 0, gain: 0, fails: 0, cost: 0, score: 0, plus: 0, seen: 0, dead: 0, turns: 0, rows: 0, distinct: 0, zones: {}, recv: {} });
+}
+
+/** 누계 더하기 (런 → 방침 → 전체) */
+function uniqAdd(to, from) {
+  for (const [id, x] of Object.entries(from)) {
+    const a = uniqRow(to, id);
+    for (const k of UNIQ_KEYS) a[k] += x[k];
+    for (const k of ["zones", "recv"]) for (const [z, n] of Object.entries(x[k])) a[k][z] = (a[k][z] || 0) + n;
+  }
+  return to;
+}
+
+/** 레슨 턴의 첫 행동 앞: 손에 든 고유 카드 · 덱에 있는 (제거되지 않은) 고유 카드가 지금 낼 수 없는지 (deadReason) */
+function uniqueTurnStart(state, data, u, keys) {
+  const L = state.lesson;
+  const key = `${state.record.lessons.length}-${L.turn}`;
+  if (keys.has(key)) return;
+  keys.add(key);
+  for (const e of state.deck) {
+    if (!e.cardId.startsWith("cd_u_") || (L.removed || []).includes(e.uid)) continue;
+    const a = uniqRow(u, e.cardId);
+    a.turns += 1;
+    if (L.hand.includes(e.uid)) a.seen += 1;
+    if (deadReason(state, lessonCardDef(state, data, e.uid))) a.dead += 1;
+  }
+}
+
+/** 고유 카드를 낸 행동 1번: lastFx (턴 끝 앞까지) 에서 직접 상승 · 실패 · 비용, 옮긴 구역 · 받는 선수 포지션 */
+function uniquePlay(state, data, u, action, zonesBefore) {
+  const e = state.deck.find((x) => x.uid === action.uid);
+  if (!e || !e.cardId.startsWith("cd_u_")) return;
+  const a = uniqRow(u, e.cardId);
+  a.plays += 1;
+  a.score += action.score || 0;
+  a.plus += e.plus ? 1 : 0;
+  const ids = new Set();
+  let moved = false;
+  for (const f of state.lesson.lastFx) {
+    if (f.t === "turnEnd") break;
+    if (f.t === "gain") { a.gain += f.n; a.rows += 1; ids.add(f.id); }
+    if (f.t === "fail") { a.gain -= f.n; a.fails += 1; a.rows += 1; ids.add(f.id); }
+    if (f.t === "cost" && !f.src) a.cost += f.n;
+    if (f.t === "move") {
+      moved = true;
+      const k = `${f.from}→${f.to}`;
+      a.zones[k] = (a.zones[k] || 0) + 1;
+    }
+    if (f.t === "pass") {
+      const p = state.players.find((x) => x.id === f.to);
+      const k = p ? p.position : "?";
+      a.recv[k] = (a.recv[k] || 0) + 1;
+    }
+  }
+  // 자리 옮기기를 지금 구역에 놓으면 move fx 가 없다 (그 자리 ×1.3)
+  if (action.zone && zonesBefore && !moved) {
+    const ownerCharId = (getCard(data, e.cardId) || {}).ownerCharId;
+    const owner = state.players.find((p) => p.charId === ownerCharId);
+    const k = `${owner ? zonesBefore[owner.id] : "?"}→${action.zone}`;
+    a.zones[k] = (a.zones[k] || 0) + 1;
+  }
+  a.distinct += ids.size;
+}
+
 const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
 /** 분위수 (정렬 뒤 floor(q × (n − 1)) 번째 — zone_sim 과 같다) */
 const pctl = (a, q) => {
@@ -225,7 +324,7 @@ export function summarize(data, args, policy) {
   const t0 = performance.now();
   const rs = [];
   for (let i = 0; i < args.runs; i++) {
-    rs.push(simulateOne(data, { seed: `${args.seed}-${i}`, policy, formation: args.formation, playMatches: args.match, specialRate: args.specialRate ?? 1 }));
+    rs.push(simulateOne(data, { seed: `${args.seed}-${i}`, policy, formation: args.formation, slots: args.slots || {}, playMatches: args.match, specialRate: args.specialRate ?? 1 }));
   }
   const N = rs.length;
   const lessons = rs.flatMap((r) => r.lessons);
@@ -289,6 +388,7 @@ export function summarize(data, args, policy) {
   };
   return {
     policy, runs: N, ms: Math.round(performance.now() - t0),
+    uniq: rs.reduce((a, r) => uniqAdd(a, r.uniq), {}),
     attach,
     avgStat: mean(rs.map((r) => r.avgStat)),
     teamwork: mean(rs.map((r) => r.teamwork)),
@@ -441,13 +541,97 @@ function printTable(sums, args) {
   if (!(args.specialRate < 1)) console.log("일반 레슨 점수: 감독 AI 는 레슨 주마다 특별 구역을 고르므로 비어 있다 → --special-rate 0.7 로 잰다 (보정 시뮬과 같은 비율).");
 }
 
+/**
+ * 고유 카드 표 (§16.11): 방침을 모두 합친 런 수로 나눈다. 모양 = 주인 캐릭터 특성의 lesson.shape.
+ * @returns {{ rows: object[], byShape: object[], runs: number }}
+ */
+export function uniqueReport(data, sums) {
+  const runs = sums.reduce((a, s) => a + s.runs, 0);
+  const tot = sums.reduce((a, s) => uniqAdd(a, s.uniq), {});
+  const info = (id) => {
+    const c = getCard(data, id) || {};
+    const ch = (data.characters || []).find((x) => x.id === c.ownerCharId) || {};
+    const t = (data.traits || []).find((x) => x.id === ch.trait) || {};
+    return { owner: ch.name || id, name: c.name || id, power: c.power, plusPower: c.plus && c.plus.power, shape: (t.lesson && t.lesson.shape) || "?", label: (t.lesson && t.lesson.label) || "?" };
+  };
+  const per = (a, k, d) => (a[d] ? a[k] / a[d] : NaN);
+  const rows = Object.entries(tot).sort(([x], [y]) => x.localeCompare(y)).map(([id, a]) => ({
+    id, ...info(id),
+    playsPerRun: a.plays / runs,
+    seenPerRun: a.seen / runs,
+    gainPerPlay: per(a, "gain", "plays"),
+    failPct: per(a, "fails", "plays"),
+    costPerPlay: per(a, "cost", "plays"),
+    evPerPlay: per(a, "score", "plays"),
+    plusPct: per(a, "plus", "plays"),
+    deadPct: per(a, "dead", "turns"),
+    targetsPerPlay: per(a, "distinct", "plays"),
+    rowsPerPlay: per(a, "rows", "plays"),
+    zones: a.zones, recv: a.recv,
+  }));
+  const byShape = [...new Set(rows.map((r) => r.shape))].map((shape) => {
+    const ids = rows.filter((r) => r.shape === shape).map((r) => r.id);
+    const sum = (k) => ids.reduce((a, id) => a + tot[id][k], 0);
+    const plays = sum("plays");
+    return { shape, cards: ids.map((id) => info(id).owner).join("·"), playsPerRun: plays / runs, gainPerPlay: plays ? sum("gain") / plays : NaN, evPerPlay: plays ? sum("score") / plays : NaN };
+  });
+  return { rows, byShape, runs };
+}
+
+function printUniqueReport(data, sums, args) {
+  const { rows, byShape, runs } = uniqueReport(data, sums);
+  const slots = Object.entries(args.slots || {}).map(([k, v]) => `${k}=${v}`).join(" ");
+  console.log(`\n[고유 카드 L40] ${runs}런 (방침 ${sums.map((s) => s.policy).join("·")} 합)${slots ? `, 편성 ${slots}` : ""}`);
+  const head = ["카드", "모양", "위력(강화)", "낸 수/런", "손 턴/런", "직접 상승/장", "실패%", "비용/장", "EV/장", "강화%", "못 냄 턴%", "대상/장"];
+  const table = [head, ...rows.map((r) => [
+    r.owner, r.label, `${r.power}(${r.plusPower})`, f2(r.playsPerRun), f1(r.seenPerRun), f1(r.gainPerPlay), f1(r.failPct * 100),
+    f1(r.costPerPlay), f0(r.evPerPlay), f0(r.plusPct * 100), f1(r.deadPct * 100), f2(r.targetsPerPlay),
+  ])];
+  const width = (str) => [...String(str)].reduce((a, ch) => a + (/[ᄀ-ᇿ㄰-㆏가-힯]/.test(ch) ? 2 : 1), 0);
+  const cols = head.map((_, c) => Math.max(...table.map((r) => width(r[c]))));
+  const pad = (str, w, right) => {
+    const sp = " ".repeat(Math.max(0, w - width(str)));
+    return right ? sp + str : str + sp;
+  };
+  for (const r of table) console.log(r.map((x, c) => pad(String(x), cols[c], c > 1)).join("  "));
+  const all = rows.reduce((a, r) => a + r.playsPerRun, 0);
+  const g = rows.reduce((a, r) => a + r.gainPerPlay * r.playsPerRun, 0) / (all || 1);
+  const ev = rows.reduce((a, r) => a + r.evPerPlay * r.playsPerRun, 0) / (all || 1);
+  console.log(`고유 카드 낸 수 합 ${f1(all)} / 런 · 직접 상승 ${f1(g)} / 장 · EV ${f0(ev)} / 장 (낸 수 가중 평균)`);
+  console.log(`모양별: ${byShape.map((b) => `${b.shape}(${b.cards}) ${f2(b.playsPerRun)}/런 · 상승 ${f1(b.gainPerPlay)} · EV ${f0(b.evPerPlay)}`).join(" | ")}`);
+  const dist = (o) => {
+    const n = Object.values(o).reduce((a, b) => a + b, 0);
+    return Object.entries(o).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${pc(v / n)}`).join(", ");
+  };
+  for (const r of rows) {
+    if (Object.keys(r.zones).length) {
+      // 놓은 구역별 (→ z) · 제자리 비율 · 출발 → 도착 상위 5개
+      const to = {};
+      let stay = 0;
+      let n = 0;
+      for (const [k, v] of Object.entries(r.zones)) {
+        const [a, b] = k.split("→");
+        to[b] = (to[b] || 0) + v;
+        if (a === b) stay += v;
+        n += v;
+      }
+      const top = Object.entries(r.zones).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([k, v]) => `${k} ${pc(v / n)}`).join(", ");
+      console.log(`  ${r.owner} 놓은 구역: ${dist(to)} · 제자리 ${pc(stay / n)} · 많은 순 ${top}`);
+    }
+    if (Object.keys(r.recv).length) console.log(`  ${r.owner} 받는 선수 포지션: ${dist(r.recv)}`);
+  }
+}
+
 export function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv);
   const data = loadData();
   const policies = args.policy === "all" ? POLICIES : [args.policy];
   const sums = policies.map((p) => summarize(data, args, p));
-  if (args.json) console.log(JSON.stringify({ args, results: sums }, null, 2));
-  else printTable(sums, args);
+  if (args.json) console.log(JSON.stringify({ args, results: sums, ...(args.uniqueReport ? { unique: uniqueReport(data, sums) } : {}) }, null, 2));
+  else {
+    printTable(sums, args);
+    if (args.uniqueReport) printUniqueReport(data, sums, args);
+  }
   return sums;
 }
 
