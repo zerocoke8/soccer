@@ -254,6 +254,45 @@ html.lu-grabbing, html.lu-grabbing * { cursor: grabbing !important; }
 .lu-pitch.compact .lu-hint { max-width: 150px; font-size: 10.5px; }
 /* 미팅(작은 카드): 알약은 카드 바로 아래 빈틈에 — 카드의 스탯 줄을 가리지 않게 (3명 줄도 카드 사이가 40px 넘게 빈다) */
 .lu-pitch.compact .slot-card > .lu-hint { bottom: -21px; }
+/* ---- 16명 (LESSON_PROTO_PLAN §19.14 ①, K3): 선수 풀 2줄 × 8장 · 필살기 칩 · 주장 칩 · 고르기 모달 4열 ---- */
+.setup-screen.og { gap: 10px; }
+.setup-screen .setup-main { gap: 10px; }
+.setup-pool { gap: 5px; padding-top: 7px; padding-bottom: 7px; }
+.setup-pool .lu-pool { grid-auto-flow: row; grid-template-columns: repeat(8, minmax(0, 1fr)); grid-auto-columns: auto; gap: 5px 6px; overflow: visible; }
+.setup-pool .lu-card { gap: 2px; padding: 4px 7px 5px; }
+.setup-pool .lu-card-who { gap: 5px; }
+.setup-pool .lu-card > .lu-hint { top: 27px; }
+.lu-chips { display: flex; align-items: center; gap: 4px; min-width: 0; height: 18px; }
+.lu-chips .lu-trait { flex: none; padding: 0 4px; line-height: 17px; }
+.lu-ult {
+  display: inline-flex; align-items: center; gap: 2px; min-width: 0; max-width: 100%; padding: 0 5px 0 3px; border-radius: 6px;
+  font-size: 10.5px; letter-spacing: -.02em; line-height: 17px; font-weight: 700; white-space: nowrap; overflow: hidden;
+  background: rgba(255, 255, 255, .06); color: var(--text);
+}
+.lu-ult i { font-style: normal; font-size: 10px; flex: none; }
+.lu-ult-nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.lu-ult.tier-SSR { background: rgba(255, 209, 102, .14); color: var(--gold); }
+.lu-ult.tier-SR { background: rgba(178, 140, 255, .15); color: #cdb8ff; }
+.lu-ult.tier-R { background: rgba(255, 255, 255, .07); color: #c9d2e0; }
+/* 슬롯 카드 이름 옆 작은 ✨ (편성 · 미팅 · 준비) */
+.slot-nm-row { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.slot-nm-row .slot-nm { min-width: 0; }
+.ult-mark { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 17px; height: 15px; border-radius: 5px; font-size: 9.5px; line-height: 1; background: rgba(255, 255, 255, .08); }
+.ult-mark.tier-SSR, .lu-ult.tier-SSR { background: rgba(255, 209, 102, .16); }
+.ult-mark.tier-SR { background: rgba(178, 140, 255, .2); }
+.ult-mark.tier-R { background: rgba(255, 255, 255, .08); }
+.cap-note { background: rgba(255, 179, 71, .14); color: var(--warn); }
+/* 슬롯 고르기 모달: 4열 × 4줄 압축판 (스크롤 없음) */
+.modal.setup-pick { gap: 10px; }
+.pick-grid.cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.char-pick.compact { gap: 7px; min-height: 0; padding: 6px 7px 6px 9px; }
+.char-pick.compact > .apt { flex: none; }
+.cp-txt { gap: 1px; min-width: 0; line-height: 1.3; }
+.cp-l1 { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.cp-nm { flex: none; font-size: 13.5px; }
+.cp-badge { min-width: 0; padding: 0 6px; font-size: 10.5px; line-height: 16px; }
+.cp-l4 { display: flex; align-items: center; gap: 4px; min-width: 0; height: 18px; }
+.cp-l4 .trait-tag { flex: none; line-height: 17px; }
 /* 화면 읽기 전용 알림 (lineup.js live) */
 .lu-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 

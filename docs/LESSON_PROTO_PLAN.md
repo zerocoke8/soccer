@@ -4066,3 +4066,35 @@ teach: {
 - K3: 저장 v4는 끝났다 (위 2번). 남은 것 = `lesson_sim` `--squad A|B` · 필살기 지표 · 새 고유 8장 보정 · manager.test 새 편성 A 15주 완주.
 - K4: `og_reward_perfect` 3장 칩 줄 높이, 게이지 링 7명 · 스킬 줄 필살기 버튼 (17번 장면에 이미 "바람의 실" 버튼 · 링이 보인다).
 - 기획자 질문 (§19.18 Q4에 더함): 기본 편성은 옛 고유 액티브를 잃어 오히려 약해졌다. R 필살기 사용 빈도(경기당 0.1회 아래)와 상대 팀 필살기를 밸런스 때 같이 본다.
+
+#### K3 · 아웃게임 UI — 편성 16명 · 미팅 · 경기 전 준비 · 새 고유 카드 앞면 · 상담 (2026-10-04)
+
+이 슬라이스는 오케스트레이터가 정한 순서로 **§19.14 ① ② ④ ⑤ (아웃게임 화면)** 를 먼저 했다. §19.17의 원래 K3 할 일(`lesson_sim --squad A|B` · 필살기 지표 · 새 고유 8장 보정 · manager.test 새 편성 A 15주 완주)과 §19.14 ③ 경기 화면 · 경기 장면 29 ~ 34는 다음 슬라이스로 넘긴다. 저장 v4는 K2에서 끝났다.
+
+바꾼 파일: `js/ui/screens/setup.js` · `js/ui/lineup.js` · `js/ui/meeting.js` · `js/ui/screens/prep.js` · `js/ui/screens/result.js` · `js/ui/screens/reward.js` · `js/ui/labels.js` · `css/outgame.css` · `css/lesson.css` · `tools/shot.mjs` · `tools/scenarios.mjs` · `tools/lesson_scenarios.mjs` · `test/lineup.test.mjs` · `test/outgame.test.mjs`. 엔진 · 데이터 · `rng.js` · `config.json` · `run.js` · `training.js` · `layout.js`는 그대로.
+
+**한 것**
+- **편성 선수 풀 2줄 × 8장** (`.setup-pool .lu-pool` = `repeat(8, …)`, 가로 스크롤 없음). 순서 = 순수 함수 `lineup.poolOrder(ids, slots, assign, rarityOf)`: 필드 선수(슬롯 순서) → 벤치(레어도 SSR → SR → R, 같으면 데이터 순서). 끌어 놓을 때마다 다시 정렬된다.
+- 풀 카드 4줄 (얼굴 xs · 이름 · 자리 / 레어도 · 원소 · 스타일 / **특성 아이콘 + 필살기 칩** `.lu-ult` "✨ 낙뢰" / 적성 4칸). 칩 바탕 = 등급 색 (`tier-SSR|SR|R`), title = 이름 · 종류 · 등급 · 설명 · 대사 (`labels.ultimateInfo`).
+- 슬롯 카드 (편성 · 미팅 · 경기 전 준비): 이름 옆 작은 ✨ `.ult-mark` (등급 색 바탕, title), 슬롯 카드 title 끝에 필살기 줄 (`lineupBoard({ titleOf })`).
+- **선수 고르기 모달 4열 × 4줄** (`.modal-xl.setup-pick` · `.pick-grid.cols-4` · `.char-pick.compact`): 이름 · 레어도 · 배지 / 종족 · 원소 · 스타일 · 스탯 합 / 적성 4 / 특성 · ✨필살기. 16명이 스크롤 없이 보인다.
+- **주장 2명 칩** (L46): 편성 공명 줄 · 경기 전 준비 왼쪽 칸에 "©️ 주장 2명 — 팀워크 +10은 1명분" (`labels.captainCount` · `captainNote`, 수치는 `traits.json` params).
+- 결과 화면 선수 줄 "고유 X" → **"필살기 X"** (필살기가 아닌 옛 고유만 "고유 X").
+- 상담: 문구는 그대로 (§19.14 ⑤). 옛 고유 패시브 4개(밀물의 벽 GK만 · 주장의 외침 · 지치지 않는 다리 · 고양이 페인트 FW·MF)가 패시브 줄에 그대로 나오고, 배울 선수 목록이 포지션 제한을 따른다 — 새 장면 `og_consult_old_innate`로 확인했다.
+- 주 화면 · 레슨 명단 · 외출 · 미팅의 선수 수(7명)는 그대로.
+
+**바뀐 것 (계획과 다름)**
+- **훈련 방침 패널을 전술 패널 안 아래 칸으로 합쳤다** (`.setup-tactics` 안 `.setup-policy` — 구분선 + 작은 머리 "훈련 방침 · 경기 전술 아님"). §19.14 ①은 "오른쪽 칸 높이를 줄이지 않는다"였지만, 그 그림의 좌표(오른쪽 칸 y 66 ~ 452)와 실제 높이(코치 · 전술 · 방침 459px)가 맞지 않았다. 풀 2줄(≈ 240px)이 들어가면 코치 칩이 안쪽 스크롤되어(+77px), 방침을 합치고 코치 칩 34 → 29px · 전술 선택 30 → 28px · 화면 간격 12 → 10px로 조였다. 코치 8장 · 전술 4 · 방침 5버튼 · 설명 줄은 모두 스크롤 없이 보인다. 테스트 선택자(`.setup-policy .policy-row` · `.policy-desc` · `.setup-tactics .tac-row select` 4개)는 그대로다.
+- 풀 카드의 특성은 **늘 아이콘만** (이름 · 설명은 title). 계획은 "한 줄에 안 들어가면"이었지만 148px 카드에서는 필살기 이름(최대 "골목 고양이 스텝")과 특성 이름이 함께 들어가지 않는다.
+- 고르기 모달은 `modal-lg`(880px) 대신 `modal-xl`(1120px) — 4열이 들어가게. 배지 "MF2 ⇄ 맞바꾸기" → "⇄ MF2", 특성 설명 문구는 title로.
+- 편성 슬롯 카드에도 ✨ (계획은 title만) — 미팅 · 준비와 같은 모양.
+- `labels.ULT_TYPE_LABELS`에 `dribble` · `defense` · `team`을 더했다 (§19.14 ③ 항목 — 칩 title이 쓴다, `match.ULT_TYPE_TEXT`와 같은 글).
+- **보상 칩 줄 (K2가 남긴 `og_reward_perfect` · `_16` · `_32` 실패)**: 유대가 3명 이상 오르면 한 칩 "유대 하르나 +5 · 한나 +5 · 루미 +5"로 묶는다 (→ 값은 title). 긴 힌트 이름("지치지 않는 다리 Lv1")이 들어와도 한 줄.
+- `tools/shot.mjs`: 조작 단계 `{ select: { sel, value } }` (포메이션 바꾸기), 잘린 글자 검사에 `.lu-card-nm` · `.lu-ult` · `.lu-ult-nm` · `.slot-card .slot-nm` · `.char-pick.compact` 줄 · `.cap-note`.
+- 새 장면: `og_setup16` (기본 편성에서 벤치 카드 7장을 끌어 새 편성 A — 벤치 = 옛 8명 + 힐디, 계획의 "편성 기본"은 `og_setup`이 그대로 찍는다) · `og_setup16_132` · `og_setup_pick` · `og_setup_captain2` (헤르타를 GK에 끌어 놓기) · `og_setup16_touch` (915×412) · `og_prep_ult` (새 편성 A) · `og_prep_captain2` (더함 — 기본 + GK 헤르타) · `og_lesson_u_hand3` (헤르타 · 브론테 · 나엘리스 · 코니) · `og_lesson_u_hand4` (온디나 · 리시엘 · 카밀라 · 힐디, FW1 힐디 편성) · `og_lesson_u_finish` (브론테 마무리 조준: 주인 빛 · "+100 ×2") · `og_consult_old_innate` (더함).
+
+**테스트**: 365개 통과 (K2 363 + `lineup.test` 2: `poolOrder` 순서 · 빈 슬롯 · 모르는 id / 기본 편성에서 보드 이동만으로 새 편성 A · B → 모두 적성 A · `validateSquad` · `createRun` 통과 · 벤치 순서). `outgame.test` jsdom에 더한 것: 풀 순서(기본 · 헤르타 GK 뒤) · 카드마다 필살기 칩(이름 · 등급 색 · 대사 title) · 특성 아이콘 title · 슬롯 ✨ 7 · 모달 4열 압축판 4줄 · 헤르타 GK → 주장 칩 → 네리아로 되돌리면 사라짐 · 미팅 ✨ 7 · 준비 ✨ 7 (등급 = 필살기 tier) · 준비 주장 2명 칩 (`og_prep_captain2` 주입) · 새 편성 A 준비 SSR ✨ = GK · FW1 · 결과 "필살기 X".
+
+**스크린샷**: `node tools/shot.mjs <dir>` **전체 153장** (경기 01 ~ 28 · og 전체, 새 og 12장 포함) 검사 통과 — 스크롤 · 잘린 글자 · 겹침 · 상태 · 에러 0. K2가 남긴 `og_reward_perfect` · `_16` · `_32` 실패도 없어졌다. 열어 본 PNG: `og_setup` · `og_setup16` · `og_setup16_132` · `og_setup_pick` · `og_setup_captain2` · `og_setup16_touch` · `og_setup_drag` · `og_meeting` · `og_prep` · `og_prep_ult` · `og_prep_captain2` · `og_lesson_u_hand3` · `og_lesson_u_hand4` · `og_lesson_u_finish` · `og_consult_full` · `og_consult_passive` · `og_consult_old_innate` · `og_reward_perfect` · `og_reward_perfect_32` · `og_result`.
+
+**다음 슬라이스에 넘기는 것**: §19.14 ③ 경기 화면 (새 종류 버튼 · 호환 액션 · 등급별 컷인 · 대사 · `boxComboName` 폴백 제거 · 역방향 컷인 "철벽 블록!" · 확정 배급 카드) · 경기 장면 29 ~ 34 · §19.17 원래 K3 (`lesson_sim --squad A|B` · 필살기 지표 · 새 고유 8장 보정 · manager.test 새 편성 A 15주). 새 고유 8장 수치를 바꾸면 `og_lesson_u_hand3` · `_hand4` 앞면 문구를 다시 본다.

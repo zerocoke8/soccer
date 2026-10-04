@@ -177,6 +177,28 @@ export function reseat(assign, slots, aptOf, { fillAll = false, extraIds = [] } 
   return next;
 }
 
+/** 레어도 순위 (선수 풀 벤치 정렬 — SSR → SR → R → 그 밖) */
+export const RARITY_RANK = { SSR: 0, SR: 1, R: 2 };
+
+/**
+ * 선수 풀 순서 (§19.14 ①, 편성 16명 = 2줄 × 8장): 필드 선수(슬롯 순서) → 벤치(레어도 SSR → SR → R, 같으면 ids 순서).
+ * @param {string[]} ids 전원 (데이터 순서)
+ * @param {string[]} slots 포메이션 슬롯
+ * @param {Record<string,string>} assign 슬롯 → 선수 id
+ * @param {(id: string) => string|undefined} rarityOf
+ */
+export function poolOrder(ids, slots, assign, rarityOf = () => undefined) {
+  const list = Array.isArray(ids) ? ids : [];
+  const field = (slots || []).map((sl) => assign?.[sl]).filter((id) => id && list.includes(id));
+  const seen = new Set(field);
+  const rank = (id) => RARITY_RANK[rarityOf(id)] ?? 3;
+  const bench = list.filter((id) => !seen.has(id))
+    .map((id, i) => ({ id, i }))
+    .sort((a, b) => rank(a.id) - rank(b.id) || a.i - b.i)
+    .map((x) => x.id);
+  return [...new Set(field), ...bench];
+}
+
 /**
  * 미팅 액션 swaps: 슬롯 순서대로 "그 선수를 그 슬롯으로" (지금 자리 그대로인 선수는 뺀다).
  * 엔진 resolveMeeting 은 swaps 를 순서대로 적용하고, 슬롯에 다른 선수가 있으면 자리를 맞바꾼다 →
@@ -195,6 +217,18 @@ export function meetingSwaps(slots, assign, currentSlotOf) {
 /* ------------------------------------------------------------------ */
 /* 보드 (DOM)                                                            */
 /* ------------------------------------------------------------------ */
+
+/** 필살기 칩 "✨ 낙뢰" (등급 색 바탕, title = 종류 · 설명 · 대사) — 편성 선수 풀 카드 · 고르기 모달 (§19.14 ①). info = labels.ultimateInfo */
+export function ultChip(info, cls = '') {
+  if (!info) return null;
+  return h('span', { class: ['lu-ult', info.tier ? `tier-${info.tier}` : '', cls], title: info.title, dataset: { ult: info.id } },
+    h('i', { 'aria-hidden': 'true' }, '✨'), h('span', { class: 'lu-ult-nm' }, info.name));
+}
+/** 작은 필살기 표시 "✨" (등급 색 바탕, title = 이름 · 종류 · 설명) — 편성 · 미팅 · 경기 전 준비 슬롯 카드 이름 옆 (§19.14 ②) */
+export function ultMark(info) {
+  if (!info) return null;
+  return h('span', { class: ['ult-mark', info.tier ? `tier-${info.tier}` : ''], title: info.title, 'aria-label': `필살기 ${info.name}`, dataset: { ult: info.id } }, '✨');
+}
 
 function aptBadge(apt) {
   const a = apt || '-';
@@ -224,6 +258,7 @@ function stageFit(doc) {
  * @param {string[]} [o.ids] 풀에 보일 선수 (bench 일 때)
  * @param {(id: string, slot: string|null) => any} [o.poolBody] 풀 카드 내용
  * @param {boolean} [o.compact] 작은 슬롯 카드 (미팅)
+ * @param {(id: string) => string} [o.titleOf] 슬롯 카드 title 에 덧붙일 줄 (편성 · 미팅: 필살기)
  * @param {(slot: string) => void} [o.onSlotTap] 아무것도 고르지 않은 채 슬롯을 누르면 (편성: 선수 고르기 모달). 없으면 슬롯 선수를 고른다
  * @returns {{ pitch: HTMLElement, pool: HTMLElement|null, addPoolZone: (el: HTMLElement) => void, cancel: () => void }}
  */
@@ -504,6 +539,7 @@ export function lineupBoard(o) {
   }
 
   // ---- 슬롯 카드 ----
+  const extraTitle = (id) => { const t = typeof o.titleOf === 'function' ? o.titleOf(id) : ''; return t ? `\n${t}` : ''; };
   const slotCard = (slot) => {
     const pos = positionOfSlot(slot);
     const id = assign[slot] || null;
@@ -516,7 +552,7 @@ export function lineupBoard(o) {
       style: { left: `${spot.x}%`, top: `${spot.y}%` },
       dataset: { slot, pid: id || '', baseHint: bad ? `배치 불가 · ${bad}` : '' },
       'aria-label': id ? `${slot} ${nameOf(id)} (${pos} ${apt})` : `${slot} 비어 있음`,
-      title: id ? `${nameOf(id)} — ${pos} 적성 ${apt}${bad ? ` (배치 불가: ${bad})` : ''} · 끌어서 옮기기` : `${slot} — 선수를 끌어 놓거나, 눌러서 고른 뒤 선수를 누르세요`,
+      title: id ? `${nameOf(id)} — ${pos} 적성 ${apt}${bad ? ` (배치 불가: ${bad})` : ''} · 끌어서 옮기기${extraTitle(id)}` : `${slot} — 선수를 끌어 놓거나, 눌러서 고른 뒤 선수를 누르세요`,
       onclick: () => tap({ slot }, el),
     },
     h('span', { class: 'slot-tag' }, slot),

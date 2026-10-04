@@ -63,7 +63,8 @@ export const COUNTER = { dribble: 'tackle', pass: 'intercept', cross: 'hold', sh
 export const BOX_LINK_LABELS = { pass: '컷백', cross: '센터링' };
 export const BOX_LINK_ICONS = { pass: '↩️', cross: '⤴️' };
 export const BOX_LINK_FINISH = { pass: '원터치 슛', cross: '헤더' };
-export const ULT_TYPE_LABELS = { shot: '필살 슛', pass: '필살 패스', save: '필살 세이브' };
+// 필살기 종류 (= 엔진 match.ULT_TYPE_TEXT, §19.14 ③ — 새 종류 3개는 LESSON_PROTO_PLAN §19.5 ~ §19.7)
+export const ULT_TYPE_LABELS = { shot: '필살 슛', pass: '필살 패스', save: '필살 세이브', dribble: '필살 드리블', defense: '필살 수비', team: '필살 호령' };
 // GK 배급 (2026-09-29): 세이브 · 박스 연결 차단 뒤 GK 가 고른다 (엔진 view.distribution · decision { action: short|long }).
 // 결정 카드 · 정보 줄 · 말풍선 · 결과 한 줄의 이름과 아이콘
 export const DIST_LABELS = { short: '짧은 패스', long: '롱패스' };
@@ -104,6 +105,38 @@ export function traitInfo(id, data) {
     icon: base?.icon ?? '◆',
     description: fromData?.description ?? base?.description ?? '',
   };
+}
+
+/**
+ * 필살기 표시 정보 (아웃게임 칩 · title — §19.14 ① ②). 필살기가 아니거나 없는 id 면 null.
+ * @returns {{ id: string, name: string, type: string, typeLabel: string, tier: string, line: string, description: string, title: string } | null}
+ */
+export function ultimateInfo(skillId, data) {
+  if (!skillId) return null;
+  const sk = Array.isArray(data?.skills) ? data.skills.find((x) => x && x.id === skillId) : null;
+  const u = sk?.ultimate;
+  if (!u) return null;
+  const typeLabel = ULT_TYPE_LABELS[u.type] ?? '필살기';
+  const tier = u.tier || '';
+  const line = u.cutinLine || '';
+  return {
+    id: sk.id, name: sk.name, type: u.type, typeLabel, tier, line,
+    description: sk.description || '',
+    title: [`✨ ${sk.name} (${typeLabel}${tier ? ` · ${tier}` : ''})`, sk.description || '', line ? `“${line}”` : ''].filter(Boolean).join('\n'),
+  };
+}
+
+/** 캐릭터 id 목록 중 연계 특성 '주장' 수 (L46: 2명 이상이어도 팀워크 +10 은 1명분) */
+export function captainCount(charIds, data) {
+  const chars = Array.isArray(data?.characters) ? data.characters : [];
+  const byId = new Map(chars.map((c) => [c.id, c]));
+  return (charIds || []).filter((id) => byId.get(id)?.trait === 'captain').length;
+}
+/** 주장 2명 이상 안내 칩 글 (없으면 null) — 편성 공명 줄 · 경기 전 준비 (§19.14 ① ②) */
+export function captainNote(n, data) {
+  if (!(n >= 2)) return null;
+  const plus = (Array.isArray(data?.traits) ? data.traits.find((t) => t?.id === 'captain') : null)?.params?.teamworkPlus ?? 10;
+  return `${TRAIT_LABELS.captain.icon} 주장 ${n}명 — 팀워크 +${plus}은 1명분`;
 }
 
 export const KIND_LABELS = { goal: '경계전', friendly: '친선전', arena: '아레나' };

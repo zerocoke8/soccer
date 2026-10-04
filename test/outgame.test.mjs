@@ -13,6 +13,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const { KEYS } = await import(pathToFileURL(path.join(ROOT, "js/ui/store.js")).href);
+const { traitInfo } = await import(pathToFileURL(path.join(ROOT, "js/ui/labels.js")).href);
 
 let JSDOM = null;
 try {
@@ -261,6 +262,36 @@ test("jsdom: 아웃게임 화면 전부 스테이지 안에 그려지고 주요 
   assert.equal($$(".lu-card.bench").length, data.characters.length - 7, "편성: 벤치 = 배치 안 된 선수");
   assert.ok(poolCards.every((c) => c.querySelectorAll(".lu-apt").length === 4 && c.querySelector(".avatar") && c.querySelector(".lu-where")), "편성: 풀 카드 = 아바타 · 적성 4칸 · 자리 표시");
   assert.deepEqual($$(".lu-card.placed .lu-where").map((e) => e.textContent).sort(), Object.keys(data.config.defaultSquad.slots).sort(), "편성: 배치된 선수 카드에 슬롯 이름");
+  // 16명 (§19.14 ①, K3): 풀 = 2줄 × 8장 — 필드 선수(슬롯 순서) → 벤치(레어도 SSR → SR → R, 같으면 데이터 순서). 카드마다 필살기 칩 (등급 색 · title = 종류 · 대사)
+  const charOf = (id) => data.characters.find((c) => c.id === id);
+  const RANK = { SSR: 0, SR: 1, R: 2 };
+  const checkPoolOrder = (where) => {
+    const ids = $$(".setup-pool .lu-card").map((c) => c.dataset.pid);
+    const slotsNow = Object.keys(S.store.setup.squad);
+    const fieldIds = ["GK", "DF1", "DF2", "DF3", "MF1", "MF2", "MF3", "FW1", "FW2"].filter((sl) => slotsNow.includes(sl)).map((sl) => S.store.setup.squad[sl]);
+    assert.deepEqual(ids.slice(0, fieldIds.length), fieldIds, `${where}: 앞 = 필드 선수 (슬롯 순서)`);
+    const bench = ids.slice(fieldIds.length);
+    const order = data.characters.map((c) => c.id);
+    const sorted = [...bench].sort((a, b) => RANK[charOf(a).rarity] - RANK[charOf(b).rarity] || order.indexOf(a) - order.indexOf(b));
+    assert.deepEqual(bench, sorted, `${where}: 벤치 = 레어도 순`);
+    assert.ok($$(".setup-pool .lu-card").slice(fieldIds.length).every((c) => c.classList.contains("bench")), `${where}: 뒤 = 벤치`);
+  };
+  assert.equal(data.characters.length, 16, "이 브랜치 = 16명");
+  assert.match(fs.readFileSync(path.join(ROOT, "css/outgame.css"), "utf8"), /\.setup-pool \.lu-pool \{[^}]*grid-template-columns: repeat\(8,/, "편성: 풀 한 줄 8장 (2줄 — CSS)");
+  checkPoolOrder("편성 기본");
+  for (const c of poolCards) {
+    const ch = charOf(c.dataset.pid);
+    const sk = data.skills.find((k) => k.id === ch.innateSkillId);
+    const chip = c.querySelector(".lu-ult");
+    assert.ok(chip && sk?.ultimate, `풀 카드 ${ch.name}: 필살기 칩`);
+    assert.equal(chip.querySelector(".lu-ult-nm").textContent, sk.name, `${ch.name}: 칩 이름 = 필살기`);
+    assert.ok(chip.classList.contains(`tier-${ch.rarity}`), `${ch.name}: 칩 등급 색 = 레어도`);
+    assert.ok(chip.title.includes(sk.ultimate.cutinLine) && chip.title.includes("필살"), `${ch.name}: 칩 title = 종류 · 대사`);
+    assert.ok(c.querySelector(".lu-trait")?.title.includes(traitInfo(ch.trait, data).name), `${ch.name}: 특성은 아이콘 (이름은 title)`);
+  }
+  assert.equal($$(".mini-pitch .slot-card .ult-mark").length, 7, "편성: 슬롯 카드 7장 모두 ✨");
+  assert.ok($$(".mini-pitch .slot-card").every((c) => /필살/.test(c.title)), "편성: 슬롯 카드 title 에 필살기");
+  assert.equal($$(".setup-pitch .resonance .cap-note").length, 0, "편성 기본: 주장 1명 → 주장 칩 없음");
   assert.ok($(".setup-start input.input"), "편성: seed 입력");
   assert.ok(btnByText(/^런 시작$/, $(".setup-start")) && btnByText(/^기본 편성으로 시작$/, $(".setup-start")), "편성: 시작 버튼 2개");
   assert.ok(btnByText(/처음으로/, $(".setup-screen .og-head")), "편성: ← 처음으로");
@@ -275,10 +306,12 @@ test("jsdom: 아웃게임 화면 전부 스테이지 안에 그려지고 주요 
   assert.equal(new Set($$(".slot-card.pos-DF").map(xOf)).size, 1, "3-1-2: DF 같은 줄");
   // 포메이션을 바꾸면 없어진 슬롯(MF2)의 타리아(DF B)가 새 DF3 로 (lineup.js reseat)
   assert.equal(S.store.setup.squad.DF3, "ch_human_runner", "3-1-2: MF2 타리아 → DF3");
-  // 슬롯 탭 → 캐릭터 고르기 (넓은 모달, 2열 — 드래그 대신 쓰는 탭 경로). 보드와 같은 규칙: 설 수 없으면 비활성 · 빨강
+  // 슬롯 탭 → 캐릭터 고르기 (넓은 모달, 4열 × 4줄 압축판 — 드래그 대신 쓰는 탭 경로). 보드와 같은 규칙: 설 수 없으면 비활성 · 빨강
   $(".slot-card.pos-MF").click();
-  inStage("#modal-root .modal.modal-lg .pick-grid", "캐릭터 고르기");
+  inStage("#modal-root .modal.modal-xl.setup-pick .pick-grid.cols-4", "캐릭터 고르기");
   assert.equal($$("#modal-root .pick-grid .char-pick").length, data.characters.length, "캐릭터 고르기: 전원");
+  assert.ok($$("#modal-root .char-pick").every((b) => b.classList.contains("compact") && b.querySelector(".lu-ult") && b.querySelectorAll(".cp-txt > span").length === 4),
+    "캐릭터 고르기: 압축판 4줄 (이름 · 종족 … · 적성 · 특성 + 필살기)");
   assert.ok($$("#modal-root .char-pick.pick-bad").every((b) => b.disabled) && $$("#modal-root .char-pick.pick-ok").every((b) => !b.disabled), "캐릭터 고르기: 빨강 = 비활성");
   closeModal();
   assert.equal($$("#modal-root .modal").length, 0, "캐릭터 고르기 닫힘");
@@ -286,6 +319,20 @@ test("jsdom: 아웃게임 화면 전부 스테이지 안에 그려지고 주요 
   fsel.dispatchEvent(new window.Event("change", { bubbles: true }));
   await until(() => $$(".slot-card.pos-DF").length === 2);
   assert.deepEqual(S.store.setup.squad, data.config.defaultSquad.slots, "2-2-2 로 돌아오면 기본 편성 그대로 (DF3 타리아 → MF2)");
+  // 주장 2명 (L46): GK 슬롯 모달에서 헤르타(주장 · GK A)를 고르면 아델린과 주장 2명 → 공명 줄 칩 "주장 2명 — 팀워크 +10은 1명분". 네리아 벤치 → 풀 다시 정렬
+  $('.lu-slot[data-slot="GK"]').click();
+  const herta = $('#modal-root .char-pick[data-pid="ch_giant_keeper"]');
+  assert.ok(herta && !herta.disabled, "GK 고르기: 헤르타 가능");
+  herta.click();
+  await until(() => S.store.setup.squad.GK === "ch_giant_keeper" && $(".setup-pitch .resonance .cap-note"));
+  assert.match($(".setup-pitch .resonance .cap-note").textContent, /주장 2명 — 팀워크 \+10은 1명분/, "주장 2명 칩");
+  checkPoolOrder("헤르타 GK");
+  assert.ok($('.lu-card[data-pid="ch_spirit_keeper"]').classList.contains("bench"), "네리아 벤치");
+  $('.lu-slot[data-slot="GK"]').click();
+  $('#modal-root .char-pick[data-pid="ch_spirit_keeper"]').click();
+  await until(() => S.store.setup.squad.GK === "ch_spirit_keeper");
+  assert.equal($$(".setup-pitch .resonance .cap-note").length, 0, "네리아로 되돌리면 주장 칩 없음");
+  assert.deepEqual(S.store.setup.squad, data.config.defaultSquad.slots, "기본 편성으로 되돌림");
 
   // ---- 드래그 (포인터 이벤트 흉내). jsdom 은 레이아웃이 없어 elementFromPoint 를 "포인터 밑 요소"로 고정한다 ----
   const PE = window.PointerEvent || window.MouseEvent;
@@ -495,6 +542,7 @@ test("jsdom: 아웃게임 화면 전부 스테이지 안에 그려지고 주요 
   assert.equal($$("#modal-root .meeting-col")[0].querySelectorAll("select").length, 6, "미팅: 전술 6개 (배급 포함)");
   assert.ok($$("#modal-root .meeting-col")[0].textContent.includes("배급"), "미팅: 배급 전술");
   assert.equal($$("#modal-root .meeting-board .lu-pitch.compact .lu-slot").length, 7, "미팅: 라인업 보드 슬롯 7개");
+  assert.equal($$("#modal-root .meeting-board .lu-slot .ult-mark").length, 7, "미팅: 슬롯 카드 7장 모두 ✨ (필살기)");
   assert.equal($$("#modal-root .meeting-board select").length, 1, "미팅: 포메이션 선택만");
   assert.equal($$("#modal-root .lu-pool").length, 0, "미팅: 벤치 없음 (7명 전원 배치)");
   assert.ok(!$("#modal-root .shop-list") && !/스킬 상점/.test($("#modal-root").textContent), "미팅: 스킬 상점 없음");
@@ -611,6 +659,16 @@ test("jsdom: 아웃게임 화면 전부 스테이지 안에 그려지고 주요 
   assert.equal($$(".prep-edit .meeting-col").length, 2, "준비: 편집기 2단");
   assert.equal($$(".prep-edit select").length, 7, "준비: 전술 6 + 포메이션");
   assert.ok(!/팀워크 \+/.test($(".prep-edit").textContent), "준비: 팀워크 +10 없음");
+  // 필살기 ✨ (§19.14 ②): 7명 모두 슬롯 카드 이름 옆 (등급 색 = 레어도, title = 이름 · 종류)
+  const prepMarks = $$(".prep-edit .lu-slot .ult-mark");
+  assert.equal(prepMarks.length, 7, "준비: 슬롯 카드 7장 모두 ✨");
+  for (const el of $$(".prep-edit .lu-slot")) {
+    const rp = S.store.run.players.find((p) => p.id === el.dataset.pid);
+    const sk = data.skills.find((k) => k.id === rp.innateSkillId);
+    const mk = el.querySelector(".ult-mark");
+    assert.ok(mk.classList.contains(`tier-${sk.ultimate.tier}`) && mk.title.includes(sk.name) && el.title.includes(sk.name), `준비: ${rp.name} ✨ = ${sk.name}`);
+  }
+  assert.equal($$(".prep-opp .cap-note").length, 0, "준비: 주장 1명 → 주장 칩 없음");
   const prepTw = S.store.run.teamwork;
   const prepTurn = S.store.run.turn;
   const pdf2 = $('.prep-edit .lu-slot[data-slot="DF2"]').dataset.pid;
@@ -665,8 +723,20 @@ test("jsdom: 아웃게임 화면 전부 스테이지 안에 그려지고 주요 
     if (i >= 0) assert.equal($$(".route-card .desc")[i].textContent, ov.description, `루트: ${id} 설명 = routeOverrides`);
   }
 
+  // 주장 2명 (L46, §19.14 ②): 기본 편성 + GK 헤르타 → 경기 전 준비 왼쪽 칸 "주장 2명 — 팀워크 +10은 1명분"
+  inject("og_prep_captain2");
+  inStage(".screen.og.prep-screen .prep-opp .po-cap .cap-note", "준비 주장 2명");
+  assert.match($(".prep-opp .cap-note").textContent, /주장 2명 — 팀워크 \+10은 1명분/, "준비: 주장 2명 칩");
+  // 새 편성 A (16명 중 새 8명 7명): 슬롯 카드 ✨ 등급 색 = 레어도 (SSR 헤르타 · 브론테)
+  inject("og_prep_ult");
+  inStage(".screen.og.prep-screen", "준비 새 편성 A");
+  assert.equal($$(".prep-edit .lu-slot .ult-mark").length, 7, "준비(새 편성 A): ✨ 7");
+  assert.deepEqual($$(".prep-edit .lu-slot .ult-mark.tier-SSR").map((e) => e.closest(".lu-slot").dataset.slot).sort(), ["FW1", "GK"], "준비(새 편성 A): SSR = 헤르타 · 브론테");
+  assert.equal($$(".prep-opp .cap-note").length, 0, "준비(새 편성 A): 주장 1명 (헤르타) → 칩 없음");
+
   inject("og_result");
   inStage(".screen.og.result-screen .result-main", "결과");
+  assert.ok($$(".res-players .player-result").every((r) => /필살기 /.test(r.textContent) && !/고유 /.test(r.textContent)), "결과: 선수 줄 \"필살기 X\" (L45)");
   assert.ok($(".result-left .result-hero .grade.big"), "결과: 등급 (왼쪽)");
   assert.ok($(".result-left .res-breakdown .kv") && $(".result-left .res-record") && $(".result-left .seed-box"), "결과: 점수 구성 · 경기 기록 · seed");
   assert.equal($$(".res-players .player-result").length, S.store.run.players.length, "결과: 선수 성장 (오른쪽)");

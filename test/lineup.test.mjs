@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  canPlay, placeReason, badText, slotOfId, resolveTarget, checkMove, applyMove, lineupIssues, reseat, meetingSwaps, slotSpot,
+  canPlay, placeReason, badText, slotOfId, resolveTarget, checkMove, applyMove, lineupIssues, reseat, meetingSwaps, slotSpot, poolOrder, RARITY_RANK,
 } from "../js/ui/lineup.js";
 import { slotsOf, positionOfSlot, FORMATIONS } from "../js/ui/labels.js";
 import { validateSquad, resolveMeeting } from "../js/engine/training.js";
@@ -186,6 +186,66 @@ test("무작위 드래그 1500번: 가능(초록)한 이동만 적용하면 편�
     }
   }
   assert.ok(applied > 300 && rejected > 100 && runs > 5, `적용 ${applied} · 거절 ${rejected} · createRun ${runs}`);
+});
+
+// ---- 16명 (LESSON_PROTO_PLAN §19.14 ①, K3): 선수 풀 2줄 순서 · 새 편성 A/B 를 보드 이동만으로 ----
+const NEW = {
+  herta: "ch_giant_keeper", bronte: "ch_spirit_striker", naelis: "ch_elf_regista", coni: "ch_rabbit_fullback",
+  ondina: "ch_spirit_dribbler", risiel: "ch_elf_archer", camila: "ch_human_header", hildi: "ch_dwarf_finisher",
+};
+const SQUAD_A = { GK: NEW.herta, DF1: NEW.naelis, DF2: NEW.coni, MF1: NEW.ondina, MF2: NEW.risiel, FW1: NEW.bronte, FW2: NEW.camila };
+const rarityOf = (cid) => charById.get(cid)?.rarity;
+
+test("poolOrder: 필드 선수(슬롯 순서) → 벤치 레어도 SSR → SR → R (같으면 데이터 순서), 16명 전원 한 번씩", () => {
+  assert.equal(data.characters.length, 16, "이 브랜치 = 16명");
+  const ids = data.characters.map((c) => c.id);
+  const slots = slotsOf(DEFAULT.formation);
+  const order = poolOrder(ids, slots, DEFAULT.slots, rarityOf);
+  assert.equal(order.length, ids.length);
+  assert.deepEqual([...order].sort(), [...ids].sort(), "전원 한 번씩");
+  assert.deepEqual(order.slice(0, 7), slots.map((sl) => DEFAULT.slots[sl]), "앞 7장 = 슬롯 순서");
+  const bench = order.slice(7);
+  const ranks = bench.map((id) => RARITY_RANK[rarityOf(id)]);
+  assert.deepEqual(ranks, [...ranks].sort((a, b) => a - b), "벤치 = 레어도 순");
+  for (let i = 1; i < bench.length; i++) {
+    if (ranks[i] === ranks[i - 1]) assert.ok(ids.indexOf(bench[i - 1]) < ids.indexOf(bench[i]), "같은 레어도 = 데이터 순서");
+  }
+  // 기본 편성의 벤치 9명: SSR 헤르타 · 브론테 → SR 나엘리스 · 온디나 · 리시엘 → R 미르카 · 코니 · 카밀라 · 힐디
+  assert.deepEqual(bench, [NEW.herta, NEW.bronte, NEW.naelis, NEW.ondina, NEW.risiel, ID.mirka, NEW.coni, NEW.camila, NEW.hildi]);
+  // 빈 슬롯 · 모르는 id · 같은 선수 두 자리(있을 수 없지만)도 안전
+  const partial = { ...DEFAULT.slots };
+  delete partial.MF2;
+  const o2 = poolOrder(ids, slots, { ...partial, FW2: "nobody" }, rarityOf);
+  assert.equal(o2.length, ids.length);
+  assert.deepEqual(o2.slice(0, 5), ["GK", "DF1", "DF2", "MF1", "FW1"].map((sl) => partial[sl]));
+  assert.equal(o2[5], ID.greta, "빠진 SSR 그레타 = 벤치 맨 앞");
+  assert.ok(o2.indexOf(ID.taria) > o2.indexOf(NEW.risiel), "빠진 R 타리아 = SR 뒤");
+  assert.deepEqual(poolOrder(ids, slots, { GK: ID.neria, DF1: ID.neria }, rarityOf).filter((id) => id === ID.neria), [ID.neria]);
+  assert.deepEqual(poolOrder(null, slots, {}), []);
+});
+
+test("16명: 기본 편성에서 보드 이동(벤치 카드 → 슬롯)만으로 새 편성 A · B 를 만들면 규칙에 맞고 createRun 을 통과한다", () => {
+  const formation = "2-2-2";
+  for (const [name, target] of [["A", SQUAD_A], ["B", { ...SQUAD_A, FW2: NEW.hildi }]]) {
+    let assign = { ...DEFAULT.slots };
+    for (const sl of slotsOf(formation)) {
+      const m = setupModel(assign, formation);
+      const move = resolveTarget(m, target[sl], { slot: sl });
+      assert.ok(move, `${name} ${sl}`);
+      const chk = checkMove(m, move);
+      assert.ok(chk.ok, `${name} ${sl}: ${chk.reason}`);
+      assert.equal(chk.apt, "A", `${name} ${sl}: 새 편성은 모두 적성 A`);
+      assign = applyMove(assign, move);
+    }
+    assert.deepEqual(assign, target, `${name}: 보드 결과 = 목표`);
+    assert.deepEqual(lineupIssues(setupModel(assign, formation)), []);
+    validateSquad(data, formation, assign);
+    const st = run.createRun({ data, seed: `lu16-${name}`, squad: assign, formation });
+    for (const p of st.players) assert.equal(assign[p.slot], p.charId);
+    // 벤치 9 = 옛 8명 + 남은 새 R 1명 (레어도 순: 실루엔 · 그레타 → 네리아 · 도르비나 · 울리카 → 아델린 · 타리아 · 미르카 · 힐디/카밀라)
+    const order = poolOrder(data.characters.map((c) => c.id), slotsOf(formation), assign, rarityOf);
+    assert.deepEqual(order.slice(7), [ID.silu, ID.greta, ID.neria, ID.dorbina, ID.ulrika, ID.adeline, ID.taria, ID.mirka, name === "A" ? NEW.hildi : NEW.camila]);
+  }
 });
 
 test("reseat: 포메이션이 바뀌면 남는 슬롯 그대로, 없어진 슬롯 선수는 설 수 있는 빈 슬롯으로 (적성 좋은 순)", () => {

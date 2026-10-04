@@ -375,6 +375,8 @@ async function runScenario(browser, baseUrl, sc, prepared, opts) {
         ".ls-pinfo .pi-name", ".ls-pinfo .pi-sub", ".ls-pinfo .pi-where", ".ls-pinfo .pi-k", ".ls-pinfo .pi-v", ".ls-pinfo .pi-g", ".ls-pinfo .pi-foot > span",
         ".ls-cutin .lc-txt b", ".ls-cutin .lc-sub", ".ls-cutin .lc-line", ".card-face .cf-coach", ".ls-info .ls-att-line", ".ls-info .ls-att-sub", ".ls-info .ls-cut-sub",
         ".rw-teach-line", ".rw-teach-desc", ".rw-teach-pl .tp-nm", ".rw-teach-pl .tp-sub", ".rw-teach-rep .rw-rep-btn", ".rw-chip.teach", ".rw-summary", ".cs-active-note", ".po-out .po-out-p",
+        // 16명 편성 (§19.14 ⑥, K3): 풀 카드 이름 · 필살기 칩 · 슬롯 카드 이름 · 고르기 모달 줄 · 주장 칩
+        ".lu-card-nm", ".lu-ult", ".lu-ult-nm", ".slot-card .slot-nm", ".char-pick.compact .cp-txt > span", ".char-pick.compact .cp-badge", ".cap-note",
       ].join(", "))]
         .map((el) => {
           // 말줄임은 소수 픽셀만 넘쳐도 생긴다 → 정수 scrollWidth 대신 글자 Range 크기와 요소 크기(소수)를 비교
@@ -592,6 +594,19 @@ async function enterOutgame(page, sc, prepared, opts, out) {
       continue;
     }
     if (st.drag) { out.notes.push(await dragStep(page, st.drag)); continue; }
+    // <select> 값 바꾸기 (편성 포메이션 등 — 실제 change 이벤트): { select: { sel, value } }
+    if (st.select) {
+      const ok = await page.evaluate((sel, value) => {
+        const el = document.querySelector(sel);
+        if (!el) return false;
+        el.value = value;
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+        return el.value === value;
+      }, st.select.sel, st.select.value);
+      out.notes.push(ok ? `선택 ${st.select.sel} = ${st.select.value}` : `'${st.select.sel}' 에 ${st.select.value} 를 고르지 못함`);
+      await delay(st.waitMs ?? 150);
+      continue;
+    }
     // CSS 애니메이션 멈추기 (연출 중간 프레임 — 타이머 고정은 CSS 애니메이션을 멈추지 못한다: 레슨 컷인 · 팝): { pauseAnim: true }
     if (st.pauseAnim) {
       const n = await page.evaluate(() => { const list = document.getAnimations ? document.getAnimations() : []; for (const a of list) a.pause(); return list.length; });

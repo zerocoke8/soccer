@@ -4,16 +4,16 @@
 //   │ 포메이션 · 배치: 가로 미니 필드(우리 골 왼쪽 — 경기 화면과 같은 방향), 슬롯 7개 │ 코치 (서포트 칩 2열, n/6)       │
 //   │ 원소 공명 · 경고                                                         │ 전술 지시 4개 (+ 배급)           │
 //   │                                                                          │ 훈련 방침 5개 (레슨 버프 — 경기 전술 아님) │
-//   │ 선수 풀: 캐릭터 전원 카드 한 줄 (배치된 선수 = 슬롯 표시, 나머지 = 벤치)                                    │
+//   │ 선수 풀: 캐릭터 전원 카드 2줄 × 8장 (필드 선수 슬롯 순서 → 벤치 레어도 순, LESSON_PROTO_PLAN §19.14 ①)        │
 //   └──────────────────────────────────────────────────────────────────────────────────────┘
 // 배치는 라인업 보드(js/ui/lineup.js): 선수 카드를 끌어 슬롯에 놓기 (초록 = 가능 · 빨강 = 불가), 눌러서 고른 뒤 자리 누르기도 된다.
 import { h, avatar, select, toast, panel, openModal, closeOverlays } from '../dom.js';
 import {
   STATS, POSITIONS, slotsOf, positionOfSlot, POSITION_LABELS, ELEMENT_LABELS, ELEMENT_ICONS, STYLE_LABELS,
   RACE_LABELS, SUPPORT_TYPE_LABELS, TACTIC_SETUP_KEYS, TACTIC_LABELS, TACTIC_OPTIONS,
-  APTITUDE_ORDER, FORMATIONS, randomSeed, traitInfo, POLICIES, policyInfo,
+  APTITUDE_ORDER, FORMATIONS, randomSeed, traitInfo, POLICIES, policyInfo, ultimateInfo, captainCount, captainNote,
 } from '../labels.js';
-import { lineupBoard, reseat, slotSpot, slotOfId, checkMove, applyMove, badText } from '../lineup.js';
+import { lineupBoard, reseat, slotSpot, slotOfId, checkMove, applyMove, badText, poolOrder, ultChip, ultMark } from '../lineup.js';
 
 export { slotSpot }; // 예전 위치 (test/outgame.test.mjs) — 이제 js/ui/lineup.js
 
@@ -66,22 +66,26 @@ export function renderSetup(root, ctx) {
     return t ? h('span', { class: 'trait-tag tiny', title: t.description }, `${t.icon} ${t.name}`) : null;
   }
   const elemLine = (c) => `${ELEMENT_ICONS[c.element] ?? ''} ${ELEMENT_LABELS[c.element] ?? c.element ?? ''} · ${STYLE_LABELS[c.style] ?? c.style ?? ''}`;
+  const ultOf = (c) => ultimateInfo(c?.innateSkillId, data);
 
   // ---- 라인업 보드: 미니 필드 슬롯 + 선수 풀 ----
   const board = lineupBoard({
     slots,
     assign: s.squad,
     bench: true,
-    ids: chars.map((c) => c.id),
+    // 2줄 × 8장: 필드 선수(슬롯 순서) → 벤치(레어도 SSR → SR → R, 같으면 데이터 순서)
+    ids: poolOrder(chars.map((c) => c.id), slots, s.squad, (cid) => charById.get(cid)?.rarity),
     aptOf,
     nameOf: (cid) => charById.get(cid)?.name ?? cid,
     colorOf: (cid) => charById.get(cid)?.portraitColor,
+    titleOf: (cid) => ultOf(charById.get(cid))?.title ?? '',
     slotBody: (cid) => {
       const c = charById.get(cid);
+      const u = ultOf(c);
       return [
         avatar(c.portraitColor, c.name, 'sm'),
         h('span', { class: 'grow col' },
-          h('span', { class: 'ellipsis slot-nm' }, c.name),
+          h('span', { class: 'slot-nm-row' }, h('span', { class: 'ellipsis slot-nm' }, c.name), ultMark(u)),
           h('span', { class: 'tiny muted ellipsis' }, elemLine(c)),
           c.trait ? traitTag(c.trait) : null),
       ];
@@ -90,12 +94,16 @@ export function renderSetup(root, ctx) {
       const c = charById.get(cid);
       const total = STATS.reduce((sum, st) => sum + (Number(c.baseStats?.[st]) || 0), 0);
       const t = traitInfo(c.trait, data);
+      const u = ultOf(c);
       return [
         h('span', { class: 'lu-card-who', title: `${c.name} · ${RACE_LABELS[c.race] ?? c.race ?? ''} · 스탯 합 ${total}${t ? `\n${t.icon} ${t.name}: ${t.description}` : ''}` },
-          avatar(c.portraitColor, c.name, 'sm'),
+          avatar(c.portraitColor, c.name, 'xs'),
           h('b', { class: 'lu-card-nm ellipsis' }, c.name)),
         h('span', { class: 'tiny muted ellipsis' }, h('span', { class: `rarity-${c.rarity}` }, c.rarity ?? ''), ` · ${elemLine(c)}`),
-        c.trait ? traitTag(c.trait) : h('span', { class: 'tiny muted' }, '특성 없음'),
+        // 특성 + 필살기 한 줄: 특성은 아이콘만 (이름 · 설명은 title), 필살기 칩은 이름까지
+        h('span', { class: 'lu-chips' },
+          t ? h('span', { class: 'trait-tag tiny lu-trait', title: `${t.icon} ${t.name}: ${t.description}`, 'aria-label': t.name }, t.icon) : null,
+          u ? ultChip(u) : (t ? null : h('span', { class: 'tiny muted' }, '특성 없음'))),
         h('span', { class: 'lu-apts' }, POSITIONS.map((p) => h('span', { class: 'lu-apt' }, h('i', {}, p), aptBadge(c.aptitude?.[p])))),
       ];
     },
@@ -121,29 +129,34 @@ export function renderSetup(root, ctx) {
       const total = STATS.reduce((sum, st) => sum + (Number(c.baseStats?.[st]) || 0), 0);
       const aptLine = POSITIONS.map((p) => `${p} ${c.aptitude?.[p] ?? '-'}`).join(' · ');
       const t = traitInfo(c.trait, data);
+      const u = ultOf(c);
+      // 4열 압축판 (§19.14 ①): 이름 · 레어도 · 배지 / 종족 · 원소 · 스타일 · 스탯 합 / 적성 4 / 특성 · ✨필살기 — 긴 글은 title
       return h('button', {
         type: 'button',
-        class: ['char-pick', current ? 'current' : '', chk.ok ? 'pick-ok' : 'pick-bad'],
+        class: ['char-pick', 'compact', current ? 'current' : '', chk.ok ? 'pick-ok' : 'pick-bad'],
         disabled: !chk.ok,
-        title: why ? `놓을 수 없음 — ${why}` : '',
+        dataset: { pid: c.id },
+        title: [why ? `놓을 수 없음 — ${why}` : '', t ? `${t.icon} ${t.name}: ${t.description}` : '', u ? u.title : ''].filter(Boolean).join('\n'),
         onclick: () => {
           closeOverlays();
           if (!current) s.squad = applyMove(s.squad, move);
           rerender();
         },
       },
-      avatar(c.portraitColor, c.name, 'md'),
-      h('span', { class: 'grow col' },
-        h('span', { class: 'row wrap' },
-          h('b', {}, c.name),
+      avatar(c.portraitColor, c.name, 'sm'),
+      h('span', { class: 'grow col cp-txt' },
+        h('span', { class: 'cp-l1' },
+          h('b', { class: 'cp-nm' }, c.name),
           h('span', { class: ['tiny', `rarity-${c.rarity}`] }, c.rarity ?? ''),
-          current ? h('span', { class: 'badge badge-good' }, '현재')
-            : where ? h('span', { class: 'badge' }, `${where} ⇄ 맞바꾸기`) : h('span', { class: 'badge' }, '벤치'),
-          why ? h('span', { class: 'badge badge-bad' }, `✖ ${why}`) : null),
-        h('span', { class: 'tiny muted' },
-          `${RACE_LABELS[c.race] ?? c.race ?? ''} · ${ELEMENT_LABELS[c.element] ?? ''} · ${STYLE_LABELS[c.style] ?? ''} · 스탯 합 ${total}`),
-        h('span', { class: 'tiny muted' }, aptLine),
-        t ? h('span', { class: 'tiny' }, h('span', { class: 'trait-tag' }, `${t.icon} ${t.name}`), h('span', { class: 'muted' }, ` ${t.description}`)) : null),
+          why ? h('span', { class: 'badge badge-bad cp-badge ellipsis' }, `✖ ${why}`)
+            : current ? h('span', { class: 'badge badge-good cp-badge' }, '현재')
+              : where ? h('span', { class: 'badge cp-badge' }, `⇄ ${where}`) : h('span', { class: 'badge cp-badge' }, '벤치')),
+        h('span', { class: 'tiny muted ellipsis' },
+          `${RACE_LABELS[c.race] ?? c.race ?? ''} · ${ELEMENT_ICONS[c.element] ?? ''}${ELEMENT_LABELS[c.element] ?? ''} · ${STYLE_LABELS[c.style] ?? ''} · 합 ${total}`),
+        h('span', { class: 'tiny muted ellipsis' }, aptLine),
+        h('span', { class: 'cp-l4' },
+          t ? h('span', { class: 'trait-tag tiny' }, `${t.icon} ${t.name}`) : null,
+          u ? ultChip(u) : null)),
       aptBadge(apt),
       );
     });
@@ -154,12 +167,12 @@ export function renderSetup(root, ctx) {
       h('p', { class: 'tiny muted' },
         pos === 'GK' ? 'GK는 적성 A/B 선수만 배치할 수 있습니다. ' : '적성 C도 배치할 수 있지만 경기 스탯에 페널티가 붙습니다. "-"는 배치 불가. ',
         '필드 선수를 고르면 자리를 맞바꿉니다. 필드에서 카드를 끌어 옮길 수도 있습니다.'),
-      h('div', { class: 'pick-grid' }, list),
+      h('div', { class: 'pick-grid cols-4' }, list),
       s.squad[slot]
         ? h('div', { class: 'row end' },
           h('button', { class: 'btn btn-ghost', onclick: () => { delete s.squad[slot]; closeOverlays(); rerender(); } }, '슬롯 비우기 (벤치로)'))
         : null,
-    ), { className: 'modal-lg' });
+    ), { className: 'modal-xl setup-pick' });
   }
 
   // ---- 공명 / 경고 ----
@@ -180,6 +193,7 @@ export function renderSetup(root, ctx) {
     if (positionOfSlot(sl) === 'GK' && apt === 'C') warnings.push('GK는 적성 A/B만 허용');
   }
   const missing = slots.filter((sl) => !s.squad[sl]);
+  const captainTxt = captainNote(captainCount(assigned.map((c) => c.id), data), data); // L46: 주장 2명이면 1명분 안내
   const benchCount = chars.length - assigned.length;
 
   // 필드 아래 줄: 공명 배지 · 원소별 인원 · 경고 · 빈 슬롯
@@ -191,6 +205,7 @@ export function renderSetup(root, ctx) {
         : h('span', { class: 'badge' }, `원소 공명 없음 (같은 원소 ${minP}명 이상)`),
       Object.entries(elemCounts).filter(([, n]) => n < minP).map(([el, n]) =>
         h('span', { class: 'tiny muted' }, `${ELEMENT_ICONS[el] ?? ''}${n}`)),
+      captainTxt ? h('span', { class: 'badge cap-note', title: traitInfo('captain', data)?.description ?? '' }, captainTxt) : null,
       missing.length ? h('span', { class: 'tiny warn' }, `비어 있는 슬롯: ${missing.join(', ')}`) : null),
     warnings.length ? h('div', { class: 'row wrap' }, warnings.map((w) => h('span', { class: 'tiny warn' }, `⚠ ${w}`))) : null,
   );
@@ -329,10 +344,14 @@ export function renderSetup(root, ctx) {
           scroll: true,
           right: h('span', { class: 'tiny muted' }, `${supports.length}명 중 ${supportCount}명 · 누르면 선택/해제`),
         }, supportGrid),
+        // 전술 지시 + 훈련 방침 = 한 패널 (16명 풀 2줄이 들어가도 코치 칩 4줄이 스크롤 없이 보이게 — §19.19 K3)
         panel('전술 지시', { cls: 'setup-tactics', right: h('span', { class: 'tiny muted', title: '텐션 사용·듀얼 담당은 기본값을 따르며 런 중 전술 미팅에서 바꿀 수 있습니다.' }, '텐션·듀얼 담당은 미팅에서') },
-          tacticsEl),
-        panel('훈련 방침', { cls: 'setup-policy', right: h('span', { class: 'tiny muted', title: '레슨에서 붙는 버프가 바뀝니다. 경기 전술과는 상관없습니다.' }, '경기 전술 아님') },
-          policyEl)),
+          tacticsEl,
+          h('div', { class: 'setup-policy' },
+            h('div', { class: 'og-panel-head' },
+              h('h3', { class: 'og-panel-title' }, '훈련 방침'),
+              h('span', { class: 'tiny muted', title: '레슨에서 붙는 버프가 바뀝니다. 경기 전술과는 상관없습니다.' }, '경기 전술 아님')),
+            policyEl))),
 
       poolPanel,
     ),

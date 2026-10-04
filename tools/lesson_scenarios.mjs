@@ -290,6 +290,11 @@ const playMid = (prepared, ms) => [
 // ---- 고유 카드 모양 시나리오 도우미 (§16.7, L40) ----
 /** 미르카 편성 (FW2 = 미르카 — 기본 편성에는 없다) */
 const MIRKA = { FW2: "ch_cat_trickster" };
+/** 새 편성 A (§19.16, 2-2-2 모두 적성 A): GK 헤르타 · DF 나엘리스 · 코니 · MF 온디나 · 리시엘 · FW 브론테 · 카밀라. NEW_HILDI = FW1 힐디 (새 고유 8장 중 나머지 4장용) */
+const SQUAD_A = {
+  GK: "ch_giant_keeper", DF1: "ch_elf_regista", DF2: "ch_rabbit_fullback", MF1: "ch_spirit_dribbler", MF2: "ch_elf_archer", FW1: "ch_spirit_striker", FW2: "ch_human_header",
+};
+const NEW_HILDI = { ...SQUAD_A, FW1: "ch_dwarf_finisher" };
 /**
  * 고유 카드 모양 장면: 2턴째 이후 (마지막 턴 아님 · 결장 없음 · 낼 수 있음) 레슨에서 구역을 주입하고 (슬롯 순서 7개) 손패 앞 장들을 cardIds 로 바꾼다.
  * 코치 지원이 그 자리에 붙어 있으면 뗀다 (모양만 보이게). info = { uid (첫 장), uids, ownerId, pos: 경기장 위치, centers: 구역 중심 }
@@ -330,6 +335,8 @@ const Z_WALL = ["defense", "defense", "defense", "pass", "pass", "shoot", "physi
 const Z_ZONE = ["defense", "physical", "physical", "physical", "pass", "shoot", "dribble"];
 const Z_POST = ["defense", "defense", "pass", "shoot", "dribble", "shoot", "shoot"];
 const Z_MOVE = ["defense", "defense", "physical", "pass", "pass", "shoot", "dribble"];
+/** 새 편성 (슬롯 순서 GK · DF1 · DF2 · MF1 · MF2 · FW1 · FW2): FW 두 명 슈팅 구역 (마무리 ×2 · 크로스 받을 선수) */
+const Z_NEW = ["defense", "defense", "physical", "dribble", "pass", "shoot", "shoot"];
 
 // 아웃게임 시나리오 모양은 tools/scenarios.mjs 머리말 (og_*). 진입 = 시작 화면 [이어하기] (레슨 런 저장본)
 export const LESSON_OG_SCENARIOS = [
@@ -663,6 +670,35 @@ export const LESSON_OG_SCENARIOS = [
     outgame: true,
     build: (data, { runSeed }) => shapeScene("og_lesson_u_hand2", data, runSeed, ["cd_u_silluen", "cd_u_dorbina", "cd_u_adeline", "cd_u_mirka"], Z_MOVE, { slots: MIRKA }),
     ready: ".lesson-screen .card-face.sh-carry .cf-ticon.s-carry",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  // ---- 새 고유 카드 8장 (LESSON_PROTO_PLAN §19.12 ⑥ · §19.14 ⑥, K3): 앞면 2장면 + 마무리 조준 ----
+  {
+    // 새 편성 A 손패: 헤르타 골문 앞 허들(구역 전원) · 브론테 번개 원터치(마무리) · 나엘리스 물길 롱패스(연결) · 코니 토끼굴 오버래핑(자리 옮기기)
+    name: "og_lesson_u_hand3",
+    title: "레슨 — 새 고유 카드 앞면 (구역 전원 · 마무리 · 연결 · 자리 옮기기 — 헤르타 · 브론테 · 나엘리스 · 코니)",
+    outgame: true,
+    build: (data, { runSeed }) => shapeScene("og_lesson_u_hand3", data, runSeed, ["cd_u_herta", "cd_u_bronte", "cd_u_naelis", "cd_u_coni"], Z_NEW, { slots: SQUAD_A }),
+    ready: ".lesson-screen .card-face.sh-owner .cf-ticon.s-owner",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 새 편성 (FW1 힐디) 손패: 온디나 물살 타기(가로지르기) · 리시엘 과녁 크로스(크로스) · 카밀라 공중볼 경합(둘레 중간 원) · 힐디 담금질 슈팅(마무리)
+    name: "og_lesson_u_hand4",
+    title: "레슨 — 새 고유 카드 앞면 (가로지르기 · 크로스 · 둘레 중간 원 · 마무리 — 온디나 · 리시엘 · 카밀라 · 힐디)",
+    outgame: true,
+    build: (data, { runSeed }) => shapeScene("og_lesson_u_hand4", data, runSeed, ["cd_u_ondina", "cd_u_risiel", "cd_u_camila", "cd_u_hildi"], Z_NEW, { slots: NEW_HILDI }),
+    ready: ".lesson-screen .card-face.sh-cross .cf-ticon.s-cross",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 마무리 (§16.7 — U3 때는 주인이 없어 못 찍은 장면): 브론테 카드를 누름 → 주인 토큰 빛 · 슈팅 구역이면 "×2"
+    name: "og_lesson_u_finish",
+    title: "레슨 — 마무리: 브론테 번개 원터치 조준 (주인 빛 · 슈팅 구역 ×2)",
+    outgame: true,
+    build: (data, { runSeed }) => shapeScene("og_lesson_u_finish", data, runSeed, ["cd_u_bronte"], Z_NEW, { slots: SQUAD_A }),
+    steps: (prepared) => [{ click: handSel(prepared.info.uid) }],
+    ready: ".lesson-screen.aiming .tok.shape-owner",
     expect: { screen: "run", phase: "lesson", modal: false },
   },
   {
@@ -1362,6 +1398,21 @@ export const LESSON_OG_SCENARIOS = [
     expect: { screen: "run", phase: "consult", modal: false },
   },
   {
+    // 옛 고유 패시브 4개 (L45 — 이제 SP 패시브 풀, §19.12 ②): 밀물의 벽(GK만) · 주장의 외침 · 지치지 않는 다리 · 고양이 페인트(FW · MF) — 배울 선수 목록이 포지션 제한을 따른다
+    name: "og_consult_old_innate",
+    title: "상담 — 옛 고유 패시브 4개 (밀물의 벽 GK만 · 주장의 외침 · 지치지 않는 다리 · 고양이 페인트 FW·MF)",
+    outgame: true,
+    build: (data, { runSeed }) => {
+      const b = walkOrThrow("og_consult_old_innate", data, { seed: runSeed, until: (s) => s.phase === "consult" });
+      const st = b.runState;
+      st.skillPoints = Math.max(st.skillPoints, 400);
+      for (const id of ["sk_tide_wall", "sk_captain_call", "sk_tireless", "sk_feint"]) st.hints[id] = Math.max(st.hints[id] || 0, 1);
+      return { ...b, summary: `${b.summary} (옛 고유 패시브 힌트 4 · SP 400 주입)` };
+    },
+    ready: '.consult-screen .cs-skill[data-skill="sk_tide_wall"]',
+    expect: { screen: "run", phase: "consult", modal: false },
+  },
+  {
     // 고유 카드 [삭제] → 확인 모달
     name: "og_consult_delete",
     title: "상담 — 고유 카드 삭제 확인 모달",
@@ -1405,6 +1456,24 @@ export const LESSON_OG_SCENARIOS = [
       return { ...b, summary: `${b.summary} (${b.runState.players[2].name} 부상 2 주입)` };
     },
     ready: ".prep-screen .po-out",
+    expect: { screen: "run", phase: "prep", modal: false },
+  },
+  {
+    // 새 편성 A 의 경기 전 준비: 슬롯 카드 이름 옆 ✨ (등급 색 — SSR 헤르타 · 브론테, SR 나엘리스 · 온디나 · 리시엘, R 코니 · 카밀라)
+    name: "og_prep_ult",
+    title: "경기 전 준비 — 새 편성 A: 슬롯 카드 필살기 ✨ (등급 색)",
+    outgame: true,
+    build: (data, { runSeed }) => walkOrThrow("og_prep_ult", data, { seed: runSeed, slots: SQUAD_A, until: (s) => s.phase === "prep" }),
+    ready: ".prep-screen .lu-slot .ult-mark.tier-SSR",
+    expect: { screen: "run", phase: "prep", modal: false },
+  },
+  {
+    // 기본 편성 + GK 헤르타 (주장 2명 — 헤르타 · 아델린): 왼쪽 칸 "주장 2명 — 팀워크 +10은 1명분" (L46)
+    name: "og_prep_captain2",
+    title: "경기 전 준비 — 주장 2명 (GK 헤르타 + 아델린): 주장 칩",
+    outgame: true,
+    build: (data, { runSeed }) => walkOrThrow("og_prep_captain2", data, { seed: runSeed, slots: { GK: "ch_giant_keeper" }, until: (s) => s.phase === "prep" }),
+    ready: ".prep-screen .po-cap .cap-note",
     expect: { screen: "run", phase: "prep", modal: false },
   },
   // ---- 이벤트 · 유물 · 루트 · 결과 (레슨 런, I1) ----

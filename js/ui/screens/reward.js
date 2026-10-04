@@ -145,12 +145,19 @@ export function renderRewardModal(ctx) {
       r.prepBonus ? chip('prep', '경계전 컨디션 +1 (대비)') : null,
     ];
   if (failed && r.twAccrued) chips.push(chip('tw', '팀워크 ', h('b', {}, `+${r.twAccrued}`), h('span', { class: 'muted' }, ' (레슨 중)')));
-  // 유대 칩은 짧은 이름 ("유대 하르나 +10 → 45") — 코치 지원 칩이 늘어도 칩 줄이 한 줄에 들어가게 (전체 이름은 title)
-  for (const b of r.bond || []) {
-    if (!b.gain) continue;
-    const c = chip('bond', `유대 ${shortOf(b.name)} `, h('b', {}, signed(b.gain)), h('span', { class: 'muted' }, ` → ${b.bond}`));
-    c.title = `${b.name} 유대 ${signed(b.gain)} → ${b.bond}`;
+  // 유대 칩은 짧은 이름 ("유대 하르나 +10 → 45") — 코치 지원 칩이 늘어도 칩 줄이 한 줄에 들어가게 (전체 이름은 title).
+  // 유대가 3명 이상 오르면 한 칩으로 ("유대 하르나 +5 · 한나 +5 · 루미 +5", → 값은 title) — 긴 힌트 이름(옛 고유 패시브 "지치지 않는 다리")이 들어와도 한 줄 (§19.19 K3)
+  const bonds = (r.bond || []).filter((b) => b.gain);
+  if (bonds.length >= 3) {
+    const c = chip('bond', '유대 ', ...bonds.map((b, i) => h('span', {}, i ? ' · ' : '', `${shortOf(b.name)} `, h('b', {}, signed(b.gain)))));
+    c.title = bonds.map((b) => `${b.name} 유대 ${signed(b.gain)} → ${b.bond}`).join('\n');
     chips.push(c);
+  } else {
+    for (const b of bonds) {
+      const c = chip('bond', `유대 ${shortOf(b.name)} `, h('b', {}, signed(b.gain)), h('span', { class: 'muted' }, ` → ${b.bond}`));
+      c.title = `${b.name} 유대 ${signed(b.gain)} → ${b.bond}`;
+      chips.push(c);
+    }
   }
   const chipRow = h('div', { class: 'rw-chips' }, chips);
 

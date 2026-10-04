@@ -11,7 +11,7 @@
 // 부상 선수 (injuredTurns > 0) 는 레슨만 쉬고 경기는 그대로 나온다 (§18.1) — 얼굴을 흐리게 하지 않고 "레슨 결장 n" 만 적는다.
 import { h, avatar, select, toast } from './dom.js';
 import * as L from './labels.js';
-import { lineupBoard, reseat, lineupIssues, meetingSwaps } from './lineup.js';
+import { lineupBoard, reseat, lineupIssues, meetingSwaps, ultMark } from './lineup.js';
 
 /**
  * @param {object} ctx 화면 ctx (store · data · run)
@@ -40,6 +40,11 @@ export function meetingEditor(ctx, o) {
   // 적성: 런 선수의 aptitude (없으면 캐릭터 데이터). 배치 규칙 = 엔진 validateSquad (lineup.js canPlay)
   const aptOf = (pid, pos) => runById.get(pid)?.aptitude?.[pos] ?? charById.get(runById.get(pid)?.charId)?.aptitude?.[pos] ?? '-';
   const nameOf = (pid) => runById.get(pid)?.name ?? pid;
+  // 필살기 (L45 — 7명 모두): 런 선수의 innateSkillId (없으면 캐릭터 데이터). 슬롯 카드 이름 옆 ✨ · title (§19.14 ②)
+  const ultOf = (pid) => {
+    const rp = runById.get(pid);
+    return L.ultimateInfo(rp?.innateSkillId ?? charById.get(rp?.charId)?.innateSkillId, data);
+  };
 
   const seat = (from) => reseat(from, L.slotsOf(formation), aptOf, { fillAll: true, extraIds: allIds });
   let assign = seat(Object.fromEntries(runPlayers.filter((p) => p.slot).map((p) => [p.slot, p.id])));
@@ -62,6 +67,7 @@ export function meetingEditor(ctx, o) {
       aptOf,
       nameOf,
       colorOf: (pid) => runById.get(pid)?.portraitColor,
+      titleOf: (pid) => ultOf(pid)?.title ?? '',
       slotBody: (pid, sl) => {
         const p = viewById.get(pid) ?? runById.get(pid);
         const was = currentSlotOf(pid);
@@ -70,7 +76,7 @@ export function meetingEditor(ctx, o) {
         return [
           avatar(p?.portraitColor, p?.name, 'sm'),
           h('span', { class: 'grow col' },
-            h('span', { class: 'ellipsis slot-nm' }, p?.name ?? pid),
+            h('span', { class: 'slot-nm-row' }, h('span', { class: 'ellipsis slot-nm' }, p?.name ?? pid), ultMark(ultOf(pid))),
             was !== sl
               ? h('span', { class: 'tiny warn ellipsis' }, `← 원래 ${was ?? '-'}`)
               : h('span', { class: ['tiny', 'ellipsis', injured ? 'warn' : 'muted'], title: injured ? `레슨 결장 ${p.injuredTurns}회 · 경기는 출전` : '' }, injured ? `🚑 레슨 결장 ${p.injuredTurns}`

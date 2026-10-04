@@ -597,6 +597,11 @@ function comboOption(view) {
 //   query: URL 파라미터 (예: 레슨 { autolesson: 1 })
 //   레슨 런 상태는 tools/lesson_scenarios.mjs walkLesson (감독 AI 로 걷다가 조건을 만족하는 첫 상태) → 같은 runSeed 면 같은 상태.
 
+/** 새 편성 A (LESSON_PROTO_PLAN §19.16 — 2-2-2, 모두 적성 A) */
+export const SQUAD_A = {
+  GK: "ch_giant_keeper", DF1: "ch_elf_regista", DF2: "ch_rabbit_fullback", MF1: "ch_spirit_dribbler", MF2: "ch_elf_archer", FW1: "ch_spirit_striker", FW2: "ch_human_header",
+};
+
 /** 등록 팀 (완주한 레슨 런 — 방침을 달리해 두 팀이 서로 다르게) */
 const registeredTeam = (data, runSeed, registeredAt, policy) => lessonRegisteredTeam(data, runSeed, registeredAt, policy);
 
@@ -652,6 +657,58 @@ export const OUTGAME_SCENARIOS = [
     build: () => ({ runState: null, summary: "저장된 런 없음 → [새 런 시작] → 미르카 → GK 놓기" }),
     steps: [{ text: "새 런 시작" }, { drag: { from: '.lu-card[data-pid="ch_cat_trickster"]', to: '.lu-slot[data-slot="GK"]', release: true, waitMs: 120 } }],
     ready: '.lu-slot[data-slot="GK"][data-pid="ch_spirit_keeper"].lu-shake',
+    expect: { screen: "setup", modal: false },
+  },
+  // ---- 16명 편성 (LESSON_PROTO_PLAN §19.14 ①, K3): 선수 풀 2줄 × 8장 · 필살기 칩 · 고르기 모달 4열 · 주장 2명 칩 ----
+  {
+    // 새 편성 A (GK 헤르타 · DF 나엘리스 · 코니 · MF 온디나 · 리시엘 · FW 브론테 · 카밀라)를 벤치 카드 7장을 끌어 만든다 → 벤치 = 옛 8명 + 힐디 (레어도 순)
+    name: "og_setup16",
+    title: "편성 16명 — 새 편성 A 를 끌어 놓기 7번으로: 필드 7 (슬롯 순서) · 벤치 9 (SSR → SR → R) · 필살기 칩",
+    outgame: true,
+    build: () => ({ runState: null, summary: "저장된 런 없음 → [새 런 시작] → 새 편성 A 끌어 놓기 7번" }),
+    steps: [{ text: "새 런 시작" }, ...Object.entries(SQUAD_A).map(([slot, cid]) => ({ drag: { from: `.lu-card[data-pid="${cid}"]`, to: `.lu-slot[data-slot="${slot}"]`, release: true } }))],
+    ready: Object.entries(SQUAD_A).map(([slot, cid]) => `.lu-slot[data-slot="${slot}"][data-pid="${cid}"]`).join(" ~ "),
+    expect: { screen: "setup", modal: false },
+  },
+  {
+    // 1-3-2 (MF 3장이 필드 높이 안에) — 기본 편성에서 포메이션만 바꿈 (MF3 = 그레타 C → 적성 경고)
+    name: "og_setup16_132",
+    title: "편성 16명 — 포메이션 1-3-2: MF 3장 · 필드 슬롯 · 선수 풀 2줄",
+    outgame: true,
+    build: () => ({ runState: null, summary: "저장된 런 없음 → [새 런 시작] → 포메이션 1-3-2" }),
+    steps: [{ text: "새 런 시작" }, { select: { sel: ".formation-sel select", value: "1-3-2" } }],
+    ready: '.lu-slot[data-slot="MF3"]',
+    expect: { screen: "setup", modal: false },
+  },
+  {
+    // 슬롯 누르기 → 선수 고르기 모달 16명 (4열 × 4줄, 그 슬롯 적성 순 · 빨강 비활성 · 필살기 칩)
+    name: "og_setup_pick",
+    title: "편성 — MF1 슬롯 누르기 → 선수 고르기 모달 16명 (4열 × 4줄 · 스크롤 없음)",
+    outgame: true,
+    build: () => ({ runState: null, summary: "저장된 런 없음 → [새 런 시작] → MF1 슬롯 누르기" }),
+    steps: [{ text: "새 런 시작" }, { click: '.lu-slot[data-slot="MF1"]' }],
+    ready: "#modal-root .pick-grid.cols-4 .char-pick",
+    expect: { screen: "setup", modal: ".setup-pick" },
+  },
+  {
+    // GK 헤르타(주장) + DF2 아델린(주장) → 공명 줄에 "주장 2명 — 팀워크 +10은 1명분" (L46). 네리아는 벤치
+    name: "og_setup_captain2",
+    title: "편성 — 주장 2명 (GK 헤르타 + 아델린): 공명 줄 주장 칩",
+    outgame: true,
+    build: () => ({ runState: null, summary: "저장된 런 없음 → [새 런 시작] → 헤르타 → GK" }),
+    steps: [{ text: "새 런 시작" }, { drag: { from: '.lu-card[data-pid="ch_giant_keeper"]', to: '.lu-slot[data-slot="GK"]', release: true } }],
+    ready: ".setup-pitch .resonance .cap-note",
+    expect: { screen: "setup", modal: false },
+  },
+  {
+    // 터치 기기 915×412 (가로 폰): 무대가 통째로 줄어도 16명 풀 2줄 · 필드 · 옆 칸이 잘리지 않는다
+    name: "og_setup16_touch",
+    title: "편성 16명 — 터치 915×412 (무대 축소 · 잘림 · 스크롤 없음)",
+    outgame: true,
+    viewport: { width: 915, height: 412, deviceScaleFactor: 1, isMobile: true, hasTouch: true },
+    build: () => ({ runState: null, summary: "저장된 런 없음 → [새 런 시작] (터치)" }),
+    steps: [{ tap: "button.btn-primary.btn-lg" }],
+    ready: ".setup-policy .policy-row",
     expect: { screen: "setup", modal: false },
   },
   // ---- 도전 모드 (2026-10-01, js/ui/screens/challenge.js) ----

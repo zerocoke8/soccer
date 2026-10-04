@@ -35,14 +35,19 @@
 /* 편성: 훈련 방침 패널 (전술 패널 아래, 버튼 5개 — <select> 아님)          */
 /* ================================================================== */
 /* 방침 패널이 들어가도 코치 칩 8장(4줄)이 스크롤 없이 보이게 옆 열을 조인다: 전술 4개 = 2×2 (이름 위 · 선택 아래), 칩 · 여백 조금씩 */
-.setup-side { gap: 7px; }
-.setup-side > .og-panel { padding: 9px 12px; gap: 6px; }
-.setup-supports .sp-chips { gap: 5px 6px; }
-.setup-supports .sp-chip { min-height: 34px; padding-top: 2px; padding-bottom: 2px; }
-.setup-tactics .tac-rows { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px 8px; }
-.setup-tactics .tac-row { grid-template-columns: minmax(0, 1fr); gap: 1px; }
-.setup-tactics .tac-row .select { min-height: 30px; padding: 3px 6px; font-size: 12.5px; }
-.setup-policy { flex: none; gap: 5px; }
+/* 16명 풀 2줄 (§19.14 ①, K3): 방침은 전술 패널 안 아래 칸 (.setup-policy = 구분선 + 작은 머리), 칩 · 선택 높이를 조금 더 조인다 */
+.setup-side { gap: 6px; }
+.setup-side > .og-panel { padding: 8px 12px; gap: 5px; }
+.setup-supports .sp-chips { gap: 4px 6px; }
+.setup-supports .sp-chip { min-height: 29px; padding-top: 0; padding-bottom: 0; }
+.setup-tactics .tac-rows { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px 8px; }
+.setup-tactics .tac-row { grid-template-columns: minmax(0, 1fr); gap: 0; }
+.setup-tactics .tac-row > .tiny { line-height: 15px; }
+.setup-tactics .tac-row .select { min-height: 28px; padding: 2px 6px; font-size: 12.5px; }
+.setup-tactics > .og-panel-body { gap: 5px; }
+.setup-policy { display: flex; flex-direction: column; flex: none; gap: 4px; padding-top: 6px; border-top: 1px solid var(--border); }
+.setup-policy .og-panel-head { min-height: 18px; }
+.setup-policy .policy-btn { min-height: 28px; }
 .policy-row { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 5px; }
 .policy-btn { min-height: 30px; padding: 3px 2px; justify-content: center; font-size: 12.5px; white-space: nowrap; }
 .policy-btn.active { font-weight: 700; }

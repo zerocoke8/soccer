@@ -28,6 +28,8 @@ export function renderPrep(root, ctx) {
   const players = Array.isArray(v.players) ? v.players : [];
   const out = players.filter((p) => (v.injuredOut || []).includes(p.id));
   const counts = nm.styleCounts || {};
+  // L46: 주장 2명 이상이면 팀워크 +10 은 1명분 (§19.14 ②) — 런 선수 charId → 캐릭터 특성
+  const captainTxt = L.captainNote(L.captainCount((state?.players || []).map((p) => p.charId), data), data);
   let started = false;
 
   const fact = (k, val) => h('div', { class: 'po-fact' }, h('span', { class: 'tiny muted' }, k), h('b', {}, val));
@@ -60,6 +62,7 @@ export function renderPrep(root, ctx) {
         h('p', { class: 'small' }, `🚑 부상 ${out.length}명 — 레슨만 쉬고 경기는 그대로 출전`),
         h('div', { class: 'row wrap' }, out.map((p) => h('span', { class: 'badge po-out-p', title: `${p.name} — 레슨 결장 ${p.injuredTurns ?? ''}회 · 경기는 출전` }, avatar(p.portraitColor, p.name, 'xs'), ` ${p.name} · ${p.slot ?? ''}`))))
       : h('p', { class: 'small muted' }, '부상 선수 없음 — 7명 모두 출전'),
+    captainTxt ? h('p', { class: 'po-cap' }, h('span', { class: 'badge cap-note', title: L.traitInfo('captain', data)?.description ?? '' }, captainTxt)) : null,
     h('p', { class: 'tiny muted po-note' }, '경기 전 준비는 주와 팀워크를 쓰지 않습니다. 전술 · 포메이션 · 배치를 바꾼 뒤 경기를 시작하세요.'));
 
   const ed = meetingEditor(ctx, {
