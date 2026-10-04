@@ -3,6 +3,230 @@
   "notes": {},
   "events": [
     {
+      "id": "ev_night_training",
+      "trigger": "week",
+      "title": "야간 특훈",
+      "text": "소등 시간이 지났는데 {선수|이/가} 감독실 문을 두드립니다.\n\"감독님, 오늘 밤만 슈팅 연습을 더 하고 싶어요. 아무도 없을 때 조용히요.\"\n눈이 진지합니다. 하지만 몸은 이미 충분히 지쳐 보입니다.",
+      "who": { "pick": "random", "pos": ["FW", "MF"] },
+      "weeks": [0, 14],
+      "seasons": [1, 2, 3],
+      "once": "run",
+      "weight": 2,
+      "scene": "clubhouse",
+      "choices": [
+        {
+          "label": "허락한다",
+          "effects": [
+            {
+              "type": "random",
+              "chance": 0.7,
+              "then": [
+                { "type": "stat", "target": "player", "stat": "shoot", "amount": 30 }
+              ],
+              "else": [
+                { "type": "stat", "target": "player", "stat": "shoot", "amount": 30 },
+                { "type": "stamina", "target": "player", "amount": -40 },
+                { "type": "injury", "target": "player" }
+              ]
+            }
+          ],
+          "result": {
+            "then": "{선수}의 슈팅이 눈에 띄게 날카로워졌습니다.",
+            "else": "슈팅은 날카로워졌지만, 다음 날 아침 {선수|은/는} 다리를 절며 나타났습니다."
+          }
+        },
+        {
+          "label": "쉬라고 한다",
+          "effects": [
+            { "type": "condition", "amount": 1 }
+          ],
+          "result": "{선수|이/가} 아쉬워하며 숙소로 돌아갑니다. 다음 날 팀 전체가 개운하게 일어났습니다."
+        }
+      ],
+      "alt": {
+        "banmal": {
+          "text": "소등 시간이 지났는데 {선수|이/가} 감독실 문을 두드립니다.\n\"감독, 오늘 밤만 슈팅 연습 좀 더 할게. 아무도 없을 때 조용히.\"\n눈이 진지합니다. 하지만 몸은 이미 충분히 지쳐 보입니다.",
+          "results": [
+            {
+              "then": "{선수}의 슈팅이 눈에 띄게 날카로워졌습니다.",
+              "else": "슈팅은 날카로워졌지만, 다음 날 아침 {선수|은/는} 다리를 절며 나타났습니다."
+            },
+            "{선수|이/가} 아쉬워하며 숙소로 돌아갑니다. 다음 날 팀 전체가 개운하게 일어났습니다."
+          ]
+        }
+      }
+    },
+    {
+      "id": "ev_secret_dribble",
+      "trigger": "week",
+      "title": "비밀 특훈",
+      "text": "{선수|이/가} 훈련장 뒤편 자갈밭에서 혼자 드리블 연습을 하고 있었습니다.\n\"여기서 하면 발끝 감각이 확 달라져요. 근데... 좀 위험하긴 하죠.\"\n계속하게 둘지, 정규 훈련으로 돌릴지 정해야 합니다.",
+      "who": { "pick": "random", "pos": ["FW", "MF"] },
+      "weeks": [1, 14],
+      "seasons": [1, 2, 3],
+      "once": "run",
+      "weight": 2,
+      "scene": "ground",
+      "choices": [
+        {
+          "label": "계속하게 둔다",
+          "effects": [
+            {
+              "type": "random",
+              "chance": 0.7,
+              "then": [
+                { "type": "stat", "target": "player", "stat": "dribble", "amount": 30 }
+              ],
+              "else": [
+                { "type": "stat", "target": "player", "stat": "dribble", "amount": 30 },
+                { "type": "injury", "target": "player" }
+              ]
+            }
+          ],
+          "result": {
+            "then": "{선수}의 발끝 감각이 눈에 띄게 좋아졌습니다.",
+            "else": "감각은 좋아졌지만, {선수|이/가} 자갈에 발목을 접질렸습니다."
+          }
+        },
+        {
+          "label": "정규 훈련으로 돌린다",
+          "effects": [
+            { "type": "stat", "target": "player", "stat": "dribble", "amount": 15 },
+            { "type": "stamina", "target": "player", "amount": -10 }
+          ],
+          "result": "{선수|이/가} 얌전히 잔디로 돌아왔습니다."
+        }
+      ],
+      "alt": {
+        "banmal": {
+          "text": "{선수|이/가} 훈련장 뒤편 자갈밭에서 혼자 드리블 연습을 하고 있었습니다.\n\"여기서 해야 발끝 감각이 살아. 근데... 좀 위험하긴 해.\"\n계속하게 둘지, 정규 훈련으로 돌릴지 정해야 합니다.",
+          "results": [
+            {
+              "then": "{선수}의 발끝 감각이 눈에 띄게 좋아졌습니다.",
+              "else": "감각은 좋아졌지만, {선수|이/가} 자갈에 발목을 접질렸습니다."
+            },
+            "{선수|이/가} 얌전히 잔디로 돌아왔습니다."
+          ]
+        }
+      }
+    },
+    {
+      "id": "ev_scout_temptation",
+      "trigger": "week",
+      "title": "스카우트의 유혹",
+      "text": "낯선 스카우트가 라커룸 앞까지 찾아왔습니다.\n\"감독님 팀, 소문이 좋더군요. 우리 클럽의 유물을 하나 드리겠습니다. 대신 선수들과 잠깐 이야기만 하게 해 주시죠.\"\n선수들이 흔들릴지도 모릅니다.",
+      "weeks": [3, 14],
+      "seasons": [1, 2, 3],
+      "once": "run",
+      "weight": 1,
+      "scene": "stands",
+      "choices": [
+        {
+          "label": "제안을 받는다",
+          "effects": [
+            { "type": "relic" },
+            { "type": "bond", "target": "all", "amount": -15 }
+          ],
+          "result": "스카우트가 낡은 상자를 열어 보입니다. 코치들이 말없이 서로를 쳐다봅니다."
+        },
+        {
+          "label": "정중히 거절한다",
+          "effects": [
+            { "type": "teamwork", "amount": 10 },
+            { "type": "bond", "target": "all", "amount": 5 }
+          ],
+          "result": "감독이 문 앞을 지키는 모습에 선수들이 조용히 웃었습니다."
+        }
+      ]
+    },
+    {
+      "id": "ev_spirit_pact",
+      "trigger": "week",
+      "title": "정령의 계약",
+      "text": "밤중에 훈련장 연못이 빛나고 있습니다. 네리아가 물 위에 서서 말합니다.\n\"감독님. 호수의 어른들이 힘을 나눠 주시겠대요. 다만... 모두가 조금씩 기운을 내놓아야 해요.\"\n물이 감독의 발목까지 차오릅니다.",
+      "who": { "pick": "char", "charId": "ch_spirit_keeper" },
+      "chars": ["ch_spirit_keeper"],
+      "weeks": [2, 14],
+      "seasons": [1, 2, 3],
+      "once": "run",
+      "weight": 1,
+      "scene": "nature",
+      "choices": [
+        {
+          "label": "계약을 맺는다",
+          "effects": [
+            { "type": "modifier", "key": "shootPower", "amount": 0.05, "duration": "run" },
+            { "type": "stamina", "target": "team", "amount": -15 }
+          ],
+          "result": "물기둥이 솟아 선수들을 감쌉니다. 몸은 무거워졌지만 공이 이상하게 가볍습니다."
+        },
+        {
+          "label": "사양한다",
+          "effects": [
+            { "type": "condition", "amount": 1 }
+          ],
+          "result": "연못이 조용히 가라앉습니다. 네리아가 대신 팀에 맑은 물을 나눠 주었습니다."
+        }
+      ]
+    },
+    {
+      "id": "ev_rain_practice",
+      "trigger": "week",
+      "title": "빗속 훈련",
+      "text": "아침부터 굵은 비가 내립니다. 잔디는 진흙탕이 되었고 선수들은 눈치를 봅니다.\n{선수|이/가} 먼저 나섭니다. \"이런 날 몸싸움 연습이 제일 잘 돼요.\"",
+      "who": { "pick": "random", "pos": ["DF"] },
+      "weeks": [0, 14],
+      "seasons": [1, 2],
+      "once": false,
+      "weight": 2,
+      "scene": "ground",
+      "choices": [
+        {
+          "label": "강행한다",
+          "effects": [
+            {
+              "type": "random",
+              "chance": 0.7,
+              "then": [
+                { "type": "stat", "target": "team", "stat": "physical", "amount": 8 },
+                { "type": "stat", "target": "player", "stat": "defense", "amount": 15 },
+                { "type": "stamina", "target": "team", "amount": -15 }
+              ],
+              "else": [
+                { "type": "stat", "target": "team", "stat": "physical", "amount": 8 },
+                { "type": "stat", "target": "player", "stat": "defense", "amount": 15 },
+                { "type": "stamina", "target": "team", "amount": -15 },
+                { "type": "injury", "target": "randomPlayer" }
+              ]
+            }
+          ],
+          "result": {
+            "then": "진흙을 뒤집어쓴 선수들이 웃으며 돌아왔습니다.",
+            "else": "진흙투성이로 돌아온 선수들 가운데 한 명이 다리를 절고 있습니다."
+          }
+        },
+        {
+          "label": "실내에서 쉬게 한다",
+          "effects": [
+            { "type": "stamina", "target": "team", "amount": 10 }
+          ],
+          "result": "창밖의 비를 보며 선수들이 모처럼 늦잠을 잤습니다."
+        }
+      ],
+      "alt": {
+        "banmal": {
+          "text": "아침부터 굵은 비가 내립니다. 잔디는 진흙탕이 되었고 선수들은 눈치를 봅니다.\n{선수|이/가} 먼저 나섭니다. \"이런 날이 몸싸움 연습엔 제일이야.\"",
+          "results": [
+            {
+              "then": "진흙을 뒤집어쓴 선수들이 웃으며 돌아왔습니다.",
+              "else": "진흙투성이로 돌아온 선수들 가운데 한 명이 다리를 절고 있습니다."
+            },
+            "창밖의 비를 보며 선수들이 모처럼 늦잠을 잤습니다."
+          ]
+        }
+      }
+    },
+    {
       "id": "ev_local_kids",
       "trigger": "week",
       "title": "마을 아이들",
@@ -39,6 +263,1348 @@
           ]
         }
       }
+    },
+    {
+      "id": "ev_old_ball",
+      "trigger": "week",
+      "title": "낡은 공",
+      "text": "창고 정리 중 낡은 가죽 공이 나왔습니다. 옛 클럽 선수들의 서명이 빛바래 있습니다.\n{선수|이/가} 공을 들고 이리저리 돌려 봅니다. \"이거 아직 쓸 수 있어요.\"",
+      "who": { "pick": "random" },
+      "weeks": [1, 14],
+      "seasons": [1, 2, 3],
+      "once": "run",
+      "weight": 2,
+      "scene": "clubhouse",
+      "choices": [
+        {
+          "label": "공을 살펴본다",
+          "effects": [
+            { "type": "coachHint", "from": "fielded" }
+          ],
+          "result": "서명 옆에 적힌 낙서에서 옛 선수의 기술을 읽어 냈습니다. 코치들이 그 기술을 다음 레슨에 넣어 보겠다고 합니다."
+        },
+        {
+          "label": "기념품으로 판다",
+          "effects": [
+            { "type": "sp", "amount": 15 }
+          ],
+          "result": "마을 수집가가 기꺼이 값을 쳐 주었습니다."
+        }
+      ],
+      "alt": {
+        "banmal": {
+          "text": "창고 정리 중 낡은 가죽 공이 나왔습니다. 옛 클럽 선수들의 서명이 빛바래 있습니다.\n{선수|이/가} 공을 들고 이리저리 돌려 봅니다. \"이거, 아직 쓸 만해.\"",
+          "results": [
+            "서명 옆에 적힌 낙서에서 옛 선수의 기술을 읽어 냈습니다. 코치들이 그 기술을 다음 레슨에 넣어 보겠다고 합니다.",
+            "마을 수집가가 기꺼이 값을 쳐 주었습니다."
+          ]
+        }
+      }
+    },
+    {
+      "id": "ev_treaty_inspector",
+      "trigger": "week",
+      "title": "조약 감독관 방문",
+      "text": "조약 리그의 감독관이 예고 없이 찾아왔습니다.\n\"신생 클럽 실태 조사입니다. 협조해 주시면 다음 상대의 공식 기록을 열람하게 해 드리죠.\"\n하루 훈련이 통째로 날아갈 분위기입니다.",
+      "weeks": [1, 14],
+      "seasons": [1, 2, 3],
+      "once": "run",
+      "weight": 1,
+      "scene": "ground",
+      "choices": [
+        {
+          "label": "성실히 협조한다",
+          "effects": [
+            { "type": "modifier", "key": "gaanpaTicket", "amount": 1, "duration": "season" },
+            { "type": "stamina", "target": "team", "amount": -10 }
+          ],
+          "result": "감독관이 두꺼운 기록철을 두고 갔습니다. 상대 선수들의 버릇이 빼곡히 적혀 있습니다."
+        },
+        {
+          "label": "짧게 끝낸다",
+          "effects": [
+            { "type": "sp", "amount": 10 }
+          ],
+          "result": "감독관은 못마땅해했지만, 남은 시간을 전술 연구에 썼습니다."
+        }
+      ]
+    },
+    {
+      "id": "ev_giant_appetite",
+      "trigger": "week",
+      "title": "거인의 식욕",
+      "text": "식당에서 비명이 들립니다. 그레타가 팀 전체의 저녁을 혼자 먹어 버렸습니다.\n\"...하하, 배가 고파서요. 요즘 몸이 계속 크는 것 같아요.\"\n영양사가 감독을 쳐다봅니다.",
+      "who": { "pick": "char", "charId": "ch_giant_striker" },
+      "chars": ["ch_giant_striker"],
+      "weeks": [1, 14],
+      "seasons": [1, 2, 3],
+      "once": "run",
+      "weight": 1,
+      "scene": "clubhouse",
+      "choices": [
+        {
+          "label": "마음껏 먹게 한다",
+          "effects": [
+            {
+              "type": "random",
+              "chance": 0.7,
+              "then": [
+                { "type": "stat", "target": "player", "stat": "physical", "amount": 20 },
+                { "type": "stamina", "target": "player", "amount": 20 }
+              ],
+              "else": [
+                { "type": "stat", "target": "player", "stat": "physical", "amount": 20 },
+                { "type": "stamina", "target": "player", "amount": 20 },
+                { "type": "stat", "target": "player", "stat": "dribble", "amount": -10 }
+              ]
+            }
+          ],
+          "result": {
+            "then": "그레타의 몸이 한층 단단해졌습니다. 주방은 초과 근무에 들어갔습니다.",
+            "else": "몸은 단단해졌지만, 발놀림이 눈에 띄게 둔해졌습니다."
+          }
+        },
+        {
+          "label": "식단을 관리한다",
+          "effects": [
+            { "type": "stat", "target": "player", "stat": "dribble", "amount": 15 },
+            { "type": "teamwork", "amount": 5 }
+          ],
+          "result": "그레타가 시무룩하게 채소를 씹습니다. 동료들이 몰래 빵을 나눠 주었습니다."
+        }
+      ]
+    },
+    {
+      "id": "ev_wolf_moon",
+      "trigger": "week",
+      "title": "달밤의 질주",
+      "text": "보름달이 뜬 밤, 울리카가 울타리를 넘어 언덕으로 달려 나갑니다.\n\"감독님도 같이 뛰실래요? 달이 밝을 땐 발이 멈추질 않아요.\" 송곳니가 달빛에 하얗게 보입니다.\n초원 저편까지 한참을 달릴 기세입니다.",
+      "who": { "pick": "char", "charId": "ch_wolf_winger" },
+      "chars": ["ch_wolf_winger"],
+      "weeks": [1, 14],
+      "seasons": [1, 2, 3],
+      "once": "run",
+      "weight": 1,
+      "scene": "nature",
+      "choices": [
+        {
+          "label": "함께 달린다",
+          "effects": [
+            {
+              "type": "random",
+              "chance": 0.65,
+              "then": [
+                { "type": "stat", "target": "player", "stat": "dribble", "amount": 25 },
+                { "type": "stamina", "target": "player", "amount": -25 }
+              ],
+              "else": [
+                { "type": "stat", "target": "player", "stat": "dribble", "amount": 25 },
+                { "type": "stamina", "target": "player", "amount": -25 },
+                { "type": "injury", "target": "player" }
+              ]
+            }
+          ],
+          "result": {
+            "then": "새벽까지 달린 울리카의 발놀림이 한결 가벼워졌습니다.",
+            "else": "발놀림은 가벼워졌지만, 돌아오는 길에 울리카가 한쪽 다리를 절고 있었습니다."
+          }
+        },
+        {
+          "label": "불러들인다",
+          "effects": [
+            { "type": "bond", "target": "all", "amount": 5 },
+            { "type": "condition", "amount": 1 }
+          ],
+          "result": "울리카가 투덜대며 돌아와 모두와 늦은 밤 차를 마셨습니다."
+        }
+      ]
+    },
+    {
+      "id": "ev_elf_letter",
+      "trigger": "week",
+      "title": "고향의 편지",
+      "text": "실루엔이 숲에서 온 편지를 들고 한참을 서 있습니다.\n\"...고향이 경계전에서 졌대요. 숲 가장자리를 내줘야 한다고요.\"\n늘 짓던 미소 그대로 편지를 접습니다. 오늘 훈련에 집중할 수 있을까요.",
+      "who": { "pick": "char", "charId": "ch_elf_playmaker" },
+      "chars": ["ch_elf_playmaker"],
+      "weeks": [2, 14],
+      "seasons": [1, 2, 3],
+      "once": "run",
+      "weight": 1,
+      "scene": "ground",
+      "choices": [
+        {
+          "label": "하루 쉬게 한다",
+          "effects": [
+            { "type": "stamina", "target": "player", "amount": 30 },
+            { "type": "stat", "target": "player", "stat": "pass", "amount": 15 }
+          ],
+          "result": "실루엔이 숲 쪽을 향해 앉아 하루를 보냈습니다. 돌아온 눈빛이 맑습니다."
+        },
+        {
+          "label": "훈련으로 잊게 한다",
+          "effects": [
+            { "type": "stat", "target": "player", "stat": "pass", "amount": 25 },
+            { "type": "stamina", "target": "player", "amount": -10 }
+          ],
+          "result": "실루엔의 패스가 어느 때보다 정확했습니다. 고향에 보여 주고 싶었던 모양입니다."
+        }
+      ]
+    },
+    {
+      "id": "ev_captain_speech",
+      "trigger": "week",
+      "title": "주장의 연설",
+      "text": "훈련 시작 전, 아델린이 감독에게 다가옵니다.\n\"오늘은 제가 선수들에게 한마디 하고 싶습니다. 감독님 말씀 전에요.\"\n무슨 말을 할지는 짐작이 가지 않습니다.",
+      "who": { "pick": "char", "charId": "ch_human_captain" },
+      "chars": ["ch_human_captain"],
+      "weeks": [1, 14],
+      "seasons": [1, 2, 3],
+      "once": "run",
+      "weight": 1,
+      "scene": "ground",
+      "choices": [
+        {
+          "label": "맡긴다",
+          "effects": [
+            {
+              "type": "random",
+              "chance": 0.75,
+              "then": [
+                { "type": "teamwork", "amount": 10 },
+                { "type": "condition", "amount": 1 }
+              ],
+              "else": [
+                { "type": "teamwork", "amount": 10 },
+                { "type": "condition", "amount": -1 }
+              ]
+            }
+          ],
+          "result": {
+            "then": "아델린의 연설이 끝나자 잠깐 정적이 흘렀고, 누군가 먼저 소리를 질렀습니다.",
+            "else": "너무 무거운 말이었는지, 그날 훈련장은 내내 조용했습니다."
+          }
+        },
+        {
+          "label": "내가 직접 한다",
+          "effects": [
+            { "type": "teamwork", "amount": 5 },
+            { "type": "stamina", "target": "player", "amount": 15 }
+          ],
+          "result": "감독의 짧은 말에 아델린이 먼저 박수를 쳤습니다. 어깨가 조금 가벼워 보입니다."
+        }
+      ]
+    },
+    {
+      "id": "ev_cat_prank",
+      "trigger": "week",
+      "title": "고양이의 장난",
+      "text": "훈련용 공 스무 개가 전부 지붕 위에 올라가 있습니다.\n미르카가 꼬리를 흔들며 시치미를 뗍니다. \"바람이 세더라고요.\"\n선수들이 웃음을 참고 있습니다.",
+      "who": { "pick": "char", "charId": "ch_cat_trickster" },
+      "chars": ["ch_cat_trickster"],
+      "weeks": [0, 14],
+      "seasons": [1, 2, 3],
+      "once": "run",
+      "weight": 1,
+      "scene": "ground",
+      "choices": [
+        {
+          "label": "웃어넘긴다",
+          "effects": [
+            { "type": "condition", "amount": 1 },
+            { "type": "bond", "target": "all", "amount": 5 }
+          ],
+          "result": "모두가 지붕을 올려다보며 한바탕 웃었습니다. 공은 미르카가 혼자 다 내려 놓았습니다."
+        },
+        {
+          "label": "벌 훈련을 시킨다",
+          "effects": [
+            { "type": "stat", "target": "player", "stat": "dribble", "amount": 15 },
+            { "type": "stamina", "target": "player", "amount": -20 },
+            { "type": "teamwork", "amount": -5 }
+          ],
+          "result": "미르카가 공 스무 개를 드리블로 한 바퀴씩 돌았습니다. 동료들은 조금 미안해했습니다."
+        }
+      ]
+    },
+    {
+      "id": "ev_summon_letter",
+      "trigger": "week",
+      "title": "연맹의 격려",
+      "text": "종족 연맹에서 신생 클럽 격려 서신이 도착했습니다.\n\"기념으로 소정의 지원을 드립니다. 원하는 형태를 골라 주십시오.\"",
+      "weeks": [2, 14],
+      "seasons": [1, 2],
+      "once": "run",
+      "weight": 1,
+      "scene": "clubhouse",
+      "choices": [
+        {
+          "label": "훈련 지원금으로 받는다",
+          "effects": [
+            { "type": "tp", "amount": 20 }
+          ],
+          "result": "지원금으로 훈련 도구를 새로 들일 수 있게 되었습니다."
+        },
+        {
+          "label": "스킬 연구비로 받는다",
+          "effects": [
+            { "type": "sp", "amount": 25 }
+          ],
+          "result": "연구비가 클럽 금고에 쌓였습니다."
+        }
+      ]
+    },
+    {
+      "id": "ev_wandering_healer",
+      "trigger": "week",
+      "title": "떠돌이 치유사",
+      "text": "약초 냄새를 풍기는 치유사가 정문에 서 있습니다.\n\"지친 선수가 있으면 봐 드리죠. 아니면 약초라도 사 가시고요.\"",
+      "weeks": [2, 14],
+      "seasons": [1, 2, 3],
+      "once": false,
+      "weight": 1,
+      "weightIf": { "cond": { "anyInjured": true }, "weight": 3 },
+      "scene": "ground",
+      "choices": [
+        {
+          "label": "진찰을 맡긴다",
+          "effects": [
+            { "type": "heal", "target": "all" },
+            { "type": "stamina", "target": "team", "amount": 10 }
+          ],
+          "result": "치유사가 다친 선수들의 다리부터 붙잡고 한참을 주물렀습니다. 무겁던 걸음이 한결 가벼워졌습니다."
+        },
+        {
+          "label": "약초만 산다",
+          "effects": [
+            { "type": "stamina", "target": "team", "amount": 25 }
+          ],
+          "result": "쓴 약초차를 마신 선수들이 밤새 푹 잤습니다."
+        }
+      ]
+    },
+    {
+      "id": "ev_hot_streak",
+      "trigger": "week",
+      "title": "뜨거운 기세",
+      "text": "훈련장 공기가 다릅니다. 패스가 착착 맞고 슛이 구석에 꽂힙니다.\n{선수|이/가} 소리칩니다. \"감독님, 오늘 한 세트만 더!\"",
+      "who": { "pick": "random" },
+      "weeks": [1, 14],
+      "seasons": [1, 2, 3],
+      "once": false,
+      "weight": 2,
+      "scene": "ground",
+      "choices": [
+        {
+          "label": "밀어붙인다",
+          "effects": [
+            { "type": "stat", "target": "team", "stat": "shoot", "amount": 5 },
+            { "type": "stat", "target": "team", "stat": "pass", "amount": 5 },
+            { "type": "stamina", "target": "team", "amount": -10 }
+          ],
+          "result": "해가 진 뒤에야 훈련이 끝났습니다. 모두 만족스러운 얼굴입니다."
+        },
+        {
+          "label": "기세를 아껴 둔다",
+          "effects": [
+            { "type": "condition", "amount": 1 }
+          ],
+          "result": "좋은 감각을 안고 일찍 마쳤습니다. 내일이 기다려집니다."
+        }
+      ],
+      "alt": {
+        "banmal": {
+          "text": "훈련장 공기가 다릅니다. 패스가 착착 맞고 슛이 구석에 꽂힙니다.\n{선수|이/가} 소리칩니다. \"감독, 오늘 한 세트만 더!\"",
+          "results": [
+            "해가 진 뒤에야 훈련이 끝났습니다. 모두 만족스러운 얼굴입니다.",
+            "좋은 감각을 안고 일찍 마쳤습니다. 내일이 기다려집니다."
+          ]
+        }
+      }
+    },
+    {
+      "id": "ev_storm",
+      "trigger": "week",
+      "title": "폭풍우",
+      "text": "폭풍우가 지붕을 두드립니다. 밖에서는 아무것도 할 수 없습니다.\n좁은 실내 훈련장이 하나 있긴 합니다. 바닥이 미끄럽습니다.",
+      "weeks": [5, 14],
+      "seasons": [2, 3],
+      "once": false,
+      "weight": 1,
+      "scene": "clubhouse",
+      "choices": [
+        {
+          "label": "실내 훈련을 강행한다",
+          "effects": [
+            {
+              "type": "random",
+              "chance": 0.8,
+              "then": [
+                { "type": "stat", "target": "team", "stat": "physical", "amount": 6 },
+                { "type": "stamina", "target": "team", "amount": -10 }
+              ],
+              "else": [
+                { "type": "stat", "target": "team", "stat": "physical", "amount": 6 },
+                { "type": "stamina", "target": "team", "amount": -10 },
+                { "type": "injury", "target": "randomPlayer" }
+              ]
+            }
+          ],
+          "result": {
+            "then": "천둥소리에 맞춰 뛰었습니다. 바닥이 미끄러워 몇 번 넘어졌지만 다들 웃으며 일어났습니다.",
+            "else": "천둥소리에 맞춰 뛰다가 한 명이 미끄러져 발목을 감싸 쥐었습니다."
+          }
+        },
+        {
+          "label": "하루 쉰다",
+          "effects": [
+            { "type": "stamina", "target": "team", "amount": 20 },
+            { "type": "teamwork", "amount": 3 }
+          ],
+          "result": "난로 앞에서 카드 게임을 하며 하루가 지나갔습니다."
+        }
+      ]
+    },
+    {
+      "id": "ev_market_day",
+      "trigger": "week",
+      "title": "장날",
+      "text": "마을에 큰 장이 섰습니다. 코치들이 선수들을 데리고 나가고 싶어 합니다.\n{선수|은/는} 이미 지갑을 챙겼습니다.",
+      "who": { "pick": "random" },
+      "weeks": [0, 14],
+      "seasons": [1, 2, 3],
+      "once": false,
+      "weight": 2,
+      "scene": "town",
+      "choices": [
+        {
+          "label": "다 함께 나간다",
+          "effects": [
+            { "type": "bond", "target": "all", "amount": 8 },
+            { "type": "stamina", "target": "team", "amount": 10 }
+          ],
+          "result": "군것질과 수다로 하루가 갔습니다. 돌아오는 길에 모두 웃고 있었습니다."
+        },
+        {
+          "label": "{선수}만 보낸다",
+          "effects": [
+            { "type": "stat", "target": "player", "stat": "random", "amount": 15 }
+          ],
+          "result": "{선수|이/가} 장터 골목에서 뭔가를 배워 왔습니다. 무엇인지는 말해 주지 않습니다."
+        }
+      ]
+    },
+    {
+      "id": "ev_rival_letter",
+      "trigger": "week",
+      "title": "라이벌의 도발",
+      "text": "다음 경계전 상대 클럽에서 편지가 왔습니다.\n\"신생 클럽 여러분, 잔디는 우리가 깔아 드리겠습니다. 넘어지기 편하게.\"\n선수들이 편지를 돌려 보고 있습니다.",
+      "weekList": [0, 1, 5, 6, 10, 11],
+      "seasons": [1, 2, 3],
+      "once": "run",
+      "weight": 1,
+      "scene": "clubhouse",
+      "choices": [
+        {
+          "label": "게시판에 붙인다",
+          "effects": [
+            { "type": "modifier", "key": "trainingEfficiency", "amount": 0.1, "duration": "season" },
+            { "type": "condition", "amount": -1 }
+          ],
+          "result": "이를 악문 선수들이 훈련장으로 뛰어나갔습니다. 웃음은 사라졌지만 땀은 늘었습니다."
+        },
+        {
+          "label": "조용히 태워 버린다",
+          "effects": [
+            { "type": "teamwork", "amount": 5 }
+          ],
+          "result": "\"경기장에서 답하자.\" 감독의 말에 모두 고개를 끄덕였습니다."
+        }
+      ]
+    },
+    {
+      "id": "ev_relic_ruins",
+      "trigger": "week",
+      "title": "옛 경기장 유적",
+      "text": "원정 연습 중 대전쟁 이전의 경기장 유적을 발견했습니다.\n무너진 관중석 아래로 라커룸 입구가 보입니다. {선수|이/가} 먼저 들여다봅니다.\n\"뭔가 있어요. 근데 천장이 좀...\"",
+      "who": { "pick": "random" },
+      "weeks": [4, 14],
+      "seasons": [1, 2, 3],
+      "once": "run",
+      "weight": 1,
+      "scene": "nature",
+      "choices": [
+        {
+          "label": "탐험한다",
+          "effects": [
+            {
+              "type": "random",
+              "chance": 0.6,
+              "then": [
+                { "type": "relic" }
+              ],
+              "else": [
+                { "type": "injury", "target": "randomPlayer" },
+                { "type": "stamina", "target": "team", "amount": -10 }
+              ]
+            }
+          ],
+          "result": {
+            "then": "먼지를 뒤집어쓰고 나온 손에 낡은 상자가 들려 있었습니다.",
+            "else": "천장 한쪽이 무너졌습니다. 다들 빠져나왔지만 한 명이 다리를 다쳤습니다."
+          }
+        },
+        {
+          "label": "지나간다",
+          "effects": [
+            { "type": "stamina", "target": "team", "amount": 10 }
+          ],
+          "result": "유적을 뒤로하고 그늘에서 쉬었습니다. {선수|이/가} 자꾸 뒤를 돌아봅니다."
+        }
+      ],
+      "alt": {
+        "banmal": {
+          "text": "원정 연습 중 대전쟁 이전의 경기장 유적을 발견했습니다.\n무너진 관중석 아래로 라커룸 입구가 보입니다. {선수|이/가} 먼저 들여다봅니다.\n\"뭔가 있어. 근데 천장이 좀...\"",
+          "results": [
+            {
+              "then": "먼지를 뒤집어쓰고 나온 손에 낡은 상자가 들려 있었습니다.",
+              "else": "천장 한쪽이 무너졌습니다. 다들 빠져나왔지만 한 명이 다리를 다쳤습니다."
+            },
+            "유적을 뒤로하고 그늘에서 쉬었습니다. {선수|이/가} 자꾸 뒤를 돌아봅니다."
+          ]
+        }
+      }
+    },
+    {
+      "id": "ev_cone_game",
+      "trigger": "week",
+      "title": "콘 사이의 놀이",
+      "text": "쉬는 시간, {선수|이/가} 콘 네 개를 마름모로 세워 놓고 동료와 공을 주고받고 있습니다.\n한 번 차면 바로 다음 콘으로 뛰어가야 하는 놀이입니다. 어느새 다섯 명이 끼었습니다.\n\"감독님, 그냥 장난인데요. 하다 보니 숨이 차요!\"",
+      "who": { "pick": "random", "pos": ["MF"] },
+      "weeks": [0, 14],
+      "seasons": [1, 2, 3],
+      "once": "run",
+      "weight": 2,
+      "scene": "ground",
+      "choices": [
+        {
+          "label": "정식 훈련으로 만든다",
+          "effects": [
+            { "type": "cardAdd", "cardId": "cd_one_two" }
+          ],
+          "result": "다음 날부터 훈련표에 새 줄이 생겼습니다. 콘 네 개는 그 자리에 그대로 두기로 했습니다."
+        },
+        {
+          "label": "놀이로 둔다",
+          "effects": [
+            { "type": "teamwork", "amount": 8 }
+          ],
+          "result": "놀이는 해가 질 때까지 이어졌습니다. 누가 이겼는지는 아무도 세지 않았습니다."
+        }
+      ],
+      "alt": {
+        "banmal": {
+          "text": "쉬는 시간, {선수|이/가} 콘 네 개를 마름모로 세워 놓고 동료와 공을 주고받고 있습니다.\n한 번 차면 바로 다음 콘으로 뛰어가야 하는 놀이입니다. 어느새 다섯 명이 끼었습니다.\n\"감독, 그냥 장난이야. 하다 보니 숨차네!\"",
+          "results": [
+            "다음 날부터 훈련표에 새 줄이 생겼습니다. 콘 네 개는 그 자리에 그대로 두기로 했습니다.",
+            "놀이는 해가 질 때까지 이어졌습니다. 누가 이겼는지는 아무도 세지 않았습니다."
+          ]
+        }
+      }
+    },
+    {
+      "id": "ev_mine_warmup",
+      "trigger": "week",
+      "title": "광산식 몸풀기",
+      "text": "도르비나는 훈련 전마다 쇠공 두 개를 들고 한참 몸을 풉니다. 광산촌에서 하던 그대로, 순서 하나 틀리지 않습니다. 오늘은 그것 때문에 훈련 시작이 늦었습니다.\n\"이거 안 하면 다리가 땅에 안 붙는다.\"\n고집스러운 얼굴이지만, 감독의 말을 기다리는 눈치입니다.",
+      "who": { "pick": "char", "charId": "ch_dwarf_wall" },
+      "chars": ["ch_dwarf_wall"],
+      "weeks": [1, 14],
+      "seasons": [1, 2, 3],
+      "once": "run",
+      "weight": 1,
+      "scene": "ground",
+      "choices": [
+        {
+          "label": "줄이자고 한다",
+          "effects": [
+            { "type": "cardPick", "op": "delete" }
+          ],
+          "result": "도르비나가 한참 말이 없더니 쇠공 하나를 내려놓았습니다. 훈련표도 한 줄 가벼워졌습니다."
+        },
+        {
+          "label": "하던 대로 두라고 한다",
+          "effects": [
+            { "type": "stat", "target": "player", "stat": "physical", "amount": 20 },
+            { "type": "stamina", "target": "player", "amount": 10 }
+          ],
+          "result": "\"...거봐.\" 그날 도르비나의 태클은 유난히 무거웠습니다."
+        }
+      ]
+    },
+    {
+      "id": "ev_step_count",
+      "trigger": "week",
+      "title": "한 걸음 줄이기",
+      "text": "타리아가 훈련 일지를 들고 뛰어옵니다. 같은 왕복 달리기를 매일 하면서 걸음 수를 세어 왔다고 합니다.\n\"감독님, 백 번 하니까 보여요! 여기서 한 걸음 줄일 수 있어요. 다른 훈련도 이렇게 다시 보면 어떨까요?\"",
+      "who": { "pick": "char", "charId": "ch_human_runner" },
+      "chars": ["ch_human_runner"],
+      "weeks": [2, 14],
+      "seasons": [1, 2, 3],
+      "once": "run",
+      "weight": 1,
+      "scene": "ground",
+      "choices": [
+        {
+          "label": "함께 훈련표를 다시 본다",
+          "effects": [
+            { "type": "cardPick", "op": "upgrade" }
+          ],
+          "result": "둘이서 훈련표를 한 줄씩 다시 읽었습니다. 고칠 곳이 하나 보였습니다."
+        },
+        {
+          "label": "타리아에게 맡긴다",
+          "effects": [
+            { "type": "stat", "target": "player", "stat": "main2", "amount": 10 }
+          ],
+          "result": "타리아가 해가 질 때까지 같은 길을 뛰었습니다. 걸음 수가 정말 하나 줄었습니다."
+        }
+      ]
+    },
+    {
+      "id": "ev_ice_bath",
+      "trigger": "week",
+      "title": "얼음물 통",
+      "text": "{선수|이/가} 창고에서 커다란 나무통을 굴려 옵니다. 안에는 얼음 조각이 둥둥 떠 있습니다.\n\"훈련 끝나고 다리를 여기 담그면 다음 날이 달라요. 처음 일 분만 참으면 돼요.\"\n선수 몇 명이 벌써 뒷걸음질 칩니다.",
+      "who": { "pick": "random" },
+      "weeks": [0, 14],
+      "seasons": [1, 2, 3],
+      "once": "run",
+      "weight": 2,
+      "scene": "ground",
+      "choices": [
+        {
+          "label": "훈련 메뉴에 넣는다",
+          "effects": [
+            { "type": "cardAdd", "cardId": "cd_icing" }
+          ],
+          "result": "훈련장 구석에 얼음물 통이 자리를 잡았습니다. 비명은 일주일쯤 지나자 줄었습니다."
+        },
+        {
+          "label": "오늘 다 같이 한 번 해 본다",
+          "effects": [
+            { "type": "stamina", "target": "team", "amount": 15 }
+          ],
+          "result": "비명과 웃음이 섞인 저녁이었습니다. 다음 날 아침, 다리가 정말 가벼웠습니다."
+        }
+      ],
+      "alt": {
+        "banmal": {
+          "text": "{선수|이/가} 창고에서 커다란 나무통을 굴려 옵니다. 안에는 얼음 조각이 둥둥 떠 있습니다.\n\"훈련 끝나고 다리를 여기 담가 봐. 다음 날이 달라. 처음 일 분만 참으면 돼.\"\n선수 몇 명이 벌써 뒷걸음질 칩니다.",
+          "results": [
+            "훈련장 구석에 얼음물 통이 자리를 잡았습니다. 비명은 일주일쯤 지나자 줄었습니다.",
+            "비명과 웃음이 섞인 저녁이었습니다. 다음 날 아침, 다리가 정말 가벼웠습니다."
+          ]
+        }
+      }
+    },
+    {
+      "id": "ev_monk_closed_gate",
+      "trigger": "week",
+      "title": "닫힌 훈련장",
+      "text": "아침, 수행자 한나가 훈련장 문 앞에 서서 아무도 들여보내지 않습니다.\n\"오늘은 닫는다. 지친 몸에 쌓는 건 모래 위에 쌓는 것이다.\"\n선수들이 감독을 쳐다봅니다.",
+      "coach": "sp_mountain_monk",
+      "weeks": [1, 14],
+      "seasons": [1, 2, 3],
+      "once": "run",
+      "weight": 2,
+      "cond": { "avgStaminaBelow": 50 },
+      "scene": "ground",
+      "choices": [
+        {
+          "label": "한나의 말을 따른다",
+          "effects": [
+            { "type": "stamina", "target": "team", "amount": 25 },
+            { "type": "bond", "target": "coach", "amount": 10 }
+          ],
+          "result": "선수들이 하루 종일 자고, 먹고, 숨만 쉬었습니다. 저녁에 한나가 드물게 웃었습니다."
+        },
+        {
+          "label": "문을 열어 달라고 한다",
+          "effects": [
+            { "type": "stat", "target": "team", "stat": "physical", "amount": 8 },
+            { "type": "stamina", "target": "team", "amount": -10 }
+          ],
+          "result": "한나가 말없이 문을 열었습니다. 그날 훈련은 평소보다 조용하고 길었습니다."
+        }
+      ]
+    },
+    {
+      "id": "ev_irene_forecast",
+      "trigger": "week",
+      "title": "기록이 그린 선",
+      "text": "이레네가 노트를 펼쳐 한 줄을 짚습니다.\n\"감독님, {선수}의 기록이에요. 최근 세 번의 훈련에서 마지막 십 분 스프린트가 계속 늦어졌어요. 이런 선이 그려지면 보통 그다음에 탈이 나요.\"\n옆에서 듣던 {선수|이/가} 고개를 젓습니다. \"저 멀쩡한데요?\"",
+      "who": { "pick": "lowestStamina" },
+      "coach": "sp_river_scholar",
+      "weeks": [2, 14],
+      "seasons": [1, 2, 3],
+      "once": "run",
+      "weight": 1,
+      "cond": { "anyStaminaBelow": 50 },
+      "scene": "ground",
+      "choices": [
+        {
+          "label": "이레네의 말대로 쉬게 한다",
+          "effects": [
+            { "type": "stamina", "target": "player", "amount": 30 },
+            { "type": "bond", "target": "coach", "amount": 10 }
+          ],
+          "result": "{선수|이/가} 투덜대며 하루를 쉬었습니다. 이레네는 노트에 작은 동그라미를 하나 그렸습니다."
+        },
+        {
+          "label": "그대로 훈련시킨다",
+          "effects": [
+            {
+              "type": "random",
+              "chance": 0.6,
+              "then": [
+                { "type": "stat", "target": "player", "stat": "main2", "amount": 10 }
+              ],
+              "else": [
+                { "type": "stat", "target": "player", "stat": "main2", "amount": 10 },
+                { "type": "injury", "target": "player" }
+              ]
+            }
+          ],
+          "result": {
+            "then": "아무 일도 없었습니다. 이레네가 노트의 선을 조금 고쳐 그렸습니다.",
+            "else": "이레네의 선이 맞았습니다. {선수|이/가} 다리를 감싸 쥐고 주저앉았습니다."
+          }
+        }
+      ],
+      "alt": {
+        "banmal": {
+          "text": "이레네가 노트를 펼쳐 한 줄을 짚습니다.\n\"감독님, {선수}의 기록이에요. 최근 세 번의 훈련에서 마지막 십 분 스프린트가 계속 늦어졌어요. 이런 선이 그려지면 보통 그다음에 탈이 나요.\"\n옆에서 듣던 {선수|이/가} 고개를 젓습니다. \"나 멀쩡한데?\"",
+          "results": [
+            "{선수|이/가} 투덜대며 하루를 쉬었습니다. 이레네는 노트에 작은 동그라미를 하나 그렸습니다.",
+            {
+              "then": "아무 일도 없었습니다. 이레네가 노트의 선을 조금 고쳐 그렸습니다.",
+              "else": "이레네의 선이 맞았습니다. {선수|이/가} 다리를 감싸 쥐고 주저앉았습니다."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "ev_harbor_reunion",
+      "trigger": "week",
+      "title": "3번 부두의 고양이",
+      "text": "조이가 미르카를 보더니 눈을 가늘게 뜹니다. \"...너, 항구 3번 부두 내기판에서 내 공 들고 튄 고양이지?\"\n미르카가 송곳니 하나를 드러내고 웃습니다. \"에이, 빌린 거예요. 돌려드리려고 했는데 코치님이 너무 빨리 이사 가셔서.\"\n둘 사이로 묘하게 반가운 공기가 흐릅니다.",
+      "who": { "pick": "char", "charId": "ch_cat_trickster" },
+      "chars": ["ch_cat_trickster"],
+      "coach": "sp_street_striker",
+      "weeks": [0, 14],
+      "seasons": [1, 2, 3],
+      "once": "run",
+      "weight": 1,
+      "scene": "ground",
+      "choices": [
+        {
+          "label": "골목 연습을 정식으로 들인다",
+          "effects": [
+            { "type": "cardAdd", "cardId": "cd_c_joy" }
+          ],
+          "result": "\"규칙은 하나. 넣으면 이긴다.\" 조이가 훈련표에 그렇게 적었습니다. 미르카가 그 아래에 \"빌린 건 돌려준다\"라고 덧붙였습니다."
+        },
+        {
+          "label": "그때 그 판을 다시 벌이게 둔다",
+          "effects": [
+            { "type": "stat", "target": "player", "stat": "dribble", "amount": 20 },
+            { "type": "bond", "target": "coach", "amount": 10 },
+            { "type": "teamwork", "amount": 3 }
+          ],
+          "result": "부두에서 하던 그대로, 공 하나에 둘이 엉겨 붙었습니다. 구경하던 선수들까지 판돈 없는 내기를 걸었습니다."
+        }
+      ]
+    },
+    {
+      "id": "ev_midnight_blindfold",
+      "trigger": "week",
+      "title": "눈을 가린 패스",
+      "text": "밤늦게 훈련장에 등불 하나가 켜져 있습니다. 오르넬라가 실루엔의 눈을 천으로 가리고 있습니다.\n\"너는 보이는 것을 너무 믿는다. 공이 갈 곳은 눈이 아니라 머리로 그려라.\"\n실루엔이 웃는 얼굴 그대로 공을 찹니다. 공은 등불 옆에 세운 막대에서 반 뼘 비껴 멈췄습니다. 벌써 마흔 번째입니다.",
+      "who": { "pick": "char", "charId": "ch_elf_playmaker" },
+      "chars": ["ch_elf_playmaker"],
+      "coach": "sp_elder_sage",
+      "weeks": [1, 14],
+      "seasons": [1, 2, 3],
+      "once": "run",
+      "weight": 1,
+      "scene": "ground",
+      "choices": [
+        {
+          "label": "그 수업을 훈련장에 들인다",
+          "effects": [
+            { "type": "cardAdd", "cardId": "cd_c_ornella" }
+          ],
+          "result": "다음 날부터 훈련표에 오르넬라의 수업이 한 줄 생겼습니다. 선수들이 눈을 가린 채 서로의 이름을 부르며 공을 찾습니다."
+        },
+        {
+          "label": "끝까지 두게 둔다",
+          "effects": [
+            { "type": "stat", "target": "player", "stat": "pass", "amount": 20 },
+            { "type": "teach", "skillId": "sk_eagle_eye", "supportId": "sp_elder_sage" }
+          ],
+          "result": "새벽녘, 마흔일곱 번째 공이 막대를 맞혔습니다. 오르넬라는 끝내 웃지 않았지만, 등불을 끄기 전에 실루엔의 어깨를 한 번 짚었습니다."
+        }
+      ]
+    },
+    {
+      "id": "ev_rival_spyglass",
+      "trigger": "week",
+      "title": "언덕 위의 망원경",
+      "text": "훈련 도중 언덕 위에서 무언가가 반짝입니다. 망원경입니다. 수풀 사이로 다음 경계전 상대 클럽의 깃발 끝이 보입니다.\n{선수|이/가} 씩 웃습니다. \"감독님, 보고 싶다면 보여 주죠. 아무거나요.\"",
+      "who": { "pick": "random" },
+      "weekList": [0, 1, 2, 3, 5, 6, 7, 8, 10, 11, 12, 13],
+      "seasons": [1, 2, 3],
+      "once": "run",
+      "weight": 1,
+      "scene": "ground",
+      "choices": [
+        {
+          "label": "엉터리 훈련을 보여 준다",
+          "effects": [
+            { "type": "goalCondition", "amount": 1 },
+            { "type": "stamina", "target": "team", "amount": -10 }
+          ],
+          "result": "골키퍼가 공격을 하고, 공격수가 골문 앞에서 물구나무를 섰습니다. 선수들은 경기 날까지 그 이야기로 웃었습니다."
+        },
+        {
+          "label": "내려가서 차를 대접한다",
+          "effects": [
+            { "type": "sp", "amount": 15 }
+          ],
+          "result": "들킨 정찰병이 머쓱하게 차를 마시다가 이것저것 흘리고 갔습니다. 적어 둘 것이 꽤 많았습니다."
+        }
+      ],
+      "alt": {
+        "banmal": {
+          "text": "훈련 도중 언덕 위에서 무언가가 반짝입니다. 망원경입니다. 수풀 사이로 다음 경계전 상대 클럽의 깃발 끝이 보입니다.\n{선수|이/가} 씩 웃습니다. \"감독, 보고 싶으면 보여 주지 뭐. 아무거나.\"",
+          "results": [
+            "골키퍼가 공격을 하고, 공격수가 골문 앞에서 물구나무를 섰습니다. 선수들은 경기 날까지 그 이야기로 웃었습니다.",
+            "들킨 정찰병이 머쓱하게 차를 마시다가 이것저것 흘리고 갔습니다. 적어 둘 것이 꽤 많았습니다."
+          ]
+        }
+      }
+    },
+    {
+      "id": "ev_rival_shootout",
+      "trigger": "week",
+      "title": "득점 2위의 편지",
+      "text": "다른 클럽 감독에게서 편지가 왔습니다. 하르나가 득점왕이던 해, 한 골 차로 득점 2위였던 사람입니다.\n\"제자끼리 붙여 봅시다. 승부차기 열 번. 진 쪽은 이긴 쪽 클럽 이름을 외치며 경기장 한 바퀴.\"\n하르나가 편지를 구기며 웃습니다. \"아직도 그 한 골을 못 잊었군. {선수}, 할 수 있겠어?\"",
+      "who": { "pick": "random", "pos": ["FW"] },
+      "coach": "sp_coach_harr",
+      "weeks": [1, 14],
+      "seasons": [1, 2, 3],
+      "once": "run",
+      "weight": 1,
+      "scene": "ground",
+      "choices": [
+        {
+          "label": "도전을 받는다",
+          "effects": [
+            {
+              "type": "random",
+              "chance": 0.6,
+              "then": [
+                { "type": "stat", "target": "player", "stat": "shoot", "amount": 25 },
+                { "type": "bond", "target": "coach", "amount": 10 }
+              ],
+              "else": [
+                { "type": "stat", "target": "player", "stat": "shoot", "amount": 15 },
+                { "type": "condition", "amount": -1 }
+              ]
+            }
+          ],
+          "result": {
+            "then": "열 번째 공이 구석 그물에 꽂혔습니다. 상대 선수들이 우리 클럽 이름을 외치며 경기장을 돌았습니다.",
+            "else": "한 골 차로 졌습니다. 우리 선수들이 남의 클럽 이름을 외치며 경기장을 돌았습니다."
+          }
+        },
+        {
+          "label": "하르나에게 답장을 맡긴다",
+          "effects": [
+            { "type": "playerHint", "target": "player" },
+            { "type": "bond", "target": "coach", "amount": 5 }
+          ],
+          "result": "\"경기장에서 보자고 써.\" 하르나는 답장 대신 {선수|을/를} 페널티 지점에 세웠습니다. \"승부차기는 발보다 배짱이다. 차기 전에 이미 이겨 있어야 해.\""
+        }
+      ]
+    },
+    {
+      "id": "ev_treaty_day",
+      "trigger": "week",
+      "title": "조약 기념일",
+      "text": "오늘은 조약 기념일입니다. 광장 한가운데서 대전쟁 때의 칼과 창을 녹여 만든 조약의 종이 울립니다.\n저녁에는 여러 종족 선수를 한 편에 섞는 기념 경기가 열립니다. 축제 위원회가 우리 선수들도 뛰어 달라고 청합니다.\n{선수|이/가} 벌써 축구화 끈을 매고 있습니다. \"엘프랑 드워프가 한 편이래요. 이런 경기, 언제 또 봐요?\"",
+      "who": { "pick": "random" },
+      "weeks": [1, 14],
+      "seasons": [1, 2, 3],
+      "once": "run",
+      "weight": 1,
+      "scene": "town",
+      "choices": [
+        {
+          "label": "기념 경기에 나간다",
+          "effects": [
+            { "type": "stat", "target": "team", "stat": "dribble", "amount": 6 },
+            { "type": "teamwork", "amount": 5 },
+            { "type": "stamina", "target": "team", "amount": -15 }
+          ],
+          "result": "엘프의 패스를 드워프가 받아 골문에 밀어 넣었습니다. 선수들이 낯선 종족의 발놀림을 하나씩 훔쳐 왔습니다."
+        },
+        {
+          "label": "종소리만 듣고 돌아온다",
+          "effects": [
+            { "type": "condition", "amount": 1 },
+            { "type": "stamina", "target": "team", "amount": 10 }
+          ],
+          "result": "광장 노점에서 저녁을 사 먹고 일찍 돌아왔습니다. 밤늦게까지 종소리가 숙소 창문을 가만히 울렸습니다."
+        }
+      ],
+      "alt": {
+        "banmal": {
+          "text": "오늘은 조약 기념일입니다. 광장 한가운데서 대전쟁 때의 칼과 창을 녹여 만든 조약의 종이 울립니다.\n저녁에는 여러 종족 선수를 한 편에 섞는 기념 경기가 열립니다. 축제 위원회가 우리 선수들도 뛰어 달라고 청합니다.\n{선수|이/가} 벌써 축구화 끈을 매고 있습니다. \"엘프랑 드워프가 한 편이래. 이런 경기, 언제 또 보겠어?\"",
+          "results": [
+            "엘프의 패스를 드워프가 받아 골문에 밀어 넣었습니다. 선수들이 낯선 종족의 발놀림을 하나씩 훔쳐 왔습니다.",
+            "광장 노점에서 저녁을 사 먹고 일찍 돌아왔습니다. 밤늦게까지 종소리가 숙소 창문을 가만히 울렸습니다."
+          ]
+        }
+      }
+    },
+    {
+      "id": "ev_treaty_witness",
+      "trigger": "week",
+      "title": "경계전 입회인",
+      "text": "조약 리그에서 전갈이 왔습니다. 숲 엘프 클럽과 산맥 드워프 클럽의 경계전에 중립 입회 클럽으로 서 달라는 요청입니다.\n입회인은 경계선 옆에서 경기를 끝까지 지켜보고, 마지막에 조약문에 이름을 적습니다.\n{선수|이/가} 조용히 묻습니다. \"지는 쪽 마을 사람들도... 거기 와 있겠죠?\"",
+      "who": { "pick": "random" },
+      "weeks": [2, 14],
+      "seasons": [1, 2, 3],
+      "once": "run",
+      "weight": 1,
+      "scene": "stands",
+      "choices": [
+        {
+          "label": "{선수}에게 입회를 맡긴다",
+          "effects": [
+            { "type": "stat", "target": "player", "stat": "main2", "amount": 12 },
+            { "type": "stamina", "target": "player", "amount": -15 }
+          ],
+          "result": "돌아온 {선수}의 눈빛이 달라져 있습니다. 진 쪽 관중석이 다 빌 때까지 자리를 지켰다고 합니다."
+        },
+        {
+          "label": "7명 모두 입회석에 세운다",
+          "effects": [
+            { "type": "teamwork", "amount": 6 },
+            { "type": "sp", "amount": 15 },
+            { "type": "stamina", "target": "team", "amount": -10 }
+          ],
+          "result": "진 쪽 주장이 이긴 쪽 주장의 손을 잡는 것까지 모두 함께 지켜보았습니다. 조약 리그가 사례로 두 클럽의 경기 기록을 보내왔습니다."
+        }
+      ],
+      "alt": {
+        "banmal": {
+          "text": "조약 리그에서 전갈이 왔습니다. 숲 엘프 클럽과 산맥 드워프 클럽의 경계전에 중립 입회 클럽으로 서 달라는 요청입니다.\n입회인은 경계선 옆에서 경기를 끝까지 지켜보고, 마지막에 조약문에 이름을 적습니다.\n{선수|이/가} 조용히 묻습니다. \"지는 쪽 마을 사람들도... 거기 와 있겠지?\"",
+          "results": [
+            "돌아온 {선수}의 눈빛이 달라져 있습니다. 진 쪽 관중석이 다 빌 때까지 자리를 지켰다고 합니다.",
+            "진 쪽 주장이 이긴 쪽 주장의 손을 잡는 것까지 모두 함께 지켜보았습니다. 조약 리그가 사례로 두 클럽의 경기 기록을 보내왔습니다."
+          ]
+        }
+      }
+    },
+    {
+      "id": "ev_border_harvest",
+      "trigger": "week",
+      "title": "두 마을의 수확제",
+      "text": "경계선 양쪽의 두 마을이 함께 여는 수확제에 초대받았습니다. 대전쟁 전에는 한 마을이었다고 합니다.\n마을 노인이 사과 바구니를 내밀며 말합니다. \"경계선은 경기로 정해도, 사과나무 뿌리는 양쪽 밭에 다 걸쳐 있다오. 올해도 같이 거둡시다.\"\n{선수|이/가} 바구니를 받아 들고 경계석 너머의 밭을 한동안 바라봅니다.",
+      "who": { "pick": "random" },
+      "weeks": [1, 9],
+      "seasons": [1, 2],
+      "once": "run",
+      "weight": 1,
+      "scene": "nature",
+      "choices": [
+        {
+          "label": "수확을 거든다",
+          "effects": [
+            { "type": "stat", "target": "team", "stat": "physical", "amount": 6 },
+            { "type": "stamina", "target": "team", "amount": -15 },
+            { "type": "goalCondition", "amount": 1 }
+          ],
+          "result": "해가 질 때까지 양쪽 밭의 사과 상자를 날랐습니다. 두 마을 사람들이 다음 경계전 날 경기장에 함께 오겠다고 약속했습니다."
+        },
+        {
+          "label": "수확제 손님으로 간다",
+          "effects": [
+            { "type": "stamina", "target": "team", "amount": 20 },
+            { "type": "teamwork", "amount": 3 }
+          ],
+          "result": "두 마을이 함께 차린 잔칫상 앞에서 배불리 먹었습니다. 돌아오는 마차에서 {선수}의 바구니에 담긴 사과를 하나씩 나눠 먹었습니다."
+        }
+      ]
+    },
+    {
+      "id": "ev_supporters_banner",
+      "trigger": "week",
+      "title": "철자 틀린 걸개",
+      "text": "첫 경계전 날 관중석에 있던 마을 사람 스무 명 남짓이 응원단을 꾸렸다고 합니다.\n손수 만든 걸개를 들고 찾아왔는데, 클럽 이름 철자가 하나 틀렸습니다.\n{선수|이/가} 웃음을 참으며 걸개를 펼쳐 봅니다. \"그래도... 우리 이름이 처음으로 천에 적혔네요.\"",
+      "who": { "pick": "random" },
+      "weeks": [5, 14],
+      "seasons": [2, 3],
+      "once": "run",
+      "weight": 1,
+      "scene": "stands",
+      "choices": [
+        {
+          "label": "다 같이 인사하러 나간다",
+          "effects": [
+            { "type": "condition", "amount": 1 },
+            { "type": "teamwork", "amount": 5 },
+            { "type": "stamina", "target": "team", "amount": -10 }
+          ],
+          "result": "선수들이 응원단 한 사람 한 사람과 악수를 나눴습니다. 틀린 철자는 다음 날 누군가 몰래 고쳐 놓았습니다."
+        },
+        {
+          "label": "경계전 응원을 부탁한다",
+          "effects": [
+            { "type": "playerHint", "target": "player" }
+          ],
+          "result": "응원단이 경계전 날 북을 들고 오겠다고 했습니다. 큰 경기장도 {선수}에게는 조금 덜 낯설 것 같습니다."
+        }
+      ],
+      "alt": {
+        "banmal": {
+          "text": "첫 경계전 날 관중석에 있던 마을 사람 스무 명 남짓이 응원단을 꾸렸다고 합니다.\n손수 만든 걸개를 들고 찾아왔는데, 클럽 이름 철자가 하나 틀렸습니다.\n{선수|이/가} 웃음을 참으며 걸개를 펼쳐 봅니다. \"그래도... 우리 이름이 처음으로 천에 적혔네.\"",
+          "results": [
+            "선수들이 응원단 한 사람 한 사람과 악수를 나눴습니다. 틀린 철자는 다음 날 누군가 몰래 고쳐 놓았습니다.",
+            "응원단이 경계전 날 북을 들고 오겠다고 했습니다. 큰 경기장도 {선수}에게는 조금 덜 낯설 것 같습니다."
+          ]
+        }
+      }
+    },
+    {
+      "id": "ev_gazette_interview",
+      "trigger": "week",
+      "title": "소식지 기자",
+      "text": "조약 소식지 기자가 훈련장에 찾아왔습니다. 신생 클럽 특집을 쓴다고 합니다.\n기자가 {선수}에게 수첩을 들이밉니다. \"솔직히, 다음 경계전에서 이길 수 있다고 보십니까?\"\n{선수|이/가} 감독을 힐끗 봅니다. 대답해도 되느냐는 눈치입니다.",
+      "who": { "pick": "random" },
+      "weeks": [2, 14],
+      "seasons": [1, 2, 3],
+      "once": "season",
+      "weight": 1,
+      "scene": "stands",
+      "choices": [
+        {
+          "label": "{선수}에게 맡긴다",
+          "effects": [
+            {
+              "type": "random",
+              "chance": 0.6,
+              "then": [
+                { "type": "condition", "amount": 1 },
+                { "type": "teamwork", "amount": 6 }
+              ],
+              "else": [
+                { "type": "condition", "amount": -1 }
+              ]
+            }
+          ],
+          "result": {
+            "then": "\"이깁니다. 우리 팀이니까요.\" 그 한 줄이 기사 제목이 되었고, 선수들이 신문을 라커룸 문에 붙였습니다.",
+            "else": "대답이 \"신생 클럽의 근거 없는 큰소리\"라는 제목으로 실렸습니다. 선수들이 신문을 말없이 접었습니다."
+          }
+        },
+        {
+          "label": "감독이 대신 답한다",
+          "effects": [
+            { "type": "teamwork", "amount": 5 }
+          ],
+          "result": "\"선수들을 믿습니다.\" 무난한 대답이 기사 한 귀퉁이에 실렸습니다. 오려 낸 그 귀퉁이는 {선수}의 사물함 안쪽에 붙었습니다."
+        }
+      ],
+      "alt": {
+        "banmal": {
+          "text": "조약 소식지 기자가 훈련장에 찾아왔습니다. 신생 클럽 특집을 쓴다고 합니다.\n기자가 {선수}에게 수첩을 들이밉니다. \"솔직히, 다음 경계전에서 이길 수 있다고 보십니까?\"\n{선수|이/가} 감독을 힐끗 봅니다. 대답해도 되느냐는 눈치입니다.",
+          "results": [
+            {
+              "then": "\"이긴다. 우리 팀이니까.\" 그 한 줄이 기사 제목이 되었고, 선수들이 신문을 라커룸 문에 붙였습니다.",
+              "else": "대답이 \"신생 클럽의 근거 없는 큰소리\"라는 제목으로 실렸습니다. 선수들이 신문을 말없이 접었습니다."
+            },
+            "\"선수들을 믿습니다.\" 무난한 대답이 기사 한 귀퉁이에 실렸습니다. 오려 낸 그 귀퉁이는 {선수}의 사물함 안쪽에 붙었습니다."
+          ]
+        }
+      }
+    },
+    {
+      "id": "ev_two_sponsors",
+      "trigger": "week",
+      "title": "두 곳의 스폰서",
+      "text": "첫 경계전을 치르고 나자 스폰서 제안이 두 곳에서 한꺼번에 들어왔습니다.\n항구 상인 조합은 새 훈련 장비를 대 주는 대신 하루짜리 광고 촬영을 원하고, 마을 빵집은 매일 아침 갓 구운 빵을 보내 주겠다고 합니다.\n{선수|이/가} 빵집 편지를 슬쩍 맨 위로 올려놓습니다.",
+      "who": { "pick": "random" },
+      "weeks": [5, 14],
+      "seasons": [2, 3],
+      "once": "run",
+      "weight": 1,
+      "scene": "town",
+      "choices": [
+        {
+          "label": "상인 조합과 계약한다",
+          "effects": [
+            { "type": "cardPick", "op": "upgrade" },
+            { "type": "stamina", "target": "team", "amount": -10 }
+          ],
+          "result": "하루 종일 웃는 얼굴로 같은 슛을 서른 번씩 찼습니다. 볼은 얼얼해졌지만 새 장비가 들어왔습니다."
+        },
+        {
+          "label": "마을 빵집과 계약한다",
+          "effects": [
+            { "type": "stamina", "target": "team", "amount": 20 }
+          ],
+          "result": "다음 날부터 훈련장에 빵 냄새가 퍼졌습니다. 매일 아침 빵 바구니 앞에 가장 먼저 서 있는 건 {선수}입니다."
+        }
+      ]
+    },
+    {
+      "id": "ev_kit_tailholes",
+      "trigger": "week",
+      "title": "꼬리 구멍 없는 유니폼",
+      "text": "클럽의 첫 정식 유니폼이 도착했습니다. 그런데 전부 인간 치수인 데다, 꼬리 구멍은 하나도 뚫려 있지 않습니다.\n재봉사는 다시 지으려면 한 달은 걸린다며 머리를 긁적입니다.\n{선수|이/가} 반짇고리를 들고 옵니다. \"오늘 밤 안에 고쳐 봐요. 다 같이 하면 금방이에요.\"",
+      "who": { "pick": "random" },
+      "chars": ["ch_wolf_winger", "ch_cat_trickster", "ch_rabbit_fullback"],
+      "charMode": "any",
+      "weeks": [0, 3],
+      "seasons": [1],
+      "once": "run",
+      "weight": 2,
+      "scene": "clubhouse",
+      "choices": [
+        {
+          "label": "다 같이 고친다",
+          "effects": [
+            { "type": "teamwork", "amount": 8 },
+            { "type": "stamina", "target": "team", "amount": -10 }
+          ],
+          "result": "새벽까지 바느질이 이어졌습니다. 바늘땀은 삐뚤빼뚤해도 모두의 손이 한 번씩 닿은 유니폼입니다."
+        },
+        {
+          "label": "재봉사에게 다시 맡긴다",
+          "effects": [
+            { "type": "tp", "amount": 15 }
+          ],
+          "result": "한 달 동안 낡은 연습복으로 버텼습니다. 재봉사가 미안하다며 값을 깎아 준 덕에 훈련 도구를 몇 개 더 들였습니다."
+        }
+      ],
+      "alt": {
+        "banmal": {
+          "text": "클럽의 첫 정식 유니폼이 도착했습니다. 그런데 전부 인간 치수인 데다, 꼬리 구멍은 하나도 뚫려 있지 않습니다.\n재봉사는 다시 지으려면 한 달은 걸린다며 머리를 긁적입니다.\n{선수|이/가} 반짇고리를 들고 옵니다. \"오늘 밤 안에 고쳐 보자. 다 같이 하면 금방이야.\"",
+          "results": [
+            "새벽까지 바느질이 이어졌습니다. 바늘땀은 삐뚤빼뚤해도 모두의 손이 한 번씩 닿은 유니폼입니다.",
+            "한 달 동안 낡은 연습복으로 버텼습니다. 재봉사가 미안하다며 값을 깎아 준 덕에 훈련 도구를 몇 개 더 들였습니다."
+          ]
+        }
+      }
+    },
+    {
+      "id": "ev_dorm_frost",
+      "trigger": "week",
+      "title": "막사 숙소의 첫 서리",
+      "text": "밤사이 첫 서리가 내렸습니다. 대전쟁 때의 막사를 고쳐 쓰는 숙소라 벽 틈으로 찬바람이 숭숭 들어옵니다.\n담요를 둘둘 만 {선수|이/가} 감독실 문을 두드립니다. \"감독님, 난로가 또 꺼졌어요. ...제가 한번 뜯어 볼까요?\"",
+      "who": { "pick": "random" },
+      "weeks": [10, 14],
+      "seasons": [3],
+      "once": "run",
+      "weight": 1,
+      "scene": "clubhouse",
+      "choices": [
+        {
+          "label": "식당 난로 앞에 다 같이 모여 잔다",
+          "effects": [
+            { "type": "teamwork", "amount": 6 },
+            { "type": "stamina", "target": "team", "amount": 10 }
+          ],
+          "result": "좁은 식당 바닥에 담요 일곱 장이 나란히 깔렸습니다. 밤새 소곤거리는 소리가 끊이지 않았습니다."
+        },
+        {
+          "label": "{선수}에게 난로를 맡겨 본다",
+          "effects": [
+            {
+              "type": "random",
+              "chance": 0.6,
+              "then": [
+                { "type": "stamina", "target": "team", "amount": 25 },
+                { "type": "condition", "amount": 1 }
+              ],
+              "else": [
+                { "type": "stamina", "target": "team", "amount": -10 }
+              ]
+            }
+          ],
+          "result": {
+            "then": "새벽녘, 기름투성이가 된 {선수}의 손끝에서 난로가 우렁차게 살아났습니다.",
+            "else": "난로는 검은 연기만 토했습니다. 모두 콜록대며 {선수}의 등을 두드려 주었습니다."
+          }
+        }
+      ],
+      "alt": {
+        "banmal": {
+          "text": "밤사이 첫 서리가 내렸습니다. 대전쟁 때의 막사를 고쳐 쓰는 숙소라 벽 틈으로 찬바람이 숭숭 들어옵니다.\n담요를 둘둘 만 {선수|이/가} 감독실 문을 두드립니다. \"감독, 난로가 또 꺼졌어. ...내가 한번 뜯어 볼까?\"",
+          "results": [
+            "좁은 식당 바닥에 담요 일곱 장이 나란히 깔렸습니다. 밤새 소곤거리는 소리가 끊이지 않았습니다.",
+            {
+              "then": "새벽녘, 기름투성이가 된 {선수}의 손끝에서 난로가 우렁차게 살아났습니다.",
+              "else": "난로는 검은 연기만 토했습니다. 모두 콜록대며 {선수}의 등을 두드려 주었습니다."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "ev_cross_and_header",
+      "trigger": "week",
+      "title": "한 뼘 더",
+      "text": "해가 졌는데도 울리카와 그레타가 훈련장에 남아 있습니다. 측면에서 크로스, 문전에서 헤더. 벌써 백 번째입니다.\n그레타가 이마를 문지르며 외칩니다. \"한 뼘만 더 높이!\" 울리카가 받아칩니다. \"네가 한 뼘 덜 뛰면 되잖아!\"\n울리카가 송곳니를 드러내며 감독을 돌아봅니다. \"감독님, 딱 백 개만 더요. 오늘 안에 맞춰 놓을게요.\"",
+      "chars": ["ch_wolf_winger", "ch_giant_striker"],
+      "charMode": "all",
+      "weeks": [1, 14],
+      "seasons": [1, 2, 3],
+      "once": "run",
+      "weight": 1,
+      "scene": "ground",
+      "choices": [
+        {
+          "label": "백 개 더 하게 둔다",
+          "effects": [
+            {
+              "type": "random",
+              "chance": 0.75,
+              "then": [
+                { "type": "stat", "target": "char:ch_wolf_winger", "stat": "pass", "amount": 20 },
+                { "type": "stat", "target": "char:ch_giant_striker", "stat": "shoot", "amount": 20 }
+              ],
+              "else": [
+                { "type": "stat", "target": "char:ch_wolf_winger", "stat": "pass", "amount": 20 },
+                { "type": "stat", "target": "char:ch_giant_striker", "stat": "shoot", "amount": 20 },
+                { "type": "injury", "target": "char:ch_giant_striker" }
+              ]
+            }
+          ],
+          "result": {
+            "then": "달이 뜰 무렵, 울리카의 크로스가 그레타의 이마에 정확히 떨어지기 시작했습니다.",
+            "else": "크로스는 맞아떨어졌지만, 마지막 헤더를 마친 그레타가 목을 감싸 쥐었습니다. 다음 레슨은 쉬어야겠습니다."
+          }
+        },
+        {
+          "label": "저녁부터 먹인다",
+          "effects": [
+            { "type": "stamina", "target": "char:ch_wolf_winger", "amount": 20 },
+            { "type": "stamina", "target": "char:ch_giant_striker", "amount": 20 },
+            { "type": "teamwork", "amount": 5 }
+          ],
+          "result": "그레타가 고기 접시를 산더미처럼 쌓아 왔습니다. 울리카가 제일 큰 조각을 먼저 집어 갔고, 둘은 또 투닥거리며 웃었습니다."
+        }
+      ]
+    },
+    {
+      "id": "ev_ahead_of_the_ball",
+      "trigger": "week",
+      "title": "공보다 먼저",
+      "text": "타리아가 또 패스보다 먼저 빈 공간에 닿았습니다. 공은 타리아가 이미 지나쳐 버린 자리로 굴러갑니다.\n실루엔이 다 안다는 듯 웃습니다. \"넌 너무 일찍, 너무 정직하게 뛰어. 네가 어디로 갈지 나만 아는 게 아니야. 상대도 알아.\"\n타리아가 숨을 몰아쉬며 감독을 봅니다. \"감독님, 실루엔 언니랑 둘이서만 맞춰 볼 시간 주세요!\"",
+      "chars": ["ch_elf_playmaker", "ch_human_runner"],
+      "charMode": "all",
+      "weeks": [1, 14],
+      "seasons": [1, 2, 3],
+      "once": "run",
+      "weight": 1,
+      "scene": "ground",
+      "choices": [
+        {
+          "label": "둘만 따로 맞춰 보게 한다",
+          "effects": [
+            { "type": "stat", "target": "char:ch_elf_playmaker", "stat": "pass", "amount": 20 },
+            { "type": "stat", "target": "char:ch_human_runner", "stat": "dribble", "amount": 20 },
+            { "type": "stamina", "target": "char:ch_elf_playmaker", "amount": -15 },
+            { "type": "stamina", "target": "char:ch_human_runner", "amount": -15 }
+          ],
+          "result": "해 질 녘까지 둘만의 신호를 맞췄습니다. 이제 실루엔이 눈썹만 까딱해도 타리아가 반 박자 늦게, 정확한 곳으로 출발합니다."
+        },
+        {
+          "label": "그 호흡을 모두와 나눈다",
+          "effects": [
+            { "type": "cardAdd", "cardId": "cd_one_two" },
+            { "type": "teamwork", "amount": 4 }
+          ],
+          "result": "둘이 주고받던 리듬을 모두가 따라 해 보았습니다. 이제 누구와 짝을 지어도 그 리듬으로 공을 주고받을 수 있습니다."
+        }
+      ]
+    },
+    {
+      "id": "ev_mountain_water",
+      "trigger": "week",
+      "title": "산의 물",
+      "text": "숙소 뒤뜰에 못 보던 돌 물그릇이 놓였습니다. 도르비나가 사흘 밤을 새워 깎았다고 합니다.\n까닭을 묻자 도르비나가 짧게 답합니다. \"...물 없으면 쟤 금방 지쳐. 그게 다야.\"\n네리아가 물에 손끝을 담그고 한참 있다가 말합니다. \"...차가워요. 산에서 길어 온 물이네요. 고마워요.\"",
+      "chars": ["ch_spirit_keeper", "ch_dwarf_wall"],
+      "charMode": "all",
+      "weeks": [2, 14],
+      "seasons": [1, 2, 3],
+      "once": "run",
+      "weight": 1,
+      "scene": "ground",
+      "choices": [
+        {
+          "label": "골문 옆으로 옮긴다",
+          "effects": [
+            { "type": "stat", "target": "char:ch_spirit_keeper", "stat": "defense", "amount": 15 },
+            { "type": "stat", "target": "char:ch_dwarf_wall", "stat": "defense", "amount": 15 },
+            { "type": "stamina", "target": "char:ch_spirit_keeper", "amount": 20 }
+          ],
+          "result": "훈련 중에도 네리아가 물그릇에 손을 적시고 돌아올 수 있게 되었습니다. 그동안 골문 앞은 도르비나가 한 발짝도 비우지 않았습니다."
+        },
+        {
+          "label": "뒤뜰에 그대로 둔다",
+          "effects": [
+            { "type": "stamina", "target": "char:ch_spirit_keeper", "full": true },
+            { "type": "teamwork", "amount": 5 }
+          ],
+          "result": "저녁마다 둘이 물그릇 옆에 말없이 앉아 있습니다. 아무 말도 없는데, 이상하게 둘 다 편안해 보입니다."
+        }
+      ]
+    },
+    {
+      "id": "ev_missing_armband",
+      "trigger": "week",
+      "title": "사라진 완장",
+      "text": "아델린의 주장 완장이 사라졌습니다. 아델린은 \"제 불찰입니다\"를 되뇌며 아침부터 훈련장을 세 바퀴째 뒤지고 있습니다.\n미르카가 송곳니 하나를 드러내고 웃으며 감독에게만 속삭입니다. \"주장님, 요즘 밤마다 혼자 전술판 붙들고 있잖아요. 오늘 하루만 주장 좀 쉬시라고요.\"\n미르카의 주머니 밖으로 붉은 천 끝이 삐죽 나와 있습니다.",
+      "chars": ["ch_human_captain", "ch_cat_trickster"],
+      "charMode": "all",
+      "weeks": [3, 14],
+      "seasons": [1, 2, 3],
+      "once": "run",
+      "weight": 1,
+      "scene": "ground",
+      "choices": [
+        {
+          "label": "모른 척한다",
+          "effects": [
+            { "type": "stamina", "target": "char:ch_human_captain", "amount": 30 },
+            { "type": "condition", "amount": 1 }
+          ],
+          "result": "완장 없는 하루, 아델린은 처음으로 자기 공만 생각하며 뛰었습니다. 저녁에 완장은 아델린의 베개 위에 얌전히 놓여 있었습니다."
+        },
+        {
+          "label": "둘을 불러 이야기한다",
+          "effects": [
+            { "type": "teamwork", "amount": 8 }
+          ],
+          "result": "미르카가 완장을 내밀며 까닭을 털어놓았습니다. 한참 말이 없던 아델린이, 앞으로 전술판은 다 같이 보자고 했습니다."
+        }
+      ]
     }
   ]
 }
