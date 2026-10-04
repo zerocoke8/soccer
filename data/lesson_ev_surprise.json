@@ -1,5 +1,606 @@
 {
   "version": 1,
   "notes": {},
-  "events": []
+  "events": [
+    {
+      "id": "ls_running_on_empty",
+      "trigger": "surprise",
+      "title": "바닥난 숨",
+      "text": "{선수|이/가} 무릎을 짚고 숨을 몰아쉽니다. \"괜찮아요... 한 번은 더 할 수 있어요.\"",
+      "who": { "pick": "lowestStamina" },
+      "seasons": [1, 2, 3],
+      "weight": 3,
+      "cond": { "anyStaminaBelow": 30 },
+      "choices": [
+        {
+          "label": "한 번 더 맡긴다",
+          "effects": [{ "type": "nextNoFail" }],
+          "result": "이를 악문 {선수}의 눈빛이 다시 살아났습니다."
+        },
+        {
+          "label": "벤치로 부른다",
+          "effects": [{ "type": "restRemaining", "target": "player", "stamina": 20 }],
+          "result": "벤치에 앉은 {선수}의 손에 물병을 쥐여 주었습니다. 아쉬운 얼굴이지만 숨이 돌아옵니다."
+        }
+      ],
+      "alt": {
+        "banmal": {
+          "text": "{선수|이/가} 무릎을 짚고 숨을 몰아쉽니다. \"괜찮아... 한 번은 더 할 수 있어.\"",
+          "results": [
+            "이를 악문 {선수}의 눈빛이 다시 살아났습니다.",
+            "벤치에 앉은 {선수}의 손에 물병을 쥐여 주었습니다. 아쉬운 얼굴이지만 숨이 돌아옵니다."
+          ]
+        }
+      }
+    },
+    {
+      "id": "ls_hot_hand",
+      "trigger": "surprise",
+      "title": "오늘은 감이 왔어요",
+      "text": "{선수|이/가} 땀을 훔치며 씩 웃습니다. \"또 저예요? 좋아요, 오늘은 감이 왔어요!\"",
+      "who": { "pick": "streaker" },
+      "seasons": [1, 2, 3],
+      "weight": 2,
+      "cond": { "targetStreak": 3 },
+      "choices": [
+        {
+          "label": "기세를 믿는다",
+          "effects": [
+            {
+              "type": "random",
+              "chance": 0.7,
+              "then": [{ "type": "nextPct", "pct": 40 }],
+              "else": [{ "type": "stamina", "target": "player", "amount": -20 }]
+            }
+          ],
+          "result": {
+            "then": "{선수}의 기세가 옆 동료들에게까지 옮아갔습니다.",
+            "else": "한 발 더 내딛다가 {선수}의 종아리가 딱딱하게 굳었습니다."
+          }
+        },
+        {
+          "label": "다른 선수에게 넘긴다",
+          "effects": [{ "type": "stamina", "target": "player", "amount": 10 }, { "type": "teamwork", "amount": 3 }],
+          "result": "물러나는 {선수}의 손바닥이 다음 선수의 등을 힘껏 두드렸습니다."
+        }
+      ],
+      "alt": {
+        "banmal": {
+          "text": "{선수|이/가} 땀을 훔치며 씩 웃습니다. \"또 나야? 좋아, 오늘은 감 왔어!\"",
+          "results": [
+            {
+              "then": "{선수}의 기세가 옆 동료들에게까지 옮아갔습니다.",
+              "else": "한 발 더 내딛다가 {선수}의 종아리가 딱딱하게 굳었습니다."
+            },
+            "물러나는 {선수}의 손바닥이 다음 선수의 등을 힘껏 두드렸습니다."
+          ]
+        }
+      }
+    },
+    {
+      "id": "ls_one_more_push",
+      "trigger": "surprise",
+      "title": "한 끗 차이",
+      "text": "{선수|이/가} 점수판을 돌아봅니다. \"감독님, 거의 다 왔어요! 크게 한 번 가 볼까요?\"",
+      "who": { "pick": "random" },
+      "seasons": [1, 2, 3],
+      "weight": 3,
+      "cond": { "turnsLeftMax": 2, "notCleared": true, "scoreToTargetMax": 40 },
+      "choices": [
+        {
+          "label": "크게 간다",
+          "effects": [
+            {
+              "type": "random",
+              "chance": 0.6,
+              "then": [{ "type": "score", "amount": 40 }],
+              "else": [{ "type": "nextPct", "pct": -20 }]
+            }
+          ],
+          "result": { "then": "단번에 목표선을 넘었습니다. 벤치가 들썩입니다.", "else": "마음이 앞서 발이 엉켰습니다. 다들 머쓱하게 웃습니다." }
+        },
+        {
+          "label": "차근차근 간다",
+          "effects": [{ "type": "score", "amount": 15 }],
+          "result": "한 걸음씩, 목표선이 조금 더 가까워졌습니다."
+        }
+      ],
+      "alt": {
+        "banmal": {
+          "text": "{선수|이/가} 점수판을 돌아봅니다. \"감독, 거의 다 왔어! 크게 한 번 가 볼까?\"",
+          "results": [
+            { "then": "단번에 목표선을 넘었습니다. 벤치가 들썩입니다.", "else": "마음이 앞서 발이 엉켰습니다. 다들 머쓱하게 웃습니다." },
+            "한 걸음씩, 목표선이 조금 더 가까워졌습니다."
+          ]
+        }
+      }
+    },
+    {
+      "id": "ls_second_look",
+      "trigger": "surprise",
+      "title": "어디서 어긋났는지",
+      "text": "{선수|이/가} 고개를 숙입니다. \"...죄송해요. 어디서 어긋났는지 알 것 같은데.\"",
+      "who": { "pick": "turnFailer" },
+      "seasons": [1, 2, 3],
+      "weight": 2,
+      "cond": { "failedThisTurn": true },
+      "choices": [
+        {
+          "label": "같이 짚어 본다",
+          "effects": [{ "type": "coachHint", "from": "fielded" }, { "type": "nextPct", "pct": -20 }],
+          "result": "코치들이 모여 방금 장면을 처음부터 다시 짚었습니다. 시간은 걸렸지만 남은 것이 있습니다."
+        },
+        {
+          "label": "털어 버리게 한다",
+          "effects": [{ "type": "nextNoFail" }],
+          "result": "고개를 든 {선수}의 발이 다시 가벼워졌습니다."
+        }
+      ],
+      "alt": {
+        "banmal": {
+          "text": "{선수|이/가} 고개를 숙입니다. \"...미안. 어디서 어긋났는지 알 것 같아.\"",
+          "results": [
+            "코치들이 모여 방금 장면을 처음부터 다시 짚었습니다. 시간은 걸렸지만 남은 것이 있습니다.",
+            "고개를 든 {선수}의 발이 다시 가벼워졌습니다."
+          ]
+        }
+      }
+    },
+    {
+      "id": "ls_perfect_in_sight",
+      "trigger": "surprise",
+      "title": "상한이 보인다",
+      "text": "{선수|이/가} 눈을 반짝입니다. \"여기까지 왔는데, 퍼펙트까지 노려 봐요!\"",
+      "who": { "pick": "random" },
+      "seasons": [1, 2, 3],
+      "weight": 2,
+      "cond": { "notPerfect": true, "capLeftMax": 80 },
+      "choices": [
+        {
+          "label": "끝까지 노린다",
+          "effects": [{ "type": "nextPct", "pct": 50 }, { "type": "stamina", "target": "team", "amount": -10 }],
+          "result": "모두가 한 박자 빨리 뛰기 시작했습니다. 숨소리가 거칠어집니다."
+        },
+        {
+          "label": "무리하지 않는다",
+          "effects": [{ "type": "stamina", "target": "team", "amount": 10 }],
+          "result": "물 한 모금씩 마시고, 남은 메뉴를 차분히 이어 갑니다."
+        }
+      ],
+      "alt": {
+        "banmal": {
+          "text": "{선수|이/가} 눈을 반짝입니다. \"여기까지 왔으면 퍼펙트까지 가 보자!\"",
+          "results": [
+            "모두가 한 박자 빨리 뛰기 시작했습니다. 숨소리가 거칠어집니다.",
+            "물 한 모금씩 마시고, 남은 메뉴를 차분히 이어 갑니다."
+          ]
+        }
+      }
+    },
+    {
+      "id": "ls_coach_demo",
+      "trigger": "surprise",
+      "title": "한 번만 더 보여 주세요",
+      "text": "{선수|이/가} {코치} 쪽을 힐끔 봅니다. \"감독님, 방금 그 동작... 코치님한테 한 번만 더 보여 달라고 하면 안 돼요?\"",
+      "who": { "pick": "coachCardTarget" },
+      "seasons": [1, 2, 3],
+      "weight": 2,
+      "cond": { "coachCardOkThisTurn": true },
+      "choices": [
+        {
+          "label": "지금 다 같이 본다",
+          "effects": [{ "type": "nextPct", "pct": 30 }],
+          "result": "그 자리에서 {코치}의 시범이 이어졌습니다. 선수들이 숨을 죽이고 따라 합니다."
+        },
+        {
+          "label": "끝나고 따로 배우게 한다",
+          "effects": [
+            { "type": "bond", "target": "coach", "amount": 10 },
+            { "type": "stamina", "target": "player", "amount": -10 }
+          ],
+          "result": "레슨이 끝난 뒤에도 {코치}에게 붙잡힌 {선수}의 연습은 해가 질 때까지 이어졌습니다."
+        }
+      ],
+      "alt": {
+        "banmal": {
+          "text": "{선수|이/가} {코치} 쪽을 힐끔 봅니다. \"감독, 방금 그 동작... 코치한테 한 번만 더 보여 달라고 하면 안 돼?\"",
+          "results": [
+            "그 자리에서 {코치}의 시범이 이어졌습니다. 선수들이 숨을 죽이고 따라 합니다.",
+            "레슨이 끝난 뒤에도 {코치}에게 붙잡힌 {선수}의 연습은 해가 질 때까지 이어졌습니다."
+          ]
+        }
+      }
+    },
+    {
+      "id": "ls_line_in_sync",
+      "trigger": "surprise",
+      "title": "한 사람처럼",
+      "text": "{선수|이/가} 옆 동료들과 눈을 맞춥니다. \"방금 느꼈어요? 다 같이 한 사람처럼 움직였어요!\"",
+      "who": { "pick": "multiTarget" },
+      "seasons": [1, 2, 3],
+      "weight": 2,
+      "cond": { "multiOkThisTurn": 3 },
+      "choices": [
+        {
+          "label": "이 호흡을 새긴다",
+          "effects": [{ "type": "teamwork", "amount": 5 }],
+          "result": "같은 줄에 선 선수들끼리 짧은 신호를 하나 정해 두었습니다. 경기장에서도 통할 것 같습니다."
+        },
+        {
+          "label": "이 박자로 몰아친다",
+          "effects": [{ "type": "drawNext", "n": 1 }, { "type": "nextPct", "pct": 20 }],
+          "result": "박자가 식기 전에 다음 메뉴로 넘어갑니다."
+        }
+      ],
+      "alt": {
+        "banmal": {
+          "text": "{선수|이/가} 옆 동료들과 눈을 맞춥니다. \"방금 느꼈어? 다 같이 한 사람처럼 움직였어!\"",
+          "results": [
+            "같은 줄에 선 선수들끼리 짧은 신호를 하나 정해 두었습니다. 경기장에서도 통할 것 같습니다.",
+            "박자가 식기 전에 다음 메뉴로 넘어갑니다."
+          ]
+        }
+      }
+    },
+    {
+      "id": "ls_ace_in_the_zone",
+      "trigger": "surprise",
+      "title": "소리가 사라졌다",
+      "text": "{선수|이/가} 공만 바라보고 있습니다. \"...지금은 주변 소리가 하나도 안 들려요.\"",
+      "who": { "pick": "mostTargeted" },
+      "policy": "ace",
+      "seasons": [1, 2, 3],
+      "weight": 3,
+      "cond": { "buffAtLeast": { "key": "focus", "n": 2 } },
+      "choices": [
+        {
+          "label": "단숨에 몰아친다",
+          "effects": [{ "type": "nextPct", "pct": 50 }, { "type": "stamina", "target": "player", "amount": -10 }],
+          "result": "{선수}의 몸이 쉬지 않고 다음 동작으로 넘어갔습니다."
+        },
+        {
+          "label": "길게 끌고 간다",
+          "effects": [{ "type": "buff", "n": 1 }],
+          "result": "호흡을 고르는 {선수}의 눈은 여전히 공에 머물러 있습니다."
+        }
+      ],
+      "alt": {
+        "banmal": {
+          "text": "{선수|이/가} 공만 바라보고 있습니다. \"...지금은 주변 소리가 하나도 안 들려.\"",
+          "results": [
+            "{선수}의 몸이 쉬지 않고 다음 동작으로 넘어갔습니다.",
+            "호흡을 고르는 {선수}의 눈은 여전히 공에 머물러 있습니다."
+          ]
+        }
+      }
+    },
+    {
+      "id": "ls_team_chant",
+      "trigger": "surprise",
+      "title": "하나, 둘",
+      "text": "{선수|이/가} 손뼉을 치며 구호를 붙입니다. \"자, 다 같이! 하나, 둘—!\"",
+      "who": { "pick": "random" },
+      "policy": "team",
+      "seasons": [1, 2, 3],
+      "weight": 3,
+      "cond": { "buffAtLeast": { "key": "mood", "n": 3 } },
+      "choices": [
+        {
+          "label": "구호를 이어 가게 둔다",
+          "effects": [{ "type": "buff", "n": 1 }, { "type": "nextPct", "pct": -20 }],
+          "result": "구호가 경기장을 한 바퀴 돌았습니다. 동작은 조금 느슨해졌습니다."
+        },
+        {
+          "label": "다음 동작에 집중시킨다",
+          "effects": [{ "type": "nextPct", "pct": 20 }],
+          "result": "구호가 잦아들고, 다들 다시 공으로 눈을 돌렸습니다."
+        }
+      ],
+      "alt": {
+        "banmal": {
+          "text": "{선수|이/가} 손뼉을 치며 구호를 붙입니다. \"자, 다들 따라 해! 하나, 둘—!\"",
+          "results": [
+            "구호가 경기장을 한 바퀴 돌았습니다. 동작은 조금 느슨해졌습니다.",
+            "구호가 잦아들고, 다들 다시 공으로 눈을 돌렸습니다."
+          ]
+        }
+      }
+    },
+    {
+      "id": "ls_counter_signal",
+      "trigger": "surprise",
+      "title": "한 번만 더 막고",
+      "text": "{선수|이/가} 앞쪽을 가리킵니다. \"한 번만 더 막고 나가요. 그럼 한 방에 뒤집을 수 있어요!\"",
+      "who": { "pick": "highestStamina", "zone": "defense" },
+      "policy": "counter",
+      "seasons": [1, 2, 3],
+      "weight": 3,
+      "cond": { "buffEquals": { "key": "steal", "n": 3 } },
+      "choices": [
+        {
+          "label": "한 번 더 버틴다",
+          "effects": [{ "type": "buff", "n": 1 }, { "type": "stamina", "target": "player", "amount": -15 }],
+          "result": "수비진이 한 번 더 몸을 던졌습니다. 앞선은 신호만 기다립니다."
+        },
+        {
+          "label": "지금 내보낸다",
+          "effects": [{ "type": "nextPct", "pct": 30 }],
+          "result": "\"가!\" 긴 공이 앞선으로 날아갔습니다."
+        }
+      ],
+      "alt": {
+        "banmal": {
+          "text": "{선수|이/가} 앞쪽을 가리킵니다. \"한 번만 더 막고 나가자. 그럼 한 방에 뒤집을 수 있어!\"",
+          "results": [
+            "수비진이 한 번 더 몸을 던졌습니다. 앞선은 신호만 기다립니다.",
+            "\"가!\" 긴 공이 앞선으로 날아갔습니다."
+          ]
+        }
+      }
+    },
+    {
+      "id": "ls_press_higher",
+      "trigger": "surprise",
+      "title": "한 단계 더",
+      "text": "{선수|이/가} 가쁜 숨 사이로 웃습니다. \"더 올려요, 감독님. 지금 멈추면 아까워요!\"",
+      "who": { "pick": "highestStamina", "zone": "physical" },
+      "policy": "press",
+      "seasons": [1, 2, 3],
+      "weight": 3,
+      "cond": { "buffEquals": { "key": "press", "n": 2 } },
+      "choices": [
+        {
+          "label": "끝까지 올린다",
+          "effects": [{ "type": "buff", "n": 1 }],
+          "result": "앞선이 한 걸음 더 올라섰습니다. 쉴 틈이 없습니다."
+        },
+        {
+          "label": "한 박자 고른다",
+          "effects": [{ "type": "stamina", "target": "team", "amount": 10 }],
+          "result": "다들 물을 한 모금씩 마시고 다시 자세를 낮췄습니다."
+        }
+      ],
+      "alt": {
+        "banmal": {
+          "text": "{선수|이/가} 가쁜 숨 사이로 웃습니다. \"더 올려, 감독. 지금 멈추면 아까워!\"",
+          "results": ["앞선이 한 걸음 더 올라섰습니다. 쉴 틈이 없습니다.", "다들 물을 한 모금씩 마시고 다시 자세를 낮췄습니다."]
+        }
+      }
+    },
+    {
+      "id": "ls_keep_the_ball",
+      "trigger": "surprise",
+      "title": "서두를 거 없어요",
+      "text": "{선수|이/가} 공을 발밑에 두고 느긋하게 웃습니다. \"서두를 거 없어요. 안 뺏기기만 하면 우리 공이에요.\"",
+      "who": { "pick": "highestStamina", "zone": "pass" },
+      "policy": "poss",
+      "seasons": [1, 2, 3],
+      "weight": 3,
+      "cond": { "buffAtLeast": { "key": "poss", "n": 4 } },
+      "choices": [
+        {
+          "label": "한 바퀴 더 돌린다",
+          "effects": [{ "type": "buff", "n": 1 }, { "type": "stamina", "target": "player", "amount": -10 }],
+          "result": "{선수}의 발밑에서 공이 중원을 한 바퀴 더 돌았습니다. 다리가 조금 무거워 보입니다."
+        },
+        {
+          "label": "가장 쉬운 길로 잇는다",
+          "effects": [{ "type": "nextNoFail" }],
+          "result": "가장 가까운 동료에게, 가장 쉬운 패스로. 흐름이 끊기지 않습니다."
+        }
+      ],
+      "alt": {
+        "banmal": {
+          "text": "{선수|이/가} 공을 발밑에 두고 느긋하게 웃습니다. \"서두를 거 없어. 안 뺏기기만 하면 우리 공이야.\"",
+          "results": [
+            "{선수}의 발밑에서 공이 중원을 한 바퀴 더 돌았습니다. 다리가 조금 무거워 보입니다.",
+            "가장 가까운 동료에게, 가장 쉬운 패스로. 흐름이 끊기지 않습니다."
+          ]
+        }
+      }
+    },
+    {
+      "id": "ls_neria_watching",
+      "trigger": "surprise",
+      "title": "골문 앞에서",
+      "text": "골문 앞의 네리아가 물빛 머리끝을 가만히 쓸어 넘깁니다. \"괜찮아요. 저는 여기서 흐름을 보고 있을게요.\"",
+      "who": { "pick": "char", "charId": "ch_spirit_keeper" },
+      "seasons": [1, 2, 3],
+      "weight": 2,
+      "cond": { "turnMin": 3, "char": { "id": "ch_spirit_keeper", "targetedMax": 0 } },
+      "choices": [
+        {
+          "label": "흐름을 읽어 달라고 한다",
+          "effects": [{ "type": "restRemaining", "target": "player", "stamina": 20 }, { "type": "nextNoFail" }],
+          "result": "골문 쪽에서 낮은 목소리가 건너옵니다. \"왼쪽, 반 박자 늦어요.\""
+        },
+        {
+          "label": "배급부터 시작하게 한다",
+          "effects": [
+            { "type": "drawNext", "n": 1 },
+            { "type": "nextPct", "pct": 20 },
+            { "type": "stamina", "target": "player", "amount": -10 }
+          ],
+          "result": "네리아의 긴 배급이 경기장을 가로질렀습니다. 다음 메뉴는 그 공에서 시작됩니다."
+        }
+      ]
+    },
+    {
+      "id": "ls_dorbina_heavier",
+      "trigger": "surprise",
+      "title": "더 얹어",
+      "text": "도르비나가 모래 썰매를 발끝으로 툭 밉니다. \"가벼워. 더 얹어.\"",
+      "who": { "pick": "char", "charId": "ch_dwarf_wall" },
+      "seasons": [1, 2, 3],
+      "weight": 2,
+      "cond": {
+        "zoneIn": ["defense", "physical"],
+        "char": { "id": "ch_dwarf_wall", "staminaMin": 50, "targetedMin": 2, "targetedThisTurn": true }
+      },
+      "choices": [
+        {
+          "label": "원하는 만큼 얹는다",
+          "effects": [{ "type": "score", "amount": 30 }, { "type": "stamina", "target": "player", "amount": -20 }],
+          "result": "썰매에 원판이 두 장 더 올라갔습니다. 도르비나는 한마디 없이 끝까지 끌고 갔습니다."
+        },
+        {
+          "label": "옆 선수 자세를 봐 달라고 한다",
+          "effects": [{ "type": "teamwork", "amount": 4 }, { "type": "nextNoFail" }],
+          "result": "도르비나가 투덜대면서도 옆 선수의 무릎을 손으로 눌러 잡아 주었습니다. \"...이렇게.\""
+        }
+      ]
+    },
+    {
+      "id": "ls_adeline_head_up",
+      "trigger": "surprise",
+      "title": "고개 들어",
+      "text": "아델린이 크게 손뼉을 칩니다. \"고개 들어, 아직 반이나 남았어! ...감독님, 제가 앞장서겠습니다.\"",
+      "who": { "pick": "char", "charId": "ch_human_captain" },
+      "seasons": [1, 2, 3],
+      "weight": 3,
+      "cond": { "halfway": true, "scoreBelowTargetFrac": 0.5, "char": { "id": "ch_human_captain", "staminaMin": 30 } },
+      "choices": [
+        {
+          "label": "앞장세운다",
+          "effects": [{ "type": "extraPlayNext", "n": 1 }, { "type": "stamina", "target": "player", "amount": -20 }],
+          "result": "아델린이 가장 먼저 뛰어나갔습니다. 다들 그 등을 보고 따라붙습니다."
+        },
+        {
+          "label": "혼자 짊어지지 말라고 한다",
+          "effects": [{ "type": "nextPct", "pct": 20 }, { "type": "teamwork", "amount": 3 }],
+          "result": "아델린이 잠깐 멈칫하더니, 동료들을 한 명씩 불러 세웠습니다. \"...같이 가자.\""
+        }
+      ]
+    },
+    {
+      "id": "ls_silluen_two_ahead",
+      "trigger": "surprise",
+      "title": "두 수 앞",
+      "text": "실루엔이 다 안다는 듯 미소 짓습니다. \"감독님, 다음 순서는 제게 맡겨 보실래요? 두 수 앞까지 보이거든요.\"",
+      "who": { "pick": "char", "charId": "ch_elf_playmaker" },
+      "seasons": [1, 2, 3],
+      "weight": 2,
+      "cond": { "randomTurn": true, "turnMin": 3, "zoneIn": ["pass", "dribble"], "char": { "id": "ch_elf_playmaker" } },
+      "choices": [
+        {
+          "label": "맡겨 본다",
+          "effects": [{ "type": "drawNext", "n": 1 }, { "type": "nextPct", "pct": 30 }],
+          "result": "실루엔이 짚어 준 순서대로 움직이자, 공이 막힘없이 흘러갔습니다."
+        },
+        {
+          "label": "끝나고 따로 듣는다",
+          "effects": [{ "type": "playerHint", "target": "player", "skillId": "sk_wind_reading" }],
+          "result": "레슨이 끝난 뒤, 실루엔이 칠판에 선 하나를 그었습니다. \"여기요. 공이 한 번 이어지면 바람길이 보여요. 아무도 안 보는 길이에요.\""
+        }
+      ]
+    },
+    {
+      "id": "ls_taria_no_rest",
+      "trigger": "surprise",
+      "title": "쉬는 동안에도",
+      "text": "타리아가 제자리에서 통통 뜁니다. \"저 하나도 안 지쳤어요! 쉬는 동안 빈자리 좀 뛰어 봐도 돼요?\"",
+      "who": { "pick": "char", "charId": "ch_human_runner" },
+      "seasons": [1, 2, 3],
+      "weight": 2,
+      "cond": { "benchedThisTurn": true, "char": { "id": "ch_human_runner", "staminaMin": 60 } },
+      "choices": [
+        {
+          "label": "뛰게 둔다",
+          "effects": [{ "type": "score", "amount": 25 }, { "type": "stamina", "target": "player", "amount": -15 }],
+          "result": "타리아가 텅 빈 경기장을 혼자 몇 바퀴나 돌았습니다. 돌아와서도 웃고 있습니다."
+        },
+        {
+          "label": "벤치에서 동료들을 보게 한다",
+          "effects": [{ "type": "drawNext", "n": 1 }, { "type": "stamina", "target": "player", "amount": 10 }],
+          "result": "벤치에 앉은 타리아의 무릎이 쉬지 않고 들썩입니다. 그래도 눈은 동료들의 발을 끝까지 따라갔습니다. \"다음 턴엔 저 뒤로 돌아 들어가요. 제가 봤어요!\""
+        }
+      ]
+    },
+    {
+      "id": "ls_ulrika_last_lap",
+      "trigger": "surprise",
+      "title": "마지막 한 바퀴",
+      "text": "울리카가 송곳니를 드러내며 웃습니다. \"마지막 한 바퀴죠? 무리 전부 제 뒤로 붙으라고 하세요!\"",
+      "who": { "pick": "char", "charId": "ch_wolf_winger" },
+      "seasons": [1, 2, 3],
+      "weight": 2,
+      "cond": { "turnsLeftMax": 1, "char": { "id": "ch_wolf_winger", "staminaMin": 40 } },
+      "choices": [
+        {
+          "label": "앞장서 달리게 한다",
+          "effects": [
+            {
+              "type": "random",
+              "chance": 0.8,
+              "then": [{ "type": "score", "amount": 40 }],
+              "else": [{ "type": "injureNow", "target": "player" }]
+            }
+          ],
+          "result": {
+            "then": "은회색 꼬리를 따라 모두가 마지막 바퀴를 끝까지 달렸습니다.",
+            "else": "결승선 앞에서 울리카가 발목을 붙잡고 주저앉았습니다."
+          }
+        },
+        {
+          "label": "무리를 챙기게 한다",
+          "effects": [{ "type": "condition", "amount": 1 }],
+          "result": "울리카가 속도를 늦추고, 맨 뒤의 동료까지 챙겨 다 같이 들어왔습니다."
+        }
+      ]
+    },
+    {
+      "id": "ls_greta_new_ball",
+      "trigger": "surprise",
+      "title": "새 공",
+      "text": "특별 레슨이라고 클럽이 큰맘 먹고 들인 새 가죽 공입니다. 공을 두 손으로 받쳐 든 그레타가 머뭇거립니다. \"이거 비싼 거죠? ...제가 세게 차도 돼요?\"",
+      "who": { "pick": "char", "charId": "ch_giant_striker" },
+      "seasons": [1, 2, 3],
+      "weight": 3,
+      "cond": { "randomTurn": true, "special": true, "turnMin": 3, "char": { "id": "ch_giant_striker" } },
+      "choices": [
+        {
+          "label": "마음껏 차라고 한다",
+          "effects": [{ "type": "nextPct", "pct": 40 }, { "type": "stamina", "target": "player", "amount": -15 }],
+          "result": "땅이 울릴 만큼 큰 소리가 났습니다. 공은 멀쩡했고, 골망 한가운데에 주먹만 한 구멍이 났습니다. 그레타가 머리를 긁적이며 웃습니다."
+        },
+        {
+          "label": "낡은 공으로 감부터 잡게 한다",
+          "effects": [{ "type": "nextNoFail" }, { "type": "teamwork", "amount": 3 }],
+          "result": "동료들이 낡은 공을 하나씩 굴려 주었습니다. 몇 번 차 보고 나서야 그레타가 새 공을 땅에 내려놓았습니다."
+        }
+      ]
+    },
+    {
+      "id": "ls_mirka_shuffle",
+      "trigger": "surprise",
+      "title": "제가 섞어 볼까요",
+      "text": "감독 손에 있던 훈련 카드 묶음이 어느새 미르카 손에 있습니다. \"이번엔 제가 섞어 볼까요? 재밌는 걸 맨 위에 올려 둘게요.\"",
+      "who": { "pick": "char", "charId": "ch_cat_trickster" },
+      "seasons": [1, 2, 3],
+      "weight": 2,
+      "cond": { "reshuffledThisTurn": true, "char": { "id": "ch_cat_trickster" } },
+      "choices": [
+        {
+          "label": "섞게 둔다",
+          "effects": [
+            {
+              "type": "random",
+              "chance": 0.5,
+              "then": [{ "type": "extraPlayNext", "n": 1 }],
+              "else": [{ "type": "nextPct", "pct": -20 }]
+            }
+          ],
+          "result": {
+            "then": "맨 위에서 딱 맞는 두 장이 나란히 나왔습니다. 미르카가 꼬리를 바짝 세웁니다.",
+            "else": "카드 뒷면마다 고양이 낙서가 그려져 있었습니다. 순서를 찾느라 한참 걸렸습니다."
+          }
+        },
+        {
+          "label": "카드를 돌려받는다",
+          "effects": [{ "type": "teamwork", "amount": 3 }],
+          "result": "미르카가 시치미를 떼며 카드를 내밉니다. 뒷면에 그려진 동료들 얼굴에 다 같이 웃음이 터졌습니다."
+        }
+      ]
+    }
+  ]
 }
