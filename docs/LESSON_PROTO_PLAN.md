@@ -3132,3 +3132,285 @@ previewCard(state, data, { uid, at, playerId, zone }) → { …예전,
 - `lessonLayout.test` (+1): `playerStatInfo` 값 = 엔진 상태 (지금 · 레슨 시작 · 상승 · 등급 · 성장률 · 주 스탯 · 구역 줄 · 벤치 · 결장 · 기본 / 카드 / 부 나눔), 순수.
 - `lessonUi.test` (스탯 보기 절): 명단 줄 값 = 엔진, 카드 없이 토큰 누르기 = 팝오버 · 값 = 엔진, 같은 토큰 다시 · Esc · 바깥 · × = 닫기, Enter · I 키, 명단 줄 · 다른 토큰, hover (열림 · 떠나면 닫힘), 벤치 줄, **카드를 골랐을 때 토큰 누르기 = 그 선수에게 낸다 (팝오버 없음)**, 조준 중 hover 없음 · I 키 · ⓘ = 팝오버 (조준 유지 · 내지 않음), Esc 순서.
 - 스크린샷 (`tools/lesson_scenarios.mjs` `rosterState` = 부상 직후 + 벤치 1명): `og_lesson_roster` · `og_lesson_info_tok` · `og_lesson_info_hover` · `og_lesson_info_aim` (조준 중 ⓘ) · `og_lesson_info_touch` · `og_lesson_info_touch_aim` (915×412 터치). `tools/shot.mjs` 검사에 명단 줄 · 팝오버 글자 잘림, 옆 칸 넘침, 팝오버 화면 밖 · 내용 넘침을 더했다.
+
+---
+
+## 18. 부상은 레슨에만 · 액티브는 코치에게서 · SP는 패시브만
+
+> 상태: 구현 계획 · 2026-10-04 · 브랜치 `outgame-lesson`. 기준: 기획자 결정 (2026-10-04) 세 가지.
+> 1. **부상은 레슨에만 영향을 준다.** 다친 선수는 지금처럼 레슨을 쉬지만(L16 단위), 경기에는 늘 그대로 나온다 — 레슨 런의 경계전 · 친선전에 유스 교체가 없고 경기 스탯 벌칙도 없다.
+> 2. **SP는 남기지만 SP 상점(상담)은 패시브 스킬만 판다. 액티브 스킬은 코치(서포트 카드)에게서 얻는다.** 액티브 스킬의 힌트가 생기는 순간 선수가 바로 배운다 — 레슨 보상 화면에서 코치가 "가르쳐 주고", 플레이어가 받을 선수를 고른다.
+> 3. 경기 안의 "스루 패스" 액티브 스킬은 **지금 그대로** 둔다 (2구역 전진 같은 새 행동을 넣지 않는다).
+>
+> 표기는 §14 · §15와 같다. **[가정]** = 기획자가 아직 정하지 않은 값, **[구현 결정]** = 이 계획이 정한 세부. 둘 다 §18.10에 모았다.
+> 밸런스는 조정하지 않는다. 시뮬은 전 / 후만 보고한다.
+> 경기 쪽 파일(`js/engine/match.js` · `ai.js` · `skills.js` · `rng.js` · `js/ui/screens/match.js` · `js/ui/layout.js` · `css/match.css`) · `data/config.json`은 바꾸지 않는다. **옛 런(`run.js` · `training.js`)의 동작도 바꾸지 않는다** — 이번 변경은 모두 `lessonRun.js` 쪽에서 감싼다 (§18.1). 여기 적지 않은 것은 §14 ~ §17 그대로다.
+
+### 18.0 한눈에
+
+| 무엇 | 지금 | 바뀐 뒤 |
+|---|---|---|
+| 다친 선수 (레슨) | `injuredTurns` > 0이면 열린 레슨 시작에 결장 (`outAtStart`), 레슨이 끝나면 −1 | **그대로** |
+| 다친 선수 (경계전 · 친선전) | 유스(`youthSnapshot`, 스탯 일괄 · 스킬 없음)로 바뀐다 | **본인이 그대로 출전** (스탯 · 스킬 · 공명 그대로, 벌칙 없음) |
+| 친선전 체력 | 다친 선수는 체력 −30을 내지 않는다 (안 나왔으므로) | 나왔으므로 **7명 모두** 체력 −`friendly.staminaCost` |
+| 클리어 · 퍼펙트 · 컷인 힌트가 **패시브** | 힌트 레벨 +1 (최대 3) → 상담에서 SP로 할인 구매 | **그대로** |
+| 클리어 · 퍼펙트 · 컷인 힌트가 **액티브** | 힌트 레벨 +1 → 상담에서 SP로 구매 | **코치 수업** — 보상 화면에서 "하르나 코치가 '파워 슛'을 가르쳐 줍니다" → 받을 선수를 고르면 바로 습득 (SP 없음). 슬롯이 가득이면 바꿀 스킬을 고르거나, 배우지 않고 SP +20 |
+| 상담 스킬 칸 | 힌트 받은 스킬 전부 (액티브 · 패시브) | **패시브만** (힌트가 있어야 진열 — 지금 규칙 그대로, §18.5) |
+| 같은 액티브를 또 받음 | 힌트 레벨 +1 | 엔진에 스킬 레벨이 없다 (`skills.js`는 바꾸지 않는다) → 아직 그 스킬이 없는 다른 선수에게 가르치거나, 받을 선수가 없으면 **SP +20** (§18.3) |
+| 경기 "스루 패스" | — | 그대로 |
+| 저장 | `lessonRun.version` 2 | **3** (2 → 3 이행, 레슨 · 보상 중이어도 이행된다, §18.7) |
+
+### 18.1 부상 — 레슨에만 (엔진 `lessonRun.js`)
+
+**바뀌지 않는 것** (레슨 쪽 — 지금 그대로)
+- 레슨 중 실패 → 50% 부상 → `out` · `injuredTurns = max(cur, 1)` · 고유 카드 `removed` (§5.3.1 10번, §14.7).
+- 레슨 시작에 `injuredTurns > 0`인 선수는 `outAtStart` (경기장 · 벤치 · 대상 · 기본 훈련에서 빠짐), 그 레슨이 끝나면 −1 (§5.4.3 3번). 다친 주인의 고유 카드는 그 레슨 덱에서 빠진다.
+- 주 화면 · 명단 · 미팅의 "결장 n" 배지, `getWeekView().lessons[].expected` · `boosted`(결장 제외), 감독 AI의 `weekActive`(주 고르기 평균 체력 — 결장 제외) [구현 결정: 레슨 기준 지표라 그대로].
+- 휴식 · 외출 · 미팅 · 상담은 부상과 상관없다 (지금도 그렇다).
+
+**바뀌는 것** (경기 쪽 — lessonRun이 감싼다, `run.js`는 그대로)
+
+| lessonRun 공개 함수 | 지금 | 바뀐 뒤 |
+|---|---|---|
+| `buildTeamSnapshot(state, data)` | run.js 것을 그대로 다시 내보냄 → 다친 선수 = 유스 | lessonRun이 **자기 함수**로 내보낸다: `run.buildTeamSnapshot(fieldView(state), data)` |
+| `getMatchSetup(state, data)` | run.js 그대로 | `run.getMatchSetup(fieldView(state), data)` (모양 · 시드 · 규칙 그대로, `home.players`에 유스 없음) |
+| `finishMatch(state, data, result)` | `run.settleMatch` → 친선전이면 다친 선수 빼고 체력 −30 | `settleMatch` 전에 다친 선수 id를 적어 두고, 친선전이었으면 settle 뒤 그 선수들에게도 `−friendly.staminaCost` (0에서 멈춤) → 결과는 "7명 모두 −30"과 같다 |
+| `getPrepView` | `injuredOut: [id]` | 그대로 (화면 문구만 바뀐다, §18.6) |
+
+- `fieldView(state)` = `{ ...state, players: state.players.map((p) => ({ ...p, injuredTurns: 0 })) }` — **얕은 사본, 상태를 바꾸지 않고 rng도 쓰지 않는다**. 스냅샷은 사본으로 만들고 저장 상태의 `injuredTurns`는 그대로 남는다 (다음 레슨 결장은 그대로).
+- 경기는 `injuredTurns`를 줄이지 않는다 (지금도 그렇다 — 경기 뒤 첫 레슨이 끝나야 −1, §14 D22).
+- 옛 런(`run.js` `getMatchSetup` · `buildTeamSnapshot` · `settleMatch`)은 지금처럼 유스로 바꾸고 체력을 빼지 않는다 — `run.test` · `match.test` · `layout.test`는 그대로 통과해야 한다.
+- 경기 화면 · 결과 화면은 스냅샷만 읽으므로 바꿀 것이 없다 (`isYouth`가 없을 뿐).
+- 이벤트 효과 `injure`(effects.js)는 1차에 쓰지 않는다 (`lesson.events.support` false). 켜면 그 부상도 같은 뜻(레슨 결장만)이다.
+
+### 18.2 액티브 · 패시브 판정 · 데이터
+
+- 액티브 = `skills.json`의 `kind === "active"` · `learnable: true`. 패시브 = `kind === "passive"` · `learnable: true`. `unique`(필살기)와 `learnable: false`는 지금처럼 힌트 · 수업 · 상점 어디에도 없다.
+- 지금 코치 힌트 목록(`supports.json hintSkillIds`)에서 나오는 액티브 · 패시브:
+
+| 코치 | 액티브 (수업) | 패시브 (상점 힌트) |
+|---|---|---|
+| 하르나 | 파워 슛 (FW) | 막판 집중 · 승부사 |
+| 셀리아 | 폭발 드리블 (FW · MF) · 꿰뚫어보기 (FW · MF) | 마지막 힘 |
+| 오르넬라 | 스루 패스 (MF) · 매의 눈 (DF · MF) | 연계의 달인 |
+| 바르바라 | 바위 방벽 (DF) · 캐논 킥 (GK) | 잠금 수비 (DF) |
+| 한나 | — | 큰 경기 체질 · 마지막 힘 |
+| 루미 | 함성 (전원) | — |
+| 조이 | 파워 슛 (FW) | 언더독 정신 |
+| 이레네 | 스루 패스 (MF) · 꿰뚫어보기 (FW · MF) | 침착한 수문장 (GK) |
+
+- **소매치기(MF 액티브)는 어느 코치 목록에도 없어 레슨 런에서 얻을 수 없다** (지금도 코치 힌트로는 나오지 않는다) — 데이터는 바꾸지 않고 기획자 질문으로 둔다 (§18.10 Q2).
+- **데이터 키 하나** (`data/lesson.json` `rewards`, version 2 그대로):
+
+```jsonc
+"rewards": { …, "noHintSp": 10,
+  "teach": { "declineSp": 20 } }      // 수업을 받지 않거나 받을 선수가 없을 때 SP [가정]
+```
+
+  - 키가 없으면 20으로 읽는다. `config.json`은 바꾸지 않는다.
+
+### 18.3 힌트 뽑기 · 수업 목록 (`afterLesson`)
+
+**뽑기 후보** (`drawHint` · `drawHintFrom` 둘 다 — 코치 고르기 · 스킬 고르기 방식과 rng 호출 수는 지금 그대로)
+
+| 스킬 | 후보 조건 |
+|---|---|
+| 패시브 | `state.hints[id] < 3` (지금 그대로) |
+| 액티브 | **누군가 새로 배울 수 있다** — 7명 중 `positions`에 맞고(지금 포지션) 그 스킬이 없는(습득 · 고유 모두) 선수가 1명 이상 (슬롯이 가득이어도 바꾸기로 배울 수 있으므로 후보다) |
+
+- 후보가 하나도 없는 힌트는 지금처럼 `noHintSp` (SP +10).
+- 뽑은 결과
+  - 패시브: `state.hints[id] += 1` (지금 그대로) → `result.hints[]` (`kind: "passive"`, `level`).
+  - 액티브: `state.hints`를 건드리지 않는다. `pendingReward.teach[]`에 `{ skillId, supportId, src }`를 넣는다 (`src` = `"clear"` | `"cutin"` | `"event"`).
+- 순서 (지금 순서 그대로): 클리어 · 퍼펙트 힌트(+ hintRate 추가 1개) → 컷인 힌트(`L.attach.hints`, 결과와 상관없이). 그 앞에 **이벤트 수업 대기열** `state.pendingTeach`(아래)를 먼저 붙이고 비운다.
+- 레슨이 실패해도 컷인 힌트는 받으므로, 실패한 레슨에도 수업이 있을 수 있다.
+- 같은 보상 안에서 같은 액티브가 두 번 뽑힐 수 있다 (예: 퍼펙트 힌트 2개가 모두 파워 슛). 뽑을 때는 막지 않고, 두 번째 수업 차례에 받을 선수가 없으면 SP로 바뀐다 (아래 "받을 선수 없음").
+
+**코치 유대 이벤트 (1차는 꺼져 있음 — `lesson.events.support` false)**
+- 켜면 이벤트 효과 `hint`가 액티브를 가리킬 수 있다 (`effects.js` — 바꾸지 않는다). lessonRun의 `supportEventCheck` · `resolveEvent`는 처리 **전후의 `state.hints`를 비교**해 늘어난 액티브 힌트를 되돌리고 `state.pendingTeach.push({ skillId, supportId: 이벤트 코치 | null, src: "event" })` 한다 (레벨 n이 늘었으면 1개만 — 수업은 1번) [구현 결정]. 다음 레슨 보상 화면에서 가르친다.
+- 그래서 레슨 런의 `state.hints`에는 **액티브가 남지 않는다** (불변식, 테스트가 매 단계 확인).
+
+**`pendingReward` 추가**
+
+```jsonc
+"pendingReward": { "offer": [ … ], "freeUpgrades": 1, "result": { …, "hints": [ /* 패시브만 */ ], "teach": [ /* 아래 항목 사본 */ ] },
+  "teach": [
+    { "skillId": "sk_power_shot", "supportId": "sp_coach_harr", "src": "clear",
+      "result": null,                       // null = 아직 | "learned" | "declined" | "none"
+      "playerId": null, "replaced": null,   // learned 일 때
+      "sp": 0 }                             // declined · none 일 때 받은 SP
+  ] }
+```
+
+### 18.4 수업 처리 (엔진 API · 규칙)
+
+**받을 수 있는 선수 — `canTeachSkill(state, data, skillId, playerId)`** (lessonRun 새 export, 순수)
+
+| 검사 | 실패 이유 (UI 문구) |
+|---|---|
+| 스킬이 `kind: "active"` · `learnable` | "수업할 수 없는 스킬" |
+| 선수가 있다 | "선수 없음" |
+| 그 스킬이 없다 (`learnedSkillIds` · `innateSkillId`) | "이미 보유" |
+| `positions`가 있으면 지금 `position`이 그 안 | "FW만" 처럼 `positions`를 ` · `로 이은 것 + "만" |
+
+- 돌려주는 값 `{ ok, reason, full }` — `full` = `learnedSkillIds.length ≥ MAX_LEARNED_SKILLS`(3). `ok && full`이면 바꿀 스킬을 골라야 배운다.
+- **힌트 검사가 없다** (`training.canLearnSkill`과 다른 점 — 그 함수는 그대로 둔다).
+- 다친 선수도 받을 수 있다 (경기에 나오므로).
+
+**`resolveTeach(state, data, { playerId = null, replaceSkillId = null })`** (lessonRun 새 export, phase reward)
+- 대상 = `pendingReward.teach` 중 `result === null`인 **첫 항목** (순서대로만 처리한다). 없으면 오류.
+- `playerId == null` → 배우지 않는다: `result` = (받을 수 있는 선수가 0명이면 `"none"`, 아니면 `"declined"`), SP += `teach.declineSp`, `sp` 기록.
+- `playerId`가 있으면
+  - `canTeachSkill`이 `ok`가 아니면 오류 (상태 그대로).
+  - `full`이면 `replaceSkillId`가 그 선수의 `learnedSkillIds` 안에 있어야 한다 (고유 스킬 · 없는 스킬이면 오류). 그 스킬을 빼고 새 스킬을 **그 자리에** 넣는다 (슬롯 순서 유지). 뺀 스킬은 사라진다 — 환불 · 힌트 복구 없음 [가정].
+  - `full`이 아니면 `replaceSkillId`는 무시하지 않고 오류다 (실수 방지).
+  - `learnedSkillIds`에 넣고 `result = "learned"`, `playerId`, `replaced` 기록.
+- 로그 한 줄: "수업: 하르나 코치 → 실루엔 '파워 슛' 습득" / "… ('승부사' 대신)" / "수업: '파워 슛' 받지 않음 — SP +20" / "수업: '파워 슛' — 받을 선수 없음, SP +20".
+- **rng를 쓰지 않는다.** 검증이 먼저고, 실패하면 상태를 바꾸지 않는다. 호출마다 UI가 저장한다.
+
+**`resolveReward`** — `teach`에 `result === null`이 남아 있으면 오류 "코치 수업을 먼저 끝내세요" (상태 그대로). 나머지는 그대로.
+
+**받을 선수 없음** — 그 수업 차례에 `canTeachSkill`이 `ok`인 선수가 0명이면 (포지션이 없음 · 모두 이미 보유 — 같은 보상의 앞 수업이 마지막 후보에게 가르친 경우 포함) 뷰가 `noneEligible: true`를 주고, 받을 수 있는 행동은 `resolveTeach({ playerId: null })` 하나다 → `"none"` · SP +20. 엔진이 저절로 넘기지 않는다 (플레이어가 무슨 일인지 보게 한다) [구현 결정].
+
+**뷰 — `getRewardView` 추가** (순수, rng 없음)
+
+```jsonc
+teach: {
+  total: 2, index: 0,                          // index = 지금 차례 (모두 끝났으면 total)
+  declineSp: 20,
+  list: [ { skillId, name, supportId, coachName: "코치 하르나", coachShort: "하르나", coachColor, src,
+            result, playerId, replaced, replacedName, sp } ],
+  cur: { skillId, name, kind: "active", description, positions: ["FW"], supportId, coachName, coachShort, coachColor, src,
+         noneEligible: false,
+         players: [ { id, name, slot, position, portraitColor, injured: bool,
+                      ok, reason, full,
+                      learned: [ { skillId, name, kind } ] } ] }   // 7명, state.players 순서
+       | null }
+```
+
+- `coachShort` = 이름 마지막 낱말 (§15.5와 같다). `src: "event"`이고 `supportId`가 null이면 `coachName` · `coachShort` = "코치진".
+- `result.teach` = 끝난 항목 요약 (보상 칩 · 로그용) — `resolveTeach`가 갱신한다.
+
+### 18.5 상담 — SP는 패시브만
+
+- `getConsultView().skills` = `state.hints`에 레벨이 있고 **`kind === "passive"`**인 스킬만 (가격 · 할인 · `eligiblePlayers`는 지금 그대로 — `canLearnSkill` · `skillDiscountedCost`).
+- `consultAction({ op: "skill" })` — 액티브면 오류 "액티브 스킬은 코치 수업으로 배웁니다" (상태 그대로).
+- **어떤 패시브를 진열할지 (캐릭터 기준 / 서포트 기준)는 기획자가 아직 정하지 않았다.** 기본값 = 지금 규칙 그대로 "편성 코치 힌트를 받은 패시브만" [가정, §18.10 Q1]. 바꾸기 쉽게 진열 목록은 `consultSkillRows(state, data)` 한 함수에서 만든다.
+- 상담 화면 "힌트 대기" 칩도 편성 코치의 **패시브**만 보여 준다.
+- 미팅 · 경기 전 준비의 스킬 구매는 지금도 없다 (`action.buy` 거절, 그대로).
+
+### 18.6 UI (1280×720 · 915×412 터치, 스크롤 · 잘림 없음)
+
+**보상 모달 — "코치 수업" 단계** (`js/ui/screens/reward.js`)
+- `v.teach.cur`가 있으면 모달은 결과 머리 · 칩 · 선수 7줄 아래에 **카드 고르기 · 무료 강화 대신 수업 칸**을 그린다. 수업이 모두 끝나면(`cur == null`) 지금 모달(카드 고르기 · 무료 강화 · 실패면 "보상 없음")로 넘어간다.
+
+```
+├ 코치 수업 1/2 ──────────────────────────────────────────────────────────────────────────┤
+│ (하르나 얼굴) 하르나 코치가 '파워 슛'을 가르쳐 줍니다          [액티브] FW · 설명 한 줄     │
+│ 받을 선수  [얼굴 실루엔 FW ●●○ 추천] [얼굴 네리아 GK — FW만(회색)] … 7명 (한 줄)           │
+│ (가득인 선수를 고르면) 바꿀 스킬 [승부사] [막판 집중] [언더독 정신] — 고른 스킬은 사라집니다 │
+│ [배우지 않기 · SP +20]                                         [가르치기] (선수 고르면 켜짐) │
+```
+
+  - 문구: `"<coachShort> 코치가 '<스킬 이름>'<을|를> 가르쳐 줍니다"` — 조사는 스킬 이름 마지막 글자 받침으로 고른다 (`labels.objParticle(word)`: 받침 있으면 "을", 없으면 "를", 한글이 아니면 "을(를)"). 예: '파워 슛'을 · '스루 패스'를 · '함성'을.
+  - 선수 칩 (`.rw-teach-pl`, 버튼): 얼굴 · 이름 · 슬롯 · 스킬 칸 점 `●●○`(습득 수 / 3), 다친 선수는 🚑 작은 표시(받을 수 있다). `ok: false`는 회색 + 이유("FW만" · "이미 보유"), 누를 수 없다. `full`은 "가득 — 바꾸기" 꼬리표.
+  - 바꿀 스킬 줄 (`.rw-teach-rep`)은 가득인 선수를 골랐을 때만. 그 선수의 습득 스킬 3개(이름 · 액티브/패시브 표시)를 버튼으로 — 하나를 골라야 [가르치기]가 켜진다.
+  - `noneEligible`이면 선수 칩은 모두 회색, 안내 "받을 수 있는 선수가 없습니다 (FW 없음 / 모두 이미 보유)", 버튼은 [SP +20 받기] 하나.
+  - 여러 개면 머리 "코치 수업 1/2"이고, 끝난 수업은 칩 줄에 "수업 파워 슛 → 실루엔" · "수업 함성 → SP +20"으로 쌓인다.
+  - [가르치기] = `actions.resolveTeach({ playerId, replaceSkillId })`, [배우지 않기] = `actions.resolveTeach({ playerId: null })` — 엔진 호출 1번 · 저장 · 모달 다시 그리기 (연타 방지). 고르는 동안(선수 · 바꿀 스킬)은 모달 안에서만 바뀐다.
+  - 추천 배지: `manager.recommendTeach` 결과 선수 칩 (또는 [배우지 않기]). 미리 고르지는 않는다.
+  - 키보드: 선수 칩 · 바꿀 스킬 · 버튼 모두 Tab · Enter.
+  - 높이: 수업 칸은 카드 고르기 칸(카드 앞면 높이)보다 낮게 — 결과 머리 + 칩 + 선수 7줄 + 수업 칸이 모달 안에 들어가야 한다 (`tools/shot.mjs` 모달 넘침 · 글자 잘림 검사에 `.rw-teach` · `.rw-teach-pl` · `.rw-teach-rep`을 더한다).
+- 보상 칩: 패시브 힌트는 지금처럼 "힌트 막판 집중 Lv2", 액티브는 힌트 칩에 넣지 않고 수업 칩(`.rw-chip.teach`)으로.
+
+**그 밖 문구**
+- 상담 스킬 칸 머리 "패시브 스킬 (SP)", 비었을 때 "힌트를 얻은 패시브 스킬이 없습니다. 레슨을 클리어하면 편성 코치의 힌트를 얻습니다.", 아래 한 줄 "액티브 스킬은 레슨 보상에서 코치가 가르쳐 줍니다." 카드의 `힌트 Lv` · 할인 표시는 그대로.
+- 주 화면 상담 설명 "스킬 배우기 (SP)" → "패시브 스킬 배우기 (SP)". 주 화면 · 미팅 각주 "스킬은 상담에서 SP로 배웁니다." → "패시브는 상담에서 SP로, 액티브는 코치 수업으로 배웁니다."
+- 경기 전 준비: "결장 n명 → 유스 출전"(경고) → "부상 n명 — 레슨만 쉬고 경기는 그대로 출전" (보통 글자색). 명단 · 미팅 결장 배지의 title "결장 (레슨 n회)" → "레슨 결장 n회 · 경기는 출전".
+- 경기 화면은 바꾸지 않는다 (유스가 없을 뿐).
+
+**app · store**
+- `actions.resolveTeach(args)` (app.js — `resolveReward`와 같은 모양: 엔진 호출 → 저장 → 다시 그리기, 오류는 토스트).
+- `store.LESSON_RUN_SAVE_VERSIONS` = `[1, 2, 3]` (엔진 `SAVE_VERSIONS`와 같게 — outgame.test가 비교).
+
+### 18.7 저장 · 결정성 · 이행
+
+- `lessonRun.RUN_VERSION` 2 → **3**, `SAVE_VERSIONS = [1, 2, 3]`. `isLessonRun`은 3만 참.
+- `canMigrateLessonRun(s)`: 3 → 참, **2 → 늘 참** (레슨 · 보상 중이어도), 1 → 지금 규칙 (레슨 · 보상 중이 아니어야).
+- `migrateLessonRun` (in-place, 멱등): 1 → 2 (지금 그대로) → 2 → 3:
+  1. `state.hints`의 **액티브** 키를 지우고, 키마다 `레벨 × rewards.noHintSp` SP를 준다 (못 쓰게 된 힌트 = "힌트 없음" SP와 같은 값) [구현 결정]. 로그 "저장본 이행: 액티브 힌트 n개 → SP +x" (n > 0일 때만).
+  2. 이미 배운 액티브(`learnedSkillIds`)는 그대로 둔다.
+  3. `state.pendingTeach`가 없으면 `[]`.
+  4. `pendingReward`가 있으면 `teach`가 없을 때 `[]`, `result.hints`에서 액티브 항목을 뺀다 (1번에서 SP로 바뀌었다), `result.teach`가 없으면 `[]`.
+  5. `version = 3`. 진행 중인 레슨(`lesson`)은 바꿀 것이 없다 (`L.attach.hints`는 코치 id라 레슨 끝에 새 규칙으로 처리된다).
+- rng: 힌트 뽑기는 rng 호출 수 · 순서가 지금과 같다 (후보 목록만 다르다). `resolveTeach` · `canTeachSkill` · 뷰 · `fieldView` 스냅샷 · 감독 AI는 rng를 쓰지 않는다. 친선전 체력 보정은 rng 없음.
+- 등록 팀(`registeredTeam`)은 모양 그대로 — 선수 `skillIds`에 수업으로 배운 액티브가 들어갈 뿐.
+
+### 18.8 감독 AI (`manager.js`, rng 없음)
+
+- **`recommendTeach(state, data)`** → `{ playerId, replaceSkillId: null }` | `{ playerId: null }`
+  1. 후보 = `teach.cur.players` 중 `ok && !full`.
+  2. 점수 = 지금 포지션 주 스탯 2개(`cards.mainStatsOf(position)`)의 현재 값 합 — 그 스킬을 쓸 자리에서 가장 강한 선수 [구현 결정]. 같으면 슬롯 순서.
+  3. 후보가 없으면 (모두 가득 · 받을 선수 없음) `{ playerId: null }` — 감독 AI는 스킬을 바꾸지 않는다 [구현 결정].
+- **`autoStep` reward**: `teach.cur`가 있으면 `resolveTeach(recommendTeach)`를 한 단계로, 없으면 지금처럼 `resolveReward(recommendReward)`.
+- **`recommendConsult`**: 규칙 그대로 (뷰가 패시브만 주므로 패시브만 산다). 자유 주의 "살 수 있는 힌트 스킬이 있음 → 상담"도 그대로.
+- `?autolesson=1`은 레슨 화면만 돌리므로 그대로. 시나리오 · `lesson_play.mjs`는 수업 단계도 감독 추천으로 화면 버튼을 누른다 (S3).
+
+### 18.9 테스트 · 시뮬
+
+| 파일 | 더하는 것 · 바꾸는 것 |
+|---|---|
+| `lessonRun.test` | **부상**: 다친 선수가 있는 경계전 · 원정 친선전 · 자유 주 친선전 `getMatchSetup().home.players`에 유스 없음 · 그 선수 스냅샷 = 안 다쳤을 때와 같음 (스탯 · 스킬 · 공명) · `injuredTurns` 그대로 · 친선전 뒤 7명 모두 체력 −30 · 다음 레슨 `outAtStart`에 그대로. **힌트 · 수업**: 액티브 힌트 → `teach` 항목 · `state.hints`에 액티브 없음 / 패시브 → 레벨 +1 / 누구도 새로 배울 수 없는 액티브는 후보에서 빠짐 (모두 다른 스킬이면 `noHintSp`) / `resolveTeach` 빈 슬롯 습득 · 가득이면 `replaceSkillId` 필수 · 바꾸기 (그 자리) · 받지 않기 SP +20 · 이미 보유 · 포지션 불일치 · 고유 스킬 바꾸기 · 빈 슬롯인데 `replaceSkillId` → 오류 (상태 그대로, JSON 비교) / 순서대로만 / `resolveReward`는 수업이 남으면 거절 / 같은 액티브 두 번 (두 번째 받을 선수 없음 → `"none"` SP +20) / 실패한 레슨의 컷인 액티브 수업 / 다친 선수도 받음 / 이벤트 수업 대기열 (`pendingTeach` → 다음 보상 맨 앞, 이벤트 효과로 늘어난 액티브 힌트가 되돌려짐). **상담**: 액티브 힌트가 있어도 `skills`에 없음 · `op: "skill"` 액티브 거절 · 패시브 구매 그대로 (예전 `sk_power_shot` 상담 테스트를 패시브로). **이행**: v2 (주 · 상담 · 보상 · 레슨 중) → v3 — 액티브 힌트 → SP, 패시브 힌트 그대로, `pendingReward.teach` · `result.hints` 정리, 멱등 / v1 주 → v3 / v1 레슨 중 거절 그대로. **불변식**: 15주 완주 매 단계 `state.hints`에 액티브 키 없음 · 모든 선수 습득 ≤ 3 · 중복 없음 · 포지션 맞음 (수업 시점). 뷰 · `canTeachSkill` 순수 (rngState · JSON 그대로) |
+| `lessonRules.test` | D22를 "대비 레슨에서 다치면 바로 뒤 경계전 · 원정 친선전에 **본인이** 나온다 (유스 없음), 다음 시즌 첫 레슨이 끝나면 −1"로 |
+| `manager.test` | `recommendTeach` = 빈 슬롯 후보 중 주 스탯 합 최고 · 같으면 슬롯 순서 · 후보 없으면 받지 않기 · 늘 `resolveTeach`가 받는 행동 · rng 없음. 15주 완주 (수업 포함) |
+| `run.test` · `match.test` · `layout.test` | 그대로 통과 (옛 런 유스 · 친선전 체력) |
+| `outgame.test` | 저장 버전 사본 `[1, 2, 3]` = 엔진, v2 저장본 이어 하기 → v3 |
+| `lessonUi.test` (S2) | 보상 모달 수업 단계: 문구 "하르나 코치가 '파워 슛'을 가르쳐 줍니다" · 조사 (을/를) · 선수 칩 회색 이유 · 선수 고르기 → [가르치기] → 엔진 `learnedSkillIds` · 저장 · 다음 수업 "2/2" → 카드 고르기 / 가득 → 바꿀 스킬 줄 · 고르기 전 [가르치기] 꺼짐 / 받지 않기 SP / 받을 선수 없음 화면 / 추천 배지 = `recommendTeach` / 실패 레슨 수업 → "보상 없음". 상담: 패시브만 · 안내 줄. 경기 전 준비 문구 |
+| `ui.smoke` | 15주 완주가 수업 단계를 지난다 |
+
+- 슬라이스 사이 규칙 (§14.19와 같다): 다음 슬라이스가 고칠 테스트는 `test.skip` + 주석 `teach-pending:<슬라이스>`. S3의 완료 조건은 `grep -rn "teach-pending" test` 0건.
+- **시뮬** (`tools/lesson_sim.mjs`, 감독 AI): 런당 수업 수 · 습득 · 받지 않음 · 받을 선수 없음, 수업 SP, 상담 패시브 구매 수, 런 끝 선수당 액티브 · 패시브 수, 다친 선수의 경기 출전 수 (예전 유스 출전 수). 전 / 후 (방침 5 × 200런 · 경기 포함)만 보고하고 수치는 바꾸지 않는다.
+- **스크린샷** (`tools/lesson_scenarios.mjs` → `node tools/shot.mjs`, PNG를 직접 본다): `og_reward_teach`(빈 슬롯 · 추천) · `og_reward_teach_pick`(선수 고름) · `og_reward_teach_full`(가득 → 바꿀 스킬 줄) · `og_reward_teach_none`(받을 선수 없음) · `og_reward_teach_multi`(퍼펙트 · 수업 1/2 · 무료 강화 칸은 다음 단계) · `og_reward_teach_fail`(실패 레슨 · 컷인 수업) · `og_reward_teach_touch`(915×412) · `og_consult_passive` · `og_prep_injured`.
+
+### 18.10 [가정] · [구현 결정] · 기획자가 정할 것
+
+**[가정]**
+- 수업을 받지 않거나 받을 선수가 없으면 SP +20 (`rewards.teach.declineSp`). 액티브 원가 100~150 SP의 약 15%.
+- 바꾸기로 뺀 스킬은 사라진다 (환불 없음).
+- 같은 액티브 두 번 = 레벨업 대신 다른 선수에게 가르치거나 SP (엔진 `skills.js`에 스킬 레벨이 없고, 이번에 경기 쪽 파일을 바꾸지 않는다).
+
+**[구현 결정]**
+- 경기 쪽은 lessonRun의 `fieldView` 사본 스냅샷 + 친선전 체력 보정으로 감싼다 (`run.js` · `training.js` diff 0).
+- 액티브 힌트 후보 = 누군가 새로 배울 수 있는 것 (패시브의 "레벨 3 미만"에 해당). 슬롯이 가득이어도 후보.
+- 수업은 순서대로 한 번에 하나, 엔진이 저절로 넘기지 않는다 (받을 선수가 없어도 화면을 한 번 보여 준다).
+- 이벤트 액티브 힌트 → `pendingTeach` → 다음 레슨 보상 맨 앞.
+- 감독 AI: 빈 슬롯 · 주 스탯 합 최고, 바꾸지 않는다.
+- 이행: 액티브 힌트 레벨 × `noHintSp` SP. v2는 레슨 · 보상 중이어도 이행.
+- 다친 선수도 수업을 받는다. 주 화면 감독 AI의 평균 체력은 결장 제외 그대로.
+
+**기획자가 정할 것**
+- **Q1. 상점 패시브 목록** — 지금 기본값은 "편성 코치 힌트를 받은 패시브만"(지금 규칙). 캐릭터 기준(선수마다 배울 수 있는 패시브 목록) · 서포트 기준(편성 코치 목록 전체를 힌트 없이 진열, 힌트는 할인만) 중 무엇으로 할지.
+- **Q2. 소매치기(MF 액티브)** — 어느 코치 힌트 목록에도 없어 레슨 런에서 얻을 수 없다. 어느 코치에게 줄지, 그대로 둘지.
+- **Q3. 수업 빈도** — 액티브는 이제 레벨 3에서 빠지지 않아 런 동안 수업이 예전 액티브 힌트보다 자주 나올 수 있다 (시뮬 보고로 확인).
+
+### 18.11 구현 슬라이스 (순서대로, 슬라이스 하나 = 에이전트 하나)
+
+공통 완료 조건: `npm test` 통과, 경기 쪽 파일 · `data/config.json` · `run.js` · `training.js` diff 0, 커밋 메시지 끝 `Co-Authored-By`.
+
+**S1 · 엔진** (`lessonRun.js` · `manager.js` · `data/lesson.json` · `js/ui/store.js` 버전 사본 한 줄 · 테스트 · `tools/lesson_sim.mjs`)
+- §18.1 부상 (자기 `buildTeamSnapshot` · `getMatchSetup` · 친선전 체력), §18.3 힌트 후보 · `teach` · `pendingTeach` · 이벤트 되돌림, §18.4 `canTeachSkill` · `resolveTeach` · `resolveReward` 거절 · 뷰, §18.5 상담 패시브만, §18.7 v3 이행, §18.8 `recommendTeach` · `autoStep`.
+- 테스트 §18.9 엔진 행 (`lessonRun` · `lessonRules` D22 · `manager` · `outgame` 버전). 보상 모달을 지나는 UI 테스트가 수업에서 멈추면 `teach-pending:S2`로 끈다.
+- 시뮬 전 / 후 보고 (S1 커밋 전 기준 수치를 먼저 잰다).
+
+**S2 · UI** (`reward.js` · `consult.js` · `prep.js` · `week.js` · `hud.js` · `meeting.js` · `labels.js` · `app.js` · css · 시나리오)
+- §18.6 전부. `lessonUi.test` 수업 절 · 상담 · 준비 문구, `ui.smoke` 완주, `teach-pending:S2` 다시 켜기.
+- §18.9 스크린샷 9장 + 기존 `og_reward_*` · `og_consult*` · `og_prep*` 다시 찍어 PNG를 직접 본다 (잘림 · 겹침 · 넘침 0).
+
+**S3 · 통합 · 문서**
+- `tools/lesson_play.mjs` — 보상 모달 수업 단계를 실제 클릭 · 키보드 · 터치로 (`recommendTeach` 따라), 행동마다 엔진 변화 확인. 1280×720 15주 완주 1번 + 915×412 터치 시즌 1.
+- `grep -rn "teach-pending" test` 0건, 시뮬 전 / 후 최종 보고.
+- 문서: ARCHITECTURE §20 (부상 · 수업 · 상담 · 저장 v3 · 테스트 수), README (수업 한 줄 · 테스트 수), §18.12 기록.
+
+### 18.12 구현 중 바뀐 것
+
+- (슬라이스마다 여기에 적는다.)
