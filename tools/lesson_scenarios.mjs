@@ -150,6 +150,27 @@ function injuredLessonState(data, runSeed) {
 }
 
 /**
+ * 스탯 보기 장면 (§17): 레슨 중 부상 직후 (injuredLessonState — 상승이 쌓였고 부상 1명) + 체력이 가장 낮은 경기장 선수 1명 벤치 (엔진 benchPlayer).
+ * cardId 를 주면 손패 첫 장을 그 카드로. info = { uid, injuredId, benchId, rightId (경기장 맨 오른쪽 — 팝오버가 왼쪽으로), leftId (맨 왼쪽) }
+ */
+function rosterState(name, data, runSeed, { cardId } = {}) {
+  const found = injuredLessonState(data, runSeed);
+  if (!found) throw new Error(`[${name}] 부상 상태를 찾지 못했습니다`);
+  const st = found.state;
+  const injuredId = st.lesson.out.find((id) => !st.lesson.outAtStart.includes(id));
+  const benchId = tiredest(data, st);
+  lessonRun.benchPlayer(st, data, { playerId: benchId, on: true });
+  const uid = cardId ? withHandCard(st, cardId, 0) : null;
+  const v = lessonRun.getLessonView(st, data);
+  const onField = Object.entries(v.positions).sort((a, b) => a[1].x - b[1].x || a[1].y - b[1].y);
+  return {
+    runState: st, steps: found.steps + 1, preferred: true,
+    info: { uid, injuredId, benchId, rightId: onField[onField.length - 1][0], leftId: onField[0][0] },
+    summary: `${describeLessonRun(st)} (부상 찾기 + ${benchId} 벤치${cardId ? ` + 손패 첫 장 = ${cardId}` : ""})`,
+  };
+}
+
+/**
  * 퍼펙트 보상 (결정적): 3턴째 이후 전체 카드가 있는 레슨에서 점수를 퍼펙트 − 1 로 두고 그 카드를 엔진에서 낸다 → phase reward (퍼펙트 · 보상 후보 있음).
  * 걸어서는 퍼펙트가 드물다.
  */
@@ -930,6 +951,68 @@ export const LESSON_OG_SCENARIOS = [
       { freeze: false }, { click: ".ls-btns .ls-play", waitMs: 0 }, { wait: 430 }, { freeze: true },
     ],
     ready: ".lesson-screen .ls-hand .card-face",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  // ---- 스탯 보기 (§17): 명단 줄 구역 스탯 · 이번 레슨 +N · 선수 정보 팝오버 (토큰 누르기 · hover · ⓘ — 카드를 골라도) ----
+  {
+    // 명단 7줄: 서 있는 구역의 지금 스탯 · 등급 · 이번 레슨 +N — 벤치 줄(돌아갈 구역) · 레슨 중 부상 줄 · 지친 줄도 읽힌다
+    name: "og_lesson_roster",
+    title: "레슨 — 명단: 구역 스탯 · 이번 레슨 +N (벤치 · 부상 줄 포함)",
+    outgame: true,
+    build: (data, { runSeed }) => rosterState("og_lesson_roster", data, runSeed),
+    ready: ".lesson-screen .ls-row.benched .ls-cur.on-bench",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 카드를 고르지 않고 오른쪽 끝 토큰을 누름 → 토큰 왼쪽에 팝오버 (스탯 5 · 등급 · 이번 레슨 · 성장, 지금 구역 줄 강조)
+    name: "og_lesson_info_tok",
+    title: "레슨 — 토큰 누르기 = 선수 정보 팝오버 (토큰 옆)",
+    outgame: true,
+    build: (data, { runSeed }) => rosterState("og_lesson_info_tok", data, runSeed),
+    steps: (prepared) => [{ click: `.lesson-screen .tok[data-id="${prepared.info.rightId}"] .tok-face` }],
+    ready: ".lesson-screen .ls-pinfo.on.pinned",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 마우스를 토큰에 올림 (데스크톱 hover) → 잠깐 뒤 팝오버 (× 없음 · 누를 수 없음)
+    name: "og_lesson_info_hover",
+    title: "레슨 — 토큰 hover = 선수 정보 팝오버 (고정 아님)",
+    outgame: true,
+    build: (data, { runSeed }) => rosterState("og_lesson_info_hover", data, runSeed),
+    steps: (prepared) => [{ hoverAt: { sel: `.lesson-screen .tok[data-id="${prepared.info.leftId}"] .tok-face`, x: 50, y: 50 }, waitMs: 250 }],
+    ready: ".lesson-screen .ls-pinfo.on.hover",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 카드를 고른 채 (조준 모드) 명단 ⓘ → 명단 줄 왼쪽에 팝오버, 조준은 그대로
+    name: "og_lesson_info_aim",
+    title: "레슨 — 카드 조준 중 명단 ⓘ = 선수 정보 팝오버 (조준 유지)",
+    outgame: true,
+    build: (data, { runSeed }) => rosterState("og_lesson_info_aim", data, runSeed, { cardId: "cd_mf_drill" }),
+    steps: (prepared) => [{ click: handSel(prepared.info.uid) }, { click: `.ls-row[data-pid="${prepared.info.rightId}"] .ls-pi-btn` }],
+    ready: ".lesson-screen.aiming .ls-pinfo.on.pinned",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 터치 기기 915×412 (가로 폰): 토큰 탭 = 팝오버 — 무대가 통째로 줄어도 잘림 · 스크롤 없음
+    name: "og_lesson_info_touch",
+    title: "레슨 — 터치 915×412: 토큰 탭 = 선수 정보 팝오버",
+    outgame: true,
+    viewport: { width: 915, height: 412, deviceScaleFactor: 1, isMobile: true, hasTouch: true },
+    build: (data, { runSeed }) => rosterState("og_lesson_info_touch", data, runSeed),
+    steps: (prepared) => [{ tap: `.lesson-screen .tok[data-id="${prepared.info.leftId}"] .tok-face` }],
+    ready: ".lesson-screen .ls-pinfo.on.pinned",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 터치 915×412: 카드 탭(조준) → 명단 ⓘ 탭 = 팝오버 (조준 유지)
+    name: "og_lesson_info_touch_aim",
+    title: "레슨 — 터치 915×412: 카드 조준 중 ⓘ 탭 = 선수 정보 팝오버",
+    outgame: true,
+    viewport: { width: 915, height: 412, deviceScaleFactor: 1, isMobile: true, hasTouch: true },
+    build: (data, { runSeed }) => rosterState("og_lesson_info_touch_aim", data, runSeed, { cardId: "cd_mf_drill" }),
+    steps: (prepared) => [{ tap: handSel(prepared.info.uid) }, { tap: `.ls-row[data-pid="${prepared.info.injuredId}"] .ls-pi-btn` }],
+    ready: ".lesson-screen.aiming .ls-pinfo.on.pinned",
     expect: { screen: "run", phase: "lesson", modal: false },
   },
   {

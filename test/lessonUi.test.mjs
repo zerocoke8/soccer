@@ -282,6 +282,146 @@ test("jsdom: 레슨 화면 (구역) — 골격 · 조준 · 키보드 · 벤치 
   assert.equal(S.store.run.lesson.turn, cool.s.lesson.turn, "추가 사용 +1 → 같은 턴");
   noErrorToast("카드 종류별 조준");
 
+  // ---------- 스탯 보기 (§17): 명단 줄 = 구역 스탯 · 이번 레슨 +N / 선수 정보 팝오버 = 토큰 누르기(카드 없을 때) · ⓘ(늘) · 키 · hover, Esc · 바깥 · 다시 누르기 = 닫기 ----------
+  const { gradeOf } = await import(pathToFileURL(path.join(ROOT, "js/ui/dom.js")).href);
+  const th = data.config.rating?.thresholds;
+  const lesson3 = walkLesson(data, { seed: "lesson-ui", until: (s) => s.phase === "lesson" && s.lesson.status === "playing" && s.lesson.turn >= 3 }).state;
+  putRun(lesson3);
+  const v3 = view();
+  const runP = (id) => S.store.run.players.find((p) => p.id === id);
+  const gainOf = (id, k) => Math.round(runP(id).stats[k]) - Math.round(S.store.run.lesson.before[id][k]);
+  const gainText = (g) => (g > 0 ? `+${g}` : g < 0 ? `−${-g}` : "+0");
+  let rosterGain = false;
+  for (const p of v3.players) {
+    const cur = $(`.ls-row[data-pid="${p.id}"] .ls-cur`);
+    assert.ok(cur, `${p.id}: 명단 두 번째 줄 (구역 스탯)`);
+    if (p.out) { assert.ok(cur.classList.contains("off") && /결장/.test(cur.textContent), `${p.id}: 결장 줄`); continue; }
+    const val = Math.round(runP(p.id).stats[p.zone]);
+    const g = gainOf(p.id, p.zone);
+    if (g) rosterGain = true;
+    assert.equal(cur.dataset.stat, p.zone, `${p.id}: 서 있는 구역의 스탯`);
+    assert.equal(Number(cur.dataset.value), val, `${p.id}: 지금 값 = 엔진`);
+    assert.equal(Number(cur.dataset.gain), g, `${p.id}: 이번 레슨 상승 = 엔진 (지금 − 레슨 시작)`);
+    assert.equal(cur.querySelector(".ls-cur-k").textContent, OL.STAT_LABELS[p.zone]);
+    assert.equal(cur.querySelector(".ls-cur-v").textContent, String(val));
+    assert.equal(cur.querySelector(".grade").textContent, gradeOf(val, th), "등급");
+    assert.equal(cur.querySelector(".ls-cur-g").textContent, gainText(g));
+    assert.ok($(`.ls-row[data-pid="${p.id}"] .ls-pi-btn`), `${p.id}: ⓘ 버튼`);
+  }
+  assert.ok(rosterGain, "3턴째: 명단에 오른 스탯이 보인다");
+  const pop = () => $(".lesson-screen .ls-pinfo.on");
+  assert.equal(pop(), null, "처음엔 팝오버 없음");
+  const fid = Object.keys(v3.positions)[0];
+  const ftok = $(`.tok[data-id="${fid}"]`);
+  /** 팝오버 내용 = 엔진 상태 (스탯 5 · 등급 · 이번 레슨 · 성장 · 자리 · 구역 · 체력) */
+  const checkPop = (id, where) => {
+    const el = pop();
+    assert.ok(el, `${where}: 팝오버 열림`);
+    assert.equal(el.dataset.pid, id, `${where}: 그 선수`);
+    const rows = [...el.querySelectorAll(".pi-row[data-stat]")];
+    assert.deepEqual(rows.map((r) => r.dataset.stat), OL.STATS, `${where}: 스탯 5개`);
+    const vp = view().players.find((x) => x.id === id);
+    for (const r of rows) {
+      const k = r.dataset.stat;
+      const val = Math.round(runP(id).stats[k]);
+      const g = gainOf(id, k);
+      assert.equal(r.querySelector(".pi-v .pi-num").textContent, String(val), `${where} ${k}: 지금 값 = 엔진`);
+      assert.equal(r.querySelector(".grade").textContent, gradeOf(val, th), `${where} ${k}: 등급`);
+      assert.equal(r.querySelector(".pi-g").textContent, g ? gainText(g) : "–", `${where} ${k}: 이번 레슨 상승`);
+      assert.equal(r.querySelector(".pi-gr").textContent, `×${runP(id).growth[k].toFixed(2)}`, `${where} ${k}: 성장률`);
+      assert.equal(r.classList.contains("here"), !vp.out && k === vp.zone, `${where} ${k}: 지금 구역 줄`);
+    }
+    assert.ok(el.querySelector(".pi-slot").textContent === runP(id).slot, `${where}: 자리`);
+    if (!vp.out && !vp.bench) assert.ok(el.querySelector(".pi-where").textContent.includes(OL.ZONE_LABELS[vp.zone]), `${where}: 구역`);
+    assert.equal(el.querySelector(".pi-stam b").textContent, String(vp.stamina), `${where}: 체력`);
+  };
+  ftok.click();
+  checkPop(fid, "토큰 누르기 (카드 없음)");
+  assert.ok(pop().classList.contains("pinned") && pop().querySelector(".pi-x"), "누르기 = 고정 (× 버튼)");
+  assert.ok(ftok.classList.contains("info-on") && $(`.ls-row[data-pid="${fid}"]`).classList.contains("info-on"), "토큰 · 명단 줄 표시");
+  assert.equal($(`.ls-row[data-pid="${fid}"] .ls-pi-btn`).getAttribute("aria-expanded"), "true", "ⓘ aria-expanded");
+  assert.equal(S.store.run.lesson.seq, lesson3.lesson.seq, "엔진 호출 없음");
+  ftok.click();
+  assert.equal(pop(), null, "같은 토큰 다시 = 닫기");
+  ftok.click();
+  key("Escape");
+  assert.equal(pop(), null, "Esc = 닫기");
+  ftok.click();
+  $(".lesson-screen .lh").dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true }));
+  assert.equal(pop(), null, "바깥 누르기 = 닫기");
+  key("Enter", ftok);
+  checkPop(fid, "토큰 포커스 + Enter");
+  key("i", ftok);
+  assert.equal(pop(), null, "I = 다시 닫기 (토글)");
+  key("i", ftok);
+  assert.ok(pop(), "I = 열기");
+  pop().querySelector(".pi-x").click();
+  assert.equal(pop(), null, "× = 닫기");
+  // 명단 줄 누르기 (카드 없음) = 팝오버 (명단 줄 왼쪽), 다른 선수 토큰 누르기 = 그 선수로
+  const fid2 = Object.keys(v3.positions)[1];
+  $(`.ls-row[data-pid="${fid2}"]`).click();
+  checkPop(fid2, "명단 줄 누르기");
+  $(`.tok[data-id="${fid}"] .tok-name`).dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true, button: 0 })); // 바깥(다른 토큰) 누르기 → 닫고, click → 그 선수로 연다
+  assert.equal(pop(), null, "다른 토큰 pointerdown = 바깥 누르기");
+  ftok.click();
+  checkPop(fid, "다른 토큰 누르기");
+  key("Escape");
+  // hover (데스크톱): 잠깐 뒤 열리고 (고정 아님) 떠나면 닫힌다
+  ftok.dispatchEvent(new window.MouseEvent("pointerenter", { bubbles: false }));
+  await until(() => pop(), 1000);
+  assert.ok(pop() && pop().classList.contains("hover") && !pop().querySelector(".pi-x"), "hover = 고정 아닌 팝오버");
+  ftok.dispatchEvent(new window.MouseEvent("pointerleave", { bubbles: false }));
+  assert.equal(pop(), null, "떠나면 닫힌다");
+  // 벤치 줄: "벤치" + 돌아갈 구역 스탯, 팝오버도 벤치
+  $(`.ls-row[data-pid="${fid2}"] .ls-bench-btn`).click();
+  assert.deepEqual(S.store.run.lesson.bench, [fid2], "[벤치] (팝오버와 상관없이)");
+  const bcur = $(`.ls-row[data-pid="${fid2}"] .ls-cur`);
+  assert.ok(bcur.classList.contains("on-bench") && bcur.querySelector(".ls-cur-bench") && bcur.dataset.stat === v3.zones[fid2], "벤치 줄 = 벤치 + 돌아갈 구역 스탯");
+  $(`.ls-row[data-pid="${fid2}"] .ls-pi-btn`).click();
+  checkPop(fid2, "벤치 선수 ⓘ");
+  assert.match(pop().querySelector(".pi-where").textContent, /벤치/);
+  key("Escape");
+  noErrorToast("스탯 보기 — 카드 없음");
+
+  // 카드를 골랐으면 토큰 누르기 = 자리 고르기 그대로 (팝오버 아님) — 단일 카드는 그 선수에게 낸다
+  const one3 = withHand(lesson3, "cd_coaching", 0);
+  putRun(one3.s);
+  cardOf(one3.uid).click();
+  stubField();
+  const pick3 = lessonRun.dropCandidates(S.store.run, data, { uid: one3.uid })[0];
+  $(`.tok[data-id="${pick3.playerId}"]`).dispatchEvent(new window.MouseEvent("click", { bubbles: true, clientX: (pick3.at.x / 100) * 968, clientY: (pick3.at.y / 100) * 392 }));
+  assert.equal(pop(), null, "카드를 골랐으면 토큰 누르기로 팝오버가 열리지 않는다");
+  assert.equal(S.store.run.lesson.seq, one3.s.lesson.seq + 1, "토큰 누르기 = 그 선수에게 낸다 (조준 그대로)");
+  assert.deepEqual(fxIds(), [pick3.playerId]);
+  await notBusy();
+  // 조준 중 hover 도 열지 않는다 · I 키는 늘 연다
+  putRun(one3.s);
+  cardOf(one3.uid).click();
+  const atok = $(`.tok[data-id="${pick3.playerId}"]`);
+  atok.dispatchEvent(new window.MouseEvent("pointerenter", { bubbles: false }));
+  await wait(150);
+  assert.equal(pop(), null, "조준 중 hover = 팝오버 없음");
+  key("i", atok);
+  checkPop(pick3.playerId, "조준 중 I 키");
+  assert.equal(ui.aim?.uid, one3.uid, "I 키: 조준 유지");
+  key("Escape");
+  assert.equal(pop(), null, "Esc = 팝오버 먼저 닫기");
+  assert.equal(ui.aim?.uid, one3.uid, "조준은 남는다");
+  // ⓘ 는 카드를 골랐어도 연다 (조준 유지 · 내지 않음), 다시 = 닫기
+  $(`.ls-row[data-pid="${fid}"] .ls-pi-btn`).click();
+  checkPop(fid, "조준 중 ⓘ");
+  assert.equal(ui.aim?.uid, one3.uid, "ⓘ: 조준 유지");
+  assert.equal(S.store.run.lesson.seq, one3.s.lesson.seq, "ⓘ: 내지 않는다");
+  assert.ok($(".lesson-screen.aiming"), "조준 표시 그대로");
+  $(`.ls-row[data-pid="${fid}"] .ls-pi-btn`).click();
+  assert.equal(pop(), null, "ⓘ 다시 = 닫기");
+  $(`.ls-row[data-pid="${fid}"] .ls-pi-btn`).click();
+  key("Escape");
+  assert.equal(pop(), null);
+  key("Escape");
+  assert.equal(ui.aim, null, "두 번째 Esc = 조준 취소");
+  noErrorToast("스탯 보기 — 조준 중");
+
   // ---------- 고유 카드 모양 (§16.7, L40): 앞면 칩 · 이어 주기 · 자리 옮기기 · 가로지르기 · 둘레 원 — 판정 = 엔진 (UI 는 점 · 선수 · 구역만) ----------
   /** 구역 주입 (슬롯 순서) + 손패 첫 장 = cardId (코치 지원은 뗀다) · 이번 턴 2장 */
   const shapeFix = (base, cardId, zoneList) => {

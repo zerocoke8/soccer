@@ -407,10 +407,10 @@
 }
 .side-pop.bad { color: #ff9b9b; border-color: rgba(255, 92, 92, .5); }
 
-/* ---- 오른쪽: 벤치 칸 (252×84, 칸 2개) · 명단 7 · 팀워크 ---- */
-.ls-side { grid-area: side; padding: 9px 10px; gap: 7px; }
+/* ---- 오른쪽: 벤치 칸 (252×72, 칸 2개 — §17 명단 두 줄 때문에 84 → 72) · 명단 7 · 팀워크 ---- */
+.ls-side { grid-area: side; padding: 8px 10px; gap: 6px; }
 .ls-bench {
-  display: flex; flex-direction: column; gap: 5px; flex: none; height: 84px; padding: 6px 7px 7px; border-radius: 10px;
+  display: flex; flex-direction: column; gap: 4px; flex: none; height: 72px; padding: 5px 7px 6px; border-radius: 10px;
   background: rgba(0, 0, 0, .2); border: 1px dashed rgba(255, 255, 255, .16); transition: border-color .15s, background .15s;
 }
 .ls-bench-head { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; font-size: 13px; line-height: 16px; white-space: nowrap; }
@@ -428,7 +428,7 @@
 .ls-bench-slot.pickable { border-color: var(--good); cursor: pointer; }
 .ls-bench-slot.heal-target { box-shadow: 0 0 0 2px #50e6d2; }
 @keyframes bench-in { from { transform: translateY(-8px) scale(.9); opacity: 0; } to { transform: none; opacity: 1; } }
-.bs-face { flex: none; display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; font-size: 13px; font-weight: 800; color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, .7); box-shadow: 0 0 0 2px var(--home); }
+.bs-face { flex: none; display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 50%; font-size: 13px; font-weight: 800; color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, .7); box-shadow: 0 0 0 2px var(--home); }
 .bs-txt { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
 .bs-txt b { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bs-st { font-size: 10.5px; white-space: nowrap; color: #8ff5e6; }
@@ -438,29 +438,120 @@
 .ls-bench.drop-ok .ls-bench-slot.empty { border-color: var(--good); color: var(--good); }
 .ls-bench.drop-bad { border-color: var(--bad); background: rgba(255, 92, 92, .08); }
 .ls-bench.drop-hint { border-color: rgba(124, 196, 255, .5); }
-.ls-rows { display: flex; flex-direction: column; gap: 3px; }
+.ls-rows { display: flex; flex-direction: column; gap: 2px; }
+/* 명단 줄 (§17): 두 줄 — 위 = 이름 · 체력 · 실패율, 아래 = 서 있는 구역의 지금 스탯 · 이번 레슨 상승. 오른쪽 = ⓘ · [벤치] (두 줄 높이) */
 .ls-row {
-  position: relative; display: grid; grid-template-columns: 22px minmax(0, 1fr) 50px 30px 40px; align-items: center; gap: 4px;
-  min-height: 32px; padding: 2px 5px 2px 6px; border-radius: 8px; border: 1px solid transparent; background: var(--panel-2);
+  position: relative; display: grid; grid-template-columns: 22px minmax(0, 1fr) 40px 25px 18px 34px; grid-template-rows: 15px 15px;
+  align-items: center; column-gap: 4px; row-gap: 0;
+  min-height: 34px; padding: 1px 4px 1px 6px; border-radius: 8px; border: 1px solid transparent; background: var(--panel-2); cursor: pointer;
 }
+.ls-row > .avatar { grid-column: 1; grid-row: 1 / 3; }
+.ls-row > .ls-nm { grid-column: 2; grid-row: 1; }
+.ls-row > .ls-st { grid-column: 3; grid-row: 1; }
+.ls-row > .ls-fr { grid-column: 4; grid-row: 1; }
+.ls-row > .ls-cur { grid-column: 2 / 5; grid-row: 2; }
+.ls-row > .ls-pi-btn { grid-column: 5; grid-row: 1 / 3; }
+.ls-row > .ls-bench-btn { grid-column: 6; grid-row: 1 / 3; }
+.ls-row:hover { border-color: rgba(124, 196, 255, .35); }
+.ls-row.info-on { border-color: var(--accent-2); box-shadow: 0 0 0 1px rgba(124, 196, 255, .35); }
 .ls-row.pickable { border-color: var(--good); background: rgba(61, 220, 132, .08); cursor: pointer; }
 .ls-row.target { box-shadow: inset 3px 0 0 #fff; }
 .ls-row.heal-target { border-color: #50e6d2; box-shadow: inset 3px 0 0 #50e6d2; }
 .ls-row.benched { background: rgba(80, 230, 210, .07); }
-.ls-row.out { opacity: .62; }
+.ls-row.out { opacity: .8; background: rgba(255, 92, 92, .05); } /* 결장 줄도 읽히게 (§17) — 얼굴은 avatar.dim */
 .ls-row.rec { border-color: var(--accent); }
-.ls-nm { display: flex; flex-direction: column; min-width: 0; line-height: 1.15; white-space: nowrap; overflow: hidden; }
+.ls-nm { display: flex; flex-direction: column; min-width: 0; line-height: 15px; white-space: nowrap; overflow: hidden; }
 .ls-nm b { font-size: 13px; overflow: hidden; text-overflow: ellipsis; }
-.ls-nm .tiny { font-size: 10px; }
-.ls-nm .heal { color: #8ff5e6; }
-.ls-st { display: flex; align-items: center; gap: 4px; }
+/* 구역 스탯 줄: 아이콘(벤치면 "벤치") · 스탯 이름(구역 색) · 등급 · 값 · 이번 레슨 +N */
+.ls-cur { display: flex; align-items: center; gap: 4px; min-width: 0; height: 15px; white-space: nowrap; overflow: hidden; font-size: 12px; line-height: 15px; font-variant-numeric: tabular-nums; }
+.ls-cur-ico { font-size: 11px; width: 14px; text-align: center; }
+.ls-cur-k { color: var(--zc, var(--muted)); font-weight: 700; }
+.ls-cur .grade.xs { min-width: 14px; height: 14px; font-size: 9.5px; line-height: 14px; }
+.ls-cur-v { font-size: 13px; font-weight: 900; color: var(--text); }
+.ls-cur-g { font-weight: 800; }
+.ls-cur-g.good { color: var(--good); }
+.ls-cur-g.bad { color: #ff8a8a; }
+.ls-cur-g.muted { color: var(--muted); font-weight: 600; }
+.ls-cur-bench { padding: 0 4px; border-radius: 5px; background: rgba(80, 230, 210, .16); color: #8ff5e6; font-size: 10.5px; font-weight: 800; line-height: 14px; }
+.ls-cur.on-bench .ls-cur-k, .ls-cur.on-bench .ls-cur-v { opacity: .8; }
+.ls-cur.off { font-size: 11.5px; }
+.ls-cur.z-shoot { --zc: #ff9466; } .ls-cur.z-dribble { --zc: #c6ea64; } .ls-cur.z-pass { --zc: #63d8ec; } .ls-cur.z-defense { --zc: #8fb2ff; } .ls-cur.z-physical { --zc: #c9a2ff; }
+.ls-pi-btn {
+  position: relative; width: 18px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--accent-2);
+  font: inherit; font-size: 15px; line-height: 24px; text-align: center; cursor: pointer;
+}
+.ls-pi-btn::after { content: ""; position: absolute; left: -2px; right: -2px; top: -6px; bottom: -6px; } /* 손가락 맞추기 쉽게 (위아래) */
+.ls-pi-btn:hover, .ls-pi-btn[aria-expanded="true"] { background: rgba(124, 196, 255, .16); color: #fff; }
+.ls-pi-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; }
+.ls-pi-btn:disabled { opacity: .4; cursor: default; }
+.ls-st { display: flex; align-items: center; gap: 3px; min-width: 0; }
 .ls-st .bar { flex: 1; height: 5px; }
 .ls-st b { min-width: 20px; font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; }
+.ls-st .bar { min-width: 10px; }
 .ls-fr { font-size: 11px; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.ls-bench-btn { min-height: 24px; height: 24px; padding: 0 4px; justify-content: center; font-size: 11px; }
+.ls-bench-btn { min-height: 24px; height: 24px; min-width: 0; width: 34px; padding: 0 2px; justify-content: center; font-size: 11px; }
 .ls-bench-btn.recommended { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .ls-foot { margin-top: auto; display: flex; flex-direction: column; gap: 3px; padding-top: 6px; border-top: 1px dashed var(--border); }
-.ls-foot-row { display: flex; align-items: baseline; gap: 6px; min-width: 0; font-size: 12.5px; white-space: nowrap; }
+.ls-foot-row { display: flex; align-items: baseline; gap: 6px; min-width: 0; font-size: 12.5px; line-height: 16px; white-space: nowrap; }
+
+/* ---- 선수 정보 팝오버 (§17, .ls-pinfo): 토큰 옆 · 명단 줄 왼쪽 (화면 안으로 자른다). 고정(pinned) = 누르기 · 키 (× 버튼), hover = 마우스를 올린 동안 (누를 수 없음) ---- */
+.ls-pinfo {
+  position: absolute; left: 0; top: 0; z-index: 50; display: none; flex-direction: column; gap: 6px; width: 292px; padding: 9px 11px 8px;
+  border-radius: 12px; background: rgba(16, 22, 32, .97); border: 1px solid rgba(124, 196, 255, .5);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, .62), 0 0 0 1px rgba(0, 0, 0, .4); color: var(--text); font-size: 12px; line-height: 16px;
+}
+.ls-pinfo.on { display: flex; }
+.ls-pinfo.hover { pointer-events: none; border-color: rgba(255, 255, 255, .24); }
+.ls-pinfo .z-shoot { --zc: #ff9466; --zt: rgba(255, 148, 102, .15); }
+.ls-pinfo .z-dribble { --zc: #c6ea64; --zt: rgba(198, 234, 100, .13); }
+.ls-pinfo .z-pass { --zc: #63d8ec; --zt: rgba(99, 216, 236, .14); }
+.ls-pinfo .z-defense { --zc: #8fb2ff; --zt: rgba(126, 164, 255, .16); }
+.ls-pinfo .z-physical { --zc: #c9a2ff; --zt: rgba(199, 155, 255, .15); }
+.pi-head { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; align-items: center; gap: 8px; }
+.pi-id { display: flex; flex-direction: column; min-width: 0; }
+.pi-name { font-size: 15px; line-height: 19px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pi-sub { font-size: 11px; line-height: 15px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pi-slot { padding: 0 5px; border-radius: 5px; background: var(--panel-3); color: var(--text); font-size: 10.5px; font-weight: 800; }
+.pi-x {
+  width: 26px; height: 26px; padding: 0; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2); color: var(--muted);
+  font: inherit; font-size: 17px; line-height: 24px; cursor: pointer;
+}
+.pi-x:hover, .pi-x:focus-visible { color: #fff; border-color: var(--accent-2); }
+.pi-state { display: flex; align-items: center; gap: 9px; height: 22px; padding: 0 7px; border-radius: 8px; background: rgba(255, 255, 255, .05); white-space: nowrap; }
+.pi-where { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 800; color: var(--zc, var(--text)); }
+.pi-where.heal { color: #8ff5e6; }
+.pi-where.bad { color: #ff8a8a; }
+.pi-stam { display: inline-flex; align-items: center; gap: 4px; }
+.pi-stam .bar { width: 36px; height: 5px; }
+.pi-stam b, .pi-fr { font-variant-numeric: tabular-nums; }
+.pi-stats { display: flex; flex-direction: column; gap: 1px; }
+.pi-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) 60px 52px 42px; align-items: center; column-gap: 6px;
+  height: 21px; padding: 0 6px; border-radius: 6px; white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+.pi-row > span:not(:first-child) { text-align: right; }
+.pi-row.pi-hd { height: 15px; font-size: 10.5px; line-height: 15px; font-weight: 700; color: var(--muted); }
+.pi-row.here { background: var(--zt); box-shadow: inset 3px 0 0 var(--zc); }
+.pi-k { display: flex; align-items: center; gap: 4px; min-width: 0; overflow: hidden; font-weight: 700; color: var(--muted); }
+.pi-row.main .pi-k, .pi-row.here .pi-k { color: var(--text); }
+.pi-row.here .pi-k { color: var(--zc); }
+.pi-ico { flex: none; width: 16px; text-align: center; font-size: 12px; }
+.pi-main { flex: none; padding: 0 3px; border-radius: 4px; background: rgba(255, 209, 102, .18); color: var(--gold); font-style: normal; font-size: 9.5px; line-height: 13px; font-weight: 800; }
+.pi-v { display: inline-flex; align-items: center; justify-content: flex-end; gap: 5px; }
+.pi-num { min-width: 28px; font-size: 13.5px; text-align: right; }
+.pi-g { font-weight: 800; }
+.pi-g.good { color: var(--good); }
+.pi-g.bad { color: #ff8a8a; }
+.pi-g.muted { color: var(--muted); font-weight: 600; }
+.pi-gr { font-size: 11.5px; color: var(--muted); }
+.pi-gr.hi { color: #9ff5c2; }
+.pi-gr.lo { color: #ffb4a6; }
+.pi-foot { display: flex; flex-direction: column; gap: 1px; padding-top: 5px; border-top: 1px dashed var(--border); font-size: 11.5px; line-height: 15px; white-space: nowrap; }
+.pi-foot b.good { color: var(--good); }
+.pi-foot b.bad { color: #ff8a8a; }
+.pi-foot b.muted { color: var(--muted); }
+.lesson-screen .tok.info-on .tok-face { outline: 2px solid var(--accent-2); outline-offset: 3px; }
+.lesson-screen:not(.aiming) .tok:not(.off) { cursor: pointer; }
 
 /* ---- 끄는 카드 · 토큰 유령 (.drag-ghost, 화면 좌표 — 무대 배율을 나눈 값) ---- */
 .drag-ghost { position: absolute; left: 0; top: 0; z-index: 60; display: none; pointer-events: none; }

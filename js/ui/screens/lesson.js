@@ -34,10 +34,15 @@
 //     자리를 고르지 않는다 — 카드 두 번 누르기 · [내기] · Enter · 경기장 아무 데나.
 //   연출: fx move → 주인 토큰이 새 자리로 뛰어간다 (두 대형이 다시 모인다) / fx pass → 공 호 (.ls-ball) → 훈련 동작, 받는 선수 "+N ×1.3", 가로지르기 두 팝.
 // 개발용 ?autolesson=1: 600ms 마다 감독 추천(manager.recommendCard: bench · play { at, playerId, zone } · endTurn)을 그대로 낸다 (컷인도 그대로 — 저절로 닫힌다). inert: 마지막 상태만.
-import { h, avatar, bar, openModal, toast } from '../dom.js';
+// 스탯 보기 (§17): 명단 줄 두 번째 줄 = 서 있는 구역의 지금 스탯 "🛡️ 수비 B 552 +18" (+N = 이번 레슨 상승, 벤치 = 돌아갈 구역, 결장 = 부상 · 이번 상승 합).
+//   선수 정보 팝오버 (.ls-pinfo — lesson_layout.playerStatInfo): 스탯 5개 등급 · 지금 값 · 이번 레슨 상승 · 성장률, 자리 · 구역 · 체력 · 실패율 · 기본 / 카드 / 부 나눔.
+//   여는 법: 카드를 고르지 않았을 때 토큰 · 명단 줄 누르기 (탭) · 마우스 올리기 (잠깐 — 누르면 고정), 명단 ⓘ 버튼 (카드를 골랐어도 늘),
+//   토큰 포커스 + Enter · Space (카드를 고르지 않았을 때) · I (늘). 닫기: 바깥 누르기 · Esc · 같은 토큰 · 줄 · ⓘ 다시 · × 버튼. 끌기가 시작되면 닫는다.
+//   카드를 골랐을 때 토큰 누르기는 그대로 자리 고르기다 (팝오버를 열지 않는다).
+import { h, avatar, bar, gradeBadge, openModal, toast } from '../dom.js';
 import * as L from '../labels.js';
 import { cardFace, miniCard, attachTitle, shapeIconKey, shapeHow, multShort } from '../cards.js';
-import { tokenSpot, pointerToField, circlePx, fxPlan, scoreAfterPlay, handStep, FIELD_PX, TOKEN_PX } from '../lesson_layout.js';
+import { tokenSpot, pointerToField, circlePx, fxPlan, scoreAfterPlay, handStep, playerStatInfo, FIELD_PX, TOKEN_PX } from '../lesson_layout.js';
 import { stamCls } from '../hud.js';
 import { uniqueNote } from './reward.js';
 
@@ -207,11 +212,13 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
   const dock = h('div', { class: 'ls-dock' }, piles, handEl, infoEl, btns);
 
   const ghost = h('div', { class: 'drag-ghost', 'aria-hidden': 'true' });
+  // 선수 정보 팝오버 (§17): 토큰 옆 · 명단 줄 왼쪽에 뜬다 (화면 좌표 — 무대 배율을 나눈 값)
+  const pinfo = h('div', { class: 'ls-pinfo', role: 'dialog', 'aria-hidden': 'true' });
   // 코치 컷인 덮개 (§15.8 ②): 레슨 화면 전체 — 떠 있는 동안 경기장 · 손패 입력을 막고, 누르면 넘긴다
   const cutLayer = h('div', { class: 'ls-cutin', role: 'status', 'aria-live': 'polite' });
   cutLayer.addEventListener('pointerdown', (e) => { if (cutClose) { e.preventDefault?.(); e.stopPropagation?.(); cutClose(); } });
   cutLayer.addEventListener('click', (e) => { e.stopPropagation?.(); if (cutClose) cutClose(); });
-  screen.append(hud, pitchWrap, side, dock, ghost, cutLayer);
+  screen.append(hud, pitchWrap, side, dock, pinfo, ghost, cutLayer);
 
   /* ------------------------------------------------------------------ */
   /* 상태 · 좌표                                                           */
@@ -233,6 +240,9 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
   let cutNote = null;     // 컷인 연출 중 dock 안내 { color, name, short, ability, text } (no-anim 에서는 이 줄이 컷인 대신)
   let attachNew = null;   // 새 턴에 막 붙은 카드 uid (칩 튀어나오기)
   let cutRecap = null;    // no-anim: 방금 발동한 지원 (연출이 0ms 라 컷인 대신 다음 조작 전까지 안내 칸에 남긴다)
+  let infoPop = null;     // 선수 정보 팝오버 { id, src: 'tok' | 'row' | 'btn', pinned } (§17) — pinned = 누르기 · 키로 연 것 (hover 는 떠나면 닫힌다)
+  let hoverTid = null;    // hover 로 여는 짧은 지연 타이머
+  const thresholds = data.config?.rating?.thresholds;
   let shown = { score: v.score, stamina: {} }; // 연출 중 보여 주는 값 (점수 · 체력 · 턴)
 
   function measure() {
@@ -615,10 +625,21 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
       tabindex: '0',
       dataset: { side: 'home', id: p.id },
       onkeydown: (e) => {
-        if (e.key === 'b' || e.key === 'B') { e.preventDefault(); toggleBench(p.id); }
+        if (e.key === 'b' || e.key === 'B') { e.preventDefault(); toggleBench(p.id); return; }
+        // 선수 정보 (§17): I = 늘, Enter · Space = 카드를 고르지 않았을 때 (조준 중 Enter 는 내기 — 문서 keydown)
+        if (e.key === 'i' || e.key === 'I') { e.preventDefault(); toggleInfo(p.id, 'tok'); return; }
+        if ((e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') && !ui.aim && !ui.drag) { e.preventDefault(); e.stopPropagation?.(); toggleInfo(p.id, 'tok'); }
+      },
+      // 카드를 고르지 않았을 때 누르기 · 탭 = 선수 정보 (조준 중에는 경기장 click 이 자리 고르기로 쓴다)
+      onclick: (e) => {
+        if (suppressClick || ui.aim || ui.drag || el.classList.contains('off')) return;
+        e.stopPropagation?.();
+        toggleInfo(p.id, 'tok');
       },
     }, h('span', { class: 'tok-ring', 'aria-hidden': 'true' }), face, h('span', { class: 'tok-bar' }, barI), nameEl, warn);
     face.addEventListener('pointerdown', (e) => onTokPointerDown(e, p.id, 'field'));
+    el.addEventListener('pointerenter', (e) => hoverInfo(e, p.id, 'tok', true));
+    el.addEventListener('pointerleave', (e) => hoverInfo(e, p.id, 'tok', false));
     el._bar = barI;
     el._nm = nm;
     el._stn = stN;
@@ -696,6 +717,7 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
       else if (info.needs === 'player' && pos && !info.cand.has(p.id) && !t) cls.push('noncand');
       if (info.rec === p.id) cls.push('rec');
       if (liftId === p.id) cls.push('lifting');
+      if (infoPop?.id === p.id) cls.push('info-on');
       if (el.classList.contains('drilling')) cls.push('drilling');
       el.className = cls.join(' ');
       if (pos) placeTok(el, pos);
@@ -735,8 +757,11 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
         el._nm.textContent = n >= 4 ? shortName(p.name) : p.name;
         el._stn.textContent = n >= 4 ? '' : String(stam);
       }
-      el.title = `${p.name} — ${p.zone ? L.zoneLabel(p.zone) : p.out ? '결장' : ''}${p.bench ? ' (벤치)' : ''} · 체력 ${stam} · 실패율 ${pctText(fr)}`;
-      el.setAttribute('aria-label', `${p.name} — ${p.bench ? '벤치' : p.zone ? L.zoneLabel(p.zone) : '결장'}, 체력 ${stam}${t ? `, 예상 +${t.gain}` : ''}`);
+      const cur = p.zone ? st().players.find((x) => x.id === p.id)?.stats?.[p.zone] : null;
+      // 브라우저 title 풍선은 조준 중에만 (평소 hover 는 선수 정보 팝오버가 대신 — 두 개가 겹치지 않게)
+      if (ui.aim || ui.drag) el.title = `${p.name} — ${p.zone ? L.zoneLabel(p.zone) : p.out ? '결장' : ''}${p.bench ? ' (벤치)' : ''}${cur != null ? ` · ${zoneShort(p.zone)} ${Math.round(cur)}` : ''} · 체력 ${stam} · 실패율 ${pctText(fr)}`;
+      else el.removeAttribute('title');
+      el.setAttribute('aria-label', `${p.name} — ${p.bench ? '벤치' : p.zone ? L.zoneLabel(p.zone) : '결장'}${cur != null ? `, ${zoneShort(p.zone)} ${Math.round(cur)}` : ''}, 체력 ${stam}${t ? `, 예상 +${t.gain}` : ''} — I 키 = 선수 정보`);
     }
   }
 
@@ -823,17 +848,33 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
       let row = rowEls.get(p.id);
       if (!row) {
         const btn = h('button', { class: 'btn btn-xs ls-bench-btn', type: 'button', onclick: (e) => { e.stopPropagation(); toggleBench(p.id); } });
-        row = h('div', { class: 'ls-row', dataset: { pid: p.id }, onclick: () => { if (healAimNow()) playHealOn(p.id); } });
+        // ⓘ = 선수 정보 (§17) — 카드를 골랐어도 늘 연다. 다시 그려도 같은 버튼 (키보드 포커스가 남는다)
+        const pi = h('button', {
+          class: 'ls-pi-btn', type: 'button', 'aria-label': `${p.name} 선수 정보 — 스탯 · 이번 레슨 상승`, 'aria-expanded': 'false',
+          onclick: (e) => { e.stopPropagation(); toggleInfo(p.id, 'btn'); },
+        }, 'ⓘ');
+        // 줄 누르기: 회복 카드 조준이면 그 선수에게, 아니면 선수 정보 (자리를 고르는 카드는 명단 줄에 놓지 않는다)
+        row = h('div', {
+          class: 'ls-row', dataset: { pid: p.id },
+          onclick: () => { if (healAimNow()) playHealOn(p.id); else if (!ui.drag && !suppressClick) toggleInfo(p.id, 'row'); },
+          onkeydown: (e) => { if (e.key === 'i' || e.key === 'I') { e.preventDefault(); toggleInfo(p.id, 'btn'); } },
+        });
+        // hover 는 ⓘ 위에서만 (줄 전체면 [벤치] 를 누르러 갈 때마다 떠서 경기장을 가린다)
+        pi.addEventListener('pointerenter', (e) => hoverInfo(e, p.id, 'btn', true));
+        pi.addEventListener('pointerleave', (e) => hoverInfo(e, p.id, 'btn', false));
         row._btn = btn;
+        row._pi = pi;
         rowEls.set(p.id, row);
         sideRows.append(row);
       }
       const stam = staminaOf(p);
       const fr = Number(p.failRate) || 0;
       const where = p.out ? (p.injured ? '부상' : '결장') : p.bench ? '벤치' : p.zone ? zoneShort(p.zone) : '';
+      const d = playerStatInfo(st(), p.id, v, thresholds);
       row.className = ['ls-row', p.out ? 'out' : '', p.bench ? 'benched' : '', healAim ? 'pickable' : '',
-        info.target.has(p.id) ? 'target' : '', info.healId === p.id ? 'heal-target' : '', rec?.kind === 'bench' && rec.playerId === p.id && live ? 'rec' : ''].filter(Boolean).join(' ');
-      row.title = `${p.name} (${p.slot}) — ${where} · 체력 ${stam} · 실패율 ${pctText(fr)} · 이번 레슨 대상 ${p.targeted}회`;
+        info.target.has(p.id) ? 'target' : '', info.healId === p.id ? 'heal-target' : '', rec?.kind === 'bench' && rec.playerId === p.id && live ? 'rec' : '',
+        infoPop?.id === p.id ? 'info-on' : ''].filter(Boolean).join(' ');
+      row.title = `${p.name} (${p.slot}) — ${where}${d?.cur ? ` · ${zoneShort(d.cur.stat)} ${d.cur.value} (이번 레슨 ${signed(d.cur.gain)})` : ''} · 체력 ${stam} · 실패율 ${pctText(fr)} · 이번 레슨 대상 ${p.targeted}회`;
       const btn = row._btn;
       const canOn = live && !p.out && !p.bench && v.canBench;
       const canOff = live && p.bench;
@@ -841,12 +882,16 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
       btn.disabled = !(canOn || canOff);
       btn.title = p.out ? '결장 중' : p.bench ? '이번 턴 자기 구역으로 돌아간다' : v.canBench ? `이번 턴 쉬기 — 턴 끝 체력 +${benchRecover}` : `벤치는 최대 ${v.benchMax}명`;
       btn.classList.toggle('recommended', rec?.kind === 'bench' && rec.playerId === p.id && live);
+      const pi = row._pi;
+      pi.disabled = inert;
+      pi.setAttribute('aria-expanded', infoPop?.id === p.id ? 'true' : 'false');
       row.replaceChildren(
         avatar(p.portraitColor, p.name, 'xs', p.out ? 'dim' : ''),
-        h('span', { class: 'ls-nm' }, h('b', {}, p.name),
-          h('span', { class: ['tiny', p.out ? 'bad' : p.bench ? 'heal' : 'muted'] }, p.zone && !p.out && !p.bench ? `${L.ZONE_ICONS[p.zone] ?? ''} ${where}` : where)),
-        h('span', { class: 'ls-st' }, bar(stam / 100, stamCls(stam)), h('b', { class: stamCls(stam) }, stam)),
-        p.out ? h('span', { class: 'ls-fr muted' }, '–') : h('span', { class: ['ls-fr', fr >= 0.25 ? 'bad' : fr >= 0.1 ? 'warn' : 'muted'] }, pctText(fr)),
+        h('span', { class: 'ls-nm' }, h('b', {}, p.name)),
+        h('span', { class: 'ls-st', title: `체력 ${stam}` }, bar(stam / 100, stamCls(stam)), h('b', { class: stamCls(stam) }, stam)),
+        p.out ? h('span', { class: 'ls-fr muted' }, '–') : h('span', { class: ['ls-fr', fr >= 0.25 ? 'bad' : fr >= 0.1 ? 'warn' : 'muted'], title: `실패율 ${pctText(fr)}` }, pctText(fr)),
+        curLine(p, d),
+        pi,
         btn);
     }
     const lsn = st().lesson || {};
@@ -856,8 +901,180 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
         h('span', { class: 'tiny muted' }, `레슨 중 +${lsn.twAccrued ?? 0}/${twCap}`)),
       h('div', { class: 'ls-foot-row ls-cond' }, h('span', { class: 'muted' }, '방침'), h('b', {}, policy.name),
         h('span', { class: 'tiny muted ellipsis', title: policy.desc }, `컨디션 ${L.CONDITION_LABELS[st().condition] ?? st().condition}`)));
+    renderInfoPop();
   }
   const healAimNow = () => { const c = aimCard(); return !!(c && c.heal && isLive() && !ui.busy); };
+
+  /* ------------------------------------------------------------------ */
+  /* 스탯 보기 (§17): 명단 줄 구역 스탯 · 선수 정보 팝오버                      */
+  /* ------------------------------------------------------------------ */
+  const gainCls = (n) => (n > 0 ? 'good' : n < 0 ? 'bad' : 'muted');
+  const gainTxt = (n) => (n > 0 ? `+${n}` : n < 0 ? `−${-n}` : '+0');
+  /** 명단 줄 두 번째 줄: 서 있는 구역의 지금 스탯 + 이번 레슨 상승 "🛡️ 수비 B 552 +18" (벤치 = "벤치" + 돌아갈 구역, 결장 = 부상 · 이번 상승 합) */
+  function curLine(p, d) {
+    if (!d || p.out || !d.cur) {
+      const t = d?.total || 0;
+      return h('span', { class: ['ls-cur', 'off'] },
+        h('span', { class: 'bad' }, p.injured ? '🚑 부상 · 결장' : '결장'),
+        t ? h('span', { class: ['ls-cur-g', gainCls(t)], title: '이번 레슨 스탯 상승 합' }, ` 이번 ${gainTxt(t)}`) : null);
+    }
+    const c = d.cur;
+    return h('span', {
+      class: ['ls-cur', `z-${c.stat}`, p.bench ? 'on-bench' : ''],
+      dataset: { stat: c.stat, value: String(c.value), gain: String(c.gain) },
+      title: `${p.bench ? '벤치 — 돌아갈 구역 ' : '서 있는 구역 '}${L.zoneLabel(c.stat)}: ${L.STAT_LABELS[c.stat]} ${c.value} (${c.grade}) · 이번 레슨 ${signed(c.gain)}`,
+    },
+    p.bench ? h('span', { class: 'ls-cur-bench' }, '벤치') : h('span', { class: 'ls-cur-ico', 'aria-hidden': 'true' }, L.ZONE_ICONS[c.stat] ?? ''),
+    h('span', { class: 'ls-cur-k' }, L.STAT_LABELS[c.stat] ?? c.stat),
+    gradeBadge(c.grade, 'xs'),
+    h('b', { class: 'ls-cur-v' }, c.value),
+    h('span', { class: ['ls-cur-g', gainCls(c.gain)] }, gainTxt(c.gain)));
+  }
+
+  /** 팝오버 열기 · 닫기 (pinned = 누르기 · 키, hover = 마우스를 올린 동안) */
+  function openInfo(id, src, pinned) {
+    if (inert || !playerOf(id)) return;
+    clearTimeout(hoverTid);
+    hoverTid = null;
+    infoPop = { id, src, pinned };
+    syncInfoMarks();
+    renderInfoPop();
+  }
+  function closeInfo() {
+    clearTimeout(hoverTid);
+    hoverTid = null;
+    if (!infoPop) return;
+    infoPop = null;
+    syncInfoMarks();
+    renderInfoPop();
+  }
+  /** 같은 선수 · 같은 자리(토큰 / 명단)에서 다시 누르면 닫고, 아니면 고정해서 연다 */
+  function toggleInfo(id, src) {
+    if (inert) return;
+    const same = infoPop && infoPop.id === id && infoPop.pinned && (infoPop.src === 'tok') === (src === 'tok');
+    if (same) closeInfo();
+    else openInfo(id, src, true);
+  }
+  /** 마우스 hover (데스크톱): 카드를 고르지 않고 끌지 않을 때 잠깐 뒤 열고, 떠나면 닫는다 (고정된 팝오버는 그대로) */
+  function hoverInfo(e, id, src, on) {
+    if (inert || (e?.pointerType && e.pointerType !== 'mouse')) return;
+    clearTimeout(hoverTid);
+    hoverTid = null;
+    if (!on) {
+      if (infoPop && !infoPop.pinned && infoPop.id === id) closeInfo();
+      return;
+    }
+    if (infoPop?.pinned || ui.aim || ui.drag || press) return;
+    hoverTid = setTimeout(() => {
+      hoverTid = null;
+      if (!alive() || infoPop?.pinned || ui.aim || ui.drag || press) return;
+      if (src === 'tok' && tokEls.get(id)?.classList.contains('off')) return;
+      openInfo(id, src, false);
+    }, 80);
+  }
+  /** 명단 줄 · ⓘ · 토큰의 열림 표시 */
+  function syncInfoMarks() {
+    for (const [id, row] of rowEls) {
+      row.classList.toggle('info-on', infoPop?.id === id);
+      row._pi?.setAttribute('aria-expanded', infoPop?.id === id ? 'true' : 'false');
+    }
+    for (const [id, el] of tokEls) el.classList.toggle('info-on', infoPop?.id === id);
+  }
+  /** 화면(.lesson-screen) 안 좌표 (논리 px — 무대 배율을 나눈 값) */
+  function relRect(el) {
+    const sr = screen.getBoundingClientRect();
+    const r = el.getBoundingClientRect();
+    const s = stageScale();
+    return { l: (r.left - sr.left) / s, t: (r.top - sr.top) / s, w: r.width / s, h: r.height / s };
+  }
+  /** 팝오버 내용 · 자리. 토큰에서 열었고 경기장에 있으면 토큰 옆, 아니면 명단 줄 왼쪽 */
+  function renderInfoPop() {
+    const d = infoPop && !inert ? playerStatInfo(st(), infoPop.id, v, thresholds) : null;
+    if (!d) {
+      if (infoPop) { infoPop = null; syncInfoMarks(); }
+      pinfo.className = 'ls-pinfo';
+      pinfo.setAttribute('aria-hidden', 'true');
+      pinfo.replaceChildren();
+      return;
+    }
+    const stam = staminaOf({ id: d.id, stamina: d.stamina });
+    const fr = d.failRate;
+    const where = d.out ? (d.injured ? '🚑 부상 — 결장' : '결장') : d.bench ? `벤치 · 턴 끝 +${benchRecover}` : d.zone ? `${L.ZONE_ICONS[d.zone] ?? ''} ${L.zoneLabel(d.zone)}` : '';
+    const mains = d.mainStats.map((s) => L.STAT_LABELS[s] ?? s).join('·');
+    const head = h('div', { class: 'pi-head' },
+      avatar(d.portraitColor, d.name, 'sm', d.out ? 'dim' : ''),
+      h('div', { class: 'pi-id' },
+        h('b', { class: 'pi-name' }, d.name),
+        h('span', { class: 'pi-sub' }, h('span', { class: 'pi-slot' }, d.slot ?? ''), ` ${L.POSITION_LABELS[d.position] ?? d.position ?? ''}${mains ? ` · 주 스탯 ${mains}` : ''}`)),
+      infoPop.pinned ? h('button', { class: 'pi-x', type: 'button', 'aria-label': '닫기', title: '닫기 (Esc)', onclick: (e) => { e.stopPropagation(); closeInfo(); } }, '×') : null);
+    const state = h('div', { class: 'pi-state' },
+      h('span', { class: ['pi-where', d.out ? 'bad' : d.bench ? 'heal' : d.zone ? `z-${d.zone}` : ''] }, where),
+      h('span', { class: 'pi-stam' }, h('span', { class: 'muted' }, '체력'), bar(stam / 100, stamCls(stam)), h('b', { class: stamCls(stam) }, stam)),
+      d.out ? null : h('span', { class: ['pi-fr', fr >= 0.25 ? 'bad' : fr >= 0.1 ? 'warn' : 'muted'] }, `실패 ${pctText(fr)}`));
+    const grid = h('div', { class: 'pi-stats', role: 'table', 'aria-label': `${d.name} 스탯` },
+      h('div', { class: 'pi-row pi-hd', role: 'row' },
+        h('span', { role: 'columnheader' }, '스탯'), h('span', { role: 'columnheader' }, '지금'),
+        h('span', { role: 'columnheader', title: '이번 레슨에서 오른 양 (기본 훈련 · 카드 · 부 스탯 · 실패 −5)' }, '이번 레슨'),
+        h('span', { role: 'columnheader', title: '성장률 — 상승량에 곱한다' }, '성장')),
+      d.stats.map((s) => h('div', {
+        class: ['pi-row', `z-${s.stat}`, s.here ? 'here' : '', s.main ? 'main' : ''], role: 'row',
+        dataset: { stat: s.stat, value: String(s.value), gain: String(s.gain), grade: s.grade },
+        title: `${L.STAT_LABELS[s.stat]} ${s.value} (${s.grade}) · 레슨 시작 ${s.before} → 이번 레슨 ${signed(s.gain)} · 성장 ×${s.growth.toFixed(2)}${s.main ? ' · 주 스탯' : ''}${s.here ? ' · 지금 서 있는 구역' : ''}`,
+      },
+      h('span', { class: 'pi-k', role: 'cell' }, h('span', { class: 'pi-ico', 'aria-hidden': 'true' }, L.STAT_ICONS[s.stat] ?? ''), L.STAT_LABELS[s.stat] ?? s.stat,
+        s.main ? h('i', { class: 'pi-main', title: '주 스탯' }, '주') : null),
+      h('span', { class: 'pi-v', role: 'cell' }, gradeBadge(s.grade, 'xs'), h('b', { class: 'pi-num' }, s.value)),
+      h('span', { class: ['pi-g', gainCls(s.gain)], role: 'cell' }, s.gain ? gainTxt(s.gain) : '–'),
+      h('span', { class: ['pi-gr', s.growth >= 1.1 ? 'hi' : s.growth <= 0.9 ? 'lo' : ''], role: 'cell' }, `×${s.growth.toFixed(2)}`))));
+    const sp = d.split;
+    const foot = h('div', { class: 'pi-foot' },
+      h('span', {}, '이번 레슨 ', h('b', { class: gainCls(d.total) }, gainTxt(d.total)),
+        h('span', { class: 'muted' }, ` · 기본 ${sp.base} / 카드 ${sp.card}`), sp.sub ? h('span', { class: 'muted' }, ` · 부+${sp.sub}`) : null),
+      h('span', { class: 'muted' }, d.out ? '이번 레슨은 훈련하지 않는다'
+        : d.bench ? `벤치 — 이번 턴 기본 훈련 · 카드 대상 없음`
+          : `턴 끝 기본 훈련 +${d.baseNext} 예상 · 카드 대상 ${d.targeted}회`));
+    pinfo.replaceChildren(head, state, grid, foot);
+    pinfo.className = ['ls-pinfo', 'on', infoPop.pinned ? 'pinned' : 'hover'].join(' ');
+    pinfo.dataset.pid = d.id;
+    pinfo.setAttribute('aria-hidden', 'false');
+    pinfo.setAttribute('aria-label', `${d.name} 선수 정보`);
+    placeInfoPop(d);
+  }
+  function placeInfoPop(d) {
+    const sw = screen.offsetWidth;
+    const sh = screen.offsetHeight;
+    const w = pinfo.offsetWidth;
+    const hh = pinfo.offsetHeight;
+    if (!(sw > 0 && sh > 0 && w > 0 && hh > 0)) { pinfo.style.transform = ''; return; } // jsdom (레이아웃 없음)
+    const M = 6;
+    const sideR = relRect(side);
+    const pos = infoPop.src === 'tok' ? v.positions?.[d.id] : null;
+    let l;
+    let t;
+    let top = M;
+    let bottom = sh - M;
+    if (pos) {
+      // 토큰 옆 (오른쪽 → 왼쪽), 옆 칸을 가리지 않게. 높이는 경기장 칸 안 (HUD · 손패를 덜 가리게 — 넘치면 화면 안)
+      const fr = relRect(field);
+      const pr = relRect(pitchWrap);
+      const [x, y] = toPx(pos);
+      const cx = fr.l + (x / W) * fr.w;
+      const cy = fr.t + (y / H) * fr.h;
+      const gap = TOKEN_PX * 0.5 + 12;
+      l = cx + gap + w <= sideR.l - M ? cx + gap : cx - gap - w;
+      t = cy - hh / 2;
+      l = Math.max(M, Math.min(sideR.l - M - w, l));
+      if (pr.h >= hh) { top = pr.t; bottom = pr.t + pr.h; }
+    } else {
+      // 명단 줄 왼쪽 (줄 가운데 높이)
+      const row = rowEls.get(d.id);
+      const rr = row ? relRect(row) : { t: sideR.t, h: 0 };
+      l = sideR.l - M - w;
+      t = rr.t + rr.h / 2 - hh / 2;
+    }
+    t = Math.max(top, Math.min(bottom - hh, t));
+    pinfo.style.transform = `translate(${px(l)}, ${px(t)})`;
+  }
 
   function renderHand(deal = false) {
     const hand = v.hand || [];
@@ -1212,6 +1429,7 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
   }
   function startDrag() {
     press.started = true;
+    closeInfo(); // 끌기 = 선수 정보 팝오버 닫기 (경기장 · 명단을 가리지 않게)
     try { press.el?.setPointerCapture?.(press.pointerId); } catch (_) { /* 이미 놓았으면 무시 */ }
     hoverAt = null;
     if (press.kind === 'shape') {
@@ -1471,6 +1689,7 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     if (!alive()) { document.removeEventListener('keydown', onKey); return; }
     if (e.key === 'Escape') {
       if (press || ui.drag) { cancelDrag(); return; }
+      if (infoPop) { closeInfo(); return; } // 선수 정보 팝오버 먼저 (다음 Esc = 조준 취소)
       if (ui.aim && !ui.busy) cancelAim();
       return;
     }
@@ -1492,6 +1711,18 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     }
   };
   if (!inert) document.addEventListener('keydown', onKey);
+  // 선수 정보 팝오버: 바깥 누르기 = 닫기 (같은 토큰 · 줄은 그 click 이 열고 닫는다 — 토글). 캡처 단계라 다른 처리보다 먼저, 막지는 않는다
+  const onDocDown = (e) => {
+    if (!alive()) { document.removeEventListener('pointerdown', onDocDown, true); return; }
+    if (!infoPop) return;
+    const t = e.target;
+    if (t && pinfo.contains(t)) return;
+    const tokId = t?.closest?.('.tok')?.dataset?.id;
+    const rowId = t?.closest?.('.ls-row')?.dataset?.pid;
+    if (infoPop.src === 'tok' ? tokId === infoPop.id : rowId === infoPop.id) return;
+    closeInfo();
+  };
+  if (!inert) document.addEventListener('pointerdown', onDocDown, true);
 
   /** 덱 · 버림 더미 보기 (뽑을 더미는 이름순 — 순서는 보이지 않는다) */
   function openPile(which) {

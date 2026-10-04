@@ -7,7 +7,10 @@
 //   pointerToField(cx, cy, rect)  포인터(client px) → 필드 % { x, y, inside } (rect = .m-field getBoundingClientRect — 무대 scale 포함)
 //   circlePx(r, aspect, W, H)     원 반지름 r(u) → 그리기용 { rx, ry } px (화면에서 동그랗다)
 //   fxPlan(lastFx)                엔진 lastFx(§14.13 · §15.4) → 연출 단계 (코치 컷인 · 카드 · 턴 끝 기본 훈련 · 벤치 회복 · 흩어지기 · 새 손패 · 코치 붙기 · 레슨 끝)
+//   playerStatInfo(state, id, view, thresholds)  레슨 중 선수 1명의 스탯 5개 (현재 값 · 등급 · 이번 레슨 상승 · 성장률) — 명단 줄 · 선수 정보 팝오버 (§17)
 import { slotSpot } from './lineup.js';
+import { gradeOf } from './dom.js';
+import { STATS } from './labels.js';
 
 /** 레슨 화면 필드의 기준 크기 (논리 px — css/lesson.css 의 그리드에서 나온 값, jsdom 처럼 레이아웃이 없을 때 쓴다) */
 export const FIELD_PX = { w: 968, h: 392 };
@@ -219,4 +222,53 @@ export function handStep(n, avail, cardW, gap = 12) {
   const full = cardW + gap;
   if (n * cardW + (n - 1) * gap <= avail) return full;
   return Math.max(28, (avail - cardW) / (n - 1));
+}
+
+/** 포지션 → 주 스탯 쌍 (엔진 cards.mainStatsOf 와 같다 — test/lessonLayout.test 가 맞춰 본다. UI 는 엔진을 직접 부르지 않는다) */
+export const MAIN_STATS = Object.freeze({ GK: ['defense', 'physical'], DF: ['defense', 'physical'], MF: ['dribble', 'pass'], FW: ['shoot', 'dribble'] });
+
+/**
+ * 레슨 중 선수 1명의 스탯 정보 (§17 — 명단 줄 "🛡️ 수비 552 +18" · 선수 정보 팝오버). 순수 — 상태 · 뷰를 바꾸지 않는다.
+ *  - value = 지금 스탯 (state.players[].stats), gain = 이번 레슨 상승 = value − 레슨 시작 값 (lesson.before — 기본 훈련 · 카드 · 부 스탯 · 실패 −5 모두)
+ *  - zone = 이번 턴 서 있는 구역 (뷰 players[].zone — 벤치 선수는 돌아갈 구역, 결장은 null), here = 그 구역의 스탯 줄
+ *  - cur = 명단 줄에 쓰는 구역 스탯 줄 (결장이면 null), total = 5개 상승 합,
+ *    split = 기본(기본 훈련 + 분위기 몫) · 카드(실패 −5 포함) · 부 스탯 — 보상 모달 선수 칩과 같은 나눔 (lesson.baseGains · moodGains · cardGains · subGains)
+ * @param {object} state 레슨 런 상태 (players[].stats · growth · position · slot, lesson)
+ * @param {string} id 선수 id
+ * @param {object} [view] getLessonView — players[] 의 zone · bench · out · injured · stamina · failRate · baseNext · targeted (없으면 상태에서)
+ * @param {object} [thresholds] 등급 기준 (data.config.rating.thresholds — 없으면 dom.DEFAULT_THRESHOLDS)
+ * @returns {null | { id, name, slot, position, portraitColor, zone, bench, out, injured, stamina, failRate, baseNext, targeted, benched, mainStats: string[],
+ *   stats: Array<{ stat, value, before, gain, grade, growth, main, here }>, cur: object|null, total: number, split: { base, card, sub } }}
+ */
+export function playerStatInfo(state, id, view = null, thresholds = undefined) {
+  const p = (state?.players || []).find((x) => x.id === id);
+  if (!p) return null;
+  const L = state.lesson || null;
+  const vp = (view?.players || []).find((x) => x.id === id) || null;
+  const num = (x) => (Number.isFinite(Number(x)) ? Number(x) : 0);
+  const out = vp ? !!vp.out : !!(L && (L.out || []).includes(id));
+  const bench = vp ? !!vp.bench : !!(L && (L.bench || []).includes(id));
+  const zone = out ? null : (vp ? vp.zone : L?.zones?.[id]) || null;
+  const mainStats = (MAIN_STATS[p.position] || []).slice();
+  const before = (L && L.before && L.before[id]) || p.stats || {};
+  const stats = STATS.map((stat) => {
+    const value = Math.round(num(p.stats?.[stat]));
+    const b = Math.round(num(before[stat] ?? value));
+    const g = Number(p.growth?.[stat]);
+    return {
+      stat, value, before: b, gain: value - b, grade: gradeOf(value, thresholds),
+      growth: Number.isFinite(g) ? g : 1, main: mainStats.includes(stat), here: !!zone && stat === zone,
+    };
+  });
+  const at = (k) => num(L?.[k]?.[id]);
+  return {
+    id, name: p.name, slot: p.slot, position: p.position, portraitColor: p.portraitColor,
+    zone, bench, out, injured: vp ? !!vp.injured : out && !(L?.outAtStart || []).includes(id),
+    stamina: num(vp ? vp.stamina : p.stamina), failRate: num(vp?.failRate), baseNext: num(vp?.baseNext),
+    targeted: vp ? num(vp.targeted) : at('targeted'), benched: at('benchTurns'),
+    mainStats, stats,
+    cur: stats.find((s) => s.here) || null,
+    total: stats.reduce((a, s) => a + s.gain, 0),
+    split: { base: at('baseGains') + at('moodGains'), card: at('cardGains'), sub: at('subGains') },
+  };
 }

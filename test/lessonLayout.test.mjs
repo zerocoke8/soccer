@@ -2,7 +2,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { loadData, clone } from "./helpers.mjs";
-import { tokenSpot, tokenSpots, pointerToField, circlePx, fxPlan, scoreAfterPlay, handStep, FIELD_PX, TOKEN_PX } from "../js/ui/lesson_layout.js";
+import { tokenSpot, tokenSpots, pointerToField, circlePx, fxPlan, scoreAfterPlay, handStep, playerStatInfo, MAIN_STATS, FIELD_PX, TOKEN_PX } from "../js/ui/lesson_layout.js";
+import { gradeOf } from "../js/ui/dom.js";
+import { mainStatsOf } from "../js/engine/cards.js";
+import * as manager from "../js/engine/manager.js";
 import { slotSpot } from "../js/ui/lineup.js";
 import { slotsOf, FORMATIONS, STATS } from "../js/ui/labels.js";
 import * as lessonRun from "../js/engine/lessonRun.js";
@@ -403,4 +406,76 @@ test("cards.js estimateCost/costText: 보상 · 상담 카드 비용 = 엔진 1�
   assert.equal(effectDesc("큰 원 · 1인 12 + 분위기 1당 0.9"), "+ 분위기 1당 0.9");
   assert.equal(effectDesc("공격 구역 단일 · 1인 30, 탈취 스택당 +45%"), "탈취 스택당 +45%");
   assert.equal(effectDesc("분위기 +3"), "분위기 +3", "효과 카드는 그대로");
+});
+
+test("playerStatInfo (§17): 레슨 중 스탯 5개 = 엔진 상태 (지금 값 · 이번 레슨 상승 · 등급 · 성장률) · 구역 줄 · 벤치 · 결장 · 순수", () => {
+  const data = loadData();
+  const cfg = data.config;
+  const th = cfg.rating?.thresholds;
+  for (const pos of ["GK", "DF", "MF", "FW"]) assert.deepEqual(MAIN_STATS[pos], mainStatsOf(pos), `${pos}: 주 스탯 = 엔진 mainStatsOf`);
+  const st = lessonRun.createRun({ data, seed: "statinfo", squad: cfg.defaultSquad.slots, formation: cfg.defaultSquad.formation, supportIds: cfg.defaultSupports, tactics: cfg.defaultTactics, policy: "team" });
+  lessonRun.applyWeekAction(st, data, { type: "lesson", zone: "pass" });
+  // 레슨 시작: 상승 0
+  for (const p of st.players) assert.equal(playerStatInfo(st, p.id, lessonRun.getLessonView(st, data), th).total, 0, `${p.id}: 시작 상승 0`);
+  // 감독 AI 로 3턴째까지 (카드 · 기본 훈련 · 벤치)
+  for (let i = 0; i < 200 && st.phase === "lesson" && st.lesson.status === "playing" && st.lesson.turn < 3; i++) manager.autoStep(st, data, {});
+  assert.ok(st.phase === "lesson" && st.lesson.status === "playing" && st.lesson.turn >= 3, "3턴째 레슨");
+  // 벤치 1명 · 결장 1명 (out 주입 — 뷰 · 정보가 따라오는가)
+  const v0 = lessonRun.getLessonView(st, data);
+  const field = v0.players.filter((p) => v0.positions[p.id]);
+  const benchId = field[0].id;
+  if (!st.lesson.bench.includes(benchId)) { st.lesson.bench = st.lesson.bench.slice(0, 1); lessonRun.benchPlayer(st, data, { playerId: benchId, on: true }); }
+  const outId = field[field.length - 1].id;
+  st.lesson.out.push(outId);
+  delete st.lesson.zones[outId];
+  const v = lessonRun.getLessonView(st, data);
+  const snap = JSON.stringify(st);
+  let anyGain = false;
+  for (const p of st.players) {
+    const d = playerStatInfo(st, p.id, v, th);
+    const vp = v.players.find((x) => x.id === p.id);
+    assert.equal(d.name, p.name);
+    assert.equal(d.slot, p.slot);
+    assert.deepEqual(d.mainStats, mainStatsOf(p.position), `${p.id}: 주 스탯`);
+    assert.deepEqual(d.stats.map((s) => s.stat), STATS, "스탯 5개 (STATS 순서)");
+    for (const s of d.stats) {
+      const before = st.lesson.before[p.id][s.stat];
+      assert.equal(s.value, Math.round(p.stats[s.stat]), `${p.id} ${s.stat}: 지금 값 = 상태`);
+      assert.equal(s.before, Math.round(before), `${p.id} ${s.stat}: 레슨 시작 값`);
+      assert.equal(s.gain, Math.round(p.stats[s.stat]) - Math.round(before), `${p.id} ${s.stat}: 이번 레슨 상승`);
+      assert.equal(s.grade, gradeOf(s.value, th), `${p.id} ${s.stat}: 등급`);
+      assert.equal(s.growth, p.growth[s.stat], `${p.id} ${s.stat}: 성장률`);
+      assert.equal(s.main, mainStatsOf(p.position).includes(s.stat));
+      if (s.gain) anyGain = true;
+    }
+    assert.equal(d.total, d.stats.reduce((a, s) => a + s.gain, 0), "합계");
+    const L = st.lesson;
+    assert.deepEqual(d.split, { base: (L.baseGains[p.id] || 0) + (L.moodGains[p.id] || 0), card: L.cardGains[p.id] || 0, sub: L.subGains[p.id] || 0 }, `${p.id}: 기본 / 카드 / 부 나눔`);
+    assert.equal(d.stamina, vp.stamina);
+    assert.equal(d.failRate, vp.failRate);
+    assert.equal(d.baseNext, vp.baseNext);
+    assert.equal(d.targeted, vp.targeted);
+    assert.equal(d.bench, vp.bench);
+    assert.equal(d.out, vp.out);
+    if (vp.out) {
+      assert.equal(d.zone, null, "결장: 구역 없음");
+      assert.equal(d.cur, null, "결장: 구역 스탯 줄 없음");
+      assert.ok(d.stats.every((s) => !s.here));
+    } else {
+      assert.equal(d.zone, vp.zone, `${p.id}: 구역 = 뷰 (벤치 = 돌아갈 구역)`);
+      assert.equal(d.cur.stat, vp.zone, "구역 스탯 줄 = 서 있는 구역");
+      assert.equal(d.cur.value, Math.round(p.stats[vp.zone]));
+      assert.equal(d.stats.filter((s) => s.here).length, 1);
+    }
+  }
+  assert.ok(anyGain, "3턴째에는 오른 스탯이 있다");
+  assert.ok(playerStatInfo(st, benchId, v, th).bench, "벤치 선수");
+  assert.ok(playerStatInfo(st, outId, v, th).out && playerStatInfo(st, outId, v, th).injured, "레슨 중 결장 = 부상");
+  assert.equal(JSON.stringify(st), snap, "순수 — 상태를 바꾸지 않는다");
+  assert.equal(playerStatInfo(st, "nobody", v, th), null, "없는 선수 = null");
+  // 뷰 없이 (상태만): 구역 · 벤치 · 결장은 레슨 상태에서
+  const bare = playerStatInfo(st, benchId);
+  assert.equal(bare.zone, st.lesson.zones[benchId]);
+  assert.ok(bare.bench);
+  assert.equal(playerStatInfo(st, outId).zone, null);
 });

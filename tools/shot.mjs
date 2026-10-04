@@ -371,7 +371,8 @@ async function runScenario(browser, baseUrl, sc, prepared, opts) {
       const clipped = [...document.querySelectorAll([
         ".skill-row .sk-nm", ".card-face .cf-name", ".card-face .cf-desc", ".card-face .cf-power", ".card-face .cf-target", ".card-face .cf-reason",
         ".mini-card .mc-name", ".rw-pl-nm", ".rw-pl-split", ".rw-pl-by", ".card-face .cf-cost", ".week-lesson .wl-focus", ".week-lesson .wl-target", ".week-lhead",
-        ".policy-desc", ".ls-nm b", ".lesson-screen .tok-name",
+        ".policy-desc", ".ls-nm b", ".lesson-screen .tok-name", ".ls-row .ls-cur",
+        ".ls-pinfo .pi-name", ".ls-pinfo .pi-sub", ".ls-pinfo .pi-where", ".ls-pinfo .pi-k", ".ls-pinfo .pi-v", ".ls-pinfo .pi-g", ".ls-pinfo .pi-foot > span",
         ".ls-cutin .lc-txt b", ".ls-cutin .lc-sub", ".ls-cutin .lc-line", ".card-face .cf-coach", ".ls-info .ls-att-line", ".ls-info .ls-att-sub", ".ls-info .ls-cut-sub",
       ].join(", "))]
         .map((el) => {
@@ -418,6 +419,23 @@ async function runScenario(browser, baseUrl, sc, prepared, opts) {
         if (a.tok && a.tok === b.tok) continue; // 같은 토큰 안 (얼굴 ↔ 자기 이름표)
         if (a.kind === "얼굴" && b.kind === "얼굴") continue; // 얼굴끼리는 대형 간격(§14.2)이 보장
         if (cut(a.r, b.r) > 4) overlaps.push(`레슨 ${a.tok ? nameOf(a.tok) + " " : ""}${a.kind} ↔ ${b.tok ? nameOf(b.tok) + " " : ""}${b.kind}`);
+      }
+      // 레슨 옆 칸 (§17 명단 두 줄): 내용이 칸 아래로 넘치는가 (팀워크 · 방침 줄이 잘린다) · 선수 정보 팝오버가 화면(무대) 밖 · 옆 칸 위로 나가는가
+      const sideEl = document.querySelector(".lesson-screen .ls-side");
+      if (sideEl) {
+        const sr = rectOf(sideEl);
+        const cs = getComputedStyle(sideEl);
+        const k = sideEl.offsetHeight > 0 ? sr.height / sideEl.offsetHeight : 1; // 무대 배율 (getComputedStyle 은 논리 px, rect 는 화면 px)
+        const limit = sr.bottom - ((parseFloat(cs.paddingBottom) || 0) + (parseFloat(cs.borderBottomWidth) || 0)) * k; // 안쪽 여백까지 (글자가 테두리에 붙지 않게)
+        const last = [...sideEl.querySelectorAll(".ls-foot-row, .ls-row")].reduce((m, el) => Math.max(m, rectOf(el).bottom), 0);
+        if (last > limit + 0.5) overlaps.push(`레슨 옆 칸 넘침 ${(last - limit).toFixed(1)}px`);
+      }
+      const piEl = document.querySelector(".lesson-screen .ls-pinfo.on");
+      const scrEl = document.querySelector(".lesson-screen");
+      if (piEl && scrEl) {
+        const pr = rectOf(piEl), cr = rectOf(scrEl);
+        if (pr.left < cr.left - 1 || pr.top < cr.top - 1 || pr.right > cr.right + 1 || pr.bottom > cr.bottom + 1) overlaps.push("레슨 선수 정보 팝오버가 화면 밖");
+        if (piEl.scrollHeight > piEl.clientHeight + 1 || piEl.scrollWidth > piEl.clientWidth + 1) overlaps.push("레슨 선수 정보 팝오버 내용 넘침");
       }
       // 꼬리표가 경기장 밖으로 나가는가 (경기장 overflow 에 잘린다)
       const fieldEl = document.querySelector(".lesson-screen .m-field");
