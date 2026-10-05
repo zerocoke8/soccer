@@ -15,3 +15,6 @@ art/**/reference*.png
 
 # 일러스트 그림체 시험 (1 ~ 3차 · 수정본) — 확정본은 art/characters/
 art/style_test/ref5/
+
+# 스프라이트 시험 (기준 그림 후보 · 중간 결과 — 확정본만 커밋)
+art/sprites/_trials/
