@@ -4,7 +4,8 @@
 //                             [--special-rate r] [--slot SLOT=charId]... [--unique-report] [--events on|off] [--account fresh|carry] [--legends n]
 //   --events on|off: lesson.json events 의 기능 스위치를 모두 켜거나 끈다 (기본 = 데이터 그대로, §24.11). 이벤트가 하나라도 켜져 있으면
 //                    표 끝에 [이벤트] 줄 (런당 이벤트 — 트리거별 · 시간 어림 이벤트 하나 12초, 코치 단계 도달 · 이야기 화, §24.16) 을 더한다
-//                    (꺼져 있으면 표는 그대로).
+//                    (꺼져 있으면 표는 그대로). [이벤트 몫] 줄 (I1) = 이벤트 · 카드 3택1 · 레슨 깜짝을 고른 행동의 앞뒤 차이 — 스탯 합 · TP · SP ·
+//                    수업 · 카드 추가 / 강화 / 삭제 · 유물 · 새 결장 + 런 끝 남은 수업 → SP.
 //                    레슨 깜짝 (§24.8, E5) 스위치가 켜져 있으면 [깜짝] 줄 (런당 깜짝 · 계획된 레슨 · 계획 중 뜬 비율 · 고른 선택지 몫 ·
 //                    깜짝이 뜬 / 안 뜬 레슨의 점수 · 퍼펙트율) 과 표 아래 id 별 깜짝 / 런 한 줄을 더한다.
 //   --account fresh|carry: 계정 스냅샷 (§24.7 — 이야기 진행 · 코치 첫 만남). fresh (기본) = 런마다 빈 계정, carry = 방침마다 빈 계정에서
@@ -202,7 +203,13 @@ export function simulateOne(data, { seed, policy, formation, slots = {}, playMat
     events: {},
     // §24.16 E5 레슨 깜짝: 고른 깜짝 [{ id, choice }] · 끝난 레슨마다 { planned, fired, score, status }
     surprises: [], surpriseLessons: [],
+    // §24.16 I1 이벤트 몫: 이벤트 · 3택1 · 깜짝을 고른 행동 1번의 차이 — 스탯 합 (7명 × 5) · TP · SP · 수업 (pendingTeach 늘어난 수) ·
+    //   덱에 들어온 카드 · 강화 · 삭제 · 유물 (이벤트 뒤 유물 3택1) · 결장 (새로 결장) · 런 끝 남은 수업 → SP (개수 · SP)
+    ev: { stat: 0, tp: 0, sp: 0, teach: 0, cards: 0, upgrades: 0, deletes: 0, relics: 0, injuries: 0, leftoverTeach: 0, leftoverSp: 0 },
   };
+  const statSum = () => state.players.reduce((a, p) => a + STATS.reduce((b, s) => b + (Number(p.stats[s]) || 0), 0), 0);
+  const plusCount = () => state.deck.filter((e) => e.plus).length;
+  const injuredSet = () => new Set(state.players.filter((p) => (Number(p.injuredTurns) || 0) > 0).map((p) => p.id));
   const benchTurnKeys = new Set();
   const uniqTurnKeys = new Set();
   let guard = 0;
@@ -222,6 +229,11 @@ export function simulateOne(data, { seed, policy, formation, slots = {}, playMat
       const t = ev ? ev.trigger : "?";
       m.events[t] = (m.events[t] || 0) + 1;
     }
+    // 이벤트 몫 (§24.16): 이번 행동이 이벤트 · 3택1 · 레슨 깜짝 고르기인가 (그 앞뒤 차이를 이벤트 몫으로 센다)
+    const phase0 = state.phase;
+    const evStep = phase0 === "event" || phase0 === "cardOffer" || (wasLesson && !!(state.lesson && state.lesson.surprise && state.lesson.surprise.pending));
+    const ev0 = evStep ? { stat: statSum(), deck: state.deck.length, plus: plusCount(), teach: (state.pendingTeach || []).length, inj: injuredSet() } : null;
+    const teachLeft0 = (state.pendingTeach || []).length;
     const forced = specialRateAction(state, data, seed, specialRate);
     let r;
     if (forced) {
@@ -231,6 +243,22 @@ export function simulateOne(data, { seed, policy, formation, slots = {}, playMat
     m.steps += 1;
     const dtp = state.trainingPoints - tp0;
     const dsp = state.skillPoints - sp0;
+    if (ev0) {
+      m.ev.stat += statSum() - ev0.stat;
+      m.ev.tp += dtp;
+      m.ev.sp += dsp;
+      m.ev.teach += Math.max(0, (state.pendingTeach || []).length - ev0.teach);
+      const dd = state.deck.length - ev0.deck;
+      if (dd > 0) m.ev.cards += dd; else m.ev.deletes -= dd;
+      m.ev.upgrades += Math.max(0, plusCount() - ev0.plus);
+      if (phase0 === "event" && state.phase === "relic") m.ev.relics += 1;
+      for (const id of injuredSet()) if (!ev0.inj.has(id)) m.ev.injuries += 1;
+    }
+    if (phase0 !== "finished" && state.phase === "finished" && teachLeft0 > 0) {
+      // 런 끝 (lessonRun.leftoverTeachToSp): 받지 못한 수업 하나에 declineSp
+      m.ev.leftoverTeach += teachLeft0;
+      m.ev.leftoverSp += teachLeft0 * (Number(data.lesson.rewards.teach.declineSp) || 0);
+    }
     if (dtp > 0) m.tpGain += dtp; else m.tpSpent -= dtp;
     if (dsp > 0) m.spGain += dsp; else m.spSpent -= dsp;
     m.coachAcquired += Math.max(0, state.deck.filter((e) => e.cardId.startsWith("cd_c_")).length - coach0);
@@ -628,6 +656,8 @@ export function summarize(data, args, policy) {
     coachSteps: [0, 1, 2].map((k) => mean(rs.map((r) => r.coachStepCount[k]))),
     coachMetSkip: mean(rs.map((r) => r.coachMetSkip)),
     storyPerRun: mean(rs.map((r) => r.storyEps)),
+    // §24.16 I1 이벤트 몫 (런당) — simulateOne m.ev
+    evShare: Object.fromEntries(Object.keys(rs[0].ev).map((k) => [k, mean(rs.map((r) => r.ev[k]))])),
     accountStories: account ? Object.values(account.stories).reduce((a, b) => a + b, 0) : null,
     // §24.9 레전드 (--legends): 레전드가 있었던 런만 — 런 수 · 시작 덱 · 메모리 카드 / 런 · 낸 수 / 런 · 런 끝 덱에 남음 / 런
     legendRuns: withLegends.length,
@@ -745,6 +775,9 @@ function printTable(sums, args) {
       ...TRIGGERS.map((t) => [`[이벤트] 런당 ${KIND_BADGES[t]} (${t})`, (s) => f2(s.eventsBy[t])]),
       [`[이벤트] 코치 단계 도달 / 런 1 · 2 · 3 (계정 ${args.account || "fresh"} — 첫 만남 건너뜀)`, (s) => `${s.coachSteps.map(f2).join(" · ")} (${f2(s.coachMetSkip)})`],
       [`[이벤트] 이야기 화 / 런 (계정 ${args.account || "fresh"}${args.account === "carry" ? " — 끝 계정 화 합" : ""})`, (s) => `${f2(s.storyPerRun)}${s.accountStories !== null ? ` (${s.accountStories})` : ""}`],
+      ["[이벤트 몫] 스탯 합 (7명) · TP · SP / 런", (s) => `${f0(s.evShare.stat)} · ${f1(s.evShare.tp)} · ${f1(s.evShare.sp)}`],
+      ["[이벤트 몫] 수업 · 카드 추가/강화/삭제 · 유물 · 결장 / 런", (s) => `${f2(s.evShare.teach)} · ${f2(s.evShare.cards)}/${f2(s.evShare.upgrades)}/${f2(s.evShare.deletes)} · ${f2(s.evShare.relics)} · ${f2(s.evShare.injuries)}`],
+      ["[이벤트 몫] 런 끝 남은 수업 → SP (개 · SP / 런)", (s) => `${f2(s.evShare.leftoverTeach)} · ${f1(s.evShare.leftoverSp)}`],
     ] : []),
     // §24.16 E5 레슨 깜짝 — 깜짝 스위치가 켜져 있을 때만
     ...(args.surpriseOn ? [

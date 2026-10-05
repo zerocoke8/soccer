@@ -22,13 +22,25 @@
 //   --slot SLOT=charId = 편성 화면에서 그 슬롯을 눌러 선수를 바꾼 뒤 [런 시작] (미르카 판: --slot FW2=ch_cat_trickster).
 //   아직 안 낸 고유 카드가 낼 수 있으면 감독 추천 대신 먼저 낸다 (덱의 고유 카드 모두 1번 이상 — 끝에 확인). --no-cover = 늘 감독 추천대로.
 // --watch-match (§19 K5) = 경기를 ⏭ 대신 자동 진행 4x 로 끝까지 보며 필살기 컷인(등급 · 합체기 · 역방향)을 세고, 엔진 이벤트 기대 장수 = 화면 장수 · 글자 잘림 없음을 확인한다.
+// 2차 이벤트 (LESSON_PROTO_PLAN §24.11 · §24.16, I1) — 데이터 스위치가 켜진 실제 앱:
+//  - 이벤트 모달 (phase event): 감독 추천 (manager.recommendEventChoice — 화면의 "추천" 배지와 같은지 본다) 선택지를 클릭 · 탭으로 누르고,
+//    고르는 선택지 (카드 1장 강화 · 삭제) 면 덱 고르기에서 추천 카드 → [확정]. 고른 뒤 결과 카드 (.evm-result — 결과 글 · 받은 효과) → [계속].
+//    종류마다 (주 끝 · 시즌 시작 · 전야 · 루트 · 외출 · 이야기 · 코치) 첫 장면을 찍는다.
+//  - 보상 카드 3택1 (phase cardOffer): 감독 추천 (recommendCardOffer) 카드 · [건너뛰기] → [확인].
+//  - 레슨 깜짝 말풍선 (§24.8): 감독 추천 (recommendCard → kind surprise) 선택지를 클릭 · 탭 · 숫자 키로 돌아가며 누른다.
+//    말풍선이 필드 안 · 선택지 2개 · [턴 끝] 잠김 · 추천 배지 = 추천인지, 고른 뒤 결과 한 줄 띠 (.ls-sres) 가 뜨는지 본다.
+//  - 외출 모달: 추천 선수 줄의 "이야기 n/3화" · "일반 외출" 배지를 적고, 이야기면 그 화가 실제로 뜨는지 (이벤트 kind story · 같은 선수) 본다.
+//  - --outings N = 자유 주에 외출을 고를 수 있으면 감독 추천 대신 외출을 N 번까지 고른다 (감독 AI 는 외출을 거의 고르지 않아 이야기가
+//    화면에 잘 안 나온다). 상대 = 감독 AI 외출 상대 규칙 (안 본 이야기가 남은 선수 중 체력 최저, 없으면 7명 중 체력 최저) — 모달의 그 줄을 누른다.
+//  - --legends = 편성 화면에서 레전드 2명 (등록 팀 = lesson_scenarios legendSampleTeams 를 localStorage 에 미리 넣는다) 을 고르고,
+//    런 시작 덱에 메모리 카드가 들어갔는지 본다.
 import fs from "node:fs";
 import path from "node:path";
-import { ROOT } from "./scenarios.mjs";
+import { ROOT, loadData as loadNodeData } from "./scenarios.mjs";
 import { startServer, findBrowser } from "./shot.mjs";
 
 function parseArgs(argv) {
-  const o = { outDir: null, seed: "play-1", policy: "team", until: "season", lessons: null, width: 1280, height: 720, mobile: false, touchOnly: false, maxMin: 25, slots: {}, coverUniques: true, watchMatch: false };
+  const o = { outDir: null, seed: "play-1", policy: "team", until: "season", lessons: null, width: 1280, height: 720, mobile: false, touchOnly: false, maxMin: 25, slots: {}, coverUniques: true, watchMatch: false, legends: false, outings: 0 };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const next = () => argv[++i];
@@ -44,11 +56,13 @@ function parseArgs(argv) {
     else if (a === "--slot") { const [k, v] = String(next() || "").split("="); if (!k || !v) throw new Error("--slot SLOT=charId"); o.slots[k] = v; }
     else if (a === "--no-cover") o.coverUniques = false;
     else if (a === "--watch-match") o.watchMatch = true;
+    else if (a === "--legends") o.legends = true;
+    else if (a === "--outings") o.outings = Math.max(0, parseInt(next(), 10) || 0);
     else if (a.startsWith("--")) throw new Error(`알 수 없는 옵션: ${a}`);
     else if (!o.outDir) o.outDir = a;
     else throw new Error(`인자가 너무 많습니다: ${a}`);
   }
-  if (!o.outDir) throw new Error("usage: node tools/lesson_play.mjs <outDir> [--seed S] [--policy P] [--until season|lesson|run] [--lessons N] [--width W --height H] [--mobile] [--touch-only] [--slot FW2=ch_cat_trickster] [--no-cover] [--watch-match]");
+  if (!o.outDir) throw new Error("usage: node tools/lesson_play.mjs <outDir> [--seed S] [--policy P] [--until season|lesson|run] [--lessons N] [--width W --height H] [--mobile] [--touch-only] [--slot FW2=ch_cat_trickster] [--no-cover] [--watch-match] [--legends] [--outings N]");
   return o;
 }
 
@@ -71,7 +85,15 @@ async function main() {
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
   const browser = await puppeteer.launch({ executablePath: bi.path, headless: true, args: ["--no-first-run", "--no-default-browser-check", "--disable-extensions", "--lang=ko-KR"] });
   const log = (...a) => console.log(...a);
-  const report = { errors: [], toasts: [], scroll: [], actions: {}, fails: [], fallbacks: [], targetMismatch: [], drift: [], shots: [], phases: {}, lessons: [], teach: [], matches: [] };
+  const report = { errors: [], toasts: [], scroll: [], actions: {}, fails: [], fallbacks: [], targetMismatch: [], drift: [], shots: [], phases: {}, lessons: [], teach: [], matches: [],
+    // 2차 이벤트 (I1): 고른 이벤트 · 결과 카드 · 3택1 · 깜짝 · 외출 · 레전드
+    events: [], resultCards: 0, offers: [], surprises: [], outings: [], legends: null };
+  // --legends: 등록 팀 (노드에서 런 3번 — lesson_scenarios.legendSampleTeams) 을 미리 만든다
+  let legendTeams = null;
+  if (args.legends) {
+    const { legendSampleTeams } = await import("./lesson_scenarios.mjs");
+    legendTeams = legendSampleTeams(loadNodeData(ROOT), args.seed);
+  }
   let teachN = 0;
   const uniquePlays = {}; // 낸 고유 카드 cardId → { name, kind, chip, n, ways: Set }
   const t0 = Date.now();
@@ -81,7 +103,12 @@ async function main() {
     page.on("console", (m) => { if (m.type() === "error") report.errors.push(`console.error: ${m.text()}`); });
     await page.setViewport({ width: args.width, height: args.height, deviceScaleFactor: 1, isMobile: args.mobile, hasTouch: true });
     await page.goto(`${baseUrl}/index.html`, { waitUntil: "load" });
-    await page.evaluate(() => { try { localStorage.clear(); } catch (_) { /* */ } });
+    await page.evaluate((teams) => {
+      try {
+        localStorage.clear();
+        if (teams) localStorage.setItem("soccer-lesson.teams", JSON.stringify(teams)); // js/ui/store.js KEYS.teams
+      } catch (_) { /* */ }
+    }, legendTeams);
     await page.reload({ waitUntil: "load" });
     await page.waitForFunction(() => window.__soccer?.store?.data && [...document.querySelectorAll("button")].some((b) => /새 런 시작/.test(b.textContent || "")), { timeout: 20000 });
 
@@ -240,10 +267,37 @@ async function main() {
       const now = await S((sl) => document.querySelector(`.setup-screen .lu-slot[data-slot="${sl}"]`)?.dataset.pid ?? null, slot);
       if (now !== charId) report.fails.push(`편성 ${slot} = ${now} (${charId} 아님)`);
     }
+    // --legends (§24.9): [★ 레전드] → 등록 팀 0 · 1 의 첫 선수 (다른 팀 둘 = 메모리 카드 2장) → [완료]
+    let legendPicked = null;
+    if (args.legends) {
+      const how = args.touchOnly ? "touch" : "mouse";
+      if (!(await press(".setup-supports .legend-btn", how))) report.fails.push("[★ 레전드] 버튼을 누르지 못함");
+      else {
+        await page.waitForSelector("#modal-root .legend-modal .lg-team", { timeout: 4000 }).catch(() => report.fails.push("레전드 모달이 뜨지 않음"));
+        await delay(300);
+        for (const ti of [0, 1]) {
+          if (!(await press(`#modal-root .lg-team[data-idx="${ti}"] .lg-pl:not([disabled])`, how))) report.fails.push(`등록 팀 ${ti} 선수를 누르지 못함`);
+          await delay(150);
+        }
+        await snap("setup_legends");
+        legendPicked = await S(() => (window.__soccer.store.setup?.legends || []).map((l) => ({ teamId: l.teamId, charId: l.charId, name: l.name, memoryCard: l.memoryCard || null })));
+        if ((legendPicked || []).length !== 2) report.fails.push(`레전드 2명을 고르지 못함 (${(legendPicked || []).length}명)`);
+        await press("#modal-root .lg-done", how);
+        await delay(250);
+      }
+    }
     await snap("setup");
     if (slotList.length) await pressText(/^런 시작$/);
     else await pressText(/기본 편성으로 시작/);
-    await page.waitForFunction(() => window.__soccer.store.screen === "run" && window.__soccer.store.run?.phase === "week", { timeout: 8000 });
+    await page.waitForFunction(() => window.__soccer.store.screen === "run" && ["week", "event"].includes(window.__soccer.store.run?.phase), { timeout: 8000 });
+    if (args.legends) {
+      // 시작 덱의 메모리 카드 = 고른 레전드의 메모리 카드 (팀마다 1장 — 다른 팀 둘이면 2장)
+      const mem = await S(() => ({ deck: (window.__soccer.store.run.deck || []).filter((e) => e.src === "memory").map((e) => `${e.cardId}${e.plus ? "+" : ""}`), legends: (window.__soccer.store.run.legends || []).length }));
+      const want = [...new Set((legendPicked || []).filter((l) => l.memoryCard).map((l) => l.teamId))].length;
+      report.legends = { picked: (legendPicked || []).map((l) => `${l.name}(${l.memoryCard ? `${l.memoryCard.cardId}${l.memoryCard.plus ? "+" : ""}` : "카드 없음"})`), deck: mem.deck, stateLegends: mem.legends };
+      if (mem.legends !== (legendPicked || []).length) report.fails.push(`런 state.legends ${mem.legends}명 ≠ 고른 ${(legendPicked || []).length}명`);
+      if (mem.deck.length !== want) report.fails.push(`시작 덱 메모리 카드 ${mem.deck.length}장 ≠ 기대 ${want}장`);
+    }
 
     // ---- 레슨 한 행동 ----
     const MOUSE_WAYS = ["mouseDrag", "touchDrag", "touchTap", "mouseClick", "keys"];
@@ -283,6 +337,69 @@ async function main() {
       const L = s.run.lesson;
       return { phase: s.run.phase, seq: L?.seq ?? null, turn: L?.turn ?? null, bench: (L?.bench || []).slice(), hand: (L?.hand || []).slice(), score: L?.score ?? null };
     });
+    // ---- 레슨 깜짝 말풍선 (§24.8 · §24.13, I1): 감독 추천 선택지를 클릭 · 탭 · 숫자 키로 돌아가며 ----
+    let surN = 0;
+    async function surpriseStep(rec) {
+      await page.waitForSelector(".lesson-screen .ls-sur .lsr-choice:not([disabled])", { timeout: 4000 }).catch(() => {});
+      await delay(200);
+      const bub = await S(() => {
+        const b = document.querySelector(".lesson-screen .ls-sur");
+        if (!b) return null;
+        const f = document.querySelector(".lesson-screen .m-field")?.getBoundingClientRect();
+        const r = b.getBoundingClientRect();
+        const btns = [...b.querySelectorAll(".lsr-choice")];
+        const L = window.__soccer.store.run.lesson;
+        return {
+          id: b.dataset.id, pos: b.dataset.pos || null, turn: L.turn, seq: L.seq,
+          inField: !!f && r.left >= f.left - 1 && r.right <= f.right + 1 && r.top >= f.top - 1 && r.bottom <= f.bottom + 1,
+          choices: btns.length, recIdx: btns.findIndex((x) => x.classList.contains("recommended")),
+          endDisabled: !!document.querySelector(".lesson-screen .ls-btns .ls-end")?.disabled,
+          text: (b.querySelector(".lsr-text")?.textContent || "").trim(),
+          clipped: [...b.querySelectorAll(".lsr-text, .lsr-label, .lsr-title")].some((el) => el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 2),
+        };
+      });
+      if (!bub) {
+        report.fails.push(`깜짝 말풍선이 뜨지 않음 (${rec.eventId})`);
+        report.fallbacks.push("레슨 깜짝");
+        await S((c) => { window.__soccer.actions.resolveSurprise(c); window.__soccer.render(); }, rec.choice);
+        return;
+      }
+      surN++;
+      const tag = `깜짝 ${bub.id}`;
+      if (bub.choices !== 2) report.fails.push(`${tag}: 선택지 ${bub.choices}개`);
+      if (!bub.inField) report.fails.push(`${tag}: 말풍선이 필드 밖 (${bub.pos})`);
+      if (!bub.endDisabled) report.fails.push(`${tag}: 기다리는 동안 [턴 끝]이 잠기지 않음`);
+      if (bub.recIdx !== rec.choice) report.fails.push(`${tag}: 화면 추천 ${bub.recIdx} ≠ 감독 추천 ${rec.choice}`);
+      if (!bub.text) report.fails.push(`${tag}: 본문이 비었음`);
+      if (bub.clipped) report.fails.push(`${tag}: 말풍선 글자 잘림`);
+      if (surN === 1) await snap("lesson_surprise");
+      // 잠김 확인: [턴 끝]을 눌러도 턴이 넘어가지 않는다 (첫 깜짝에서만)
+      if (surN === 1) {
+        await press(".lesson-screen .ls-btns .ls-end", args.touchOnly ? "touch" : "mouse");
+        await delay(200);
+        const still = await S(() => !!window.__soccer.store.run.lesson?.surprise?.pending);
+        if (!still) report.fails.push(`${tag}: 잠긴 [턴 끝]을 누르자 깜짝이 사라짐`);
+      }
+      const how = args.touchOnly ? "touch" : ["mouse", "touch", "key"][surN % 3];
+      const sel = `.lesson-screen .ls-sur .lsr-choice[data-choice="${rec.choice}"]`;
+      if (how === "key") await page.keyboard.press(String(rec.choice + 1));
+      else await press(sel, how);
+      const done = await page.waitForFunction(() => {
+        const s = window.__soccer.store;
+        return s.run.phase !== "lesson" || !s.run.lesson?.surprise?.pending;
+      }, { timeout: 4000, polling: 50 }).then(() => true, () => false);
+      count(`레슨 깜짝 (${how === "key" ? "숫자 키" : how === "touch" ? "탭" : "클릭"})`);
+      if (!done) {
+        report.fails.push(`${tag}: 선택지 입력이 먹지 않음 (${how})`);
+        report.fallbacks.push("레슨 깜짝");
+        await S((c) => { window.__soccer.actions.resolveSurprise(c); window.__soccer.render(); }, rec.choice);
+        return;
+      }
+      const banner = await page.waitForSelector(".lesson-screen .ls-sres", { timeout: 1500 }).then(() => true, () => false);
+      if (surN === 1 && banner) await snap("lesson_surprise_result");
+      report.surprises.push({ id: bub.id, choice: rec.choice, how, pos: bub.pos, banner });
+    }
+
     async function lessonStep() {
       await lessonIdle();
       await delay(350); // 새 손패 · 흩어지기 연출이 끝나도록 (사람처럼 한 박자 쉬고)
@@ -294,7 +411,7 @@ async function main() {
         const v = run.getLessonView(st, data);
         // 고유 카드 모두 1번 이상 (§16.12 U4): 아직 안 낸 고유 카드가 낼 수 있으면 감독 추천 대신 그 카드 — 후보 중 미리보기 상승 합이 가장 큰 자리
         let forced = false;
-        if (cover && rec.kind !== "bench") {
+        if (cover && rec.kind !== "bench" && rec.kind !== "surprise") {
           const done = new Set(cover);
           for (const c of v.hand) {
             if (!c.shape || !c.playable || done.has(c.cardId)) continue;
@@ -356,6 +473,7 @@ async function main() {
       }, args.coverUniques ? [...uniquesPlayed] : null);
       const before = await lessonSnap();
       const { rec, card } = info;
+      if (rec.kind === "surprise") { await surpriseStep(rec); return; }
       if (info.forced) count("고유 카드 먼저 (아직 안 낸 카드)");
       const ways = args.touchOnly ? TOUCH_WAYS : MOUSE_WAYS;
       const way = ways[wayI++ % ways.length];
@@ -674,13 +792,150 @@ async function main() {
       }
     }
 
+    // ---- 2차 이벤트 (§24.13, I1): 이벤트 모달 · 결과 카드 · 보상 카드 3택1 ----
+    const evShots = new Set();
+    let evWay = 0;
+    const evHow = () => (args.touchOnly ? "touch" : ["mouse", "touch"][evWay++ % 2]);
+    const norm = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
+    /** 결과 카드가 떠 있으면 [계속] (처음 보는 종류는 찍는다). 떠 있었으면 true */
+    async function resultCardStep(tag, kind) {
+      const on = await S(() => !!document.querySelector("#modal-root .evm-result .evm-continue"));
+      if (!on) return false;
+      await delay(200);
+      const r = await S(() => {
+        const st = window.__soccer.store.run;
+        return {
+          text: (document.querySelector("#modal-root .evm-res-text")?.textContent || "").trim(),
+          fx: document.querySelectorAll("#modal-root .evm-fx li").length,
+          result: st.lastEvent?.result ?? null, lines: (st.lastEvent?.lines || []).length,
+        };
+      });
+      if (!r.text) report.fails.push(`${tag} 결과 카드 글이 비었음`);
+      if (norm(r.text) !== norm(r.result)) report.fails.push(`${tag} 결과 카드 글 ≠ lastEvent.result`);
+      if (/[{}]/.test(r.text)) report.fails.push(`${tag} 결과 카드에 자리표시가 남음: ${r.text.slice(0, 40)}`);
+      const key = `result-${kind || "?"}`;
+      if (!evShots.has(key)) { evShots.add(key); await snap(`${tag}_result_${kind || "event"}`); }
+      report.resultCards++;
+      await press("#modal-root .evm-result .evm-continue", args.touchOnly || report.resultCards % 2 ? "touch" : "mouse"); // 결과 카드는 이벤트 선택지와 따로 클릭 · 탭을 번갈아
+      const closed = await page.waitForFunction(() => !document.querySelector("#modal-root .evm-result"), { timeout: 3000, polling: 50 }).then(() => true, () => false);
+      if (!closed) {
+        report.fails.push(`${tag} 결과 카드 [계속]이 먹지 않음`);
+        report.fallbacks.push("결과 카드");
+        await S(() => window.__soccer.actions.closeEventResult());
+      }
+      return true;
+    }
+    async function eventStep(ph) {
+      const tag = `s${ph.season}w${ph.turn}`;
+      await page.waitForSelector("#modal-root .event-modal .choice-btn", { timeout: 6000 }).catch(() => {});
+      await delay(300);
+      const info = await S(() => {
+        const { store, run, manager, lessonEvents } = window.__soccer;
+        const st = store.run;
+        const data = store.data;
+        const v = run.getEventView(st, data);
+        const rec = manager.recommendEventChoice(st, data);
+        const btns = [...document.querySelectorAll("#modal-root .event-modal .choice-btn")];
+        const sp = (data.lesson && data.lesson.events && data.lesson.events.speech) || {};
+        const pc = v.player ? (st.players.find((p) => p.id === v.player.id) || {}).charId : null;
+        const ev = lessonEvents && lessonEvents.eventById ? lessonEvents.eventById(data, st.currentEvent?.eventId) : null;
+        const ch = v.choices[rec.choice] || {};
+        return {
+          id: st.currentEvent?.eventId ?? null, kind: v.kind, badge: v.badge, title: v.title, text: v.text, lastSeq: st.lastEvent?.seq ?? null, rec,
+          needs: !!(ch.needs && ch.needs.candidates && ch.needs.candidates.length), op: ch.needs ? ch.needs.op : null,
+          nChoices: v.choices.length, btns: btns.length, recIdx: btns.findIndex((b) => b.classList.contains("recommended")),
+          busts: document.querySelectorAll("#modal-root .evm-bust").length, bustArt: document.querySelectorAll("#modal-root .evm-bust img.pt").length,
+          // 흉상이 있어야 하는 이벤트 = 주인공 · 코치 · 등장 선수 (art.charIds) 가 있는 것 (시즌 시작 같은 주인공 없음은 흉상 없이)
+          castWanted: !!(v.player || v.support || (v.art && ((v.art.charIds || []).length || v.art.supportId))),
+          scene: v.scene, sceneImg: !!document.querySelector("#modal-root .evm-scene"),
+          shownText: (document.querySelector("#modal-root .event-modal .event-text")?.textContent || "").trim(),
+          shownTitle: (document.querySelector("#modal-root .event-modal .evm-title")?.textContent || "").trim(),
+          banmal: pc ? sp[pc] === "banmal" : false, alt: !!(ev && ev.alt && ev.alt.banmal), who: v.player ? v.player.name : null,
+          story: ev && ev.story ? ev.story : null, chain: ev && ev.chain ? ev.chain : null,
+        };
+      });
+      const et = `${tag} 이벤트 ${info.id}`;
+      if (info.btns !== info.nChoices || info.btns !== 2) report.fails.push(`${et}: 선택지 버튼 ${info.btns}개 (뷰 ${info.nChoices})`);
+      if (info.recIdx !== info.rec.choice) report.fails.push(`${et}: 화면 추천 ${info.recIdx} ≠ 감독 추천 ${info.rec.choice}`);
+      if (norm(info.shownText) !== norm(info.text)) report.fails.push(`${et}: 화면 본문 ≠ 뷰 본문`);
+      if (/[{}]/.test(info.shownText) || /[{}]/.test(info.shownTitle)) report.fails.push(`${et}: 자리표시가 남음`);
+      if (info.castWanted && !info.busts) report.fails.push(`${et}: 흉상이 없음`);
+      if (info.kind === "story") {
+        // 외출 이야기: 바로 앞 외출의 선수 · 다음 화와 같아야 한다 (§24.7)
+        const o = report.outings.at(-1);
+        if (!o || o.charId !== info.story?.charId || o.next !== info.story?.ep) report.fails.push(`${et}: 이야기 ${info.story?.charId} ${info.story?.ep}화 ≠ 외출 ${o ? `${o.charId} ${o.next}화` : "없음"}`);
+      }
+      const key = `ev-${info.kind}`;
+      if (!evShots.has(key)) { evShots.add(key); await snap(`${tag}_event_${info.kind}`); }
+      if (info.banmal && info.alt && !evShots.has("ev-banmal")) { evShots.add("ev-banmal"); await snap(`${tag}_event_banmal`); }
+      const how = evHow();
+      let ok = await press(`#modal-root .event-modal .choice-btn[data-choice="${info.rec.choice}"]`, how);
+      if (ok && info.needs) {
+        // 덱 고르기 (§24.5.3): 추천 카드 → [확정]
+        ok = await page.waitForSelector("#modal-root .evm-deck", { timeout: 2000 }).then(() => true, () => false);
+        if (!ok) report.fails.push(`${et}: 덱 고르기가 열리지 않음`);
+        else {
+          await delay(150);
+          // 감독 추천 카드가 처음부터 골라져 있으면 (화면이 recommendEventChoice.uid 를 미리 고른다) 누르지 않는다 — 다시 누르면 고르기가 풀린다
+          const cardSel = `#modal-root .evm-deck .mini-card[data-uid="${info.rec.uid}"]`;
+          const pre = await S((sel) => !!document.querySelector(sel)?.classList.contains("selected"), cardSel);
+          if (!pre) ok = await press(cardSel, how);
+          else count("이벤트 덱 고르기: 추천 카드가 미리 골라져 있음");
+          await delay(150);
+          const selOk = await S((sel) => !!document.querySelector(sel)?.classList.contains("selected"), cardSel);
+          if (!selOk) report.fails.push(`${et}: 덱 고르기에서 추천 카드 ${info.rec.uid} 가 골라지지 않음`);
+          if (!evShots.has("ev-pick")) { evShots.add("ev-pick"); await snap(`${tag}_event_pick_${info.op}`); }
+          if (ok) ok = await press("#modal-root .evm-pick-ok:not([disabled])", how);
+        }
+      }
+      const resolved = ok && await page.waitForFunction((s0) => (window.__soccer.store.run.lastEvent?.seq ?? null) !== s0, { timeout: 4000, polling: 50 }, info.lastSeq).then(() => true, () => false);
+      count(`이벤트 (${how === "touch" ? "탭" : "클릭"}${info.needs ? " · 덱 고르기" : ""})`);
+      if (!resolved) {
+        report.fails.push(`${et}: 선택지 입력이 먹지 않음 (${how})`);
+        report.fallbacks.push("이벤트");
+        await S((r) => { window.__soccer.actions.resolveEvent(r.choice, r.uid ? { uid: r.uid } : {}); }, info.rec);
+      }
+      report.events.push({ season: ph.season, week: ph.turn, id: info.id, kind: info.kind, badge: info.badge, choice: info.rec.choice, pick: info.needs ? info.op : null, how, banmal: info.banmal, alt: info.alt, who: info.who, story: info.story, chain: info.chain, sceneImg: info.sceneImg, bustArt: info.bustArt });
+      const shown = await page.waitForSelector("#modal-root .evm-result .evm-continue", { timeout: 3000 }).then(() => true, () => false);
+      if (!shown) report.fails.push(`${et}: 결과 카드가 뜨지 않음`);
+      else await resultCardStep(tag, info.kind);
+    }
+    async function cardOfferStep(ph) {
+      const tag = `s${ph.season}w${ph.turn}`;
+      await page.waitForSelector("#modal-root .card-offer-modal .cof-ok", { timeout: 6000 }).catch(() => {});
+      await delay(250);
+      const info = await S(() => {
+        const { store, manager } = window.__soccer;
+        return { rec: manager.recommendCardOffer(store.run, store.data), n: document.querySelectorAll("#modal-root .cof-offer .card-face").length, deck: store.run.deck.length, tp: store.run.trainingPoints };
+      });
+      if (info.n !== 3) report.fails.push(`${tag} 3택1: 카드 ${info.n}장`);
+      if (!report.offers.length) await snap(`${tag}_card_offer`);
+      const how = evHow();
+      let ok = info.rec.pick != null ? await press("#modal-root .cof-offer .card-face", how, info.rec.pick) : await press("#modal-root .cof-skip", how);
+      await delay(150);
+      if (ok) ok = await press("#modal-root .cof-ok:not([disabled])", how);
+      const moved = ok && await page.waitForFunction(() => window.__soccer.store.run.phase !== "cardOffer", { timeout: 4000, polling: 50 }).then(() => true, () => false);
+      count(`3택1 (${how === "touch" ? "탭" : "클릭"})`);
+      if (!moved) {
+        report.fails.push(`${tag} 3택1 입력이 먹지 않음 (${how})`);
+        report.fallbacks.push("3택1");
+        await S((p) => window.__soccer.actions.resolveCardOffer({ pick: p }), info.rec.pick ?? null);
+      }
+      const after = await S(() => ({ deck: window.__soccer.store.run.deck.length, tp: window.__soccer.store.run.trainingPoints }));
+      if (info.rec.pick == null && !(after.tp > info.tp)) report.fails.push(`${tag} 3택1 건너뛰기 뒤 TP 가 늘지 않음`);
+      report.offers.push({ season: ph.season, week: ph.turn, pick: info.rec.pick, deck: `${info.deck}→${after.deck}` });
+    }
+
     // ---- 주 · 그 밖 화면 ----
     let lastPhaseKey = "";
+    let outingsForced = 0;
     const until = args.until;
     const deadline = t0 + args.maxMin * 60000;
     let guard = 0;
     while (Date.now() < deadline && guard++ < 5000) {
       const ph = await phaseNow();
+      // 이벤트 결과 카드 (화면 전용 — 다음 phase 화면보다 먼저 뜬다): [계속]
+      if (ph.phase !== "lesson" && (await resultCardStep(`s${ph.season}w${ph.turn}`, null))) continue;
       const key = `${ph.phase}-${ph.season}-${ph.turn}`;
       if (ph.phase !== "lesson" && key !== lastPhaseKey) {
         if (ph.phase === "reward") await page.waitForSelector("#modal-root .reward-modal", { timeout: 8000 }).catch(() => {}); // 레슨 끝 연출 뒤에 뜬다
@@ -718,13 +973,49 @@ async function main() {
         continue;
       }
       if (ph.phase === "week") {
-        const rec = await S(() => { const { reason, ...a } = window.__soccer.manager.recommendWeek(window.__soccer.store.run, window.__soccer.store.data); return a; });
+        let rec = await S(() => { const { reason, ...a } = window.__soccer.manager.recommendWeek(window.__soccer.store.run, window.__soccer.store.data); return a; });
+        if (args.outings > outingsForced && rec.type !== "outing") {
+          // --outings: 외출을 고를 수 있는 자유 주면 외출 (상대 = manager outingPartner 와 같은 규칙)
+          const alt = await S(() => {
+            const st = window.__soccer.store.run;
+            const v = window.__soccer.run.getWeekView(st, window.__soccer.store.data);
+            if (!(v.actions || []).some((a) => a.type === "outing")) return null;
+            const stam = (p) => Number((st.players.find((x) => x.id === p.id) || {}).stamina) || 0;
+            const withStory = (v.players || []).filter((p) => p.story && p.story.next !== null);
+            const pool = withStory.length ? withStory : v.players || [];
+            let best = null;
+            for (const p of pool) if (!best || stam(p) < stam(best)) best = p;
+            return best ? { type: "outing", playerId: best.id, forced: true } : null;
+          });
+          if (alt) { rec = alt; outingsForced++; count("주: 외출 (--outings)"); }
+        }
         let ok = false;
         if (rec.type === "lesson") ok = await press(`.week-lesson[data-zone="${rec.zone}"]`);
         else if (rec.type === "rest") ok = await press(".week-rest");
         else if (rec.type === "outing") {
           ok = await press(rec.free ? ".week-bar .free-outing" : '.week-act[data-act="outing"]');
-          if (ok) { await delay(200); ok = await press("#modal-root .outing-pick.recommended"); }
+          if (ok) {
+            await page.waitForSelector("#modal-root .outing-pick", { timeout: 3000 }).catch(() => {});
+            await delay(250);
+            // 추천 줄의 배지 (이야기 n/3화 · 일반 외출) — 엔진 getWeekView players[].story 와 같은지
+            const pickSel = rec.forced ? `#modal-root .outing-pick[data-pid="${rec.playerId}"]` : "#modal-root .outing-pick.recommended";
+            const o = await S((pid, sel) => {
+              const b = document.querySelector(sel);
+              const st = window.__soccer.store.run;
+              const v = window.__soccer.run.getWeekView(st, window.__soccer.store.data);
+              const p = (v.players || []).find((x) => x.id === pid);
+              return {
+                pid: b?.dataset.pid ?? null, story: b?.dataset.story || "", badge: (b?.querySelector(".op-story")?.textContent || "").trim(),
+                engineNext: p?.story?.next ?? null, name: p?.name ?? null, charId: (st.players.find((x) => x.id === pid) || {}).charId ?? null,
+                rows: document.querySelectorAll("#modal-root .outing-pick").length, storyRows: document.querySelectorAll("#modal-root .outing-pick .op-story:not(.op-plain)").length,
+              };
+            }, rec.playerId, pickSel);
+            if (o.pid !== rec.playerId) report.fails.push(`외출 모달 추천 줄 ${o.pid} ≠ 감독 추천 ${rec.playerId}`);
+            if (String(o.engineNext ?? "") !== o.story) report.fails.push(`외출 배지 ${o.story || "일반"} ≠ 엔진 다음 화 ${o.engineNext ?? "없음"} (${o.name})`);
+            report.outings.push({ season: ph.season, week: ph.turn, free: !!rec.free, forced: !!rec.forced, name: o.name, charId: o.charId, next: o.engineNext, badge: o.badge, storyRows: o.storyRows, rows: o.rows });
+            if (report.outings.length === 1) await snap(`s${ph.season}w${ph.turn}_outing_modal`);
+            ok = await press(pickSel);
+          }
         } else if (rec.type === "meeting") {
           ok = await press('.week-act[data-act="meeting"]');
           if (ok) { await delay(250); await snap(`s${ph.season}w${ph.turn}_meeting`); ok = await pressText(/미팅 진행/, "mouse", "#modal-root"); }
@@ -869,7 +1160,8 @@ async function main() {
       }
       if (ph.phase === "relic") { count("유물"); if (!(await press("#modal-root .relic-card"))) report.fallbacks.push("유물"); await delay(400); continue; }
       if (ph.phase === "route") { count("루트"); if (!(await press(".route-card"))) report.fallbacks.push("루트"); await delay(400); continue; }
-      if (ph.phase === "event") { count("이벤트"); await press("#modal-root .choice-btn"); await delay(400); continue; }
+      if (ph.phase === "event") { await eventStep(ph); continue; }
+      if (ph.phase === "cardOffer") { await cardOfferStep(ph); continue; }
       report.fails.push(`알 수 없는 phase ${ph.phase}`);
       break;
     }
@@ -904,6 +1196,21 @@ async function main() {
       const fmtMap = (o) => Object.entries(o).map(([k, n]) => `${k} ${n}`).join(" · ") || "-";
       log(`    ${m.tag}: ${m.score ? `${m.score.home}:${m.score.away}` : "-"} · 필살기 cutin ${m.cutins} (등급 ${fmtMap(m.tiers)} / 종류 ${fmtMap(m.types)}) · 합체기 ${m.combos} · 역방향 ${m.revs} → 화면 카드 ${m.seenN}/${m.expected} · 잘림 ${m.clipped} · 찍은 장면 ${m.shots.join(", ") || "-"}`);
     }
+  }
+  // 2차 이벤트 (I1)
+  {
+    const byKind = {};
+    for (const e of report.events) byKind[e.kind] = (byKind[e.kind] || 0) + 1;
+    log(`  이벤트 ${report.events.length}개 (화면 입력): ${Object.entries(byKind).map(([k, n]) => `${k} ${n}`).join(" · ") || "-"} · 결과 카드 ${report.resultCards} · 덱 고르기 ${report.events.filter((e) => e.pick).length} · 반말 주인공 ${report.events.filter((e) => e.banmal).length} (반말판 글 ${report.events.filter((e) => e.banmal && e.alt).length}) · 배경 그림 ${report.events.filter((e) => e.sceneImg).length}/${report.events.length}`);
+    for (const e of report.events) log(`    시즌 ${e.season} ${e.week}주 [${e.badge}] ${e.id}${e.who ? ` (${e.who}${e.banmal ? " · 반말" : ""})` : ""} → 선택지 ${e.choice + 1}${e.pick ? ` · 카드 ${e.pick === "delete" ? "삭제" : "강화"}` : ""} (${e.how === "touch" ? "탭" : "클릭"})`);
+    log(`  보상 카드 3택1 ${report.offers.length}번: ${report.offers.map((o) => `시즌 ${o.season} ${o.week}주 ${o.pick == null ? "건너뛰기" : `${o.pick + 1}번`} (덱 ${o.deck})`).join(" · ") || "-"}`);
+    log(`  외출 ${report.outings.length}번: ${report.outings.map((o) => `시즌 ${o.season} ${o.week}주 ${o.name} [${o.badge}]${o.free ? " (무료)" : ""}${o.forced ? " (--outings)" : ""} · 이야기 배지 줄 ${o.storyRows}/${o.rows}`).join(" · ") || "-"}`);
+    log(`  레슨 깜짝 ${report.surprises.length}번: ${report.surprises.map((x) => `${x.id} → ${x.choice + 1} (${x.how === "key" ? "숫자 키" : x.how === "touch" ? "탭" : "클릭"} · ${x.pos}${x.banner ? "" : " · 결과 띠 없음"})`).join(" · ") || "-"}`);
+    if (report.legends) log(`  레전드: ${report.legends.picked.join(" · ")} → 시작 덱 메모리 카드 ${report.legends.deck.join(" · ") || "없음"} (state.legends ${report.legends.stateLegends})`);
+    const coach = report.events.filter((e) => e.chain).map((e) => `${e.chain.supportId}#${e.chain.step}`);
+    if (coach.length) log(`  코치 연속 이벤트: ${coach.join(" · ")}`);
+    const story = report.events.filter((e) => e.story).map((e) => `${e.story.charId}#${e.story.ep}`);
+    if (story.length) log(`  외출 이야기: ${story.join(" · ")}`);
   }
   log(`  런 끝 습득 스킬: ${report.learned ?? "-"}`);
   log(`  편성: ${report.squad ?? "-"}`);
