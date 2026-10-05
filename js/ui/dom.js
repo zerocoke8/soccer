@@ -32,13 +32,59 @@ export function initialOf(name) {
   return s ? Array.from(s)[0] : '?';
 }
 
-export function avatar(color, name, size = 'md', extra = '') {
-  return h('span', {
-    class: ['avatar', `avatar-${size}`, extra],
+/**
+ * 얼굴 원: 색 원 + 첫 글자. opts.art (그림 주소 — js/ui/art.js portraitUrl) 가 있으면 그 위에 <img class="pt"> 를 얹는다 (LESSON_PROTO_PLAN §24.12.2).
+ * 글자는 늘 남는다 — 그림이 늦거나 실패해도 보이고, textContent 를 읽는 테스트도 그대로다. 30px 이하 원은 그림을 조금 당긴다 (base.css).
+ * @param {string} color
+ * @param {string} name
+ * @param {'xs'|'sm'|'md'|'lg'} [size]
+ * @param {string|string[]} [extra] 더할 클래스
+ * @param {{ art?: string|null }} [opts]
+ */
+export function avatar(color, name, size = 'md', extra = '', opts = null) {
+  const art = opts && typeof opts.art === 'string' && opts.art ? opts.art : null;
+  const el = h('span', {
+    class: ['avatar', `avatar-${size}`, ...(Array.isArray(extra) ? extra : [extra]), art ? 'has-art' : ''],
     style: { background: color || '#4b5563' },
     title: name || '',
     'aria-label': name || '',
   }, initialOf(name));
+  if (art) el.append(artImg(art));
+  return el;
+}
+
+/**
+ * 얼굴 그림 <img class="pt"> — 부모(원 · 토큰 얼굴)를 덮는다 (절대 위치 · object-fit cover · border-radius inherit, base.css .pt).
+ * 끌기를 가로채지 않는다 (pointer-events none · draggable false). 불러오지 못하면 지운다 → 부모의 글자가 보인다.
+ * 부모는 위치 지정 요소여야 한다 (.avatar.has-art · .tok-face 등).
+ * @param {string} url
+ * @param {string} [cls]
+ */
+export function artImg(url, cls = '') {
+  const img = h('img', { class: ['pt', cls], src: url, alt: '', draggable: 'false', decoding: 'async' });
+  img.addEventListener('error', () => img.remove());
+  return img;
+}
+
+/**
+ * 글자 얼굴 칸 (토큰 · 벤치 · 유령 · 알약처럼 avatar 가 아닌 span)에 그림을 얹는다 / 바꾼다 / 뗀다. 글자(첫 텍스트)는 그대로 둔다.
+ * @param {HTMLElement} el
+ * @param {string|null} url
+ * @returns {HTMLElement} el
+ */
+export function setFaceArt(el, url) {
+  if (!el) return el;
+  const old = [...el.children].find((c) => c.tagName === 'IMG' && c.classList.contains('pt')) || null;
+  if (!url) {
+    if (old) old.remove();
+    el.classList.remove('has-art');
+    return el;
+  }
+  el.classList.add('has-art');
+  if (old && old.getAttribute('src') === url) return el;
+  if (old) old.remove();
+  el.append(artImg(url));
+  return el;
 }
 
 // ---- 등급 ----

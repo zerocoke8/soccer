@@ -17,6 +17,7 @@
 import { h, avatar, openModal, signed } from '../dom.js';
 import * as L from '../labels.js';
 import { cardFace, miniCard } from '../cards.js';
+import { playerArt, portraitUrl } from '../art.js';
 
 /** 보상 카드 / 덱 카드 뷰 → 강화판 미리보기 뷰 (lessonRun 카드 뷰 upgrade { power, desc }) */
 export function upgradedView(c) {
@@ -119,22 +120,22 @@ export function renderRewardModal(ctx) {
     if (x.src === 'player') {
       const who = x.playerName ?? pl?.name ?? x.playerId ?? '';
       return h('b', { class: 'rw-hint-pl', dataset: { pid: x.playerId ?? '' }, title: `${who} 패시브 '${x.name ?? x.skillId}' 힌트 Lv${x.level} — 패시브 상점에서 ${x.level * 10}% 할인` },
-        i ? ' · ' : '', avatar(pl?.portraitColor, who, 'xs', 'rw-face'), `${who} · ${x.name ?? x.skillId} Lv${x.level}`);
+        i ? ' · ' : '', avatar(pl?.portraitColor, who, 'xs', 'rw-face', { art: playerArt(ctx, pl ?? { id: x.playerId }) }), `${who} · ${x.name ?? x.skillId} Lv${x.level}`);
     }
-    return h('b', { class: sp ? 'rw-hint-cut' : '' }, i ? ' · ' : '', sp ? avatar(sp.portraitColor, shortOf(sp.name), 'xs', 'rw-face') : null,
+    return h('b', { class: sp ? 'rw-hint-cut' : '' }, i ? ' · ' : '', sp ? avatar(sp.portraitColor, shortOf(sp.name), 'xs', 'rw-face', { art: portraitUrl(data, sp.id) }) : null,
       `${x.name ?? x.skillId} Lv${x.level}`, sp ? h('span', { class: 'rw-hint-src' }, '지원') : null);
   });
   const cutList = Array.isArray(r.cutins) ? r.cutins : [];
   const cutFaces = [...new Set(cutList.map((c) => c.supportId))].map((id) => supportOf(id)).filter(Boolean);
   const cutChip = cutList.length
-    ? chip('coach-sup', '지원 ', h('b', {}, `${cutList.length}번`), h('span', { class: 'rw-faces' }, cutFaces.map((sp) => avatar(sp.portraitColor, shortOf(sp.name), 'xs', 'rw-face'))))
+    ? chip('coach-sup', '지원 ', h('b', {}, `${cutList.length}번`), h('span', { class: 'rw-faces' }, cutFaces.map((sp) => avatar(sp.portraitColor, shortOf(sp.name), 'xs', 'rw-face', { art: portraitUrl(data, sp.id) }))))
     : null;
   if (cutChip) cutChip.title = [`코치 지원 (컷인) ${cutList.length}번`, ...cutList.map((c) => `${c.turn}턴 ${c.name} — ${c.cardName ?? ''}`)].join('\n');
   const hintChip = hintItems.length ? chip('hint', '힌트 ', ...hintItems) : null;
   // 끝난 코치 수업 (§18.6): "수업 파워 슛 → 실루엔" · "수업 함성 → SP +20" (액티브는 힌트 칩에 넣지 않는다)
   const teachChips = (teach?.list || []).filter((t) => t.result).map((t) => {
     const who = t.result === 'learned' ? (players.find((p) => p.id === t.playerId)?.name ?? t.playerId) : `SP +${t.sp ?? 0}`;
-    const c = chip('teach', '수업 ', avatar(t.coachColor, t.coachShort, 'xs', 'rw-face'), h('b', {}, t.name), ` → ${who}`);
+    const c = chip('teach', '수업 ', avatar(t.coachColor, t.coachShort, 'xs', 'rw-face', { art: portraitUrl(data, t.supportId) }), h('b', {}, t.name), ` → ${who}`);
     c.title = `${t.coachShort === '코치진' ? '코치진' : `${t.coachShort} 코치`} 수업 '${t.name}' — ${t.result === 'learned' ? `${who} 습득${t.replacedName ? ` ('${t.replacedName}' 대신)` : ''}`
       : t.result === 'none' ? `받을 선수 없음, SP +${t.sp ?? 0}` : `받지 않음, SP +${t.sp ?? 0}`}`;
     return c;
@@ -191,7 +192,7 @@ export function renderRewardModal(ctx) {
       title: `${p.name ?? pp.id}: 구역 스탯 ${signed(total)} = 기본 훈련 ${signed(pp.base || 0)}${pp.mood ? ` · 분위기 ${signed(pp.mood)}` : ''} · 카드 ${signed(card)}`
         + `${pp.sub ? ` · 부 스탯 +${pp.sub}` : ''}${by ? `\n${by}` : ''}\n대상 ${pp.targeted ?? 0}회${pp.benched ? ` · 벤치 ${pp.benched}턴` : ''}`,
     },
-    avatar(p.portraitColor, p.name, 'sm'),
+    avatar(p.portraitColor, p.name, 'sm', '', { art: playerArt(ctx, p.id ? p : { id: pp.id }) }),
     h('span', { class: 'rw-pl-nm' }, p.name ?? pp.id, h('span', { class: 'rw-pl-slot' }, p.slot ?? '')),
     h('span', { class: 'rw-pl-gain' },
       h('b', { class: total > 0 ? 'good' : total < 0 ? 'bad' : 'muted' }, signed(total)),
@@ -220,6 +221,7 @@ export function renderRewardModal(ctx) {
     const needRep = !!picked?.full;
     const canTeach = !!picked && (!needRep || !!tsel.rep);
     const coachLabel = t.coachShort === '코치진' ? '코치진이' : `${t.coachShort} 코치가`;
+    const teachBust = portraitUrl(data, t.supportId, 'bust');
     const declineSp = teach.declineSp ?? 0;
     const posText = t.positions?.length ? `${t.positions.join(' · ')}` : '전원';
     const recPid = teachRec?.playerId ?? null;
@@ -248,7 +250,7 @@ export function renderRewardModal(ctx) {
           draw();
         },
       },
-      avatar(p.portraitColor, p.name, 'sm', p.ok ? '' : 'dim'),
+      avatar(p.portraitColor, p.name, 'sm', p.ok ? '' : 'dim', { art: playerArt(ctx, p) }),
       h('span', { class: 'tp-nm' }, p.name, h('span', { class: 'tp-slot' }, p.slot ?? ''), p.injured ? h('span', { class: 'tp-inj', title: '부상 — 레슨만 쉰다' }, '🚑') : null),
       h('span', { class: ['tp-sub', p.ok ? (p.full ? 'warn' : '') : 'muted'] }, h('span', { class: 'tp-dots', 'aria-label': `액티브 칸 ${n}/3` }, dots), ` ${sub}`),
       recPid === p.id ? h('span', { class: 'cf-rec tp-rec' }, '추천') : null);
@@ -258,8 +260,9 @@ export function renderRewardModal(ctx) {
       h('div', { class: 'rw-sec-head' },
         h('h4', { class: 'rw-teach-title' }, `코치 수업 ${(teach.index ?? 0) + 1}/${teach.total ?? 1}`),
         h('span', { class: 'tiny muted' }, `액티브 스킬은 코치가 바로 가르쳐 줍니다 — 받을 선수를 고르세요 · ${nextText}`)),
-      h('div', { class: 'rw-teach-top' },
-        avatar(t.coachColor, t.coachShort, 'md', 'rw-teach-face'),
+      h('div', { class: ['rw-teach-top', teachBust ? 'has-bust' : ''] },
+        // 가르치는 코치 = 흉상 64×80 (§24.12.3 — 그림이 없으면 (코치진 · 목록 밖) 지금 52 원 글자)
+        avatar(t.coachColor, t.coachShort, 'md', ['rw-teach-face', teachBust ? 'bust' : ''], { art: teachBust }),
         h('span', { class: 'rw-teach-txt' },
           h('b', { class: 'rw-teach-line' }, `${coachLabel} '${t.name}'${L.objParticle(t.name)} 가르쳐 줍니다`),
           h('span', { class: 'rw-teach-desc small', title: t.description || '' }, t.description || '')),

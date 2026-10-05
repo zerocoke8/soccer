@@ -296,6 +296,45 @@ test("jsdom: 아웃게임 화면 전부 스테이지 안에 그려지고 주요 
     assert.ok(chip.title.includes(sk.ultimate.cutinLine) && chip.title.includes("필살"), `${ch.name}: 칩 title = 종류 · 대사`);
     assert.ok(c.querySelector(".lu-trait")?.title.includes(traitInfo(ch.trait, data).name), `${ch.name}: 특성은 아이콘 (이름은 title)`);
   }
+  // 얼굴 일러스트 (§24.12.2 · U1): 그림 목록(data/portraits.json)에 있는 캐릭터 · 코치 = 색 원 + 글자 위에 <img class="pt">
+  // (목록 주소 ?v= · alt "" · draggable false · 끌기를 가로채지 않음), 글자는 DOM 에 남는다. 목록에 없는 id = <img> 없음 (글자만)
+  const P = data.portraits;
+  assert.ok(P && P.chars && P.coaches, "그림 목록 data/portraits.json (선택 파일)");
+  const faceSrc = (id) => `./img/portraits/${id}.face.webp?v=${(P.chars[id] || P.coaches[id]).v}`;
+  for (const c of poolCards) {
+    const cid = c.dataset.pid;
+    const av = c.querySelector(".lu-card-who .avatar");
+    const img = av?.querySelector("img.pt");
+    assert.ok(img && img.parentElement === av, `풀 카드 ${charOf(cid).name}: 얼굴 그림 (원 안)`);
+    assert.equal(img.getAttribute("src"), faceSrc(cid), `${charOf(cid).name}: 그림 주소 = 목록 (id · ?v=)`);
+    assert.equal(img.getAttribute("draggable"), "false", `${charOf(cid).name}: 그림 draggable false`);
+    assert.equal(img.getAttribute("alt"), "", `${charOf(cid).name}: alt ""`);
+    assert.ok(av.classList.contains("has-art") && av.classList.contains("avatar-xs"), `${charOf(cid).name}: 22px 원 + has-art`);
+    assert.equal(av.textContent, Array.from(charOf(cid).name)[0], `${charOf(cid).name}: 글자는 남는다`);
+  }
+  for (const sl of Object.keys(data.config.defaultSquad.slots)) {
+    const card = $(`.lu-slot[data-slot="${sl}"]`);
+    const img = card.querySelector(".avatar.slot-face > img.pt");
+    assert.ok(img && img.getAttribute("src") === faceSrc(card.dataset.pid), `편성 ${sl}: 필드 칸 얼굴 44px 그림`);
+  }
+  for (const sp of data.supports) {
+    const chip = $$(".setup-supports .sp-chip").find((c) => c.querySelector(".sp-chip-nm").textContent === sp.name);
+    assert.equal(chip.querySelector(".avatar-xs > img.pt")?.getAttribute("src"), faceSrc(sp.id), `편성 코치 칩 ${sp.name}: 코치 얼굴 그림`);
+  }
+  {
+    // 목록에서 한 명을 빼면 그 얼굴은 글자만 (파일 이름을 짐작해 불러 보지 않는다 — 404 금지)
+    const gone = poolCards[0].dataset.pid;
+    const saved = data.portraits;
+    data.portraits = { ...saved, chars: Object.fromEntries(Object.entries(saved.chars).filter(([k]) => k !== gone)) };
+    S.render();
+    const av = $(`.setup-pool .lu-card[data-pid="${gone}"] .lu-card-who .avatar`);
+    assert.ok(av && !av.querySelector("img") && !av.classList.contains("has-art"), "목록에 없는 id = <img> 없음");
+    assert.equal(av.textContent, Array.from(charOf(gone).name)[0], "목록에 없는 id = 글자 원");
+    assert.ok($$(".setup-pool .lu-card .lu-card-who .avatar img.pt").length === data.characters.length - 1, "나머지는 그대로 그림");
+    data.portraits = saved;
+    S.render();
+    assert.equal($$(".setup-pool .lu-card .lu-card-who .avatar img.pt").length, data.characters.length, "목록을 되돌리면 다시 그림");
+  }
   assert.equal($$(".mini-pitch .slot-card .ult-mark").length, 7, "편성: 슬롯 카드 7장 모두 ✨");
   assert.ok($$(".mini-pitch .slot-card").every((c) => /필살/.test(c.title)), "편성: 슬롯 카드 title 에 필살기");
   assert.equal($$(".setup-pitch .resonance .cap-note").length, 0, "편성 기본: 주장 1명 → 주장 칩 없음");

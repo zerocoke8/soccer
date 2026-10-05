@@ -14,7 +14,7 @@
 //     다시 누르거나 Esc · 바깥 = 취소. 빈 슬롯을 먼저 누르면 그 자리에 올 수 있는 선수가 초록/빨강.
 //     onSlotTap 이 있으면(편성) 고른 것 없이 누른 슬롯은 그 함수로 (선수 고르기 모달).
 //  스테이지 배율: 포인터 clientX/Y 는 화면 px → 고스트 위치는 toStage() 로 논리 px, 놓을 곳 찾기는 elementFromPoint(화면 px 그대로).
-import { h, toast } from './dom.js';
+import { h, toast, avatar } from './dom.js';
 import { positionOfSlot } from './labels.js';
 import { toStage } from './stage.js';
 
@@ -252,6 +252,7 @@ function stageFit(doc) {
  * @param {(id: string, pos: string) => string} o.aptOf 적성 'A'|'B'|'C'|'-'
  * @param {(id: string) => string} o.nameOf
  * @param {(id: string) => string} [o.colorOf] 고스트 아바타 색
+ * @param {(id: string) => string|null} [o.faceOf] 고스트 아바타 얼굴 그림 주소 (js/ui/art.js portraitUrl — 없으면 글자)
  * @param {(id: string, slot: string) => any} o.slotBody 슬롯 카드 내용 (선수 있을 때)
  * @param {(next: object, move: object) => void} o.onChange
  * @param {boolean} [o.bench] 선수 풀(벤치) 사용 — 편성 화면
@@ -263,7 +264,7 @@ function stageFit(doc) {
  * @returns {{ pitch: HTMLElement, pool: HTMLElement|null, addPoolZone: (el: HTMLElement) => void, cancel: () => void }}
  */
 export function lineupBoard(o) {
-  const { slots, assign, aptOf, nameOf = (id) => String(id), colorOf = () => '#4b5563', slotBody, poolBody, onChange } = o;
+  const { slots, assign, aptOf, nameOf = (id) => String(id), colorOf = () => '#4b5563', faceOf = () => null, slotBody, poolBody, onChange } = o;
   const bench = !!o.bench;
   const model = { slots, assign, aptOf, bench };
   const targets = new Map(); // 요소 → { slot } | { player } | { pool: true }
@@ -441,7 +442,7 @@ export function lineupBoard(o) {
     const d = doc();
     const { host, fit } = stageFit(d);
     const ghost = h('div', { class: 'lu-ghost', 'aria-hidden': 'true' },
-      h('span', { class: 'avatar avatar-sm', style: { background: colorOf(id) } }, Array.from(String(nameOf(id)))[0] ?? '?'),
+      avatar(colorOf(id), nameOf(id), 'sm', '', { art: faceOf(id) }),
       h('span', { class: 'lu-ghost-nm' }, nameOf(id)),
       h('span', { class: 'lu-ghost-st' }));
     const touch = e.pointerType === 'touch' || e.pointerType === 'pen';

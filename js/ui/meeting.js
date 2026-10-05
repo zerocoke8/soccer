@@ -13,6 +13,7 @@
 import { h, avatar, select, toast } from './dom.js';
 import * as L from './labels.js';
 import { lineupBoard, reseat, lineupIssues, meetingSwaps, ultMark } from './lineup.js';
+import { portraitUrl } from './art.js';
 
 /**
  * @param {object} ctx 화면 ctx (store · data · run)
@@ -42,6 +43,8 @@ export function meetingEditor(ctx, o) {
   // 적성: 런 선수의 aptitude (없으면 캐릭터 데이터). 배치 규칙 = 엔진 validateSquad (lineup.js canPlay)
   const aptOf = (pid, pos) => runById.get(pid)?.aptitude?.[pos] ?? charById.get(runById.get(pid)?.charId)?.aptitude?.[pos] ?? '-';
   const nameOf = (pid) => runById.get(pid)?.name ?? pid;
+  // 얼굴 일러스트 (§24.12.3): 런 선수 id → charId → data/portraits.json (없으면 글자 원)
+  const faceOf = (pid) => portraitUrl(data, runById.get(pid)?.charId, 'face');
   // 필살기 (L45 — 7명 모두): 런 선수의 innateSkillId (없으면 캐릭터 데이터). 슬롯 카드 이름 옆 ✨ · title (§19.14 ②)
   const ultOf = (pid) => {
     const rp = runById.get(pid);
@@ -69,6 +72,7 @@ export function meetingEditor(ctx, o) {
       aptOf,
       nameOf,
       colorOf: (pid) => runById.get(pid)?.portraitColor,
+      faceOf,
       titleOf: (pid) => ultOf(pid)?.title ?? '',
       slotBody: (pid, sl) => {
         const p = viewById.get(pid) ?? runById.get(pid);
@@ -76,7 +80,7 @@ export function meetingEditor(ctx, o) {
         const injured = Number(p?.injuredTurns) > 0;
         const mains = Array.isArray(p?.mainStats) ? p.mainStats : [];
         return [
-          avatar(p?.portraitColor, p?.name, 'sm'),
+          avatar(p?.portraitColor, p?.name, 'sm', '', { art: faceOf(pid) }),
           h('span', { class: 'grow col' },
             h('span', { class: 'slot-nm-row' }, h('span', { class: 'ellipsis slot-nm' }, p?.name ?? pid), ultMark(ultOf(pid))),
             was !== sl

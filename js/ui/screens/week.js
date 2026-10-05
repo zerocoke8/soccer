@@ -18,6 +18,7 @@ import { hudTopbar, hudRoster, openRecords, stamCls } from '../hud.js';
 import { meetingEditor } from '../meeting.js';
 import { targetText } from '../cards.js';
 import { passiveShopButton, openPassiveShop } from '../passives.js';
+import { playerArt } from '../art.js';
 
 export function renderWeek(root, ctx, { inert = false } = {}) {
   const { store, data, run, manager, safe, actions } = ctx;
@@ -259,7 +260,7 @@ export function renderWeek(root, ctx, { inert = false } = {}) {
           dataset: { pid: p.id },
           onclick: () => { closeOverlays(); act({ type: 'outing', playerId: p.id, ...(free ? { free: true } : {}) }); },
         },
-        avatar(p.portraitColor, p.name, 'md', out ? 'dim' : ''),
+        avatar(p.portraitColor, p.name, 'md', out ? 'dim' : '', { art: playerArt(ctx, p) }),
         h('span', { class: 'grow col op-who' },
           h('span', { class: 'row op-name' }, h('b', {}, p.name), h('span', { class: 'tiny muted' }, p.slot ?? ''),
             out ? h('span', { class: 'badge badge-bad' }, `결장 ${p.injuredTurns}`) : null,

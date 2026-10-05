@@ -3,6 +3,7 @@
 import { h, avatar, gradeBadge, gradeOf, toast, signed, panel } from '../dom.js';
 import { loadTeams } from '../store.js';
 import * as L from '../labels.js';
+import { portraitUrl } from '../art.js';
 
 // 점수 구성 2열: 한 줄 = 관련 항목 한 쌍 (왼쪽 = 원래 값, 오른쪽 = 점수 · 결과). 칸마다 키 후보 (엔진 rating.breakdown 이름이 달라도)
 const BD_ROWS = [
@@ -95,9 +96,10 @@ export function renderResult(root, ctx) {
     const innateSk = skillById.get(p.innateSkillId);
     // L45: 고유 스킬 = 필살기 → "필살기 X" (필살기가 아닌 옛 고유만 "고유 X", §19.14 ④)
     const innate = innateSk ? `${innateSk.ultimate ? '필살기' : '고유'} ${innateSk.name}` : null;
-    return h('div', { class: 'player-result' },
+    const bust = portraitUrl(data, p.charId, 'bust'); // 흉상 56×70 (§24.12.3 — 그림이 없으면 40 원 글자)
+    return h('div', { class: ['player-result', bust ? 'has-bust' : ''] },
       h('div', { class: 'row pr-who' },
-        avatar(p.portraitColor, p.name, 'md'),
+        avatar(p.portraitColor, p.name, 'md', bust ? 'pr-bust' : '', { art: bust }),
         h('div', { class: 'grow col' },
           h('div', { class: 'row' }, h('b', {}, p.name), h('span', { class: 'tiny muted' }, `${p.slot ?? ''} · 적성 ${p.aptitude ?? ''}${state.kind === 'lessonRun' ? '' : ` · 훈련 ${p.trainedCount ?? 0}회`}`)),
           h('div', { class: 'tiny muted ellipsis', title: [innate, learned.length ? `습득 ${learned.join(', ')}` : null].filter(Boolean).join(' · ') },

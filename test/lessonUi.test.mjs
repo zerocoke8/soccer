@@ -42,6 +42,37 @@ async function until(fn, ms = 4000, step = 10) {
   return fn();
 }
 
+// ---- 얼굴 일러스트 주소 (§24.12.2, js/ui/art.js — U1): 목록에 있는 id 만 주소, 없으면 null (짐작해 불러 보지 않는다) ----
+test("art.js: portraitUrl · sceneUrl · charIdOf · playerArt · preloadArt", async () => {
+  const A = await import(pathToFileURL(path.join(ROOT, "js/ui/art.js")).href);
+  const portraits = JSON.parse(fs.readFileSync(path.join(ROOT, "data/portraits.json"), "utf8"));
+  const data = { portraits };
+  const cid = Object.keys(portraits.chars)[0];
+  const sid = Object.keys(portraits.coaches)[0];
+  assert.equal(A.portraitUrl(data, cid), `./img/portraits/${cid}.face.webp?v=${portraits.chars[cid].v}`, "선수 얼굴 (기본 face)");
+  assert.equal(A.portraitUrl(data, cid, "bust"), `./img/portraits/${cid}.bust.webp?v=${portraits.chars[cid].v}`, "흉상");
+  assert.equal(A.portraitUrl(data, sid, "half"), `./img/portraits/${sid}.half.webp?v=${portraits.coaches[sid].v}`, "코치 반신");
+  for (const bad of ["youth_1", "op_rival_fw", "", null, undefined, "constructor", "__proto__"]) assert.equal(A.portraitUrl(data, bad), null, `목록 밖 id ${String(bad)} = null`);
+  assert.equal(A.portraitUrl(data, cid, "cutin"), null, "없는 프리셋 = null");
+  assert.equal(A.portraitUrl({}, cid), null, "목록 없음 (선택 파일이 없다) = null");
+  assert.equal(A.portraitUrl(null, cid), null);
+  assert.equal(A.portraitUrl({ portraits: { chars: { [cid]: {} } } }, cid), null, "판(v) 없는 항목 = null");
+  const scene = Object.keys(portraits.scenes || {})[0];
+  if (scene) assert.equal(A.sceneUrl(data, scene), `./img/scenes/${scene}.webp?v=${portraits.scenes[scene].v}`, "배경");
+  assert.equal(A.sceneUrl(data, "no_such_scene"), null, "없는 배경 = null");
+  assert.equal(A.sceneUrl({}, "ground"), null);
+  const ctx = { data, store: { run: { players: [{ id: "p1", charId: cid }, { id: "p2" }] } } };
+  assert.equal(A.charIdOf(ctx, "p1"), cid, "런 선수 id → charId");
+  assert.equal(A.charIdOf(ctx, "p2"), null, "charId 없는 선수 = null");
+  assert.equal(A.charIdOf(ctx, "nobody"), null);
+  assert.equal(A.charIdOf({}, "p1"), null, "런 없음 = null");
+  assert.equal(A.playerArt(ctx, { id: "p1" }), A.portraitUrl(data, cid), "charId 없는 뷰 → 런 선수에서 찾는다");
+  assert.equal(A.playerArt(ctx, { id: "zz", charId: cid }, "bust"), A.portraitUrl(data, cid, "bust"), "charId 가 있으면 그것");
+  assert.equal(A.playerArt(ctx, { id: "p2" }), null, "그림 없는 선수 (유스 · 상대) = null");
+  assert.equal(A.playerArt(ctx, null), null);
+  assert.equal(A.preloadArt([A.portraitUrl(data, cid)]), 0, "Image 가 없는 환경 (node) = 건너뛴다 · 던지지 않는다");
+});
+
 test("jsdom: 레슨 화면 (구역) — 골격 · 조준 · 키보드 · 벤치 · 턴 끝 · 레슨 끝 → 보상 모달 · 상담", { skip: !JSDOM && "jsdom 미설치" }, async (t) => {
   const html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
   const dom = new JSDOM(html, { url: "http://localhost/soccer/lesson/", pretendToBeVisual: true });
@@ -148,6 +179,21 @@ test("jsdom: 레슨 화면 (구역) — 골격 · 조준 · 키보드 · 벤치 
   assert.equal($(".ls-btns .ls-end").disabled, !v.canEndTurn, "[턴 끝] = canEndTurn (카드 0장이어도)");
   assert.match($(".ls-info").textContent, /카드를 끌어 경기장에 놓으세요/);
   assert.match($(".ls-piles").textContent, new RegExp(`덱 ${v.piles.draw}`), "덱 더미 수");
+  // 얼굴 일러스트 (§24.12.3 · U1): 레슨 뷰에는 charId 가 없다 → 런 선수 charId 로 그림 (목록 주소 · draggable false), 글자 · 40px 토큰 상자는 그대로
+  const PT = data.portraits;
+  assert.ok(PT && PT.chars, "그림 목록 data.portraits");
+  const faceUrl = (cid) => `./img/portraits/${cid}.face.webp?v=${(PT.chars[cid] || PT.coaches[cid]).v}`;
+  const charIdOfP = (pid) => S.store.run.players.find((x) => x.id === pid).charId;
+  for (const id of onField) {
+    const face = $(`.tok[data-id="${id}"] .tok-face`);
+    const img = face.querySelector("img.pt");
+    const p = v.players.find((x) => x.id === id);
+    assert.ok(img && img.parentElement === face, `${p.name}: 토큰 얼굴 그림`);
+    assert.equal(img.getAttribute("src"), faceUrl(charIdOfP(id)), `${p.name}: 토큰 그림 = 그 선수 charId`);
+    assert.equal(img.getAttribute("draggable"), "false", `${p.name}: 토큰 그림 draggable false`);
+    assert.equal(face.textContent, Array.from(p.name)[0], `${p.name}: 토큰 글자는 남는다`);
+  }
+  assert.ok($$(".ls-side .ls-row > .avatar").every((a) => a.querySelector("img.pt")?.getAttribute("src") === faceUrl(charIdOfP(a.closest(".ls-row").dataset.pid))), "명단 7: 얼굴 그림");
   noErrorToast("골격");
 
   // jsdom 에는 레이아웃이 없다 → 경기장 사각형을 1280×720 무대의 크기(968×392)로 흉내 내고, 필드 % → client px 로 클릭한다
@@ -626,6 +672,7 @@ test("jsdom: 레슨 화면 (구역) — 골격 · 조준 · 키보드 · 벤치 
   assert.match(attCard.querySelector(".cf-meta .cf-coach").textContent, /하르나 지원/, "메타 줄 맨 앞 코치 칩");
   assert.equal(attCard.querySelector(".cf-meta").firstElementChild, attCard.querySelector(".cf-coach"), "칩은 메타 줄 맨 앞 (겹친 손패에서도 보이는 왼쪽)");
   assert.equal(attCard.querySelector(".cf-coach .avatar").textContent, "하", "코치 얼굴 = 짧은 이름 첫 글자");
+  assert.equal(attCard.querySelector(".cf-coach .avatar > img.pt")?.getAttribute("src"), faceUrl(harr.id), "코치 칩 = 하르나 그림 (글자는 남는다)");
   assert.ok(attCard.querySelector(".cf-plus.att"), "지원 강화 \"+\" = 코치 색");
   assert.match(attCard.title, /코치 하르나 지원 — 이번 턴만 강화 · 내면: 슈팅 구역 대상 \+50%/, "카드 title");
   assert.match($(".ls-info .ls-att-line").textContent, /하르나 지원 → 기초 훈련\+/, "dock 지원 줄");
@@ -788,6 +835,7 @@ test("jsdom: 레슨 화면 (구역) — 골격 · 조준 · 키보드 · 벤치 
   assert.match($(".rw-teach-title").textContent, /코치 수업 1\/2/, "머리 1/2");
   assert.equal($(".rw-teach-line").textContent, `${tv.cur.coachShort} 코치가 '${tv.cur.name}'${OL.objParticle(tv.cur.name)} 가르쳐 줍니다`, "문구");
   assert.ok($(".rw-teach-face"), "코치 얼굴");
+  if (tv.cur.supportId) assert.equal($(".rw-teach-face.bust > img.pt")?.getAttribute("src"), `./img/portraits/${tv.cur.supportId}.bust.webp?v=${PT.coaches[tv.cur.supportId].v}`, "가르치는 코치 = 흉상 그림");
   assert.equal($$(".rw-teach-pl").length, 7, "선수 칩 7");
   for (const p of tv.cur.players) {
     const el = $(`.rw-teach-pl[data-pid="${p.id}"]`);

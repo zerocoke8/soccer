@@ -14,8 +14,10 @@
 //   - 보상 · 상담 · 덱 (lessonRun 카드 뷰): { uid, cardId, name, family, plus, bond80, targetKind, target, power, costRate, exhaust, desc, ownerCharId, coachType, … }
 // opts: { data, players?, recommended?, selected?, dim?, reason?, tag?, onClick?, title?, el? ('button'|'div') }
 //   data = 데이터 (cards.json 에서 원 크기 · 구역 제한 · 기본 위력 · 주인을 읽는다), players = 선수 목록 (주인 이름 · 색 — 없으면 data.characters)
+// 얼굴 일러스트 (§24.12.3, data.portraits): 코치 칩 얼굴 = 코치 그림, 고유 카드 = 계열 줄 "고유 · 이름" 앞에 주인 작은 얼굴 (그림이 있을 때만 — 주인 색 테)
 import { h, avatar } from './dom.js';
 import * as L from './labels.js';
+import { portraitUrl } from './art.js';
 
 function cardDefOf(data, cardId) {
   const list = (data && data.cards && data.cards.cards) || [];
@@ -222,6 +224,7 @@ export function cardFace(view, opts = {}) {
   const how = t.shape ? shapeHow(t.shape, owner) : '';
   const desc = t.shape ? (shapeDesc(effectDesc(fullDesc), t.shape) || how) : effectDesc(fullDesc);
   const uniqueColor = family === 'unique' ? (players || []).find((p) => p.charId === ownerCharId)?.portraitColor : null;
+  const ownerArt = family === 'unique' ? portraitUrl(data, ownerCharId, 'face') : null;
   const tagName = opts.el ?? (onClick ? 'button' : 'div');
   const att = view.attach || null;
   const attPct = Math.round((Number(data?.lesson?.attach?.overPct) || 0.2) * 100);
@@ -245,8 +248,8 @@ export function cardFace(view, opts = {}) {
     h('span', { class: 'cf-band', 'aria-hidden': 'true' }),
     h('span', { class: 'cf-name' }, view.name ?? view.cardId, view.plus ? h('b', { class: ['cf-plus', att?.upgrade === 'plus' ? 'att' : ''] }, '+') : null),
     h('span', { class: 'cf-meta' },
-      att ? h('span', { class: 'cf-coach', title: attachTitle(att, data) }, avatar(att.color, att.short || att.name, 'xs', 'cf-coach-face'), h('b', {}, `${att.short} 지원`)) : null,
-      h('span', { class: 'cf-fam' }, famLabel),
+      att ? h('span', { class: 'cf-coach', title: attachTitle(att, data) }, avatar(att.color, att.short || att.name, 'xs', 'cf-coach-face', { art: portraitUrl(data, att.supportId, 'face') }), h('b', {}, `${att.short} 지원`)) : null,
+      h('span', { class: 'cf-fam' }, ownerArt ? avatar(uniqueColor || ((data && data.characters) || []).find((x) => x.id === ownerCharId)?.portraitColor, owner, 'xs', 'cf-owner', { art: ownerArt }) : null, famLabel),
       view.bond80 ? h('span', { class: 'cf-bond' }, '유대80') : null,
       view.exhaust ? h('span', { class: 'cf-ex', title: '낸 뒤 이번 레슨에서 빠진다' }, '1회') : null),
     h('span', { class: ['cf-target', t.kind ? `tk-${t.kind}` : '', t.shape ? 'shape' : ''] }, ticon, targetText(view, def)),

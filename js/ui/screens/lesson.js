@@ -40,12 +40,13 @@
 //   여는 법: 카드를 고르지 않았을 때 토큰 · 명단 줄 누르기 (탭) · 마우스 올리기 (잠깐 — 누르면 고정), 명단 ⓘ 버튼 (카드를 골랐어도 늘),
 //   토큰 포커스 + Enter · Space (카드를 고르지 않았을 때) · I (늘). 닫기: 바깥 누르기 · Esc · 같은 토큰 · 줄 · ⓘ 다시 · × 버튼. 끌기가 시작되면 닫는다.
 //   카드를 골랐을 때 토큰 누르기는 그대로 자리 고르기다 (팝오버를 열지 않는다).
-import { h, avatar, bar, gradeBadge, openModal, toast } from '../dom.js';
+import { h, avatar, bar, gradeBadge, openModal, toast, setFaceArt } from '../dom.js';
 import * as L from '../labels.js';
 import { cardFace, miniCard, attachTitle, shapeIconKey, shapeHow, multShort } from '../cards.js';
 import { tokenSpot, pointerToField, circlePx, fxPlan, scoreAfterPlay, handStep, playerStatInfo, labelPlan, labelWidth, FIELD_PX, TOKEN_PX } from '../lesson_layout.js';
 import { stamCls } from '../hud.js';
 import { uniqueNote } from './reward.js';
+import { playerArt, portraitUrl } from '../art.js';
 
 /** 연출 시간 (ms): 훈련 동작 · +N 머무르기 · 턴 끝 기본 훈련 · 흩어지기 · 턴 배너 · 레슨 끝 배너 · 자동 진행 간격 · 자동 진행 조준 보여 주기 */
 export const LESSON_T = { act: 280, hold: 560, tick: 650, scatter: 450, turn: 260, end: 1000, auto: 600, aimShow: 320, move: 450, pass: 300 };
@@ -271,6 +272,11 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
   /** 컷인 대사 (lesson.json attach.abilities[id].line — UI 전용) */
   const coachLine = (supportId) => data.lesson?.attach?.abilities?.[supportId]?.line || '';
   const playerOf = (id) => (v.players || []).find((p) => p.id === id);
+  // 얼굴 일러스트 (§24.12.3): 레슨 뷰 선수에는 charId 가 없다 → 런 선수 id 로 찾는다 (art.charIdOf). 코치 = 서포트 id. 없으면 null (글자)
+  const faceArt = (id) => playerArt(ctx, { id });
+  const coachArt = (supportId) => portraitUrl(data, supportId, 'face');
+  /** 글자 얼굴 span (토큰 · 벤치 · 유령) = 색 원 + 첫 글자 + 그림 */
+  const faceSpan = (cls, p) => setFaceArt(h('span', { class: cls, style: { background: p?.portraitColor || '#4b5563' } }, initialOf(p?.name)), faceArt(p?.id));
   const staminaOf = (p) => shown.stamina[p.id] ?? Number(p.stamina) ?? 0;
   const handCard = (uid) => (uid ? (v.hand || []).find((c) => c.uid === uid) || null : null);
   // L40 고유 카드: 받는 선수 · 구역이 필요한 모양 (shape.needs) 도 놓는 자리가 있는 카드다
@@ -555,8 +561,12 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
       if (gpos) {
         const p = playerOf(c.ownerId);
         const face = aimGhost.firstChild;
-        face.textContent = initialOf(p?.name);
-        face.style.background = p?.portraitColor || '#4b5563';
+        if (face.dataset.pid !== String(c.ownerId ?? '')) { // 주인이 바뀔 때만 다시 그린다 (프레임마다 그림을 새로 얹지 않게)
+          face.dataset.pid = String(c.ownerId ?? '');
+          face.textContent = initialOf(p?.name);
+          face.style.background = p?.portraitColor || '#4b5563';
+          setFaceArt(face, faceArt(c.ownerId));
+        }
         placeAt(aimGhost, gpos);
         aimGhost.className = ['aim-ghost', 'tok-ghost', 'on', pv?.ok ? 'ok' : 'bad', dragging ? 'follow' : ''].filter(Boolean).join(' ');
       } else aimGhost.className = 'aim-ghost tok-ghost';
@@ -618,7 +628,7 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
   function tokenEl(p) {
     let el = tokEls.get(p.id);
     if (el) return el;
-    const face = h('span', { class: 'tok-face', style: { background: p.portraitColor || '#4b5563' } }, initialOf(p.name));
+    const face = faceSpan('tok-face', p); // 40px 상자 그대로 (겹침 검사) — 그림은 끌기를 가로채지 않는다 (pointerdown 은 이 span)
     const barI = h('i');
     const nm = h('span', { class: 'tok-nm' }, p.name);
     const stN = h('b', { class: 'tok-stn' });
@@ -860,7 +870,7 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
         onclick: (e) => { e.stopPropagation(); if (suppressClick) return; if (healAim) playHealOn(p.id); else toggleBench(p.id); },
         onkeydown: (e) => { if (e.key === 'b' || e.key === 'B') { e.preventDefault(); toggleBench(p.id); } },
       },
-      h('span', { class: 'bs-face', style: { background: p.portraitColor || '#4b5563' } }, initialOf(p.name)),
+      faceSpan('bs-face', p),
       h('span', { class: 'bs-txt' }, h('b', {}, p.name), h('span', { class: ['bs-st', stamCls(stam)] }, `체력 ${stam} → ${Math.min(100, stam + benchRecover)}`)));
       slot.addEventListener('pointerdown', (e) => onTokPointerDown(e, p.id, 'bench'));
       slots.push(slot);
@@ -916,7 +926,7 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
       pi.disabled = inert;
       pi.setAttribute('aria-expanded', infoPop?.id === p.id ? 'true' : 'false');
       row.replaceChildren(
-        avatar(p.portraitColor, p.name, 'xs', p.out ? 'dim' : ''),
+        avatar(p.portraitColor, p.name, 'xs', p.out ? 'dim' : '', { art: faceArt(p.id) }),
         h('span', { class: 'ls-nm' }, h('b', {}, p.name)),
         h('span', { class: 'ls-st', title: `체력 ${stam}` }, bar(stam / 100, stamCls(stam)), h('b', { class: stamCls(stam) }, stam)),
         p.out ? h('span', { class: 'ls-fr muted' }, '–') : h('span', { class: ['ls-fr', fr >= 0.25 ? 'bad' : fr >= 0.1 ? 'warn' : 'muted'], title: `실패율 ${pctText(fr)}` }, pctText(fr)),
@@ -1040,7 +1050,7 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     const where = d.out ? (d.injured ? '🚑 부상 — 결장' : '결장') : d.bench ? `벤치 · 턴 끝 +${benchRecover}` : d.zone ? `${L.ZONE_ICONS[d.zone] ?? ''} ${L.zoneLabel(d.zone)}` : '';
     const mains = d.mainStats.map((s) => L.STAT_LABELS[s] ?? s).join('·');
     const head = h('div', { class: 'pi-head' },
-      avatar(d.portraitColor, d.name, 'sm', d.out ? 'dim' : ''),
+      avatar(d.portraitColor, d.name, 'md', [d.out ? 'dim' : '', 'pi-face'], { art: faceArt(d.id) }), // 44px (§24.12.3 — 30 → 44, css/lesson.css .pi-face)
       h('div', { class: 'pi-id' },
         h('b', { class: 'pi-name' }, d.name),
         h('span', { class: 'pi-sub' }, h('span', { class: 'pi-slot' }, d.slot ?? ''), ` ${L.POSITION_LABELS[d.position] ?? d.position ?? ''}${mains ? ` · 주 스탯 ${mains}` : ''}`)),
@@ -1179,7 +1189,7 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     if (ui.busy && !inert) {
       if (cutNote) {
         // 코치 지원 발동 (컷인 · 카드 연출 동안 — no-anim 에서는 컷인 덮개 대신 이 줄)
-        lines.push(h('b', { class: 'ls-guide ls-cut-note' }, avatar(cutNote.color, cutNote.short, 'xs'), ` ${cutNote.short} 지원 발동`));
+        lines.push(h('b', { class: 'ls-guide ls-cut-note' }, avatar(cutNote.color, cutNote.short, 'xs', '', { art: coachArt(cutNote.supportId) }), ` ${cutNote.short} 지원 발동`));
         lines.push(h('span', { class: 'small ls-cut-sub' }, h('b', {}, cutNote.ability), ` — ${cutNote.text}`));
       } else lines.push(h('b', { class: 'ls-guide' }, '훈련 중…'));
     } else if (inert || !isLive()) {
@@ -1195,7 +1205,7 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
       const baseSum = (v.players || []).reduce((a, p) => a + (Number(p.baseNext) || 0), 0);
       if (baseSum > 0) lines.push(h('span', { class: 'small' }, '턴 끝 기본 훈련 ', h('b', { class: 'good' }, `+${baseSum}`), h('span', { class: 'muted' }, ' 예상')));
       if (cutRecap) {
-        lines.push(h('span', { class: 'small ls-att-line ls-cut-recap' }, avatar(cutRecap.color, cutRecap.short, 'xs'),
+        lines.push(h('span', { class: 'small ls-att-line ls-cut-recap' }, avatar(cutRecap.color, cutRecap.short, 'xs', '', { art: coachArt(cutRecap.supportId) }),
           h('b', {}, ` ${cutRecap.short} 지원 발동`)));
         lines.push(h('span', { class: 'small ls-cut-sub' }, h('b', {}, cutRecap.ability), ` — ${cutRecap.text}`));
       }
@@ -1203,7 +1213,7 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
         // 이번 턴 코치 지원: "[얼굴] 하르나 지원 → 인터벌 슈팅+" / "내면 골문을 보는 눈 · 슈팅 구역 대상 +50%"
         const ac = handCard(v.attach.uid);
         lines.push(h('span', { class: 'small ls-att-line', title: ac ? attachTitle(ac.attach, data) : '' },
-          avatar(v.attach.color, v.attach.short, 'xs'), h('b', {}, ` ${v.attach.short} 지원`), ` → ${ac?.name ?? ''}${ac?.plus ? '+' : ''}`));
+          avatar(v.attach.color, v.attach.short, 'xs', '', { art: coachArt(v.attach.supportId) }), h('b', {}, ` ${v.attach.short} 지원`), ` → ${ac?.name ?? ''}${ac?.plus ? '+' : ''}`));
         lines.push(h('span', { class: 'tiny ls-att-sub' }, `내면 ${v.attach.ability?.name ?? ''} · ${v.attach.ability?.text ?? ''}`));
       }
       if (rec) {
@@ -1216,7 +1226,7 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
       lines.push(h('b', { class: 'ls-guide' }, c.name, c.plus ? '+' : '', h('span', { class: 'tiny muted ls-tk' }, ` · ${tkText(c)}`)));
       if (c.attach && !(pv?.ok && pv.attach)) { // 자리를 고르기 전: 지원 줄 (고른 뒤에는 노트 맨 앞 "하르나 지원 · …" 가 대신한다)
         lines.push(h('span', { class: 'small ls-att-line', title: attachTitle(c.attach, data) },
-          avatar(c.attach.color, c.attach.short, 'xs'), h('b', {}, ` ${c.attach.short} 지원:`), ` ${c.attach.abilityText ?? ''}`));
+          avatar(c.attach.color, c.attach.short, 'xs', '', { art: coachArt(c.attach.supportId) }), h('b', {}, ` ${c.attach.short} 지원:`), ` ${c.attach.abilityText ?? ''}`));
       }
       const a = aimArgs();
       const hasPoint = hasPick(a);
@@ -1482,7 +1492,7 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
       const p = playerOf(press.id);
       ui.drag = { kind: 'shape', uid: press.uid, id: press.id, at: null, over: null };
       ghost.className = 'drag-ghost on tok-ghost shape-drag';
-      ghost.replaceChildren(h('span', { class: 'tg-face', style: { background: p?.portraitColor || '#4b5563' } }, initialOf(p?.name)), h('span', { class: 'tg-nm' }, p?.name ?? ''));
+      ghost.replaceChildren(faceSpan('tg-face', p), h('span', { class: 'tg-nm' }, p?.name ?? ''));
       screen.classList.add('dragging');
       renderLive();
       return;
@@ -1497,7 +1507,7 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
       else ghost.style.removeProperty('--coach-face');
       ghost.replaceChildren(...[
         h('span', { class: 'dg-band' }),
-        att ? h('span', { class: 'dg-coach', title: attachTitle(att, data) }, initialOf(att.short || att.name)) : null,
+        att ? setFaceArt(h('span', { class: 'dg-coach', title: attachTitle(att, data) }, initialOf(att.short || att.name)), coachArt(att.supportId)) : null,
         h('b', { class: 'dg-name' }, c?.name ?? '', c?.plus ? [WJ, h('span', { class: att?.upgrade === 'plus' ? 'dg-plus att' : 'dg-plus' }, '+')] : ''), // U+2060: "+" 만 다음 줄로 넘어가지 않게
         c?.shape
           ? h('span', { class: ['dg-tk', 'shape'] }, h('i', { class: ['cf-ticon', `s-${shapeIconKey(c.shape)}`, c.shape.size ? `sz-${c.shape.size}` : ''] }), tkText(c))
@@ -1509,7 +1519,7 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
       const p = playerOf(press.id);
       ui.drag = { kind: 'tok', id: press.id, from: press.from, over: null };
       ghost.className = 'drag-ghost on tok-ghost';
-      ghost.replaceChildren(h('span', { class: 'tg-face', style: { background: p?.portraitColor || '#4b5563' } }, initialOf(p?.name)), h('span', { class: 'tg-nm' }, p?.name ?? ''));
+      ghost.replaceChildren(faceSpan('tg-face', p), h('span', { class: 'tg-nm' }, p?.name ?? ''));
     }
     screen.classList.add('dragging');
     renderLive();
@@ -1898,7 +1908,7 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     const bond = plan.play.bond.find((b) => b.supportId === cut.supportId);
     if (bond?.n) bits.push(['bond', `유대 +${bond.n}`]);
     const el = h('div', { class: ['ls-abil', cut.coachType ? `co-${cut.coachType}` : ''] },
-      h('span', { class: 'la-face', style: { background: cut.color } }, initialOf(cut.short || cut.coach)),
+      setFaceArt(h('span', { class: 'la-face', style: { background: cut.color } }, initialOf(cut.short || cut.coach)), coachArt(cut.supportId)),
       h('b', { class: 'la-name' }, cut.ability),
       h('span', { class: 'la-text' }, cut.text),
       bits.map(([k, t]) => h('span', { class: ['la-bit', k] }, t)));
@@ -1917,7 +1927,7 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     const ended = st().phase !== 'lesson' || vNew.status !== 'playing';
     const cut = act.kind === 'play' && plan.cutin ? cutinInfo(plan.cutin, vPrev) : null;
     const boost = act.boost || {};
-    cutNote = cut ? { color: cut.color, name: cut.coach, short: cut.short, ability: cut.ability, text: cut.text } : null;
+    cutNote = cut ? { supportId: cut.supportId, color: cut.color, name: cut.coach, short: cut.short, ability: cut.ability, text: cut.text } : null;
     if (cut) setCoach(cut.coachType, cut.color);
     // 보여 주는 값: 처음에는 이전 점수 · 체력 (카드 비용은 바로), 단계마다 바꾼다
     v = vPrev;

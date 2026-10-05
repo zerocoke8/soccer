@@ -7,6 +7,7 @@
 //   openRecords(view, ctx) → 유물 · 보정 · 최근 기록 모달
 import { h, avatar, bar, signed, gradeBadge, gradeOf, openModal, closeOverlays } from './dom.js';
 import * as L from './labels.js';
+import { playerArt, portraitUrl } from './art.js';
 
 export const stamCls = (st) => (st >= 60 ? 'good' : st >= 40 ? 'warn' : 'bad');
 
@@ -102,7 +103,7 @@ export function hudRoster(view, ctx) {
         class: ['ro-row', out ? 'injured' : ''],
         title: `${p.name} · ${p.slot} · 체력 ${st}${mains.length ? ` · 주 스탯 ${mains.map((k) => L.STAT_LABELS[k] ?? k).join('·')}` : ''}${out ? ` · 레슨 결장 ${p.injuredTurns}회 · 경기는 출전` : ''}`,
       },
-      avatar(p.portraitColor, p.name, 'xs', out || st < 40 ? 'dim' : ''),
+      avatar(p.portraitColor, p.name, 'xs', out || st < 40 ? 'dim' : '', { art: playerArt(ctx, p) }),
       h('span', { class: 'ro-name' }, h('b', { class: 'ellipsis' }, p.name), h('span', { class: 'ro-slot' }, p.slot ?? ''),
         out ? h('span', { class: 'badge badge-bad', title: `레슨 결장 ${p.injuredTurns}회 · 경기는 출전` }, `결장 ${p.injuredTurns}`) : null),
       h('span', { class: 'ro-stam' }, bar(st / 100, stamCls(st)), h('b', { class: stamCls(st) }, st)),
@@ -125,7 +126,7 @@ export function hudRoster(view, ctx) {
         title: `${c.name} · ${L.SUPPORT_TYPE_LABELS[c.type] ?? c.type ?? ''} · 유대 ${b}${cname ? ` · 코치 카드 「${cname}」${c.upgraded ? ' (유대 강화)' : ''}` : ''}`
           + (pp ? `\n파티 패시브 '${pp.name}' — ${pp.text}${pp.upgraded ? ' (유대 80)' : pp.text80 ? ` · 유대 ${upgradeAt}: ${pp.text80}` : ''}` : ''),
       },
-      avatar(c.portraitColor, c.name, 'xs'),
+      avatar(c.portraitColor, c.name, 'xs', '', { art: portraitUrl(data, c.id) }),
       h('span', { class: 'bond-nm ellipsis' }, c.name, h('span', { class: 'tiny muted' }, ` ${L.STAT_SHORT[c.type] ?? ''}`)),
       h('span', { class: 'bond-bar' }, bar(b / 100, c.upgraded ? 'good' : ''), h('i', { class: 'bond-th', style: { left: `${upgradeAt}%` } })),
       h('b', { class: 'bond-n' }, b),

@@ -18,6 +18,7 @@ import {
 } from '../labels.js';
 import { lineupBoard, reseat, slotSpot, slotOfId, checkMove, applyMove, badText, poolOrder, ultChip, ultMark } from '../lineup.js';
 import { setupPartyLine } from '../passives.js';
+import { portraitUrl } from '../art.js';
 
 export { slotSpot }; // 예전 위치 (test/outgame.test.mjs) — 이제 js/ui/lineup.js
 
@@ -71,6 +72,8 @@ export function renderSetup(root, ctx) {
   }
   const elemLine = (c) => `${ELEMENT_ICONS[c.element] ?? ''} ${ELEMENT_LABELS[c.element] ?? c.element ?? ''} · ${STYLE_LABELS[c.style] ?? c.style ?? ''}`;
   const ultOf = (c) => ultimateInfo(c?.innateSkillId, data);
+  // 얼굴 일러스트 (§24.12.3): 캐릭터 id · 서포트 id → data/portraits.json 그림 (없으면 글자 원)
+  const faceOf = (id) => portraitUrl(data, id, 'face');
 
   // ---- 라인업 보드: 미니 필드 슬롯 + 선수 풀 ----
   const board = lineupBoard({
@@ -82,12 +85,13 @@ export function renderSetup(root, ctx) {
     aptOf,
     nameOf: (cid) => charById.get(cid)?.name ?? cid,
     colorOf: (cid) => charById.get(cid)?.portraitColor,
+    faceOf,
     titleOf: (cid) => ultOf(charById.get(cid))?.title ?? '',
     slotBody: (cid) => {
       const c = charById.get(cid);
       const u = ultOf(c);
       return [
-        avatar(c.portraitColor, c.name, 'sm'),
+        avatar(c.portraitColor, c.name, 'md', 'slot-face', { art: faceOf(c.id) }), // 필드 칸 얼굴 44px (§24.12.3 — 30 → 44)
         h('span', { class: 'grow col' },
           h('span', { class: 'slot-nm-row' }, h('span', { class: 'ellipsis slot-nm' }, c.name), ultMark(u)),
           h('span', { class: 'tiny muted ellipsis' }, elemLine(c)),
@@ -101,7 +105,7 @@ export function renderSetup(root, ctx) {
       const u = ultOf(c);
       return [
         h('span', { class: 'lu-card-who', title: `${c.name} · ${RACE_LABELS[c.race] ?? c.race ?? ''} · 스탯 합 ${total}${t ? `\n${t.icon} ${t.name}: ${t.description}` : ''}` },
-          avatar(c.portraitColor, c.name, 'xs'),
+          avatar(c.portraitColor, c.name, 'xs', '', { art: faceOf(c.id) }),
           h('b', { class: 'lu-card-nm ellipsis' }, c.name)),
         h('span', { class: 'tiny muted ellipsis' }, h('span', { class: `rarity-${c.rarity}` }, c.rarity ?? ''), ` · ${elemLine(c)}`),
         // 특성 + 필살기 한 줄: 특성은 아이콘만 (이름 · 설명은 title), 필살기 칩은 이름까지
@@ -147,7 +151,7 @@ export function renderSetup(root, ctx) {
           rerender();
         },
       },
-      avatar(c.portraitColor, c.name, 'sm'),
+      avatar(c.portraitColor, c.name, 'sm', '', { art: faceOf(c.id) }),
       h('span', { class: 'grow col cp-txt' },
         h('span', { class: 'cp-l1' },
           h('b', { class: 'cp-nm' }, c.name),
@@ -248,7 +252,7 @@ export function renderSetup(root, ctx) {
         rerender();
       },
     },
-    avatar(sp.portraitColor, sp.name, 'xs'),
+    avatar(sp.portraitColor, sp.name, 'xs', '', { art: faceOf(sp.id) }),
     h('span', { class: 'col sp-chip-txt' },
       h('span', { class: 'sp-chip-nm ellipsis' }, sp.name),
       h('span', { class: 'tiny muted ellipsis' },

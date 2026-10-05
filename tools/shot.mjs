@@ -8,6 +8,7 @@
 // 2) Node 에서 엔진(js/engine/lessonRun.js · manager.js · match.js)으로 시나리오 상황의 run/match 상태를 찾는다 (tools/scenarios.mjs · lesson_scenarios.mjs).
 // 3) puppeteer-core + 로컬 Chrome/Edge 로 페이지를 열고 localStorage(KEYS.run / KEYS.match / KEYS.teams + 시나리오 storage — js/ui/store.js)에 주입 →
 //    reload → 경기 · 저장된 런이면 시작 화면 "이어하기" 클릭 → (아웃게임) 조작 steps(클릭 · 드래그) → 뷰포트 캡처 (페이지는 스크롤하지 않는다).
+//    캡처 직전에 화면 그림 (얼굴 일러스트 — LESSON_PROTO_PLAN §24.12) 이 다 뜨고 decode 될 때까지 기다린다 (최대 3초, waitForImages).
 // 4) 시나리오마다 파일 경로, 스테이지 배율, 페이지 · 안쪽 스크롤, 잘린 글자(카드 문구 등) · HUD · 레슨 경기장 겹침 · 원 판정(그린 원 ↔ 엔진 대상), 캡처 시점 상태 확인,
 //    pageerror/console.error 를 출력. 마지막 요약 줄에 검사에 걸린 시나리오 이름.
 //
@@ -353,6 +354,8 @@ async function runScenario(browser, baseUrl, sc, prepared, opts) {
 
     if (sc.outgame) await enterOutgame(page, sc, prepared, opts, out);
     else await enterMatch(page, sc, prepared, opts, out);
+    // 얼굴 일러스트 (LESSON_PROTO_PLAN §24.12): 캡처 전에 화면의 그림이 다 뜨고 디코드될 때까지 (최대 3초) — 빈 원 · 글자가 찍히지 않게
+    await waitForImages(page, out);
 
     const metrics = await page.evaluate(() => {
       // 페이지 스크롤 + 안쪽 스크롤 컨테이너(overflow auto/scroll 이고 내용이 넘치는 요소). 스테이지(고정 크기) 안이라
@@ -512,6 +515,37 @@ async function runScenario(browser, baseUrl, sc, prepared, opts) {
     await ctxB.close().catch(() => {});
   }
   return out;
+}
+
+/**
+ * 화면의 그림 (document.images) 이 모두 complete 이고 decode 됐는지 기다린다 (경기 · 아웃게임 캡처 직전, 최대 timeout).
+ * 기다림은 requestAnimationFrame 폴링 (페이지 타이머 고정 FREEZE_SCRIPT 와 무관). 불러오지 못한 그림 (404) 은 complete 로 끝나고
+ * HTTP ≥ 400 은 response 이벤트가 오류로 센다. 시간이 넘으면 메모만 남기고 그대로 캡처한다.
+ */
+async function waitForImages(page, out, timeout = 3000) {
+  try {
+    await page.waitForFunction(() => {
+      const st = window.__shotImgs || (window.__shotImgs = new WeakMap()); // img → { src, done } (src 가 바뀌면 다시 decode)
+      let ok = true;
+      for (const im of document.images) {
+        if (!im.complete) { ok = false; continue; }
+        const src = im.currentSrc || im.src;
+        let e = st.get(im);
+        if (!e || e.src !== src) {
+          e = { src, done: false };
+          st.set(im, e);
+          const fin = () => { e.done = true; };
+          if (im.naturalWidth > 0 && typeof im.decode === "function") im.decode().then(fin, fin);
+          else fin();
+        }
+        if (!e.done) ok = false;
+      }
+      return ok;
+    }, { timeout, polling: "raf" });
+  } catch {
+    const left = await page.evaluate(() => [...document.images].filter((im) => !im.complete).map((im) => (im.getAttribute("src") || "").replace(/\?.*$/, ""))).catch(() => []);
+    out.notes.push(`그림 대기 ${timeout}ms 넘김${left.length ? ` — 아직 ${left.length}장 (${left.slice(0, 3).join(", ")}${left.length > 3 ? " …" : ""})` : " (decode 대기)"}`);
+  }
 }
 
 /** 경기 시나리오: 이어하기 → 경기 화면 → (수동이면 자동 끄기) → 조작 */

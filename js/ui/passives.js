@@ -15,6 +15,7 @@
 //   partyPassiveRows(list, data) → 코치 파티 패시브 줄 (코치 얼굴 · 이름 · 글 · 유대 80 표시) — 경기 전 준비
 //   setupPartyLine(support) → 편성 화면 코치 칩 한 줄 (data.supports[].partyPassive 글 · "80: …" · title)
 import { h, avatar, openModal } from './dom.js';
+import { playerArt, portraitUrl } from './art.js';
 
 /**
  * 유대 80 글을 짧게: 앞쪽이 같으면 다른 데부터 (띄어쓰기 단위) — "팀 슛 위력 +7%" · "팀 슛 위력 +10%" → "+10%".
@@ -68,7 +69,7 @@ export function passiveShopGrid(ctx, view, o) {
     const rows = (Array.isArray(p.rows) ? p.rows : []).slice().sort((a, b) => Number(!!b.unique) - Number(!!a.unique));
     const buyable = rows.filter((r) => r.affordable).length;
     const who = h('div', { class: 'ps-who', title: `${p.name} · ${p.slot ?? ''} — 패시브 보유 ${p.owned ?? 0}/${rows.length}` },
-      avatar(p.portraitColor, p.name, compact ? 'xs' : 'sm'),
+      avatar(p.portraitColor, p.name, compact ? 'xs' : 'sm', '', { art: playerArt(ctx, p) }),
       h('span', { class: 'ps-who-txt' },
         h('span', { class: 'ps-who-nm' }, h('b', {}, p.name), h('span', { class: 'ps-slot' }, p.slot ?? '')),
         h('span', { class: 'ps-who-sub' }, `보유 ${p.owned ?? 0}/${rows.length}`,
@@ -189,7 +190,7 @@ export function partyPassiveRows(list, data, { cls = '' } = {}) {
       dataset: { coach: pp.coachId },
       title: `${pp.coachName} 파티 패시브 '${pp.name}' — ${pp.text}${pp.upgraded ? ' (유대 80)' : pp.text80 ? `\n유대 80: ${pp.text80}` : ''}\n편성하면 런 내내 우리 팀 경기 전체에`,
     },
-    avatar(sc.portraitColor, shortName(pp.coachName), 'xs'),
+    avatar(sc.portraitColor, shortName(pp.coachName), 'xs', '', { art: portraitUrl(data, pp.coachId) }),
     h('span', { class: 'pp-txt' },
       h('b', { class: 'pp-name' }, pp.name),
       pp.upgraded ? h('span', { class: 'badge badge-gold pp-up' }, '유대 80') : null,

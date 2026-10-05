@@ -13,6 +13,7 @@ import * as L from '../labels.js';
 import { hudTopbar } from '../hud.js';
 import { meetingEditor } from '../meeting.js';
 import { passiveShopButton, openPassiveShop, partyPassiveRows } from '../passives.js';
+import { playerArt } from '../art.js';
 
 export function renderPrep(root, ctx) {
   const { store, data, run, safe, actions } = ctx;
@@ -63,7 +64,7 @@ export function renderPrep(root, ctx) {
     out.length
       ? h('div', { class: 'po-out' },
         h('p', { class: 'small' }, `🚑 부상 ${out.length}명 — 레슨만 쉬고 경기는 그대로 출전`),
-        h('div', { class: 'row wrap' }, out.map((p) => h('span', { class: 'badge po-out-p', title: `${p.name} — 레슨 결장 ${p.injuredTurns ?? ''}회 · 경기는 출전` }, avatar(p.portraitColor, p.name, 'xs'), ` ${p.name} · ${p.slot ?? ''}`))))
+        h('div', { class: 'row wrap' }, out.map((p) => h('span', { class: 'badge po-out-p', title: `${p.name} — 레슨 결장 ${p.injuredTurns ?? ''}회 · 경기는 출전` }, avatar(p.portraitColor, p.name, 'xs', '', { art: playerArt(ctx, p) }), ` ${p.name} · ${p.slot ?? ''}`))))
       : h('p', { class: 'small muted' }, '부상 선수 없음 — 7명 모두 출전'),
     captainTxt ? h('p', { class: 'po-cap' }, h('span', { class: 'badge cap-note', title: L.traitInfo('captain', data)?.description ?? '' }, captainTxt)) : null,
     // 코치 파티 패시브 (L48): 편성 코치마다 1개 — 이번 경기 내내 (조건이 맞을 때)

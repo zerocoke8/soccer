@@ -16,6 +16,7 @@ import * as L from '../labels.js';
 import { cardFace, miniCard } from '../cards.js';
 import { upgradedView, uniqueNote } from './reward.js';
 import { passiveShopGrid, openPassiveShop } from '../passives.js';
+import { portraitUrl } from '../art.js';
 
 const OP_LABELS = { buy: '구매', upgrade: '강화', delete: '삭제', skill: '스킬', end: '끝내기' };
 
@@ -94,7 +95,7 @@ export function renderConsult(root, ctx) {
       const owner = players.find((p) => p.charId === sel.ownerCharId);
       openModal(h('div', { class: 'col cs-confirm' },
         h('h3', {}, '고유 카드를 지울까요?'),
-        h('p', { class: 'small' }, owner ? avatar(owner.portraitColor, owner.name, 'xs') : null, ` 「${sel.name}${sel.plus ? '+' : ''}」 — ${owner?.name ?? '선수'}의 고유 카드`),
+        h('p', { class: 'small' }, owner ? avatar(owner.portraitColor, owner.name, 'xs', '', { art: portraitUrl(data, sel.ownerCharId) }) : null, ` 「${sel.name}${sel.plus ? '+' : ''}」 — ${owner?.name ?? '선수'}의 고유 카드`),
         h('p', { class: 'small muted' }, '지우면 이 런에서 되찾을 수 없습니다. 이 선수가 레슨에서 고유 카드(연계 특성 모양 · 캐릭터 효과)를 쓰지 못합니다.'),
         h('div', { class: 'row end modal-foot' },
           h('button', { class: 'btn', onclick: () => closeOverlays() }, '취소'),

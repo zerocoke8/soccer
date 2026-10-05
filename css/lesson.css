@@ -532,7 +532,9 @@
 .ls-pinfo .z-pass { --zc: #63d8ec; --zt: rgba(99, 216, 236, .14); }
 .ls-pinfo .z-defense { --zc: #8fb2ff; --zt: rgba(126, 164, 255, .16); }
 .ls-pinfo .z-physical { --zc: #c9a2ff; --zt: rgba(199, 155, 255, .15); }
-.pi-head { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; align-items: center; gap: 8px; }
+.pi-head { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; align-items: center; gap: 6px; }
+/* 얼굴 일러스트 (§24.12.3 — 30 → 44): 48 이면 터치 고정 팝오버 (× 버튼) 에서 "MF1 미드필더 · 주 스탯 드리블·패스" 가 잘린다 */
+.pi-head .avatar.pi-face { width: 44px; height: 44px; font-size: 19px; }
 .pi-id { display: flex; flex-direction: column; min-width: 0; }
 .pi-name { font-size: 15px; line-height: 19px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pi-sub { font-size: 11px; line-height: 15px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -946,6 +948,8 @@ button.card-face.attached:hover:not(:disabled) { border-color: var(--coach); }
 }
 .cf-coach b { font-size: 10.5px; line-height: 15px; }
 .cf-coach .avatar { width: 14px; height: 14px; font-size: 8.5px; border: 0; box-shadow: 0 0 0 1px var(--coach); }
+/* 고유 카드 주인 작은 얼굴 (§24.12.3): 계열 줄 "고유 · 이름" 앞, 주인 색 테 (그림이 있을 때만) */
+.cf-fam .avatar.cf-owner { width: 14px; height: 14px; margin-right: 4px; font-size: 8.5px; border: 0; vertical-align: -3px; box-shadow: 0 0 0 1px var(--fam); }
 .cf-plus.att { color: var(--coach); text-shadow: 0 0 6px var(--coach-a); }
 .cf-pmult.att { color: var(--coach); }
 /* 새 턴에 막 붙었다: 손패가 들어온 뒤(--pop-d) 칩이 튀어나오고 테두리가 한 번 빛난다 */
@@ -1061,6 +1065,11 @@ button.card-face.attached:hover:not(:disabled) { border-color: var(--coach); }
 }
 @keyframes abil-life { 0% { opacity: 0; transform: translate(-50%, -50%) scale(.6); } 12% { opacity: 1; transform: translate(-50%, -50%) scale(1.08); } 20% { transform: translate(-50%, -50%) scale(1); } 80% { opacity: 1; transform: translate(-50%, -50%); } 100% { opacity: 0; transform: translate(-50%, -80%); } }
 .la-face { flex: none; display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; font-size: 14px; font-weight: 900; text-shadow: 0 1px 2px rgba(0, 0, 0, .7); box-shadow: 0 0 0 2px #fff; }
+/* 얼굴 일러스트 (§24.12.3, dom.setFaceArt — <img class="pt"> 를 글자 위에 덮는다): 토큰 · 조준 유령 · 끌기 유령 (40) · 벤치 (26) · 끌기 유령 코치 (20) · 능력 알약 (28).
+   토큰 상자 (40px) · 끌기 리스너 (span) 는 그대로 — 그림은 pointer-events none. 30px 이하는 1.2배로 당긴다 (base.css .avatar 와 같다) */
+.bs-face, .tg-face, .la-face { position: relative; }
+.bs-face.has-art, .la-face.has-art, .dg-coach.has-art { overflow: hidden; }
+.bs-face > .pt, .la-face > .pt, .dg-coach > .pt { transform: scale(1.2); }
 .la-name { font-size: 14px; font-weight: 900; }
 .la-text { color: rgba(255, 255, 255, .88); font-weight: 700; }
 .la-bit { padding: 0 8px; border-radius: 999px; font-size: 12px; font-weight: 900; background: rgba(0, 0, 0, .35); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .3); }
@@ -1083,6 +1092,9 @@ button.card-face.attached:hover:not(:disabled) { border-color: var(--coach); }
 .rw-teach-title { color: var(--accent-2); }
 .rw-teach-top { display: flex; align-items: center; gap: 14px; min-width: 0; padding: 10px 14px; border-radius: 12px; background: var(--panel-2); }
 .rw-teach-face.avatar { flex: none; width: 52px; height: 52px; font-size: 22px; box-shadow: 0 0 0 2px rgba(255, 255, 255, .25); }
+/* 가르치는 코치 흉상 (§24.12.3 — 52 원 → 64×80): 칸 위아래 여백을 줄여 수업 칸 높이는 거의 그대로 */
+.rw-teach-top.has-bust { padding-block: 6px; }
+.rw-teach-face.avatar.bust { width: 64px; height: 80px; border-radius: 10px; }
 .rw-teach-txt { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .rw-teach-line { font-size: 19px; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rw-teach-desc { color: #c9d2e0; line-height: 1.35; word-break: keep-all; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }

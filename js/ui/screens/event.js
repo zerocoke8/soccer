@@ -1,6 +1,7 @@
 // js/ui/screens/event.js — 이벤트 모달 (phase "event")
 // 가로 스테이지: 넓은 모달 — 위 = 제목 · 등장 인물, 왼쪽 = 이야기, 오른쪽 = 선택지(효과 미리보기) 세로로. 배경은 훈련 화면(비활성).
 import { h, avatar, openModal } from '../dom.js';
+import { playerArt, portraitUrl } from '../art.js';
 
 export function renderEventModal(ctx) {
   const { store, data, run, safe, actions } = ctx;
@@ -19,7 +20,7 @@ export function renderEventModal(ctx) {
   const who = [];
   if (ev.player) {
     who.push(h('div', { class: 'ev-who' },
-      avatar(ev.player.portraitColor, ev.player.name, 'md'),
+      avatar(ev.player.portraitColor, ev.player.name, 'md', '', { art: playerArt(ctx, ev.player) }),
       h('span', { class: 'col' },
         h('b', {}, ev.player.name ?? ''),
         ev.player.slot ? h('span', { class: 'tiny muted' }, `선수 · ${ev.player.slot}`) : h('span', { class: 'tiny muted' }, '선수'))));
@@ -28,7 +29,7 @@ export function renderEventModal(ctx) {
     const sp = ev.support;
     const color = sp.portraitColor ?? data.supports?.find?.((s) => s.id === (sp.id ?? sp))?.portraitColor;
     who.push(h('div', { class: 'ev-who' },
-      avatar(color, sp.name ?? '', 'md'),
+      avatar(color, sp.name ?? '', 'md', '', { art: portraitUrl(data, sp.id ?? (typeof sp === 'string' ? sp : null)) }),
       h('span', { class: 'col' },
         h('b', {}, sp.name ?? ''),
         h('span', { class: 'row' }, h('span', { class: 'tiny muted' }, '서포트'),
