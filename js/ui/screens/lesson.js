@@ -2045,7 +2045,7 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     const items = (uids || []).map((uid) => {
       const e = entryOf(uid);
       const d = e ? defs.get(e.cardId) : null;
-      return d ? { uid, cardId: d.id, name: d.name, family: d.family, plus: !!e.plus, ownerCharId: d.ownerCharId, desc: e.plus && d.descPlus ? d.descPlus : d.desc } : null;
+      return d ? { uid, cardId: d.id, name: d.name, family: d.family, plus: !!e.plus, ownerCharId: d.ownerCharId, desc: e.plus && d.descPlus ? d.descPlus : d.desc, memory: e.src === 'memory' } : null;
     }).filter(Boolean);
     if (which === 'draw') items.sort((a, b) => a.name.localeCompare(b.name, 'ko'));
     const title = which === 'draw' ? `뽑을 더미 ${items.length}장 (순서는 비밀)` : `버린 더미 ${items.length}장`;

@@ -5204,7 +5204,7 @@ E1 이 만들고, E2 부터 `createRun` 이 부른다. 오류를 모두 모아 �
   - 레전드 (`--legends 2`) 한 줄.
   - 엔진 슬라이스 (E2 ~ E6) 마다 "스위치를 끄면 앞 슬라이스와 숫자가 같다" 를 확인한다.
 - **스크린샷** (`node tools/shot.mjs <dir> --only og` + 경기 장면):
-  - 새 장면: `og_event_week` · `og_event_banmal` · `og_event_pair` · `og_event_coach1` · `og_event_coach3` · `og_event_story` · `og_event_pick` · `og_event_result` · `og_card_offer` · `og_outing_story` · `og_season_start` · `og_recollection` · `og_recollection_read` · `og_lesson_surprise` · `og_lesson_surprise_result` · `og_lesson_cutin_art` · `og_lesson_cutin_short` · `og_setup_legends` · `og_setup_legend_pick` · `og_result_memory` · `og_start_keyart`.
+  - 새 장면: `og_event_week` · `og_event_banmal` · `og_event_pair` · `og_event_coach1` · `og_event_coach3` · `og_event_story` · `og_event_pick` · `og_event_result` · `og_card_offer` · `og_outing_story` · `og_season_start` · `og_recollection` · `og_recollection_read` · `og_lesson_surprise` · `og_lesson_surprise_result` · `og_lesson_cutin` · `og_lesson_cutin_short` · `og_setup_legends` · `og_setup_legend_pick` · `og_result_memory` · `og_start_keyart`.
   - 터치 915×412: `og_event_week_touch` · `og_lesson_surprise_touch` · `og_recollection_touch`.
   - 경기 13 (합체기) · 27 (수비 블록) · 30 (팀 필살기) · 34 (SR 대사) 는 그림이 든 채로 다시 찍는다.
   - 모든 장면 오류 0 · 스크롤 0 · 잘림 0 · 겹침 0 · 404 0. PNG 를 직접 연다.
@@ -5308,7 +5308,7 @@ I1 (2026-10-05) 이 슬라이스 보고 · 검증 보고 · `git log 9013725..` 
 - **데이터 스위치를 모두 켰다** (`lesson.json events` — week · seasonStart · preMatch · route · outing · `coach.enabled` · `surprise.enabled` = true). 레슨 런 이벤트 169개 (`data/lesson_ev_*.json` 7개), 검토 문서 `docs/LESSON_EVENTS.md` (생성물).
 - `npm test` 385 → **500** (todo 0). 슬라이스 트리마다 E1 403 · E2 422 · E3 435 · E4 450 · E5 478 · E6 488 · A1 410 · A2 411 · U1 · U2 412 → 합친 뒤 U3 ~ U5 · I1 500. 기존 테스트는 이벤트를 끈 데이터가 기본이라 스위치를 켜도 그대로 통과한다.
 - 바꾸지 않는 파일 9개 (`rng.js` · `run.js` · `training.js` · `effects.js` · `layout.js` · `config.json` · `events.json` · `supports.json` · `routes.json`) — `git diff --stat 9013725` 비어 있음.
-- 브라우저 완주 (`tools/lesson_play.mjs`, 실제 입력): 1280×720 15주 (`--until run --legends --outings 3`) · 915×412 터치 시즌 1 (`--mobile --touch-only --outings 1`) — 오류 0 · 입력 실패 0 · actions 대신 0 · 스크롤 0. 이벤트 23 + 7개를 화면 버튼으로 고르고 (덱 고르기 · 결과 카드 · 3택1 · 외출 이야기 · 레슨 깜짝 9번 · 레전드 메모리 카드 2장 확인).
+- 브라우저 완주 (`tools/lesson_play.mjs`, 실제 입력): 1280×720 15주 (`--until run --legends --outings 3`) · 915×412 터치 시즌 1 (`--width 915 --height 412 --mobile --touch-only --outings 1` — `--mobile` 만으로는 화면 크기가 바뀌지 않는다) — 오류 0 · 입력 실패 0 · actions 대신 0 · 스크롤 0. 이벤트를 화면 버튼으로 고르고 (덱 고르기 · 결과 카드 · 3택1 · 외출 이야기 · 레슨 깜짝 · 레전드 메모리 카드 2장 확인). 독립 검증에서 터치 판을 다시 돌리면 그 시드의 자유 주에 외출이 나오지 않아 외출 이야기 0 · 깜짝 1번이었다 (완주는 같음).
 - 스크린샷 `node tools/shot.mjs <dir>` 전체 197장 (경기 36 · og 161) — 오류 · 스크롤 · 잘림 · 겹침 · 상태 · 404 모두 0 (`검사 통과`), §24.16 의 새 장면 · 터치 장면 · 경기 13 · 27 · 30 · 34 PNG 를 열어 봤다.
 
 **E1 · 기반**
@@ -5434,3 +5434,5 @@ I1 (2026-10-05) 이 슬라이스 보고 · 검증 보고 · `git log 9013725..` 
 6. 미리보기 글 손질 거리 (엔진 `lessonEffects`, 이번에 고치지 않음): "TP +10 (덱이 5장 아래로 줄지 않아 삭제할 카드 없음)" 이 어색하다 · 마지막 레슨 뒤 수업 줄 괄호가 두 겹 ("코치 수업: 함성 (루미) (남은 레슨이 없어 런 끝에 SP +20)").
 7. 그림: `title` 배경의 옅은 깃발 무늬 · `clubhouse` 윤기 (다시 그릴지), 컷인이 불투명 창이라 "잘라 낸 사람" 이 아니다 (투명 그림이 필요하면 파이프라인 확장), 헤르타 (남색 머리 · 남색 배경) 는 22px 에서 어둡게 뭉친다, 실루엔 · 셀리아 (초록) · 코니 · 힐디 (주황) 가 22px 에서 비슷하다. 이야기 CG · 상대 팀 · 카드 그림 · 아이콘은 나중 (Q11).
 8. 기획자 질문 Q1 ~ Q12 (§24.18) 은 아직 답을 받지 않았다 — 지금 구현은 각 질문의 [구현 결정] · [가정] 쪽이다.
+
+**I1 뒤 후속 정리 (2026-10-05)**: 미리보기 문구 2개 (`TP +10 (덱이 최소 5장이라 지울 카드 없음)` · `코치 수업: 함성 (루미 · 남은 레슨이 없어 런 끝에 SP +20)` — 괄호 하나), 보상 모달에 깜짝 점수 보너스 "깜짝 +N" (`lessonResult.surpriseBonus` · `surpriseTitle` → 보상 결과), 주 화면 [덱 보기] · 레슨 더미 보기에 메모리 카드 표시, `.gitattributes` 에 `*.webp binary`, 문서 수치 (주 끝 54 = 초안 42 + 새 8명 12 · 장면 이름 `og_lesson_cutin` · 터치 판 명령).

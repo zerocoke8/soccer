@@ -1944,6 +1944,9 @@ export function lessonResult(state, data) {
     plays: L.stats.plays, benches: L.stats.benches, fails: L.stats.fails, injuries: L.stats.injuries,
     twAccrued: L.twAccrued, endHeal: L.endHeal, lumiFlag: L.lumiFlag,
     attaches: Number(L.stats.attaches) || 0,
+    // 레슨 깜짝 이벤트 (L29 · §24.8): 점수에만 더한 보너스 (선수별 상승에는 없다) · 뜬 깜짝의 제목
+    surpriseBonus: Number(L.surprise && L.surprise.bonus) || 0,
+    surpriseTitle: (L.surprise && L.surprise.fired && L.surprise.fired.title) || null,
     cutins: attachOf(L).log.filter((x) => x.played).map((x) => ({
       supportId: x.supportId, name: coachInfo(data, x.supportId).name, cardId: x.cardId,
       cardName: cards.getCard(data, x.cardId).name, turn: x.turn,

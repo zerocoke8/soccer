@@ -105,7 +105,9 @@ export function renderRewardModal(ctx) {
     h('div', { class: 'rw-stats tiny muted' },
       h('span', {}, `턴 ${r.turnReached ?? '?'}/${r.turns ?? '?'}`),
       h('span', {}, `카드 ${r.plays ?? 0}장 · 벤치 ${r.benches ?? 0}`),
-      h('span', { class: r.fails ? 'warn' : '' }, `실패 ${r.fails ?? 0}${r.injuries ? ` · 부상 ${r.injuries}` : ''}`)));
+      h('span', { class: r.fails ? 'warn' : '' }, `실패 ${r.fails ?? 0}${r.injuries ? ` · 부상 ${r.injuries}` : ''}`),
+      // 깜짝 이벤트 점수 보너스 (§24.8) — 선수별 상승 합과 점수의 차이를 설명한다
+      r.surpriseBonus ? h('span', { class: 'rw-surprise', title: r.surpriseTitle ? `깜짝: ${r.surpriseTitle}` : '' }, `깜짝 ${r.surpriseBonus > 0 ? '+' : ''}${r.surpriseBonus}`) : null));
 
   // ---------- 보상 칩 ----------
   const chip = (cls, ...kids) => h('span', { class: ['rw-chip', cls] }, ...kids);

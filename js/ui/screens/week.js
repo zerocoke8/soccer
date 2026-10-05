@@ -318,8 +318,8 @@ export function renderWeek(root, ctx, { inert = false } = {}) {
         h('button', { class: 'btn btn-sm btn-ghost', onclick: closeOverlays }, '닫기')),
       h('div', { class: 'deck-list' }, deck.map((c) => {
         const def = cardDefs.get(c.cardId);
-        return h('span', { class: ['deck-item', `fam-${c.family}`], title: (c.plus ? def?.descPlus : def?.desc) ?? '' },
-          h('b', { class: 'ellipsis' }, `${c.name}${c.plus ? '+' : ''}`),
+        return h('span', { class: ['deck-item', `fam-${c.family}`, c.memory ? 'memory' : ''], title: `${c.memory ? '레전드 메모리 카드 · ' : ''}${(c.plus ? def?.descPlus : def?.desc) ?? ''}` },
+          h('b', { class: 'ellipsis' }, `${c.memory ? '◆ ' : ''}${c.name}${c.plus ? '+' : ''}`),
           h('span', { class: 'tiny muted ellipsis' }, [L.CARD_FAMILY_LABELS[c.family] ?? c.family ?? '', def ? targetText({}, def) : ''].filter(Boolean).join(' · ')));
       }))),
     { className: 'modal-lg' });

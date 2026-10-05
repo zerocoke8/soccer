@@ -752,7 +752,7 @@ function describeOne(state, data, e, ctx) {
     case "cardPick": {
       const n = pickCandidates(state, data, e.op).length;
       if (e.op === "delete") {
-        return n ? "덱의 카드 1장 삭제 (고른다)" : `TP ${signed(fb.cardPickTp)} (덱이 ${Number(C.LD(data).consult.minDeck) || 0}장 아래로 줄지 않아 삭제할 카드 없음)`;
+        return n ? "덱의 카드 1장 삭제 (고른다)" : `TP ${signed(fb.cardPickTp)} (덱이 최소 ${Number(C.LD(data).consult.minDeck) || 0}장이라 지울 카드 없음)`;
       }
       return n ? "덱의 카드 1장 강화 (고른다)" : `TP ${signed(fb.cardPickTp)} (강화할 카드 없음)`;
     }
@@ -896,8 +896,9 @@ function pushTeach(state, skillId, supportId) {
 
 /** 수업 1개 줄 (남은 레슨이 없으면 런 끝에 SP 로 바뀐다 — lessonRun 시즌 끝) */
 function teachLine(state, data, skillId, supportId) {
-  const tail = lessonsAhead(state, data) === 0 ? ` (남은 레슨이 없어 런 끝에 SP +${C.declineSpOf(data)})` : "";
-  return `코치 수업: ${skillName(data, skillId)}${supportId ? ` (${supportName(data, supportId)})` : ""}${tail}`;
+  // 괄호 하나로: "(루미 · 남은 레슨이 없어 런 끝에 SP +20)"
+  const notes = [supportId ? supportName(data, supportId) : null, lessonsAhead(state, data) === 0 ? `남은 레슨이 없어 런 끝에 SP +${C.declineSpOf(data)}` : null].filter(Boolean);
+  return `코치 수업: ${skillName(data, skillId)}${notes.length ? ` (${notes.join(" · ")})` : ""}`;
 }
 
 /** coachHint 적용: 액티브 → 수업 대기열, 패시브 → 힌트 레벨 (grantHint 가 이미 올렸다), 후보 없음 → SP */

@@ -1357,6 +1357,8 @@ function afterLesson(state, data) {
       cutins: res.cutins.map((c) => ({ ...c })),
       teamwork,
       twAccrued: L.twAccrued,
+      surpriseBonus: res.surpriseBonus, // 깜짝 이벤트 점수 보너스 (선수별 상승 밖, §24.8)
+      surpriseTitle: res.surpriseTitle,
       condition,
       prepBonus,
       bond,

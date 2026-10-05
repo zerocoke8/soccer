@@ -1363,3 +1363,8 @@ button.card-face.attached:hover:not(:disabled) { border-color: var(--coach); }
 @media (prefers-reduced-motion: reduce) {
   .ls-sur, .ls-sres { animation: none !important; }
 }
+
+/* 후속 정리 (2026-10-05): 주 화면 [덱 보기] 의 레전드 메모리 카드 · 보상 모달 깜짝 보너스 */
+.deck-item.memory { box-shadow: inset 0 0 0 1px rgba(185, 167, 255, .7); }
+.deck-item.memory b { color: #d9ccff; }
+.rw-stats .rw-surprise { color: var(--gold, #f5c451); font-weight: 700; }

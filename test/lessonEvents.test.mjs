@@ -677,7 +677,7 @@ test("E2 효과: 덱 — cardAdd (+ 코치 카드 유대 +15) · cardPick (상�
   const small = run0();
   small.deck = small.deck.slice(0, data.lesson.consult.minDeck);
   assert.deepEqual(LF.effectNeeds(small, data, [{ type: "cardPick", op: "delete" }]).candidates, []);
-  assert.equal(desc(small, [{ type: "cardPick", op: "delete" }]).text, "TP +10 (덱이 5장 아래로 줄지 않아 삭제할 카드 없음)");
+  assert.equal(desc(small, [{ type: "cardPick", op: "delete" }]).text, "TP +10 (덱이 최소 5장이라 지울 카드 없음)");
   const tp0 = small.trainingPoints;
   assert.deepEqual(apply(small, [{ type: "cardPick", op: "delete" }]).lines, ["TP +10 (삭제할 카드 없음)"]);
   assert.equal(small.trainingPoints, tp0 + 10);
@@ -778,7 +778,7 @@ test("E2 효과: teach (맡을 코치 · 없으면 코치 힌트 · 남은 레�
   Object.assign(end, { season: 3, turn: 5, turnIndex: 14, phase: "event", queue: ["advanceWeek"] });
   assert.equal(desc(end, [{ type: "teach", skillId: "sk_rally_cry" }]).text, "코치 수업: 함성 → 남은 레슨이 없어 런 끝에 SP +20");
   assert.equal(desc(end, [{ type: "coachHint", from: "fielded" }]).text, "코치 수업 1 → 남은 레슨이 없어 런 끝에 SP +20");
-  assert.deepEqual(apply(end, [{ type: "teach", skillId: "sk_rally_cry" }]).lines, ["코치 수업: 함성 (루미) (남은 레슨이 없어 런 끝에 SP +20)"]);
+  assert.deepEqual(apply(end, [{ type: "teach", skillId: "sk_rally_cry" }]).lines, ["코치 수업: 함성 (루미 · 남은 레슨이 없어 런 끝에 SP +20)"]);
   // 이번 주가 아직 시작 전이면 (queue 에 beginWeek) 그 주도 센다
   Object.assign(end, { season: 2, turn: 1, turnIndex: 5, queue: ["beginWeek"] });
   assert.match(desc(end, [{ type: "teach", skillId: "sk_rally_cry" }]).text, /다음 레슨 보상에서/);
