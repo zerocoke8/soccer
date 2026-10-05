@@ -36,6 +36,7 @@ export const CHALLENGE_MATCH_VERSION = 1;
 export const TEAMS_CAP = 50;
 
 // 경기 화면 URL 파라미터 (테스트·스크린샷용): ?auto=0 → 자동 꺼진 채 시작, ?speed=1|2|4 → 배속. 모듈 로드 시 한 번 읽는다.
+// 2.5D 경기 화면 (docs/SPRITE_25D_PLAN.md §4): ?d25=1 → 켬, ?flat=1 (또는 ?d25=0) → 끔 (?flat 이 이긴다). 없으면 스프라이트 시험판 (/sprite/) 만 켬.
 function urlMatchPrefs() {
   try {
     const search = globalThis.location && typeof globalThis.location.search === 'string' ? globalThis.location.search : '';
@@ -46,12 +47,29 @@ function urlMatchPrefs() {
     else if (a === '1' || a === 'true' || a === 'on') out.auto = true;
     const sp = Number(q.get('speed'));
     if (sp === 1 || sp === 2 || sp === 4) out.speed = sp;
+    const flat = q.get('flat');
+    const d = q.get('d25');
+    if (flat === '1' || flat === 'true' || flat === 'on' || d === '0' || d === 'false' || d === 'off') out.d25 = false;
+    else if (d === '1' || d === 'true' || d === 'on') out.d25 = true;
     return out;
   } catch (_) {
     return {};
   }
 }
 const URL_PREFS = urlMatchPrefs();
+
+// 2.5D 경기 화면 모드 (한 곳에서 판단): 주소 → 스프라이트 시험판. 테스트 · 로컬 (주소 없음 · /soccer/ · /lesson/) 기본 = 평면.
+// jsdom 테스트는 store.js 를 location 이 없을 때 읽으므로 늘 평면 — 2.5D 를 볼 때만 setD25ForTest(true).
+const D25_DEFAULT = URL_PREFS.d25 ?? SPRITE_SITE;
+let d25On = D25_DEFAULT;
+/** 2.5D 경기 화면인가 (screens/match.js 가 화면을 만들 때 한 번 읽는다 — 경기 중에는 바뀌지 않는다) */
+export function isD25() {
+  return d25On;
+}
+/** 테스트 전용: 2.5D 모드를 켜고 끈다 (null = 주소 · 사이트로 정한 기본값으로). 다음 경기 화면부터 */
+export function setD25ForTest(on) {
+  d25On = on == null ? D25_DEFAULT : !!on;
+}
 
 export const store = {
   data: null,          // { config, characters, supports, events, skills, relics, opponents, routes, …, challenge, challenge_sample_team }

@@ -767,6 +767,66 @@ export const SCENARIOS = [
     prefer: (s, { data }) => actionEnabled(s, data, "pass") && !s.events.some((e) => e.type === "cutin"),
     interact: { type: "steps", steps: [{ click: '.skill-row .sk-btn[data-skill="sk_line_breaker"]:not(:disabled)' }, { wait: 150 }, { hover: ["dribble"] }] },
   },
+  // ---- 2.5D 경기 화면 (docs/SPRITE_25D_PLAN.md §6 — D1, 주소 ?d25=1): 원근 바닥 · 세운 선수 · 서 있는 골대 · 위로 뜨는 호 ----
+  {
+    // 경기 첫 장면 (킥오프 — 중원 실루엔 공): 풀코트 · 판 · 선 · 골대 · 배경 띠 · 스프라이트 (실루엔) + 스탠디
+    name: "d25_kickoff",
+    title: "2.5D 킥오프 — 원근 바닥 · 구역 · 선 · 서 있는 골대 · 배경 띠, 실루엔 스프라이트 + 나머지 스탠디 (자동)",
+    matchKind: "friendly",
+    auto: true,
+    query: { d25: 1 },
+    require: (s) => isDuel(s) && s.possession === 1 && (s.events || []).filter((e) => e.type !== "info").length === 1 && s.events.some((e) => e.type === "kickoff"),
+  },
+  {
+    // 크로스 비트 중간 (14 와 같은 장면): 공이 바닥 직선 위로 뜨고 바닥에 그림자 · 궤적 = 위로 뜨는 곡선 + 바닥 그림자 길
+    name: "d25_cross",
+    title: "2.5D 크로스 비트 중간 — 위로 뜨는 포물선 궤적 · 공 그림자 (크로스 클릭 400ms 뒤, 1x)",
+    matchKind: "friendly",
+    auto: false,
+    query: { d25: 1 },
+    require: (s, { data }) => atk(s, "home", 2) && needs(s, "attack") && actionEnabled(s, data, "cross") &&
+      tryDecision(s, data, { action: "cross" }).events.some((e) => e.type === "duel" && e.success === true && e.action === "cross"),
+    prefer: (s) => s.possession >= 2,
+    interact: { type: "click", action: "cross", waitMs: 400 },
+    verify: (prev, live) => {
+      if (!live) return "캡처 시점 경기 상태를 읽지 못함";
+      const fresh = (live.events || []).slice((prev.events || []).length);
+      return fresh.some((e) => e.type === "duel" && e.success && e.action === "cross") ? true : `크로스 성공 이벤트 없음 (${fresh.map((e) => e.type).join(",") || "-"})`;
+    },
+  },
+  {
+    // 크로스 미리보기 (08 과 같은 장면): 결정 중 크로스 카드 hover — 화살표 = 위로 뜨는 곡선, 받는 선수 후보 이름표 · 끝 글자
+    name: "d25_cross_aim",
+    title: "2.5D 크로스 결정 — 크로스 hover 화살표 (위로 뜨는 곡선) · 받는 선수 후보 이름표 (자동 끔)",
+    matchKind: "friendly",
+    auto: false,
+    query: { d25: 1 },
+    require: (s, { data }) => atk(s, "home", 2) && needs(s, "attack") && carrierOf(s)?.trait === "crosser" && !!viewOf(s, data).receivers?.cross,
+    prefer: (s, { data }) => viewOf(s, data).receivers.cross.candidates.length >= 2 && s.possession >= 2,
+    interact: { type: "hover", actions: ["cross"] },
+  },
+  {
+    // 스프라이트 셋이 한 장면에: 우리 실루엔 공 (중원 ②) vs 상대 듀얼 수비 아델린 + 커버 나엘리스. 상대 (런 상대 — charId 없음) 의 MF 둘에
+    // 그 캐릭터 id · 이름을 붙인다 (표시 전용 — 경기 규칙은 charId 를 쓰지 않는다), 우리 편성의 아델린 (DF2) 은 토끼 풀백으로 바꾼다
+    name: "d25_2v1",
+    title: "2.5D 실루엔 공 vs 아델린 · 나엘리스 수비 — 스프라이트 셋 (방향 · 겹침 · 이름표) (자동 끔)",
+    matchKind: "friendly",
+    auto: false,
+    query: { d25: 1 },
+    slots: { DF2: "ch_rabbit_fullback" },
+    adjustSetup: (setup) => {
+      const mf = setup.away.players.filter((p) => p.position === "MF");
+      const put = (p, charId, name) => { if (p) { p.charId = charId; p.name = name; } };
+      put(mf[mf.length - 1], "ch_human_captain", "아델린");
+      put(mf[mf.length - 2], "ch_elf_regista", "나엘리스");
+    },
+    require: (s, { data }) => {
+      if (!(atk(s, "home", 1) && needs(s, "attack") && carrierOf(s)?.charId === "ch_elf_playmaker")) return false;
+      const adeline = s.away.players.find((p) => p.charId === "ch_human_captain");
+      return !!adeline && viewOf(s, data).defender?.id === adeline.id;
+    },
+    prefer: (s) => s.possession >= 2,
+  },
 ];
 
 /**

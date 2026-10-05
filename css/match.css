@@ -670,3 +670,141 @@
 .stats-table th, .stats-table td { padding: 5px 6px; text-align: center; border-bottom: 1px solid var(--border); }
 .stats-table th:first-child, .stats-table td:first-child { text-align: left; }
 .stats-table th { color: var(--muted); font-weight: 600; font-size: 12px; }
+
+/* ---- 2.5D 경기 화면 (docs/SPRITE_25D_PLAN.md §3 · §4 — screens/match.js d25 · js/ui/view25.js) ----
+   .match-screen.d25 에만 건다 (평면 경기 화면 · 레슨 화면은 그대로). 판 div (.w-ground) 의 matrix3d · 크기 · 잔디 그림, .pitch-bg 의 자리 (판 안 필드 사각형),
+   배경 띠 자리 · 골대 SVG 는 JS (layoutWorld) 가 단다. 구역 · 선은 판 안에서 지금 % 그대로 — 판과 함께 눕는다 (판 px 단위).
+   토큰 = 발 기준 0×0 앵커. 치수 변수 (JS place — 자리 고르기 상자와 같은 값): --ts 깊이 배율 · --ga 바닥 납작 비율 · --fh 키 · --fhw 반폭 ·
+   --by 체력 바 위 끝 · --ny 이름표 위 끝 (발 기준, px). 그림 (스프라이트 72px · 스탠디) · 발밑 타원 · 게이지 고리는 s = 1 크기로 그리고 scale(--ts).
+   겹침 = 화면 y 순 (inline z-index 100 + sy ≈ 130 ~ 630). 그 위 층: 공 1500 · 차지 토큰 1550 / 1560 · 미리보기 글자 층 1600 · 결과 한 줄 1700.
+   아래 층: 화살표 · 궤적 60 · 골대 50 · 판 · 띠 (auto). 카메라 층 (.w-cam) 밖: 차지 막 (뒤) · 골 연출 (위) · 하늘 (.pitch 맨 뒤) */
+.match-screen.d25 .pitch { background: linear-gradient(180deg, #4f8f3f 0%, #4b893c 100%); }
+.match-screen.d25 .w-sky {
+  position: absolute; left: 0; right: 0; top: 0; height: var(--ft); pointer-events: none;
+  background: linear-gradient(180deg, #5d9dd0 0%, #7ab3d3 100%);
+}
+.match-screen.d25 .w-cam { position: absolute; left: 0; top: 0; width: 100%; height: 100%; transform-origin: 0 0; }
+.match-screen.d25 .w-strip { position: absolute; pointer-events: none; background-size: 100% 100%; background-repeat: no-repeat; }
+.match-screen.d25 .w-ground {
+  position: absolute; left: 0; top: 0; transform-origin: 0 0; overflow: hidden; pointer-events: none;
+  background-color: #5ba24a; background-repeat: repeat;
+}
+/* 필드 사각형: 터치라인 = 분필 선 (바깥 그림자), 런오프는 조금 어둡게 (넓은 바깥 그림자 — 판 div 가 잘라 낸다) */
+.match-screen.d25 .w-ground > .pitch-bg { inset: auto; box-shadow: 0 0 0 4px rgba(255, 255, 255, .85), 0 0 0 220px rgba(16, 48, 22, .24); }
+.match-screen.d25 .zone.z1, .match-screen.d25 .zone.z3, .match-screen.d25 .zone.z5 { background: rgba(255, 255, 255, .05); }
+.match-screen.d25 .zone + .zone { border-left: 2px dashed rgba(255, 255, 255, .38); }
+/* 구역 이름 · 강조 글자: 가까운 터치라인 쪽 바닥 글자 (판 px — 눕혀져 납작하게 보인다). 강조 ("슈팅 위기") 는 이름 한 줄 위 (박스 구역은 좁다) */
+.match-screen.d25 .zone-name { top: auto; bottom: 12px; right: 14px; font-size: 24px; line-height: 28px; color: rgba(255, 255, 255, .5); text-shadow: 0 1px 2px rgba(0, 0, 0, .35); }
+.match-screen.d25 .zone.ball-zone .zone-name { color: rgba(255, 255, 255, .85); }
+.match-screen.d25 .zone-hl { top: auto; bottom: 46px; left: 14px; font-size: 28px; line-height: 32px; text-shadow: 0 1px 3px rgba(0, 0, 0, .6); }
+.match-screen.d25 .pl-half { width: 4px; margin-left: -2px; background: rgba(255, 255, 255, .8); }
+.match-screen.d25 .pl-circle { border: 4px solid rgba(255, 255, 255, .8); }
+.match-screen.d25 .pl-box { border: 4px solid rgba(255, 255, 255, .8); }
+.match-screen.d25 .pl-box.bottom { border-left: none; }
+.match-screen.d25 .pl-box.top { border-right: none; }
+.match-screen.d25 .pl-goal { display: none; } /* 납작한 골문 대신 서 있는 골대 (.w-goals) */
+.match-screen.d25 .pl-spot { width: 10px; height: 10px; margin: -5px 0 0 -5px; background: rgba(255, 255, 255, .9); }
+/* 서 있는 골대 (view25.goalShapes): 그물 면 · 줄 → 앞 틀 (기둥 · 크로스바) */
+.match-screen.d25 .w-goals { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; z-index: 50; }
+.match-screen.d25 .w-goals .net { fill: rgba(255, 255, 255, .13); stroke: rgba(255, 255, 255, .55); stroke-width: 1; stroke-linejoin: round; }
+.match-screen.d25 .w-goals .net-line { stroke: rgba(255, 255, 255, .32); stroke-width: .8; }
+.match-screen.d25 .w-goals .frame-halo { fill: none; stroke: rgba(0, 0, 0, .35); stroke-width: 6.5; stroke-linejoin: round; stroke-linecap: round; }
+.match-screen.d25 .w-goals .frame { fill: none; stroke: #fff; stroke-width: 4; stroke-linejoin: round; stroke-linecap: round; }
+/* 층 */
+.match-screen.d25 .charge-veil { z-index: 0; }
+.match-screen.d25 .pitch-svg { z-index: 60; }
+.match-screen.d25 .pitch-svg.top { z-index: 1600; }
+.match-screen.d25 .m-ball { z-index: 1500; }
+.match-screen.d25 .pop-layer { z-index: 1700; }
+.match-screen.d25 .tok.charge-foe { z-index: 1550 !important; }
+.match-screen.d25 .tok.charge-user { z-index: 1560 !important; }
+.match-screen.d25 .m-field.charging .w-ground, .match-screen.d25 .m-field.charging .w-strip, .match-screen.d25 .m-field.charging .w-goals { filter: grayscale(1) brightness(.7); }
+
+/* 토큰: 발밑 타원 (팀 색 고리 + 그림자, 역할 고리) */
+.match-screen.d25 .tok-ground {
+  position: absolute; left: -19px; top: calc(-19px * var(--ga, .55)); width: 38px; height: calc(38px * var(--ga, .55)); border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(0, 0, 0, .42), rgba(0, 0, 0, .26) 70%, rgba(0, 0, 0, 0));
+  box-shadow: inset 0 0 0 2px var(--home); transform: scale(var(--ts, 1));
+  transition: transform var(--t-move) cubic-bezier(.25, .8, .3, 1), box-shadow .25s;
+}
+.match-screen.d25 .tok.away .tok-ground { box-shadow: inset 0 0 0 2px var(--away); }
+.match-screen.d25 .tok.role-carrier .tok-ground { box-shadow: inset 0 0 0 2px var(--home), 0 0 0 2px var(--gold), 0 0 12px rgba(255, 209, 102, .9); }
+.match-screen.d25 .tok.away.role-carrier .tok-ground { box-shadow: inset 0 0 0 2px var(--away), 0 0 0 2px var(--gold), 0 0 12px rgba(255, 209, 102, .9); }
+.match-screen.d25 .tok.role-defender .tok-ground { box-shadow: inset 0 0 0 2px var(--home), 0 0 0 2px #fff, 0 0 8px rgba(255, 255, 255, .6); }
+.match-screen.d25 .tok.away.role-defender .tok-ground { box-shadow: inset 0 0 0 2px var(--away), 0 0 0 2px #fff, 0 0 8px rgba(255, 255, 255, .6); }
+.match-screen.d25 .tok.role-receiver .tok-ground { outline: 2px dashed var(--gold); outline-offset: 2px; }
+.match-screen.d25 .tok.role-cover .tok-ground { outline: 1.5px dashed rgba(255, 255, 255, .6); outline-offset: 1px; }
+.match-screen.d25 .tok.picked .tok-ground { outline: 2.5px solid var(--gold); outline-offset: 2px; }
+.match-screen.d25 .tok:focus-visible .tok-ground { outline: 2px solid #fff; outline-offset: 3px; }
+/* 선 그림: s = 1 크기 (스프라이트 72px · 스탠디 58px) 를 발 기준으로 scale(--ts). 자세는 rotate · translate · scale 속성 (아래) */
+.match-screen.d25 .tok-figure {
+  position: absolute; left: 0; top: 0; width: 0; height: 0; transform: scale(var(--ts, 1)); transform-origin: 0 0;
+  transition: transform var(--t-move) cubic-bezier(.25, .8, .3, 1), rotate .25s, translate .25s, scale .25s, filter .25s, opacity .25s;
+}
+.match-screen.d25 .tok-figure > .spr-img {
+  position: absolute; bottom: 0; display: block; max-width: none; user-select: none; -webkit-user-select: none; -webkit-user-drag: none; -webkit-touch-callout: none;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .35)); transition: transform .14s ease-out;
+}
+.match-screen.d25 .tok.face-l .tok-figure > .spr-img { transform: scaleX(-1); } /* 그림만 좌우 반전 (이름표 · 바는 그대로) */
+/* 스탠디: 팀 색 몸 + 얼굴 원 (평면 .tok-face 를 몸 위에 — 역할은 발밑 고리가 보여 준다) */
+.match-screen.d25 .tok-figure.standee::before {
+  content: ""; position: absolute; left: -14px; bottom: 0; width: 28px; height: 26px; border-radius: 45% 45% 22% 22% / 55% 55% 20% 20%;
+  background: linear-gradient(180deg, var(--home), #1f4f86); box-shadow: 0 1px 2px rgba(0, 0, 0, .5);
+}
+.match-screen.d25 .tok.away .tok-figure.standee::before { background: linear-gradient(180deg, var(--away), #8c2626); }
+.match-screen.d25 .tok .tok-face {
+  left: -20px; top: auto; bottom: 18px; width: 40px; height: 40px; font-size: 18px; outline: none; transform: none !important;
+  box-shadow: 0 0 0 2px var(--home), 0 2px 4px rgba(0, 0, 0, .45);
+}
+.match-screen.d25 .tok.away .tok-face { box-shadow: 0 0 0 2px var(--away), 0 2px 4px rgba(0, 0, 0, .45); }
+/* 상태 (actionPhase · applyLayout 클래스) — 선 그림에 맞게: 넘어짐 = 발 기준 90° 눕기, 다이브 = 기울기, 헤더 = 뛰어오름 */
+.match-screen.d25 .tok.fallen .tok-figure { rotate: 90deg; opacity: .7; filter: grayscale(.4); }
+.match-screen.d25 .tok.fallen.face-l .tok-figure { rotate: -90deg; }
+.match-screen.d25 .tok.fallen::before { left: -6px; top: -36px; }
+.match-screen.d25 .tok.header .tok-figure { translate: 0 -16px; scale: 1.06; }
+.match-screen.d25 .tok.steal .tok-figure { scale: 1.12; }
+.match-screen.d25 .tok.dive .tok-figure { rotate: -40deg; translate: 0 -6px; }
+.match-screen.d25 .tok.dive.face-l .tok-figure { rotate: 40deg; }
+.match-screen.d25 .tok.catching .tok-figure { scale: 1.08; }
+.match-screen.d25 .tok.claim .tok-figure { scale: 1.12; }
+.match-screen.d25 .tok.claim::before { left: calc(var(--fhw, 20px) * .5); top: calc(var(--fh, 60px) * -.85); }
+.match-screen.d25 .tok.ult-act .tok-figure { filter: drop-shadow(0 0 4px var(--ult)) drop-shadow(0 0 10px var(--ult)); }
+.match-screen.d25 .tok.picked .tok-figure { filter: drop-shadow(0 0 3px var(--gold)); }
+.match-screen.d25 .tok.pick-flash .tok-figure { animation: pick-flash-25 .35s ease-out; }
+@keyframes pick-flash-25 { 0% { scale: 1.22; } 100% { scale: 1; } }
+.match-screen.d25 .tok.role-broken::after { left: calc(var(--fhw, 20px) * .7); top: calc(var(--fh, 60px) * -.55); }
+/* 필살 게이지 고리 = 발밑 바닥 고리 (발밑 타원보다 크게), 차지 = 사용자 빛남 · 고리 퍼짐 */
+.match-screen.d25 .tok-ring { left: -25px; top: -25px; width: 50px; height: 50px; transform: scale(var(--ts, 1)) scaleY(var(--ga, .55)); }
+.match-screen.d25 .tok.charge-user .tok-ring { animation: charge-ring-25 var(--t-charge, 400ms) ease-out infinite; }
+.match-screen.d25 .tok.charge-user .tok-figure { animation: charge-glow-25 var(--t-charge, 400ms) ease-in forwards; }
+@keyframes charge-ring-25 { 0% { transform: scale(var(--ts, 1)) scaleY(var(--ga, .55)); opacity: 1; } 100% { transform: scale(calc(var(--ts, 1) * 2)) scaleY(var(--ga, .55)); opacity: 0; } }
+@keyframes charge-glow-25 {
+  0% { scale: 1; filter: drop-shadow(0 0 0 rgba(255, 122, 217, 0)); }
+  100% { scale: 1.12; filter: drop-shadow(0 0 6px var(--ult)) drop-shadow(0 0 16px rgba(255, 122, 217, .85)); }
+}
+/* 체력 바 · 이름표 = 발 아래, 말풍선 = 머리 위 (screens/match.js labelCands · bubbleCands 와 같은 자리) */
+.match-screen.d25 .tok-bar { left: -15px; width: 30px; top: var(--by, 14px); }
+.match-screen.d25 .tok-name { top: var(--ny, 20px); }
+.match-screen.d25 .tok.lbl-up .tok-name { top: auto; bottom: calc(var(--fh, 60px) + 3px); }
+.match-screen.d25 .tok.lbl-side .tok-name { top: calc(var(--fh, 60px) * -.5 - 8px); bottom: auto; left: calc(var(--fhw, 20px) + 5px); right: auto; transform: none; }
+.match-screen.d25 .tok.lbl-side-l .tok-name { top: calc(var(--fh, 60px) * -.5 - 8px); bottom: auto; left: auto; right: calc(var(--fhw, 20px) + 5px); transform: none; }
+.match-screen.d25 .tok-bubble { bottom: calc(var(--fh, 60px) + 3px); }
+.match-screen.d25 .tok.bub-d .tok-bubble { top: 10px; bottom: auto; }
+.match-screen.d25 .tok.bub-s .tok-bubble { top: calc(var(--fh, 60px) * -.75 - 9px); bottom: auto; left: calc(var(--fhw, 20px) + 4px); }
+.match-screen.d25 .tok.bub-s.bub-l .tok-bubble { left: auto; right: calc(var(--fhw, 20px) + 4px); }
+.match-screen.d25 .tok-trait { left: calc(var(--fhw, 20px) * .55); top: calc(var(--fh, 60px) * -.92); }
+.match-screen.d25 .tok-yu { left: calc(var(--fhw, 20px) * -1 - 4px); top: calc(var(--fh, 60px) * -.92); }
+/* 공: 요소 = 땅 점 (translate · scale(s) — JS), 그림자 + 공 글자 (땅 위로). 호는 공 글자만 뜬다 (arcBall25) */
+.match-screen.d25 .m-ball > span { left: -8px; top: -19px; }
+.match-screen.d25 .m-ball > .b-shadow { position: absolute; left: -9px; top: -3.5px; width: 18px; height: 7px; border-radius: 50%; background: rgba(0, 0, 0, .6); }
+.match-screen.d25 .pitch-svg .trail.ground { stroke: rgba(0, 0, 0, .22); stroke-width: 2.5; stroke-dasharray: none; }
+/* 위로 뜨는 화살표 (크로스 · 롱패스 · 크로스 길 막기) 아래의 바닥 그림자 길 */
+.match-screen.d25 .pitch-svg .ar-ground { stroke: rgba(0, 0, 0, .32); stroke-width: 3; stroke-linecap: round; stroke-dasharray: 2 6; fill: none; }
+.match-screen.d25 .m-field.phase-act .tok-figure { transition-duration: var(--t-act), .25s, .25s, .25s, .25s, .25s; }
+.match-screen.d25 .m-field.phase-act .tok-ground { transition-duration: var(--t-act), .25s; }
+.match-screen.d25.no-anim .tok-figure, .match-screen.d25.no-anim .tok-ground, .match-screen.d25.no-anim .spr-img { transition: none !important; }
+@media (prefers-reduced-motion: reduce) {
+  .match-screen.d25 .tok-figure, .match-screen.d25 .tok-ground, .match-screen.d25 .spr-img { transition: none !important; }
+  .match-screen.d25 .tok.charge-user .tok-figure, .match-screen.d25 .tok.charge-user .tok-ring, .match-screen.d25 .tok.pick-flash .tok-figure { animation: none !important; }
+  .match-screen.d25 .tok.charge-user .tok-figure { filter: drop-shadow(0 0 6px var(--ult)) drop-shadow(0 0 14px rgba(255, 122, 217, .8)); }
+}

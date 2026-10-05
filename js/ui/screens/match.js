@@ -75,6 +75,18 @@
 //  success.step 이 한 구역 너머일 때). 라인 브레이커 = ③ 돌파 → 박스 슛 ×1.5 — 카드 문구 · % 는 엔진 변형(outcomesBySkill · skills[].expectedPct)
 //  그대로, 화면 코드는 바뀌지 않는다.
 //
+// 2026-10-05 2.5D 모드 (docs/SPRITE_25D_PLAN.md §3 · §4 — D1, 브랜치 outgame-sprite): store.isD25() (주소 ?d25=1 · /sprite/ 사이트, ?flat=1 = 끔)
+//  이면 화면을 만들 때 .match-screen.d25 — 평면 모드 (테스트 · 로컬 기본) 는 그대로다. 규칙 · 엔진 · layout.js 는 같고 그리는 법만 다르다.
+//  - 좌표: toPx / fromPx / dirPx = js/ui/view25.js 원근 투영 (판 → 화면 호모그래피). 잔디 그림 · 구역 · 선 (.pitch-bg) 은 판 div (.w-ground) 안에
+//    필드 % 그대로 두고 판 div 를 CSS matrix3d (같은 행렬) 로 눕힌다. 골대 = 판 위에 선 SVG (project3), 먼 쪽 배경 띠 (.w-strip) · 하늘 (.w-sky).
+//  - 카메라 층 .w-cam (.m-field 안 — 판 · 띠 · 골대 · 토큰 · 공 · 화살표 · 글자 층): D1 은 확대 없이 전체 (z = 1). 차지 막 · 골 연출은 카메라 밖.
+//  - 토큰 = 발 기준 (앵커 = 발): 발밑 타원 (.tok-ground — 팀 색 · 역할 고리), 선 그림 (.tok-figure — data/sprites.json 에 있으면 스프라이트,
+//    없으면 얼굴 원 스탠디), 체력 바 · 이름표 = 발 아래, 말풍선 = 머리 위. 크기 = 깊이 배율 s, 겹침 = 화면 y 순 (z-index 100 + sy),
+//    방향 = 공 가진 선수는 공격 방향 · 나머지는 공 쪽 (.face-l = 그림만 좌우 반전). 이름표 · 말풍선 자리 상자 (tokenRect · labelCands ·
+//    bubbleCands) 는 토큰에 단 변수 (--fh 키 · --fhw 반폭 · --ny 이름표 위 끝 …) 와 같은 숫자 — CSS 가 그리는 자리 = JS 상자.
+//  - 배치 간격: computeLayout(aspect = FD / FL, tokenSize = 46 / FD) — 판 px 기준 46 (몸 폭) 떨어지게.
+//  - 공: 발 앞 (투영한 공격 방향), 크기 s 배, 바닥 그림자. 크로스 · 롱패스 = 바닥 직선 위로 뜨는 포물선 (화살표 · 궤적 · 공이 같은 곡선 curveCtrl).
+//
 // 가로 전용 (고정 스테이지 1280×720 — js/ui/stage.js, css/match.css). 세로 경기 화면·방향 전환은 없다 (?orient · 저장값은 무시).
 //  - 필드 좌표(layout.js)는 그대로, 픽셀 변환만 가로 (layout.js fieldToScreen 'land' — home 골 왼쪽, away 골 오른쪽, 필드 x 0 = 위).
 //    화면에 그리는 좌표는 전부 toPx(x, y) 를 거친다.
@@ -86,10 +98,11 @@
 //  - 규칙 영역(.m-field: 구역·선·박스·골문·토큰·공·화살표)은 위 HUD(헤더+트랙)와 아래 HUD(카드 줄) 사이로 줄인다 → HUD 가 토큰·이름표·말풍선·
 //    미리보기를 가리지 않는다. 구역·선과 토큰이 같은 사각형을 쓴다 (화면 위치 = 규칙 위치). 크기는 논리 px 로 잰다 (스테이지 배율과 무관).
 import { h, avatar, openModal, closeOverlays, bar, statBadge, toast, setFaceArt } from '../dom.js';
-import { portraitUrl, portraitUrls, preloadArt, cutArt } from '../art.js';
-import { saveMatch } from '../store.js';
+import { portraitUrl, portraitUrls, preloadArt, cutArt, spriteOf } from '../art.js';
+import { saveMatch, isD25 } from '../store.js';
 import { computeLayout, resolvePreview, withJosa, ZONES, SHAPE, fieldToScreen, screenToField } from '../layout.js';
 import * as L from '../labels.js';
+import * as V from '../view25.js';
 
 const BEAT_FALLBACK = ['kickoff', 'counter', 'duel', 'turnover', 'save', 'goal', 'penalty', 'distribution'];
 // 액션 연출(공 이동)이 있는 비트. distribution = GK 배급 (짧은 패스 · 롱패스 성공 — 롱패스 실패는 turnover)
@@ -128,6 +141,9 @@ const TOKEN = { ratio: 0.083, min: 30, max: 48 };
 const FONT = { label: 12, bubble: 12, tip: 12.5, pop: 13, link: 16, chip: 11.5 };
 const SPEEDS = [1, 2, 4];
 const SVG_NS = 'http://www.w3.org/2000/svg';
+// 2.5D 판 그림 (docs/SPRITE_25D_PLAN.md §2): 위에서 본 잔디 (필드 사각형에 맞춰 판 전체에 깐다) · 먼 쪽 배경 띠
+const GRASS_URL = './img/sprites/grass_top.webp';
+const STRIP_URL = './img/sprites/far_strip.webp';
 const STEP_MARKS = ['①', '②', '③', '④'];
 const RECV_ACTIONS = ['pass', 'cross'];
 const ACTION_ORDER = ['dribble', 'pass', 'cross', 'shoot', 'tackle', 'intercept', 'hold', 'save'];
@@ -198,13 +214,15 @@ export function renderMatch(root, ctx) {
   ui.busy = false;
 
   const gen = ++GEN;
+  // 2.5D 모드 (docs/SPRITE_25D_PLAN.md §4): 화면을 만들 때 한 번 정한다 (경기 중에는 바뀌지 않는다)
+  const d25 = isD25();
   // 로그 서랍 열림 (matchUi.logOpen): 한 경기 안에서는 경기 화면을 다시 그려도 유지, 새 경기(위 · store.resetMatchUi)는 닫힌 채 시작
   if (typeof ui.logOpen !== 'boolean') ui.logOpen = false;
 
   /* ------------------------------------------------------------------ */
   /* DOM 골격 (한 번 만들고 부분 갱신)                                        */
   /* ------------------------------------------------------------------ */
-  const screen = h('div', { class: ['screen', 'match-screen'], dataset: { screen: 'match' } });
+  const screen = h('div', { class: ['screen', 'match-screen', d25 ? 'd25' : ''], dataset: { screen: 'match' } });
   const hud = h('div', { class: 'mh' });
   // 상황 배너: 전폭 띠(헤더 뒤), 글자는 헤더 왼쪽의 보이는 칸에
   const bannerTxt = h('span', { class: 'm-banner-txt' });
@@ -239,14 +257,24 @@ export function renderMatch(root, ctx) {
   const aceTipG = svgEl('g', { class: 'g-ace-tip' }); // 에이스의 외침 배지 (토큰 위 층)
   const svgTop = svgEl('svg', { class: 'pitch-svg top', 'aria-hidden': 'true', focusable: 'false' }, aceTipG, tipG);
   const tokLayer = h('div', { class: 'tok-layer' });
-  const ballEl = h('div', { class: 'm-ball', 'aria-hidden': 'true' }, h('span', {}, '⚽'));
+  // 공: 2.5D 는 바닥 그림자(.b-shadow)를 앞에 둔다 (공 글자는 그림자 위로 뜬다 — arcBall)
+  const ballIco = h('span', {}, '⚽');
+  const ballEl = h('div', { class: 'm-ball', 'aria-hidden': 'true' }, d25 ? h('i', { class: 'b-shadow' }) : null, ballIco);
   const popLayer = h('div', { class: 'pop-layer', 'aria-hidden': 'true' });
   const goalFx = h('div', { class: 'goal-fx', 'aria-hidden': 'true' });
   // 필살기 차지: 잔디 전체를 흑백으로 (사용자 · 듀얼 상대 토큰은 이 막 위에 색 그대로 — css .m-field.charging)
   const chargeVeil = h('div', { class: 'charge-veil', 'aria-hidden': 'true' });
+  // 2.5D 월드 층 (§4): 판 div (잔디 그림 + 구역 · 선 = .pitch-bg, matrix3d 로 눕힌다) · 먼 쪽 배경 띠 · 서 있는 골대 SVG 를
+  // 카메라 층 .w-cam 에 토큰 · 공 · 화살표 · 글자 층과 함께 둔다 (크기 · 자리는 layoutWorld). 하늘은 잔디(.pitch) 맨 뒤
+  const groundEl = d25 ? h('div', { class: 'w-ground' }, bg) : null;
+  const stripEl = d25 ? h('div', { class: 'w-strip', 'aria-hidden': 'true' }) : null;
+  const goalsSvg = d25 ? svgEl('svg', { class: 'w-goals', 'aria-hidden': 'true', focusable: 'false' }) : null;
+  const cam = d25 ? h('div', { class: 'w-cam' }, stripEl, groundEl, goalsSvg, tokLayer, ballEl, svg, svgTop, popLayer) : null;
   // 규칙 영역: 좌표의 기준 사각형 (구역·선·토큰·공·화살표·결과 한 줄). 잔디(.pitch)는 스테이지 전체, 규칙 영역은 위·아래 HUD 사이
-  const field = h('div', { class: 'm-field' }, bg, chargeVeil, tokLayer, ballEl, svg, svgTop, popLayer, goalFx);
-  const grass = h('div', { class: 'pitch' }, field);
+  // (2.5D: 차지 막은 카메라 층 뒤 — 판 · 띠 · 골대는 .charging 에서 스스로 흑백, 골 연출은 카메라 밖 위)
+  const field = d25 ? h('div', { class: 'm-field' }, chargeVeil, cam, goalFx)
+    : h('div', { class: 'm-field' }, bg, chargeVeil, tokLayer, ballEl, svg, svgTop, popLayer, goalFx);
+  const grass = h('div', { class: 'pitch' }, d25 ? h('div', { class: 'w-sky', 'aria-hidden': 'true' }) : null, field);
   // 아래 가운데: 정보 줄(상대 예상 행동 근거) + 결정 카드 한 줄
   const info = h('div', { class: 'm-info' });
   const actGrid = h('div', { class: 'action-grid' });
@@ -406,12 +434,15 @@ export function renderMatch(root, ctx) {
     field.style.setProperty('--tok', `${tokPx}px`);
     svg.setAttribute('viewBox', `0 0 ${round1(W)} ${round1(H)}`);
     svgTop.setAttribute('viewBox', `0 0 ${round1(W)} ${round1(H)}`);
+    if (d25) layoutWorld();
   }
   function layoutFor(view) {
     if (!view) return null;
     measure();
     // 겹침 방지 간격 = 토큰 지름 + 팀 링(2px×2) → 링끼리도 닿지 않게. 필드 폭(골과 나란한 쪽) = 요소 높이 H, 길이(골↔골) = 폭 W → aspect = H/W
-    return safe(() => computeLayout(shownView(view), { aspect: H / W, tokenSize: (tokPx + 4) / H })) || null;
+    // 2.5D: 판 px 기준 — 필드 깊이 FD · 길이 FL, 간격 46 판 px (가까이 선 두 선수가 몸 폭만큼 떨어지게, SPRITE_25D_PLAN §4)
+    const geo = d25 ? { aspect: V.V25.FD / V.V25.FL, tokenSize: V.V25.TOK_GAP / V.V25.FD } : { aspect: H / W, tokenSize: (tokPx + 4) / H };
+    return safe(() => computeLayout(shownView(view), geo)) || null;
   }
   /** 지금 view 로 다시 배치 (스킬 토글 · 받는 선수 선택 · 자동/개입 전환). 보던 미리보기 화살표도 새 좌표로 */
   function relayout({ anim = !reduced } = {}) {
@@ -424,11 +455,68 @@ export function renderMatch(root, ctx) {
     if (keep) showArrow(keep);
   }
   /** 필드 좌표(%) → 규칙 영역 안 픽셀 [sx, sy]: home 골 왼쪽, away 골 오른쪽, 필드 x 0 = 위 (layout.js fieldToScreen 'land') */
-  const toPx = (x, y) => fieldToScreen(x, y, W, H, 'land');
-  /** 픽셀 → 필드 좌표 { x, y } */
-  const fromPx = (sx, sy) => screenToField(sx, sy, W, H, 'land');
-  /** 필드 방향(단위 벡터 성분 fx: x 증가, fy: y 증가 = away 골 쪽)의 화면 방향 [dx, dy] */
-  const dirPx = (fx, fy) => [fy, fx];
+  const toPx = d25 ? (x, y) => { const p = V.project(x, y, W, H); return [p.sx, p.sy]; } : (x, y) => fieldToScreen(x, y, W, H, 'land');
+  /** 픽셀 → 필드 좌표 { x, y } (2.5D: 바닥 위 점으로 본다) */
+  const fromPx = d25 ? (sx, sy) => V.unproject(sx, sy, W, H) : (sx, sy) => screenToField(sx, sy, W, H, 'land');
+  /** 필드 방향(단위 벡터 성분 fx: x 증가, fy: y 증가 = away 골 쪽)의 화면 방향 [dx, dy] (2.5D: 자리 (x, y) 에서 투영한 방향) */
+  const dirPx = d25 ? (fx, fy, x = 50, y = 50) => V.dirAt(fx, fy, x, y, W, H) : (fx, fy) => [fy, fx];
+
+  /* 2.5D 월드 (SPRITE_25D_PLAN §3 · §4) ------------------------------------ */
+  let worldKey = null;
+  /** 판 div (matrix3d · 잔디 그림 · 필드 사각형 = .pitch-bg) · 배경 띠 · 골대 · 카메라 층을 지금 W × H 에 맞춘다 (크기가 바뀔 때만) */
+  function layoutWorld() {
+    const key = `${W}x${H}`;
+    if (key === worldKey) return;
+    worldKey = key;
+    const { FL, FD, RU, RV } = V.V25;
+    const { PL, PD } = V.planeSize();
+    Object.assign(groundEl.style, {
+      width: `${PL}px`, height: `${PD}px`, transform: V.cssMatrix3d(W, H),
+      backgroundImage: `url("${GRASS_URL}")`, backgroundPosition: `${RU}px ${RV}px`, backgroundSize: `${FL}px ${FD}px`,
+    });
+    Object.assign(bg.style, { left: `${RU}px`, top: `${RV}px`, width: `${FL}px`, height: `${FD}px` });
+    const st = V.stripRect(W, H);
+    Object.assign(stripEl.style, {
+      left: `${round1(st.x)}px`, top: `${round1(st.y)}px`, width: `${round1(st.w)}px`, height: `${round1(st.h)}px`,
+      backgroundImage: `url("${STRIP_URL}")`,
+    });
+    goalsSvg.setAttribute('viewBox', `0 0 ${round1(W)} ${round1(H)}`);
+    drawGoals();
+    cam.style.transform = 'translate(0px, 0px) scale(1)'; // D1: 카메라 없이 전체 (D2 가 공 따라가기 · 결정 확대)
+  }
+  /** 서 있는 골대 두 개 (뒤 그물 → 옆 · 지붕 → 앞 틀 순서, 흰 선 SVG) */
+  function drawGoals() {
+    goalsSvg.replaceChildren();
+    const pts = (list) => list.map((p) => `${round1(p[0])},${round1(p[1])}`).join(' ');
+    for (const end of ['home', 'away']) {
+      const g = V.goalShapes(end, W, H);
+      const grp = svgEl('g', { class: `goal ${end}` });
+      for (const poly of g.nets) grp.append(svgEl('polygon', { class: 'net', points: pts(poly) }));
+      for (const [a, b] of g.grid) grp.append(svgEl('line', { class: 'net-line', x1: round1(a[0]), y1: round1(a[1]), x2: round1(b[0]), y2: round1(b[1]) }));
+      grp.append(svgEl('polyline', { class: 'frame-halo', points: pts(g.frame) }), svgEl('polyline', { class: 'frame', points: pts(g.frame) }));
+      goalsSvg.append(grp);
+    }
+  }
+  // 스프라이트 (data/sprites.json): 토큰 키 → { url, w, h, footX } | null (스냅샷 charId — 그림 없는 선수 · 런 상대 = null = 스탠디)
+  const spriteCache = new Map();
+  function spriteFor(side, id) {
+    const key = `${side}:${id}`;
+    if (!spriteCache.has(key)) spriteCache.set(key, spriteOf(data, playerSnap(side, id)?.charId));
+    return spriteCache.get(key);
+  }
+  /**
+   * 2.5D 토큰 한 명의 화면 치수 (발 = (sx, sy)): s 깊이 배율, ga 바닥 납작 비율, fh 키, hw 반폭, gw 발밑 타원 폭, gh 그 높이,
+   * by 체력 바 위 끝 · ny 이름표 위 끝 (발 기준 아래로). CSS 변수 (place) 와 자리 상자 (tokenRect · labelCands · bubbleCands) 가 같은 값을 쓴다
+   */
+  function tokGeo(t) {
+    const p = V.project(t.x, t.y, W, H);
+    const s = round3(p.s);
+    const ga = round3(V.groundAspect(t.x, t.y, W, H));
+    const f = V.figureSize(s, spriteFor(t.side, t.id));
+    const gw = round1(V.V25.GROUND_W * s);
+    const gh = round1(gw * ga);
+    return { sx: p.sx, sy: p.sy, s, ga, fh: round1(f.fh), hw: round1(f.hw), gw, gh, by: round1(gh / 2 + 3), ny: round1(gh / 2 + 9) };
+  }
   const tokOf = (Lay, id, side) => (Lay && id != null ? Lay.tokens.find((t) => t.id === id && (!side || t.side === side)) : null) || null;
 
   /* ------------------------------------------------------------------ */
@@ -480,7 +568,7 @@ export function renderMatch(root, ctx) {
         if (!lpFired) { lpFired = true; openCard(t.side, t.id); }
       },
       onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); tapToken(t.side, t.id); } },
-    }, ring, face, h('span', { class: 'tok-bar' }, barI), nameEl,
+    }, ring, d25 ? figureEls(t, face) : face, h('span', { class: 'tok-bar' }, barI), nameEl,
     t.isYouth ? h('span', { class: 'tok-yu' }, '유') : null,
     ti ? h('span', { class: 'tok-trait', title: `${ti.name} — ${ti.description}` }, ti.icon) : null,
     bubble);
@@ -492,18 +580,54 @@ export function renderMatch(root, ctx) {
     return el;
   }
 
+  /**
+   * 2.5D 토큰의 발밑 타원 + 선 그림 (SPRITE_25D_PLAN §4): 스프라이트가 있으면 <img class="spr-img"> (높이 72 · 발 가운데 = 앵커,
+   * 크기는 .tok-figure 의 scale(--ts)), 없으면 얼굴 원(face — 평면과 같은 .tok-face)을 몸 위에 세운 스탠디. 스프라이트를 못 불러오면 스탠디로.
+   */
+  function figureEls(t, face) {
+    const ground = h('span', { class: 'tok-ground', 'aria-hidden': 'true' });
+    const spr = spriteFor(t.side, t.id);
+    if (!spr) return [ground, h('span', { class: ['tok-figure', 'standee'] }, face)];
+    const fh = V.V25.SPR_H;
+    const fw = round1(fh * (spr.w / spr.h));
+    const img = h('img', {
+      class: 'spr-img', src: spr.url, alt: '', draggable: 'false', decoding: 'async',
+      style: { height: `${fh}px`, width: `${fw}px`, left: `${round1(-spr.footX * fw)}px`, transformOrigin: `${round1(spr.footX * fw)}px 100%` },
+    });
+    const fig = h('span', { class: ['tok-figure', 'spr'] }, img);
+    img.addEventListener('error', () => {
+      // 그림이 없으면 스탠디 (다음 재배치부터 자리 상자도 스탠디 치수)
+      spriteCache.set(`${t.side}:${t.id}`, null);
+      img.remove();
+      fig.classList.remove('spr');
+      fig.classList.add('standee');
+      fig.append(face);
+    });
+    return [ground, fig];
+  }
+
   /* 라벨 · 말풍선 · 결과 한 줄 · 미리보기 글자의 자리 고르기 (픽셀 박스 {l,r,t,b}).
      토큰끼리는 layout.js 가 겹치지 않게 놓지만, 그 위에 붙는 글자는 이웃 토큰을 가릴 수 있다 → 후보 자리 중
      다른 토큰 · 공 · 이미 놓인 글자와 겹치지 않는 첫 자리 (없으면 가장 덜 겹치는 자리). */
   // 가리면 안 되는 정도(w): 듀얼 당사자·패스 후보 2, 보통 1, 뚫린(반투명) 선수 0.35
   const TAG_WEIGHT = { carrier: 2, defender: 2, receiver: 2, broken: 0.35 };
   function tokenRect(t) {
+    if (d25) {
+      // 2.5D: 서 있는 그림 (발에서 위로 키 fh, 좌우 반폭 hw) + 발밑 체력 바
+      const g = tokGeo(t);
+      return { l: g.sx - g.hw - 2, r: g.sx + g.hw + 2, t: g.sy - g.fh - 2, b: g.sy + g.by + 5, w: TAG_WEIGHT[t.role] ?? 1 };
+    }
     const [cx, cy] = toPx(t.x, t.y);
     const r = tokPx / 2 + 2; // 팀 링 포함
     return { l: cx - r, r: cx + r, t: cy - r, b: cy + r + 5, w: TAG_WEIGHT[t.role] ?? 1 }; // + 체력 바
   }
   function ballRect(Lay) {
     const [bx, by] = ballPx(Lay.ball.x, Lay.ball.y, Lay.mode === 'play' && Lay.carrierId ? Lay.attackingSide : null);
+    if (d25) {
+      // 2.5D: 공 글자 (16px × s) 는 땅 점 위로, 그림자 (18 × 7) 는 땅 점에 — css .d25 .m-ball > span · .b-shadow
+      const s = V.project(Lay.ball.x, Lay.ball.y, W, H).s;
+      return { l: bx - 9 * s, r: bx + 9 * s, t: by - 19 * s, b: by + 4 * s, w: 1.5 };
+    }
     return { l: bx - 8, r: bx + 8, t: by - 10, b: by + 10, w: 1.5 }; // css .m-ball > span
   }
   function spotScore(box, obstacles) {
@@ -537,23 +661,37 @@ export function renderMatch(root, ctx) {
     const [cx, cy] = toPx(t.x, t.y);
     const r = tokPx / 2;
     const w = textWidth(text, FONT.label) + 10;
-    const vBox = (v) => (v === 'up' ? { t: cy - r - 19, b: cy - r - 3 } : { t: cy + r + 7, b: cy + r + 23 });
+    // 2.5D: 아래 = 발밑 체력 바 아래 (--ny), 위 = 머리 위 (--fh), 옆 = 몸 가운데 높이 · 반폭 (--fhw) 바깥 — css .d25 .tok-name
+    const g = d25 ? tokGeo(t) : null;
+    const vBox = (v) => (g
+      ? (v === 'up' ? { t: cy - g.fh - 19, b: cy - g.fh - 3 } : { t: cy + g.ny, b: cy + g.ny + 16 })
+      : (v === 'up' ? { t: cy - r - 19, b: cy - r - 3 } : { t: cy + r + 7, b: cy + r + 23 }));
     const hBox = (hz) => (hz === 'c' ? { l: cx - w / 2, r: cx + w / 2 } : hz === 'l' ? { l: cx - w + 4, r: cx + 4 } : { l: cx - 4, r: cx - 4 + w });
     const out = [];
     for (const v of vs) for (const hz of hzs) out.push({ v, hz, box: { ...vBox(v), ...hBox(hz) } });
-    const sideR = { v: 'side', hz: 'c', box: { l: cx + r + 5, r: cx + r + 5 + w, t: cy - 8, b: cy + 8 } };
-    const sideL = { v: 'side-l', hz: 'c', box: { l: cx - r - 5 - w, r: cx - r - 5, t: cy - 8, b: cy + 8 } };
+    const sr = g ? g.hw : r; // 옆 자리: 몸 반폭 바깥
+    const sm = g ? cy - g.fh / 2 : cy; // 옆 자리 세로 가운데
+    const sideR = { v: 'side', hz: 'c', box: { l: cx + sr + 5, r: cx + sr + 5 + w, t: sm - 8, b: sm + 8 } };
+    const sideL = { v: 'side-l', hz: 'c', box: { l: cx - sr - 5 - w, r: cx - sr - 5, t: sm - 8, b: sm + 8 } };
     out.push(...(awayFromDuel === 'l' ? [sideL, sideR] : [sideR, sideL]));
     return out;
   }
   /** 예상 행동 말풍선 후보: 토큰 위 오른쪽(기본) → 위 왼쪽 → 옆 오른쪽 → 옆 왼쪽 → 아래 오른쪽 → 아래 왼쪽 (CSS .tok-bubble: 줄 높이 18) */
   function bubbleCands(t, text) {
     const [cx, cy] = toPx(t.x, t.y);
-    const r = tokPx / 2;
+    let r = tokPx / 2;
     const bw = textWidth(text, FONT.bubble) + 14;
-    const up = { t: cy - r - 21, b: cy - r - 3 };
-    const mid = { t: cy - 9, b: cy + 9 };
-    const dn = { t: cy + r + 8, b: cy + r + 26 };
+    let up = { t: cy - r - 21, b: cy - r - 3 };
+    let mid = { t: cy - 9, b: cy + 9 };
+    let dn = { t: cy + r + 8, b: cy + r + 26 };
+    if (d25) {
+      // 2.5D: 위 = 머리 위 (--fh), 옆 = 머리 높이 (키의 3/4) · 반폭 (--fhw) 바깥, 아래 = 발 아래 — css .d25 .tok-bubble
+      const g = tokGeo(t);
+      r = g.hw;
+      up = { t: cy - g.fh - 21, b: cy - g.fh - 3 };
+      mid = { t: cy - g.fh * 0.75 - 9, b: cy - g.fh * 0.75 + 9 };
+      dn = { t: cy + 10, b: cy + 28 };
+    }
     return [
       { cls: '', box: { l: cx + 5, r: cx + 5 + bw, ...up } },
       { cls: 'bub-l', box: { l: cx - 5 - bw, r: cx - 5, ...up } },
@@ -654,7 +792,7 @@ export function renderMatch(root, ctx) {
     if (!G) return null;
     const obstacles = Lay.tokens.filter((t) => t !== G).map((t) => ({ ...tokenRect(t), w: 1 }));
     const cands = [0.55, 0.45, 0.65, 0.35, 0.75].map((k) => {
-      const e = curve ? curvePoint(c, r, k) : lerp2(c, r, k);
+      const e = curve && !d25 ? curvePoint(c, r, k) : lerp2(c, r, k); // 2.5D: GK 가 달려가는 곳 = 곡선 아래 바닥
       return { e, box: { l: e[0] - 9, r: e[0] + 9, t: e[1] - 9, b: e[1] + 9 } };
     });
     return [toPx(G.x, G.y), (pickSpot(cands, obstacles) || cands[0]).e];
@@ -686,6 +824,11 @@ export function renderMatch(root, ctx) {
       if (!bubTok) continue;
       // 연계 특성 아이콘(토큰 오른쪽 위 16px — css .tok-trait, tokenRect 밖)도 되도록 가리지 않게 (자기 · 이웃 토큰)
       const traits = Lay.tokens.filter((t) => t.trait).map((t) => {
+        if (d25) {
+          // 2.5D: 머리 오른쪽 (css .d25 .tok-trait — 반폭 × 0.55, 키 × 0.92 위)
+          const g = tokGeo(t);
+          return { l: g.sx + g.hw * 0.55, r: g.sx + g.hw * 0.55 + 16, t: g.sy - g.fh * 0.92, b: g.sy - g.fh * 0.92 + 16, w: 0.6 };
+        }
         const [tx, ty] = toPx(t.x, t.y);
         return { l: tx + tokPx * 0.3, r: tx + tokPx * 0.3 + 16, t: ty - tokPx * 0.72, b: ty - tokPx * 0.72 + 16, w: 0.6 };
       });
@@ -725,6 +868,16 @@ export function renderMatch(root, ctx) {
   }
 
   function place(el, x, y) {
+    if (d25) {
+      // 2.5D: 앵커 = 발. 크기 (--ts) · 치수 변수는 자리마다 (tokGeo — 자리 상자와 같은 값), 겹침 = 화면 y 순 (아래 = 가까운 선수가 앞)
+      const g = tokGeo({ x, y, side: el.dataset.side, id: el.dataset.id });
+      el.style.transform = `translate(${round1(g.sx)}px, ${round1(g.sy)}px)`;
+      el.style.zIndex = String(100 + Math.round(round1(g.sy)));
+      for (const [k, v] of [['--ts', g.s], ['--ga', g.ga], ['--fh', `${g.fh}px`], ['--fhw', `${g.hw}px`], ['--by', `${g.by}px`], ['--ny', `${g.ny}px`]]) {
+        el.style.setProperty(k, String(v));
+      }
+      return;
+    }
     const [sx, sy] = toPx(x, y);
     el.style.transform = `translate(${round1(sx)}px, ${round1(sy)}px)`;
   }
@@ -756,6 +909,8 @@ export function renderMatch(root, ctx) {
     tagBoxes = tags.boxes || [];
     // 받는 선수 탭 선택은 듀얼 공격 결정에서만 (GK 배급의 받는 선수는 카드로 고른다)
     const deciding = !busy && paused(view) && view?.attackingSide === humanOf(view) && !Lay.dist;
+    // 2.5D 방향 (SPRITE_25D_PLAN §4): 공 가진 선수 = 공격 방향, 나머지 = 공 쪽 (.face-l = 그림만 좌우 반전)
+    const ballSx = d25 && Lay.ball ? toPx(Lay.ball.x, Lay.ball.y)[0] : null;
     for (const t of Lay.tokens) {
       const key = `${t.side}:${t.id}`;
       seen.add(key);
@@ -770,6 +925,12 @@ export function renderMatch(root, ctx) {
         ult,
         calling,
       });
+      if (d25) {
+        const face = V.facing({
+          carrier: t.side === atk && t.id === Lay.carrierId, attackRight: atk !== 'away', sx: toPx(t.x, t.y)[0], ballSx, side: t.side,
+        });
+        el.classList.toggle('face-l', face === 'l');
+      }
       el.dataset.role = t.role;
       el.dataset.x = String(round1(t.x));
       el.dataset.y = String(round1(t.y));
@@ -826,6 +987,15 @@ export function renderMatch(root, ctx) {
     placeBallAt(Lay.ball.x, Lay.ball.y, Lay.mode === 'play' && Lay.carrierId ? Lay.attackingSide : null);
   }
   function ballPx(x, y, frontOf = null) {
+    if (d25) {
+      // 2.5D: 발 앞 = 투영한 공격 방향으로 몸 폭(46) × 0.35, 화면 쪽(필드 x +)으로 4 — 둘 다 그 깊이의 배율 s
+      const p = V.project(x, y, W, H);
+      if (!frontOf) return [p.sx, p.sy];
+      const fwd = dirPx(0, frontOf === 'home' ? 1 : -1, x, y);
+      const near = dirPx(1, 0, x, y);
+      const k = V.V25.TOK_GAP * 0.35 * p.s;
+      return [p.sx + fwd[0] * k + near[0] * 4 * p.s, p.sy + fwd[1] * k + near[1] * 4 * p.s];
+    }
     let dx = 0;
     let dy = 0;
     if (frontOf) {
@@ -841,7 +1011,8 @@ export function renderMatch(root, ctx) {
   }
   function placeBallAt(x, y, frontOf = null) {
     const [bx, by] = ballPx(x, y, frontOf);
-    ballEl.style.transform = `translate(${round1(bx)}px, ${round1(by)}px)`;
+    // 2.5D: 크기 = 그 깊이의 배율 s (그림자 · 공 글자가 함께 — css .d25 .m-ball)
+    ballEl.style.transform = `translate(${round1(bx)}px, ${round1(by)}px)${d25 ? ` scale(${round3(V.project(x, y, W, H).s)})` : ''}`;
   }
 
   function updateZones(Lay) {
@@ -1129,7 +1300,12 @@ export function renderMatch(root, ctx) {
     }
     // 출발점 고리: 점선 층은 토큰 아래라, 공 가진 선수 옆에 붙은 마커 토큰이 첫 구간을 가리면 점선이 그 선수에게서 나가는 것처럼 보인다
     // → 공 가진 선수 둘레에 금색 점선 고리를 위 층에 그려 "여기서 나간다"를 표시
-    aceTipG.append(svgEl('circle', { cx: round1(a[0]), cy: round1(a[1]), r: round1(rTok + 2), class: `ace-origin${ace.combo ? ' combo' : ''}` }));
+    if (d25) {
+      // 2.5D: 발밑 고리 = 바닥 위 타원 (발밑 타원보다 조금 크게)
+      const g = tokGeo(ace.C);
+      const rx = g.gw / 2 + 6;
+      aceTipG.append(svgEl('ellipse', { cx: round1(a[0]), cy: round1(a[1]), rx: round1(rx), ry: round1(rx * g.ga), class: `ace-origin${ace.combo ? ' combo' : ''}` }));
+    } else aceTipG.append(svgEl('circle', { cx: round1(a[0]), cy: round1(a[1]), r: round1(rTok + 2), class: `ace-origin${ace.combo ? ' combo' : ''}` }));
     // 배지: 글자 12px 굵게, 좌우 여백 7, 높이 18
     const hh = 18;
     const at = (t) => (ace.curve ? curvePoint(a, b, t) : lerp2(a, b, t));
@@ -2076,6 +2252,13 @@ export function renderMatch(root, ctx) {
     const e = curvePoint(a, b, Math.max(0.7, k1));
     const cp = curveCtrl(a, b);
     const d = `M${round1(s[0])},${round1(s[1])} Q${round1(cp[0])},${round1(cp[1])} ${round1(e[0])},${round1(e[1])}`;
+    if (d25) {
+      // 2.5D: 공중 곡선 아래 바닥 그림자 길 (발밑 타원 사이)
+      const u = [(b[0] - a[0]) / len, (b[1] - a[1]) / len];
+      arrowG.append(svgEl('line', {
+        x1: round1(a[0] + u[0] * startGap), y1: round1(a[1] + u[1] * startGap), x2: round1(b[0] - u[0] * endGap), y2: round1(b[1] - u[1] * endGap), class: 'ar-ground',
+      }));
+    }
     arrowG.append(
       svgEl('path', { d, class: 'ar-halo', 'stroke-dasharray': '7 5' }),
       svgEl('path', { d, class: `ar ${cls}`, stroke: color, opacity, 'stroke-dasharray': '7 5', 'marker-end': `url(#${marker})` }));
@@ -2110,6 +2293,11 @@ export function renderMatch(root, ctx) {
   function curveCtrl(a, b) {
     const mx = (a[0] + b[0]) / 2;
     const my = (a[1] + b[1]) / 2;
+    if (d25) {
+      // 2.5D: 위로 뜨는 곡선 — 바닥 직선 위 4t(1−t) · 꼭대기 (V.arcLift: 90 · s, 짧으면 낮게). 2차 곡선 제어점 = 중점에서 꼭대기 × 2 위
+      const lift = V.arcLift(Math.hypot(b[0] - a[0], b[1] - a[1]), V.scaleAtScreen(mx, my, W, H));
+      return [mx, my - 2 * lift];
+    }
     const dx = b[0] - a[0];
     const dy = b[1] - a[1];
     const len = Math.hypot(dx, dy) || 1;
@@ -2474,7 +2662,7 @@ export function renderMatch(root, ctx) {
         if (R) {
           if (isCross) {
             const q = curvePoint(toPx(C.x, C.y), toPx(R.x, R.y), 0.5);
-            P = fromPx(q[0], q[1]);
+            P = d25 ? lerp(C, R, 0.5) : fromPx(q[0], q[1]); // 2.5D: 끊긴 자리 = 곡선 아래 바닥 점
             trailCurve(C, R, atk, false, 0.5);
           } else {
             P = lerp(C, R, 0.5);
@@ -2511,7 +2699,7 @@ export function renderMatch(root, ctx) {
   }
   /** 패스(직선) · 크로스(포물선) 길 위의 점 (필드 좌표) — t = 0 공 가진 선수 … 1 받는 선수 */
   function linkPoint(C, R, curve, t) {
-    if (!curve) return lerp(C, R, t);
+    if (!curve || d25) return lerp(C, R, t); // 2.5D: 공중 곡선 아래의 바닥 점 = 직선 위 점
     const q = curvePoint(toPx(C.x, C.y), toPx(R.x, R.y), t);
     return fromPx(q[0], q[1]);
   }
@@ -2537,13 +2725,18 @@ export function renderMatch(root, ctx) {
       const y = clamp(y0, hh / 2 + 2, H - hh / 2 - 2);
       return { x, y, box: { l: x - w / 2, r: x + w / 2, t: y - hh / 2, b: y + hh / 2 } };
     };
-    const up = spot(cx, cy - r - 30);
-    const down = spot(cx, cy + r + 26);
-    const right = spot(cx + r + 8 + w / 2, cy);
-    const left = spot(cx - r - 8 - w / 2, cy);
-    const upR = spot(cx + r + w / 2, cy - r - 14);
-    const upL = spot(cx - r - w / 2, cy - r - 14);
-    const nearTop = cy - r - 30 - hh / 2 < 2;
+    // 2.5D: at = 발 → 위 = 머리 위, 옆 = 몸 가운데 높이 · 반폭 바깥, 아래 = 발밑 이름표 아래
+    const g = d25 ? tokGeo({ x: at.x, y: at.y, side: at.side, id: at.id }) : null;
+    const rx = g ? g.hw : r;
+    const upY = g ? cy - g.fh - 16 : cy - r - 30;
+    const midY = g ? cy - g.fh / 2 : cy;
+    const up = spot(cx, upY);
+    const down = spot(cx, g ? cy + g.ny + 30 : cy + r + 26);
+    const right = spot(cx + rx + 8 + w / 2, midY);
+    const left = spot(cx - rx - 8 - w / 2, midY);
+    const upR = spot(cx + rx + w / 2, g ? cy - g.fh * 0.85 : cy - r - 14);
+    const upL = spot(cx - rx - w / 2, g ? cy - g.fh * 0.85 : cy - r - 14);
+    const nearTop = upY - hh / 2 < 2;
     const cands = nearTop ? [down, right, left, upR, upL, up] : [up, upR, upL, right, left, down];
     const L0 = Lay || curL;
     const obstacles = [...(L0?.tokens || []).map(tokenRect), tokenRect({ x: at.x, y: at.y, role: 'carrier' }), ...tagBoxes];
@@ -2716,10 +2909,16 @@ export function renderMatch(root, ctx) {
       const e = curvePoint(p0, p2, t);
       d = `M${round1(p0[0])},${round1(p0[1])} Q${round1(c1[0])},${round1(c1[1])} ${round1(e[0])},${round1(e[1])}`;
     }
+    if (d25) {
+      // 2.5D: 공중 곡선 아래 바닥 그림자 길 (곡선 끝까지의 바닥 직선)
+      const e = lerp2(p0, p2, Math.min(1, upTo));
+      trailG.append(svgEl('line', { x1: round1(p0[0]), y1: round1(p0[1]), x2: round1(e[0]), y2: round1(e[1]), class: 'trail ground' }));
+    }
     trailG.append(svgEl('path', { d, class: `trail cross ${side}${ult ? ' ult' : ''}` }));
   }
   /** 공이 포물선으로 날아간다 (높이 = 크기). Web Animations 가 없으면(jsdom) 바로 도착 */
   function arcBall(a, b, duration) {
+    if (d25) { arcBall25(a, b, duration); return; }
     stopBallArc();
     const p0 = toPx(a.x, a.y);
     const p2 = toPx(b.x, b.y);
@@ -2735,6 +2934,44 @@ export function renderMatch(root, ctx) {
     try {
       ballAnim = ballEl.animate(frames, { duration: Math.round(duration * 0.9), easing: 'ease-in-out' });
       ballAnim.onfinish = () => { ballAnim = null; };
+    } catch (_) {
+      ballAnim = null;
+    }
+  }
+  /**
+   * 2.5D 호 (SPRITE_25D_PLAN §4): 공 요소 (= 바닥 그림자 자리) 는 바닥 직선을 따라가고 크기는 깊이 배율, 공 글자만 위로 뜬다
+   * (꼭대기 = curveCtrl 과 같은 arcLift, 모양 4t(1−t) — 궤적 · 화살표 곡선과 같은 길). 그림자는 높을수록 작고 옅게.
+   */
+  function arcBall25(a, b, duration) {
+    stopBallArc();
+    const pa = V.project(a.x, a.y, W, H);
+    const pb = V.project(b.x, b.y, W, H);
+    const p0 = [pa.sx, pa.sy];
+    const p2 = [pb.sx, pb.sy];
+    ballEl.classList.add('arc');
+    ballEl.style.transform = `translate(${round1(p2[0])}px, ${round1(p2[1])}px) scale(${round3(pb.s)})`;
+    if (reduced || typeof ballEl.animate !== 'function' || duration < 50) return;
+    const cp = curveCtrl(p0, p2);
+    const lift = (p0[1] + p2[1]) / 2 - cp[1]; // = 2 × 꼭대기
+    const shadow = ballEl.querySelector('.b-shadow');
+    const ground = [];
+    const up = [];
+    const sh = [];
+    for (let i = 0; i <= 12; i++) {
+      const t = i / 12;
+      const p = lerp2(p0, p2, t);
+      const sc = pa.s + (pb.s - pa.s) * t;
+      const hgt = lift * 2 * t * (1 - t); // 4t(1−t) × 꼭대기
+      ground.push({ transform: `translate(${round1(p[0])}px, ${round1(p[1])}px) scale(${round3(sc)})` });
+      up.push({ transform: `translateY(${round1(-hgt / sc)}px)` });
+      const k = Math.sin(Math.PI * t);
+      sh.push({ transform: `scale(${round3(1 - 0.3 * k)})`, opacity: round3(1 - 0.35 * k) });
+    }
+    try {
+      const opts = { duration: Math.round(duration * 0.9), easing: 'ease-in-out' };
+      const anims = [ballEl.animate(ground, opts), ballIco.animate(up, opts), shadow ? shadow.animate(sh, opts) : null].filter(Boolean);
+      ballAnim = { cancel: () => { for (const x of anims) x.cancel(); } };
+      anims[0].onfinish = () => { ballAnim = null; };
     } catch (_) {
       ballAnim = null;
     }
