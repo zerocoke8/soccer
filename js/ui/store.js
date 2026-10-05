@@ -37,6 +37,7 @@ export const TEAMS_CAP = 50;
 
 // 경기 화면 URL 파라미터 (테스트·스크린샷용): ?auto=0 → 자동 꺼진 채 시작, ?speed=1|2|4 → 배속. 모듈 로드 시 한 번 읽는다.
 // 2.5D 경기 화면 (docs/SPRITE_25D_PLAN.md §4): ?d25=1 → 켬, ?flat=1 (또는 ?d25=0) → 끔 (?flat 이 이긴다). 없으면 스프라이트 시험판 (/sprite/) 만 켬.
+// 배치 흔들림 (§11 — J1): ?jitter=0 → 끔, ?jitter=1 → 켬 (평면에서도). 없으면 2.5D 모드를 따른다 (isLayoutJitter).
 function urlMatchPrefs() {
   try {
     const search = globalThis.location && typeof globalThis.location.search === 'string' ? globalThis.location.search : '';
@@ -51,6 +52,9 @@ function urlMatchPrefs() {
     const d = q.get('d25');
     if (flat === '1' || flat === 'true' || flat === 'on' || d === '0' || d === 'false' || d === 'off') out.d25 = false;
     else if (d === '1' || d === 'true' || d === 'on') out.d25 = true;
+    const j = q.get('jitter');
+    if (j === '0' || j === 'false' || j === 'off') out.jitter = false;
+    else if (j === '1' || j === 'true' || j === 'on') out.jitter = true;
     return out;
   } catch (_) {
     return {};
@@ -69,6 +73,19 @@ export function isD25() {
 /** 테스트 전용: 2.5D 모드를 켜고 끈다 (null = 주소 · 사이트로 정한 기본값으로). 다음 경기 화면부터 */
 export function setD25ForTest(on) {
   d25On = on == null ? D25_DEFAULT : !!on;
+}
+
+// 경기 배치 흔들림 (docs/SPRITE_25D_PLAN.md §11 — J1, 2026-10-06, 되돌릴 수 있음): 선수가 구역 안에서 비트마다 조금 다른 자리에 선다 (layout.js opts.jitter).
+// 기본 = 2.5D 모드일 때만 켬 (평면 · 테스트 기본 = 끔 — 예전 자리 그대로). 주소 ?jitter=0 끔 · ?jitter=1 평면에서도 켬 (비교용).
+let jitterForTest = null;
+/** 경기 배치 흔들림을 켜는가 (screens/match.js 가 화면을 만들 때 한 번 읽는다) */
+export function isLayoutJitter() {
+  if (jitterForTest != null) return jitterForTest;
+  return URL_PREFS.jitter ?? d25On;
+}
+/** 테스트 전용: 배치 흔들림을 켜고 끈다 (null = 주소 · 2.5D 모드로 정한 기본값으로). 다음 경기 화면부터 */
+export function setLayoutJitterForTest(on) {
+  jitterForTest = on == null ? null : !!on;
 }
 
 export const store = {

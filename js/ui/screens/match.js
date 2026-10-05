@@ -94,6 +94,10 @@
 //    골 연출 · 경기 끝 --t-move, 화면 열기 · ⏭ · 줄인 움직임 = 순간. 하늘 (.w-sky) 은 이동의 30% (시차).
 //  - 글자 크기 유지: --cam-z (.m-field, @property 로 카메라와 같이 트랜지션) → 이름표 · 말풍선 · 결과 한 줄 · 연계 문구 · 외침 배지 · 미리보기 글자는
 //    scale(1 / z), 화살표 · 궤적 선 굵기도 ÷ z. 자리 고르기 상자의 글자 크기 ÷ z, 화면 밖 판정 = 지금 카메라 창 (camBounds — 월드 좌표).
+// 2026-10-06 배치 흔들림 (SPRITE_25D_PLAN §11 — J1, 되돌릴 수 있음): store.isLayoutJitter() (2.5D 기본 켬 · ?jitter=0 끔 · ?jitter=1 평면에서도)
+//  이면 layoutFor 가 computeLayout 에 { jitter: { seed: 경기 seed, ref: 엔진 view } } 를 넘긴다 — 선수가 구역 안에서 비트마다 조금 다른 자리
+//  (같은 비트 안에서는 그대로 — 비낌 계획은 ref 에서 정하므로 자동/수동 · 스킬 · 필살기 토글로 바뀌는 미리보기 변형과 상관없다).
+//  이 파일의 좌표는 전부 그 레이아웃에서 오므로 (공 · nextBall · 화살표 · 미리보기 · 결정 틀) 따로 고칠 것이 없다.
 //
 // 가로 전용 (고정 스테이지 1280×720 — js/ui/stage.js, css/match.css). 세로 경기 화면·방향 전환은 없다 (?orient · 저장값은 무시).
 //  - 필드 좌표(layout.js)는 그대로, 픽셀 변환만 가로 (layout.js fieldToScreen 'land' — home 골 왼쪽, away 골 오른쪽, 필드 x 0 = 위).
@@ -107,7 +111,7 @@
 //    미리보기를 가리지 않는다. 구역·선과 토큰이 같은 사각형을 쓴다 (화면 위치 = 규칙 위치). 크기는 논리 px 로 잰다 (스테이지 배율과 무관).
 import { h, avatar, openModal, closeOverlays, bar, statBadge, toast, setFaceArt } from '../dom.js';
 import { portraitUrl, portraitUrls, preloadArt, cutArt, spriteOf } from '../art.js';
-import { saveMatch, isD25 } from '../store.js';
+import { saveMatch, isD25, isLayoutJitter } from '../store.js';
 import { computeLayout, resolvePreview, withJosa, ZONES, SHAPE, fieldToScreen, screenToField } from '../layout.js';
 import * as L from '../labels.js';
 import * as V from '../view25.js';
@@ -226,6 +230,8 @@ export function renderMatch(root, ctx) {
   const gen = ++GEN;
   // 2.5D 모드 (docs/SPRITE_25D_PLAN.md §4): 화면을 만들 때 한 번 정한다 (경기 중에는 바뀌지 않는다)
   const d25 = isD25();
+  // 배치 흔들림 (SPRITE_25D_PLAN §11 — J1): 2.5D 모드 기본 켬 · ?jitter=0 끔 · ?jitter=1 평면에서도. 화면을 만들 때 한 번 정한다
+  const jitterOn = isLayoutJitter();
   // 로그 서랍 열림 (matchUi.logOpen): 한 경기 안에서는 경기 화면을 다시 그려도 유지, 새 경기(위 · store.resetMatchUi)는 닫힌 채 시작
   if (typeof ui.logOpen !== 'boolean') ui.logOpen = false;
 
@@ -454,6 +460,9 @@ export function renderMatch(root, ctx) {
     // 겹침 방지 간격 = 토큰 지름 + 팀 링(2px×2) → 링끼리도 닿지 않게. 필드 폭(골과 나란한 쪽) = 요소 높이 H, 길이(골↔골) = 폭 W → aspect = H/W
     // 2.5D: 판 px 기준 — 필드 깊이 FD · 길이 FL, 간격 46 판 px (가까이 선 두 선수가 몸 폭만큼 떨어지게, SPRITE_25D_PLAN §4)
     const geo = d25 ? { aspect: V.V25.FD / V.V25.FL, tokenSize: V.V25.TOK_GAP / V.V25.FD } : { aspect: H / W, tokenSize: (tokPx + 4) / H };
+    // 배치 흔들림 (J1): 열쇠 = 경기 seed + view 의 포제션 · 마지막 비트 seq · 공격 팀 (layout.js jitterOpt) — 같은 비트 안의 다시 그리기에서는 그대로.
+    // ref = 미리보기를 고르기 전의 엔진 view: 비낌 계획 (받는 선수 후보) 은 여기서 — 자동/수동 · 스킬 · 필살기 토글로 바뀌는 shownView 필드에 기대지 않는다
+    if (jitterOn) geo.jitter = { seed: store.match?.seed ?? '', ref: view };
     return safe(() => computeLayout(shownView(view), geo)) || null;
   }
   /** 지금 view 로 다시 배치 (스킬 토글 · 받는 선수 선택 · 자동/개입 전환). 보던 미리보기 화살표도 새 좌표로 */
