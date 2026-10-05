@@ -679,6 +679,8 @@ button.card-face:disabled { cursor: default; }
 .cf-bond, .cf-ex { padding: 0 5px; border-radius: 6px; font-weight: 800; }
 .cf-bond { background: rgba(124, 196, 255, .2); color: var(--accent-2); }
 .cf-ex { background: rgba(255, 179, 71, .18); color: var(--warn); }
+/* 레전드 메모리 카드 띠 (§24.9, U5 — cards.js cardFace view.memory): 계열 줄의 작은 띠 */
+.cf-mem { flex: none; padding: 0 5px; border-radius: 6px; font-weight: 800; background: linear-gradient(90deg, #c9a7ff, #8fd3ff); color: #160b2c; }
 .cf-target { display: inline-flex; align-items: center; gap: 5px; align-self: flex-start; margin-top: 3px; padding: 1px 8px 1px 6px; border-radius: 999px; background: rgba(255, 255, 255, .08); font-size: 11.5px; font-weight: 700; white-space: nowrap; }
 /* 대상 아이콘 (§14.16): 원 3단계 크기 · 단일 = 점 · 전체 = 둥근 사각 · 주인 = 별 · 회복 = 초록 + */
 .cf-ticon { flex: none; display: inline-block; box-sizing: border-box; border: 1.5px solid currentColor; border-radius: 50%; opacity: .9; }
@@ -840,6 +842,13 @@ button.mini-card { cursor: pointer; }
 .mini-card.recommended .mc-desc { padding-right: 32px; } /* 추천 배지는 아래 줄(문구) 오른쪽 — 이름은 잘리지 않게 */
 .dense .mini-card .mc-rec { bottom: auto; top: -7px; } /* 문구 줄이 없는 촘촘한 그리드: 위 테두리에 걸친다 */
 .cs-deck-grid .mini-card.recommended .mc-desc { padding-right: 58px; } /* 상담 배지 "추천 강화" · "추천 삭제" */
+/* 레전드 메모리 카드 띠 (§24.9, U5 — cards.js miniCard view.memory): 위 테두리에 걸친 작은 띠 "메모리" (이름 줄 폭은 그대로) */
+.mc-mem {
+  position: absolute; top: -6px; right: 8px; padding: 0 5px; border-radius: 6px; box-shadow: 0 1px 3px rgba(0, 0, 0, .45);
+  font-size: 9px; line-height: 13px; font-weight: 800; letter-spacing: -.02em; background: linear-gradient(90deg, #c9a7ff, #8fd3ff); color: #160b2c; pointer-events: none;
+}
+.mini-card.memory:not(.selected):not(.recommended) { border-color: rgba(185, 167, 255, .6); }
+.dense .mini-card.memory .mc-rec { right: 52px; } /* 촘촘한 그리드: 위 테두리의 추천 배지를 띠 왼쪽으로 */
 
 /* ================================================================== */
 /* 상담 (.consult-screen) — columns 300 | 1fr | 340 (U4, screens/consult.js) */

@@ -10,6 +10,8 @@
 //   이벤트를 고르면 결과 카드 (store.eventUi.resultSeq — 화면 전용) 를 다음 phase 화면보다 먼저 그린다.
 //   계정 저장 (KEYS.account — 본 이야기 · 만난 코치): startRun 이 createRun 에 스냅샷을 넘기고, engine() 이 런을 저장한 뒤 이번 런 진행을 합친다.
 //   개발 · 스크린샷용 ?events=on: 불러온 data/lesson.json 의 이벤트 기능 스위치를 모두 켠다 (tools/lesson_scenarios.mjs og_event_* — I1 전에는 데이터가 꺼져 있다).
+// 레전드 · 메모리 카드 (§24.9, U5): startRun 이 편성 화면의 레전드 사본을 createRun({ legends }) 에 넘기고,
+//   registerTeam({ memory }) 이 결과 화면에서 고른 메모리 카드를 등록 팀 memoryCard 로 남긴다 (이번 런 후보 memoryCardOptions 안에서만).
 import { mountStage } from './stage.js';
 import {
   store, saveRun, loadRun, saveMatch, loadMatch, clearRunSaves, addTeam, resetMatchUi, resetLessonUi, loadTeams, TEAMS_CAP,
@@ -311,11 +313,19 @@ const actions = {
     render();
   },
 
-  startRun({ squad, formation, supportIds, tactics, policy, seed }) {
+  /**
+   * 새 런 (lessonRun.createRun). legends = 편성 화면이 고른 레전드 사본 [{ teamId, teamName, charId, name, memoryCard }] (§24.9 — 2명까지,
+   * 엔진이 검사하고 팀마다 메모리 카드 1장을 시작 덱에 넣는다). 없거나 빈 배열이면 레전드 없는 런.
+   */
+  startRun({ squad, formation, supportIds, tactics, policy, seed, legends }) {
     if (!run) return toast('엔진 모듈(lessonRun.js)이 로드되지 않았습니다.');
     // 계정 스냅샷 (§24.7 — 본 이야기 · 만난 코치): 런 안의 이야기 다음 화 · 코치 첫 만남 건너뛰기에 쓴다
     const account = loadAccount();
-    const st = safe(() => run.createRun({ data: store.data, seed, squad, formation, supportIds, tactics, policy, account }));
+    const legendList = Array.isArray(legends) ? legends.map((l) => ({
+      teamId: l?.teamId, teamName: l?.teamName, charId: l?.charId, name: l?.name,
+      memoryCard: l?.memoryCard ? { cardId: l.memoryCard.cardId, plus: l.memoryCard.plus === true } : null,
+    })) : [];
+    const st = safe(() => run.createRun({ data: store.data, seed, squad, formation, supportIds, tactics, policy, account, legends: legendList }));
     if (!st) return;
     store.run = st;
     store.match = null;
@@ -476,12 +486,26 @@ const actions = {
     render();
   },
 
-  registerTeam() {
+  /**
+   * 결과 화면 [팀 등록]. memory = 남길 메모리 카드 { cardId, plus } (§24.9 — 결과 화면 고르기 줄, 처음엔 감독 추천) · null = 남기지 않음.
+   * 주지 않으면 결과 화면이 고른 store.final.memory. 이번 런 후보 (lessonRun.memoryCardOptions) 에 없는 카드는 남기지 않는다 (안내 토스트).
+   * 등록 팀에 memoryCard { cardId, plus } | null 로 남는다 — 다음 런 편성에서 이 팀 선수를 레전드로 데려가면 시작 덱에 들어간다.
+   */
+  registerTeam({ memory } = {}) {
     const team = store.final?.registeredTeam;
     if (!team) return toast('등록할 팀 정보가 없습니다.');
     const rating = store.final.rating || store.run?.rating || team.rating || {};
+    const want = memory !== undefined ? memory : store.final.memory;
+    let memoryCard = null;
+    if (want && typeof want === 'object' && typeof run?.memoryCardOptions === 'function') {
+      const opts = safe(() => run.memoryCardOptions(store.run, store.data)) || [];
+      const hit = opts.find((o) => o.cardId === want.cardId && o.plus === (want.plus === true));
+      if (hit) memoryCard = { cardId: hit.cardId, plus: hit.plus };
+      else toast('메모리 카드를 이번 런 덱에서 찾지 못해 카드 없이 등록합니다.', 'info', 3500);
+    }
     const all = addTeam({
       ...team,
+      memoryCard, // 레전드 메모리 카드 (§24.9 — 옛 등록 팀에는 없다)
       grade: rating.cappedGrade ?? rating.grade ?? '-',
       score: rating.score ?? null,
       registeredAt: new Date().toISOString(),

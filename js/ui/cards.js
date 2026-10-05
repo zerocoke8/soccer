@@ -15,6 +15,8 @@
 // opts: { data, players?, recommended?, selected?, dim?, reason?, tag?, onClick?, title?, el? ('button'|'div') }
 //   data = 데이터 (cards.json 에서 원 크기 · 구역 제한 · 기본 위력 · 주인을 읽는다), players = 선수 목록 (주인 이름 · 색 — 없으면 data.characters)
 // 얼굴 일러스트 (§24.12.3, data.portraits): 코치 칩 얼굴 = 코치 그림, 고유 카드 = 계열 줄 "고유 · 이름" 앞에 주인 작은 얼굴 (그림이 있을 때만 — 주인 색 테)
+// 레전드 메모리 카드 (§24.9, U5): 덱 카드 뷰의 memory (엔진 src "memory") → 카드 앞면은 계열 줄에 "메모리" 띠 (.cf-mem), 작은 카드는
+//   오른쪽 위 "메모리" 띠 (.mc-mem). memoryChip = 등록 팀 · 레전드 칸의 메모리 카드 한 줄 칩 ({ cardId, plus } → 계열 색 · 이름 · +).
 import { h, avatar } from './dom.js';
 import * as L from './labels.js';
 import { portraitUrl } from './art.js';
@@ -228,11 +230,13 @@ export function cardFace(view, opts = {}) {
   const tagName = opts.el ?? (onClick ? 'button' : 'div');
   const att = view.attach || null;
   const attPct = Math.round((Number(data?.lesson?.attach?.overPct) || 0.2) * 100);
+  const memory = isMemory(view);
   const attrs = {
     class: ['card-face', `fam-${family}`, view.plus ? 'plus' : '', view.bond80 ? 'bond80' : '', dim ? 'dim' : '', selected ? 'selected' : '',
-      recommended ? 'recommended' : '', t.kind ? `tk-${t.kind}` : '', t.shape ? `sh-${shapeIconKey(t.shape)}` : '', att ? 'attached' : '', att?.coachType ? `co-${att.coachType}` : ''],
+      recommended ? 'recommended' : '', t.kind ? `tk-${t.kind}` : '', t.shape ? `sh-${shapeIconKey(t.shape)}` : '', att ? 'attached' : '', att?.coachType ? `co-${att.coachType}` : '',
+      memory ? 'memory' : ''],
     dataset: { uid: view.uid ?? '', card: view.cardId ?? '', coach: att?.supportId ?? '' },
-    title: title ?? [att ? attachTitle(att, data) : '', `${view.name}${view.plus ? '+' : ''}`, how ? `${t.shape.label}: ${how}` : '', fullDesc, reason ? `낼 수 없음: ${reason}` : ''].filter(Boolean).join('\n'),
+    title: title ?? [att ? attachTitle(att, data) : '', `${view.name}${view.plus ? '+' : ''}`, memory ? MEMORY_TITLE : '', how ? `${t.shape.label}: ${how}` : '', fullDesc, reason ? `낼 수 없음: ${reason}` : ''].filter(Boolean).join('\n'),
   };
   if (tagName === 'button') {
     attrs.type = 'button';
@@ -250,6 +254,7 @@ export function cardFace(view, opts = {}) {
     h('span', { class: 'cf-meta' },
       att ? h('span', { class: 'cf-coach', title: attachTitle(att, data) }, avatar(att.color, att.short || att.name, 'xs', 'cf-coach-face', { art: portraitUrl(data, att.supportId, 'face') }), h('b', {}, `${att.short} 지원`)) : null,
       h('span', { class: 'cf-fam' }, ownerArt ? avatar(uniqueColor || ((data && data.characters) || []).find((x) => x.id === ownerCharId)?.portraitColor, owner, 'xs', 'cf-owner', { art: ownerArt }) : null, famLabel),
+      memory ? h('span', { class: 'cf-mem', title: MEMORY_TITLE }, '메모리') : null,
       view.bond80 ? h('span', { class: 'cf-bond' }, '유대80') : null,
       view.exhaust ? h('span', { class: 'cf-ex', title: '낸 뒤 이번 레슨에서 빠진다' }, '1회') : null),
     h('span', { class: ['cf-target', t.kind ? `tk-${t.kind}` : '', t.shape ? 'shape' : ''] }, ticon, targetText(view, def)),
@@ -276,15 +281,46 @@ export function miniCard(view, opts = {}) {
   const def = cardDefOf(data, view.cardId);
   const family = view.family ?? def?.family ?? 'common';
   const desc = view.desc ?? def?.desc ?? '';
+  const memory = isMemory(view);
   const attrs = {
-    class: ['mini-card', `fam-${family}`, view.plus ? 'plus' : '', selected ? 'selected' : '', disabled ? 'disabled' : ''],
+    class: ['mini-card', `fam-${family}`, view.plus ? 'plus' : '', selected ? 'selected' : '', disabled ? 'disabled' : '', memory ? 'memory' : ''],
     dataset: { uid: view.uid ?? '', card: view.cardId ?? '' },
-    title: `${view.name ?? view.cardId}${view.plus ? '+' : ''} — ${L.CARD_FAMILY_LABELS[family] ?? family}\n${desc}`,
+    title: `${view.name ?? view.cardId}${view.plus ? '+' : ''} — ${L.CARD_FAMILY_LABELS[family] ?? family}${memory ? ` · ${MEMORY_TITLE}` : ''}\n${desc}`,
   };
   const tagName = onClick ? 'button' : 'div';
   if (onClick) { attrs.type = 'button'; attrs.onclick = onClick; attrs.disabled = disabled; }
   return h(tagName, attrs,
     // 긴 이름 (+ 포함 9자 이상 — "물결 세이브 루틴+")은 글자를 조금 줄여 8열 그리드에서도 다 보이게 한다
     h('span', { class: ['mc-name', String(view.name ?? view.cardId ?? '').length + (view.plus ? 1 : 0) >= 9 ? 'long' : ''] }, view.name ?? view.cardId, view.plus ? h('b', { class: 'cf-plus' }, '+') : null),
-    h('span', { class: 'mc-desc' }, note ?? desc));
+    h('span', { class: 'mc-desc' }, note ?? desc),
+    memory ? h('span', { class: 'mc-mem', 'aria-label': MEMORY_TITLE }, '메모리') : null);
+}
+
+/** 레전드 메모리 카드 띠의 설명 (카드 title · 칩 title) */
+export const MEMORY_TITLE = '레전드 메모리 카드 — 등록 팀이 남긴 카드';
+
+/** 덱 카드 뷰가 레전드 메모리 카드인가 (엔진 카드 뷰 memory · 덱 항목 src "memory") */
+export function isMemory(view) {
+  return !!view && (view.memory === true || view.src === 'memory');
+}
+
+/**
+ * 메모리 카드 한 줄 칩 (등록 팀 목록 · 레전드 칸 · 결과 화면): 계열 색 점 · 이름 (+ 강화). mc 가 없으면 "메모리 카드 없음".
+ * 데이터에 없는 카드는 id 를 그대로 쓴다 (엔진 검사가 걸러 낸다 — 화면은 막지 않는다).
+ * @param {object} data
+ * @param {{ cardId: string, plus?: boolean } | null} mc
+ * @param {{ cls?: string|string[], title?: string, empty?: string }} [opts]
+ */
+export function memoryChip(data, mc, opts = {}) {
+  const cls = Array.isArray(opts.cls) ? opts.cls : [opts.cls || ''];
+  if (!mc || !mc.cardId) return h('span', { class: ['mem-chip', 'none', ...cls] }, opts.empty ?? '메모리 카드 없음');
+  const def = cardDefOf(data, mc.cardId);
+  const family = def?.family ?? 'common';
+  const name = `${def?.name ?? mc.cardId}${mc.plus ? '+' : ''}`;
+  const famLabel = L.CARD_FAMILY_LABELS[family] ?? family;
+  return h('span', {
+    class: ['mem-chip', `fam-${family}`, mc.plus ? 'plus' : '', ...cls],
+    dataset: { card: mc.cardId, plus: mc.plus ? '1' : '0' },
+    title: opts.title ?? `메모리 카드 「${name}」 — ${famLabel}${def ? `\n${mc.plus ? def.descPlus ?? def.desc : def.desc}` : ''}`,
+  }, h('i', { class: 'mem-dot', 'aria-hidden': 'true' }), h('span', { class: 'mem-nm' }, name));
 }

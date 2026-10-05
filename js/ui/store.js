@@ -63,8 +63,10 @@ export const store = {
     active: null,      // 진행 중인 도전 경기 { teamId, stage, attempt, resets, seed, team, displayName }
     result: null,      // 방금 끝난 도전 결과 (결과 모달) — 닫으면 null
   },
-  setup: null,         // 편성 화면 임시 상태 (screens/setup.js initSetup — formation · squad · supportIds · tactics · policy · seed)
-  final: null,         // finalizeRun 결과 { rating, registeredTeam, seed }
+  setup: null,         // 편성 화면 임시 상태 (screens/setup.js initSetup — formation · squad · supportIds · tactics · policy · seed · legends)
+                       //   legends = 고른 레전드 (§24.9 — 등록 팀 선수 사본, 2명까지). 편성과 함께 메모리에 남고 [런 시작] 이 createRun 에 넘긴다
+  final: null,         // finalizeRun 결과 { rating, registeredTeam, seed, memory } — memory = 결과 화면에서 고른 메모리 카드 { cardId, plus } | null
+                       //   (처음엔 감독 추천 manager.recommendMemoryCard, [팀 등록] 이 등록 팀 memoryCard 로 남긴다 — §24.9)
   registered: false,   // 이번 런의 팀 등록 여부
   matchUi: {
     auto: URL_PREFS.auto ?? true,
@@ -131,6 +133,10 @@ export function saveMatch(state) { return lsSet(KEYS.match, state ?? null); }
 export function loadMatch() { return lsGet(KEYS.match); }
 export function clearRunSaves() { lsSet(KEYS.run, null); lsSet(KEYS.match, null); }
 
+/**
+ * 등록 팀 (최신이 앞 — addTeam). 팀 = lessonRun.finalizeRun().registeredTeam + grade · score · registeredAt
+ * + memoryCard { cardId, plus } | null (§24.9 레전드 메모리 카드 — 옛 팀에는 없다 = 메모리 카드 없음).
+ */
 export function loadTeams() {
   const t = lsGet(KEYS.teams);
   return Array.isArray(t) ? t : [];

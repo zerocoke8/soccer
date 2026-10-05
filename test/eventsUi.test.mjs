@@ -1,5 +1,7 @@
 // test/eventsUi.test.mjs — LESSON_PROTO_PLAN §24.13 (이벤트 화면, jsdom). U3: 이벤트 모달 · 결과 카드 · 카드 3택1 · 외출 이야기 · 회상 · 키 아트 · 계정 저장.
-// U4: 레슨 깜짝 말풍선 (§24.8 — 턴 끝에 뜬다 · 선택지 2 · 추천 · 다른 조작 잠금 · 고르기 → 결과 띠 · 다음 턴 · 퍼펙트 → 보상). (U5 가 레전드 화면을 더한다.)
+// U4: 레슨 깜짝 말풍선 (§24.8 — 턴 끝에 뜬다 · 선택지 2 · 추천 · 다른 조작 잠금 · 고르기 → 결과 띠 · 다음 턴 · 퍼펙트 → 보상).
+// U5: 레전드 · 메모리 카드 (§24.9 — 결과 화면 메모리 카드 줄 → 등록 팀 memoryCard · 등록 팀 없음 = 잠금 · 옛 팀 "없음" ·
+//     레전드 고르기 → startRun → createRun → 시작 덱에 카드 1장 · 같은 팀 (id) 둘 = 1장 · 덱 "메모리" 띠).
 // index.html 을 jsdom 으로 올려 js/ui/app.js 를 부트한다. fetch = dataFetch(ROOT, { events: true }) (데이터 그대로) + 부트 뒤 기능 스위치를 모두 켠다
 // (I1 전에는 data/lesson.json 이 꺼 둔다). 화면 검사는 테스트 안의 고정 이벤트 (ev_ui_* — data.lesson_ev_week 에 더한다) 로 하고,
 // 실제 콘텐츠는 흐름 (시즌 시작 · 외출 이야기 · 회상 목록) 에만 쓴다 — 개수 · 글은 데이터에서 읽는다.
@@ -134,7 +136,56 @@ test("이벤트 화면 미리보기 줄 (event.js previewLines): 확률 갈래�
   assert.deepEqual(previewLines(["A / B"]), ["A / B"], "확률이 아니면 그대로");
 });
 
-test("jsdom: 이벤트 모달 · 결과 카드 · 3택1 · 외출 이야기 · 회상 · 키 아트 · 계정 저장 (§24.13 U3) · 레슨 깜짝 말풍선 (§24.8 U4)", { skip: !JSDOM && "jsdom 미설치" }, async (t) => {
+test("편성 레전드 도우미 (setup.js §24.9 U5): legendTeams 최신순 · 쓸 수 없는 메모리 카드 · memoryDeckOf = 엔진 시작 덱 · legendArgs 사본", async () => {
+  const { loadData } = await import("./helpers.mjs");
+  const data = loadData();
+  const LR = await import(pathToFileURL(path.join(ROOT, "js/engine/lessonRun.js")).href);
+  const CH = await import(pathToFileURL(path.join(ROOT, "js/engine/challenge.js")).href);
+  const { legendTeams, memoryDeckOf, legendArgs, maxLegends, initSetup } = await import(pathToFileURL(path.join(ROOT, "js/ui/screens/setup.js")).href);
+  assert.equal(maxLegends(LR), LR.MAX_LEGENDS, "칸 수 = 엔진 MAX_LEGENDS");
+  assert.equal(maxLegends(null), 2, "엔진이 없으면 2");
+  assert.deepEqual(initSetup(data).legends, [], "initSetup: 레전드 없음");
+  const pl = (charId, slot) => ({ charId, name: data.characters.find((c) => c.id === charId).name, slot, portraitColor: "#123456" });
+  const team = (seed, at, memoryCard, extra = {}) => ({
+    name: "우리 클럽", seed, createdTurnIndex: 14, registeredAt: at, formation: "2-2-2", grade: "B", score: 500,
+    players: [pl("ch_dwarf_wall", "DF1"), pl("ch_spirit_keeper", "GK"), pl("ch_wolf_winger", "FW1")], ...(memoryCard === undefined ? {} : { memoryCard }), ...extra,
+  });
+  const uniqueId = data.cards.cards.find((c) => c.family === "unique").id;
+  const teams = [
+    team("a", "2026-09-01T00:00:00.000Z", { cardId: "cd_high_five", plus: true }),
+    team("b", "2026-10-01T00:00:00.000Z", undefined), // 옛 팀 (메모리 카드 키 없음)
+    team("c", "2026-09-15T00:00:00.000Z", { cardId: uniqueId, plus: false }), // 고유 카드 = 쓸 수 없음
+    team("d", "2026-09-20T00:00:00.000Z", { cardId: "cd_basic" }, { players: [{ charId: "ch_nobody", name: "?", slot: "GK" }] }), // 선수가 없다 → 빠진다
+    { ...team("s", "2026-12-01T00:00:00.000Z", null), isSample: true }, // 샘플 팀은 레전드가 아니다
+    null, "x",
+  ];
+  const lt = legendTeams(data, { run: LR, challenge: CH }, teams);
+  assert.deepEqual(lt.map((t) => t.team.seed), ["b", "c", "a"], "선수가 남은 등록 팀만 · 최신순 (등록 시각)");
+  assert.deepEqual(lt.map((t) => t.teamId), ["b", "c", "a"].map((s) => CH.teamIdOf(teams.find((t) => t?.seed === s))), "팀 id = challenge.teamIdOf");
+  assert.deepEqual(lt[0].players.map((p) => p.charId), ["ch_spirit_keeper", "ch_dwarf_wall", "ch_wolf_winger"], "선수 = 슬롯 순서 (GK → FW)");
+  assert.deepEqual([lt[0].memoryCard, lt[0].hadMemory], [null, false], "옛 팀 = 메모리 카드 없음");
+  assert.deepEqual([lt[1].memoryCard, lt[1].hadMemory], [null, true], "고유 카드 = 쓸 수 없는 메모리 카드 (엔진 검사)");
+  assert.deepEqual(lt[2].memoryCard, { cardId: "cd_high_five", plus: true });
+  // memoryDeckOf = 엔진 createRun 시작 덱 메모리 카드 (같은 팀 id 둘 → 1장 · 앞 레전드가 카드 없음이면 뒤 레전드 카드)
+  const L = (t, charId, memoryCard = t.memoryCard) => ({ teamId: t.teamId, teamName: t.name, charId, name: "x", memoryCard, grade: t.grade, color: "#fff" });
+  const combos = [
+    [L(lt[2], "ch_spirit_keeper"), L(lt[2], "ch_dwarf_wall")],
+    [L(lt[2], "ch_spirit_keeper", null), L(lt[2], "ch_dwarf_wall", { cardId: "cd_cooldown", plus: true })],
+    [L(lt[2], "ch_spirit_keeper"), L(lt[2], "ch_dwarf_wall", { cardId: "cd_basic", plus: false })],
+    [L(lt[0], "ch_wolf_winger"), L(lt[2], "ch_wolf_winger")],
+    [L(lt[2], "ch_spirit_keeper"), L(lt[0], "ch_dwarf_wall", { cardId: "cd_basic", plus: true })],
+  ];
+  for (const legends of combos) {
+    const args = legendArgs(legends);
+    assert.ok(args.every((a) => Object.keys(a).join() === "teamId,teamName,charId,name,memoryCard"), "legendArgs = 엔진에 넘길 5개 키");
+    const s = LR.createRun({ data, seed: "u5-deck", legends: args });
+    assert.deepEqual(memoryDeckOf(legends).map((d) => [d.cardId, d.plus]), s.deck.filter((e) => e.src === "memory").map((e) => [e.cardId, e.plus]), `화면 미리보기 = 엔진 시작 덱 (${JSON.stringify(args.map((a) => a.memoryCard))})`);
+  }
+  assert.deepEqual(memoryDeckOf(combos[2]).map((d) => d.index), [0], "같은 팀 id 에 다른 카드 = 앞 레전드 카드만");
+  assert.deepEqual(memoryDeckOf(combos[1]).map((d) => d.index), [1], "앞 레전드가 카드 없음이면 뒤 레전드 카드");
+});
+
+test("jsdom: 이벤트 모달 · 결과 카드 · 3택1 · 외출 이야기 · 회상 · 키 아트 · 계정 저장 (§24.13 U3) · 레슨 깜짝 말풍선 (§24.8 U4) · 레전드 · 메모리 카드 (§24.9 U5)", { skip: !JSDOM && "jsdom 미설치" }, async (t) => {
   const html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
   const dom = new JSDOM(html, { url: "http://localhost/soccer/", pretendToBeVisual: true });
   const { window } = dom;
@@ -577,6 +628,190 @@ test("jsdom: 이벤트 모달 · 결과 카드 · 3택1 · 외출 이야기 · �
     assert.ok($("#modal-root .reward-modal"), "보상 모달");
     noErrorToast("깜짝 퍼펙트");
     S.actions.discardSave();
+  }
+
+  // ---------- 레전드 · 메모리 카드 (§24.9 · §24.13, U5) ----------
+  // 결과 화면 메모리 카드 줄 → [팀 등록] = 등록 팀 memoryCard · 등록 팀 없음 = [레전드] 잠금 · 옛 팀 "메모리 카드 없음" ·
+  // 레전드 고르기 (같은 팀 둘 = 카드 1장 · 같은 팀 id 에 다른 카드 = 앞 레전드 카드) → startRun · createRun → 시작 덱에 메모리 카드 1장
+  {
+    const clone = (x) => JSON.parse(JSON.stringify(x));
+    const { walkLesson } = await import(pathToFileURL(path.join(ROOT, "tools/lesson_scenarios.mjs")).href);
+    const { memoryDeckOf } = await import(pathToFileURL(path.join(ROOT, "js/ui/screens/setup.js")).href);
+    const memKey = (mc) => `${mc.cardId}|${mc.plus ? 1 : 0}`;
+    const teamsNow = () => JSON.parse(window.localStorage.getItem(KEYS.teams) || "[]");
+    const excluded = new Set(["unique", "prep", "coach"]);
+    const famOf = (cardId) => data.cards.cards.find((c) => c.id === cardId).family;
+
+    // ① 등록 팀이 없으면 [★ 레전드] 잠금 (title 안내)
+    window.localStorage.removeItem(KEYS.teams);
+    S.actions.newRun("");
+    assert.equal(S.store.screen, "setup");
+    assert.deepEqual(S.store.setup.legends, [], "initSetup: 레전드 없음");
+    let lb = $(".setup-supports .og-panel-head .legend-btn");
+    assert.ok(lb, "코치 패널 머리 [★ 레전드]");
+    assert.ok(lb.disabled && lb.textContent.includes("레전드 0/2"), "등록 팀 없음 = 잠금");
+    assert.match(lb.closest(".legend-ctl").title, /등록 팀이 없습니다/, "잠금 안내 (title)");
+    lb.click();
+    assert.ok(!$("#modal-root .legend-modal"), "잠긴 버튼은 모달을 열지 않는다");
+
+    // ② 결과 화면: 메모리 카드 줄 (감독 추천) → 다른 후보로 바꿔 [팀 등록] → 등록 팀 memoryCard
+    const dOff = { ...data, lesson: clone(data.lesson) };
+    LE.setEventSwitches(dOff.lesson, false);
+    const fin = walkLesson(dOff, { seed: "u5-mem", until: (st) => st.phase === "finished" }).state;
+    S.store.run = clone(fin);
+    S.store.match = null;
+    S.store.final = null;
+    S.store.registered = false;
+    S.store.screen = "run";
+    S.render();
+    const memOpts = S.run.memoryCardOptions(S.store.run, data);
+    const rec = S.manager.recommendMemoryCard(S.store.run, data);
+    assert.ok(memOpts.length >= 2 && rec, `메모리 카드 후보 ${memOpts.length}장 · 추천`);
+    assert.ok(memOpts.every((o) => !excluded.has(o.family)), "후보에 고유 · 대비 · 코치 카드 없음");
+    const memRow = $(".result-screen .result-actions .res-memory");
+    assert.ok(memRow, "메모리 카드 줄");
+    assert.equal(memRow.nextElementSibling?.textContent, "팀 등록", "[팀 등록] 바로 왼쪽");
+    assert.deepEqual(S.store.final.memory, rec, "처음엔 감독 추천이 골라져 있다");
+    const chipEl = memRow.querySelector(".rm-pick .mem-chip");
+    assert.equal(`${chipEl.dataset.card}|${chipEl.dataset.plus}`, memKey(rec), "칩 = 추천 카드");
+    assert.ok(memRow.querySelector(".rm-pick.recommended .rm-rec"), "추천 배지");
+    memRow.querySelector(".rm-pick").click();
+    const mm = $("#modal-root .memory-modal");
+    assert.ok(mm, "메모리 카드 고르기 모달");
+    assert.deepEqual([...mm.querySelectorAll(".rm-grid .mini-card")].map((e) => e.dataset.mem), memOpts.map(memKey), "작은 카드 = memoryCardOptions (덱 순서)");
+    assert.equal(mm.querySelector(".rm-grid .mini-card.selected")?.dataset.mem, memKey(rec), "추천이 골라져 있다");
+    assert.equal(mm.querySelectorAll(".rm-grid .mini-card .mc-rec").length, 1, "추천 배지 하나");
+    const other = memOpts.find((o) => memKey(o) !== memKey(rec));
+    mm.querySelector(`.rm-grid .mini-card[data-mem="${memKey(other)}"]`).click();
+    assert.equal($("#modal-root .rm-grid .mini-card.selected")?.dataset.mem, memKey(other), "다른 카드 고름");
+    assert.ok($("#modal-root .rm-detail .card-face")?.textContent.includes(other.name), "고른 카드 앞면");
+    $("#modal-root .rm-ok").click();
+    assert.deepEqual(S.store.final.memory, { cardId: other.cardId, plus: other.plus }, "[이 카드로] = store.final.memory");
+    assert.ok(!$("#modal-root .memory-modal"), "모달 닫힘");
+    assert.equal($(".res-memory .rm-pick .mem-chip").dataset.card, other.cardId, "줄 칩 = 고른 카드");
+    assert.ok(!$(".res-memory .rm-pick.recommended"), "추천이 아니면 배지 없음");
+    const regCalls = [];
+    const origReg = S.actions.registerTeam;
+    S.actions.registerTeam = function (o) { regCalls.push(o); return origReg.call(this, o); };
+    [...$$(".result-actions button")].find((b) => b.textContent === "팀 등록").click();
+    S.actions.registerTeam = origReg;
+    assert.deepEqual(regCalls, [{ memory: { cardId: other.cardId, plus: other.plus } }], "registerTeam({ memory })");
+    const regTeam = teamsNow()[0];
+    assert.ok(regTeam && regTeam.seed === "u5-mem", "등록 팀 저장");
+    assert.deepEqual(regTeam.memoryCard, { cardId: other.cardId, plus: other.plus }, "등록 팀 memoryCard = 고른 카드");
+    assert.ok($(".res-memory.done") && $(".res-memory .rm-title").textContent === "남긴 메모리 카드", "등록 뒤 = 남긴 메모리 카드");
+    assert.equal($(".res-memory.done .mem-chip").dataset.card, other.cardId, "남긴 카드 칩");
+    assert.ok(!$(".res-memory .rm-pick"), "등록 뒤에는 바꿀 수 없다");
+    assert.ok([...$$(".result-actions button")].some((b) => b.disabled && b.textContent === "팀 등록 완료"), "[팀 등록 완료]");
+    noErrorToast("메모리 카드 등록");
+
+    // ③ 등록 팀 목록: 위 팀 (메모리 카드) · 옛 팀 (memoryCard 키 없음) · 같은 팀 id 에 다른 메모리 카드 (같은 seed · 턴 · 등록 시각 — 엔진은 앞 레전드 카드만)
+    const oldTeam = { ...clone(regTeam), seed: "u5-old", registeredAt: "2026-09-01T10:00:00.000Z" };
+    delete oldTeam.memoryCard;
+    const twin = { ...clone(regTeam), memoryCard: { cardId: rec.cardId, plus: rec.plus } };
+    window.localStorage.setItem(KEYS.teams, JSON.stringify([oldTeam, regTeam, twin])); // 저장 순서와 상관없이 최신순 (등록 시각)
+    const tidOf = (t) => S.challenge.teamIdOf(t);
+    assert.equal(tidOf(twin), tidOf(regTeam), "같은 팀 id (쌍둥이 저장본)");
+    S.actions.discardSave();
+    S.actions.newRun("");
+    lb = $(".setup-supports .legend-btn");
+    assert.ok(!lb.disabled, "등록 팀이 있으면 [★ 레전드] 켜짐");
+    lb.click();
+    const lm = () => $("#modal-root .legend-modal");
+    assert.ok(lm(), "레전드 모달");
+    const rows = $$("#modal-root .lg-team");
+    assert.equal(rows.length, 3, "등록 팀 3");
+    assert.deepEqual(rows.map((r) => r.dataset.team), [tidOf(regTeam), tidOf(twin), tidOf(oldTeam)], "최신순 (등록 시각 내림차순 · 같으면 저장 순서)");
+    assert.equal(rows[0].querySelectorAll(".lg-pl").length, 7, "7명 얼굴");
+    assert.ok(rows[0].querySelectorAll(".lg-pl .avatar img.pt").length >= 1, "얼굴 그림");
+    assert.equal(rows[0].querySelector(".mem-chip").dataset.card, other.cardId, "등록 팀 메모리 카드 칩");
+    assert.equal(rows[2].querySelector(".mem-chip.none")?.textContent, "메모리 카드 없음", "옛 등록 팀 = 메모리 카드 없음");
+    assert.deepEqual($$("#modal-root .lg-slot.empty").map((e) => e.dataset.slot), ["0", "1"], "빈 칸 2");
+    // 같은 팀에서 둘 (이번 런 선수와 같은 캐릭터도 된다) → 카드 1장
+    const tap = (row, charId) => $$("#modal-root .lg-team")[row].querySelector(`.lg-pl[data-char="${charId}"]`).click();
+    tap(0, "ch_elf_playmaker");
+    tap(0, "ch_spirit_keeper");
+    assert.deepEqual(S.store.setup.legends.map((l) => [l.teamId, l.charId]), [[tidOf(regTeam), "ch_elf_playmaker"], [tidOf(regTeam), "ch_spirit_keeper"]], "칸 2 = 고른 순서");
+    let slots = $$("#modal-root .lg-slot.filled");
+    assert.equal(slots.length, 2, "칸 2 채움");
+    assert.ok(slots[0].textContent.includes("실루엔") && slots[0].querySelector(".mem-chip").dataset.card === other.cardId && slots[0].textContent.includes("시작 덱 +1"), "칸 1: 얼굴 · 이름 · 메모리 카드 (덱 +1)");
+    assert.ok(slots[0].querySelector(".lg-slot-face img.pt") && slots[0].querySelector(".lg-remove"), "칸: 얼굴 그림 · ✕");
+    assert.ok(slots[1].classList.contains("mem-dropped") && slots[1].textContent.includes("같은 팀 — 카드는 1장"), "칸 2: 같은 팀 → 카드 1장");
+    assert.ok($("#modal-root .lg-same")?.textContent.includes("메모리 카드는 1장"), "같은 팀 안내");
+    assert.deepEqual($$("#modal-root .lg-deck .mem-chip").map((e) => e.dataset.card), [other.cardId], "시작 덱 메모리 카드 = 1장");
+    assert.ok($$("#modal-root .lg-pl:not(.picked)").every((b) => b.disabled), "2명이 차면 다른 얼굴 잠김");
+    // ✕ → 1명, 다시 누르면 빼기 (토글)
+    slots[1].querySelector(".lg-remove").click();
+    assert.equal(S.store.setup.legends.length, 1, "✕ = 빼기");
+    tap(0, "ch_elf_playmaker");
+    assert.equal(S.store.setup.legends.length, 0, "고른 얼굴을 다시 누르면 빼기");
+    // 등록한 팀의 선수 둘 (실루엔 · 네리아 — 이번 런 선수와 같은 캐릭터) → [완료] → [런 시작] → 그 팀이 남긴 메모리 카드가 시작 덱에 1장
+    tap(0, "ch_elf_playmaker");
+    tap(0, "ch_spirit_keeper");
+    $("#modal-root .lg-done").click();
+    assert.ok(!lm(), "[완료] = 닫기");
+    lb = $(".setup-supports .legend-btn.has");
+    assert.ok(lb && lb.textContent.includes("레전드 2/2") && lb.querySelectorAll(".lg-face").length === 2 && lb.textContent.includes("메모리 1"), `머리 버튼 = 2/2 · 얼굴 2 · 메모리 1 (${lb?.textContent})`);
+    assert.match(lb.closest(".legend-ctl").title, /시작 덱 메모리 카드/, "버튼 title = 레전드 · 메모리 카드");
+    S.render();
+    assert.equal(S.store.setup.legends.length, 2, "다시 그려도 (편성과 함께) 레전드 유지");
+    const startCalls = [];
+    const origStart = S.actions.startRun;
+    const startWithSpy = () => {
+      S.actions.startRun = function (o) { startCalls.push(clone(o)); return origStart.call(this, o); };
+      [...$$(".setup-start button")].find((b) => b.textContent === "런 시작").click();
+      S.actions.startRun = origStart;
+      return startCalls[startCalls.length - 1];
+    };
+    const regLegends = [
+      { teamId: tidOf(regTeam), teamName: regTeam.name, charId: "ch_elf_playmaker", name: "실루엔", memoryCard: { cardId: other.cardId, plus: other.plus } },
+      { teamId: tidOf(regTeam), teamName: regTeam.name, charId: "ch_spirit_keeper", name: "네리아", memoryCard: { cardId: other.cardId, plus: other.plus } },
+    ];
+    assert.deepEqual(startWithSpy().legends, regLegends, "startRun 레전드 사본 (teamId · teamName · charId · name · memoryCard)");
+    let run2 = S.store.run;
+    assert.ok(run2 && S.store.screen === "run", "런 시작");
+    assert.deepEqual(run2.legends, regLegends, "createRun 이 받은 레전드 (state.legends)");
+    let mem = run2.deck.filter((e) => e.src === "memory");
+    assert.deepEqual(mem.map((e) => [e.cardId, e.plus]), [[other.cardId, other.plus]], "등록 때 남긴 메모리 카드가 시작 덱에 1장 (같은 팀 둘 = 1장)");
+    const lastUnique = run2.deck.map((e) => famOf(e.cardId)).lastIndexOf("unique");
+    assert.equal(run2.deck.indexOf(mem[0]), lastUnique + 1, "고유 카드 바로 뒤");
+    assert.ok(["ch_elf_playmaker", "ch_spirit_keeper"].every((c) => run2.players.some((p) => p.charId === c)), "이번 런 선수와 같은 캐릭터도 레전드로");
+    // 같은 팀 id 에 다른 메모리 카드 (쌍둥이 저장본): 앞 레전드 카드만 들어간다 — 화면이 엔진과 같은 규칙으로 보여 준다
+    S.actions.discardSave();
+    S.actions.newRun("");
+    assert.deepEqual(S.store.setup.legends, [], "새 편성 = 레전드 없음");
+    $(".setup-supports .legend-btn").click();
+    tap(1, "ch_human_runner");
+    tap(0, "ch_spirit_keeper");
+    slots = $$("#modal-root .lg-slot.filled");
+    assert.equal(slots[0].querySelector(".mem-chip").dataset.card, rec.cardId, "칸 1 = 쌍둥이 팀 카드 (추천 카드)");
+    assert.ok(slots[1].classList.contains("mem-dropped") && slots[1].querySelector(".mem-chip").dataset.card === other.cardId, "칸 2 = 같은 팀 id → 그 카드는 들어가지 않는다 (줄 그음)");
+    assert.deepEqual($$("#modal-root .lg-deck .mem-chip").map((e) => e.dataset.card), [rec.cardId], "시작 덱 = 앞 레전드 카드만");
+    assert.ok($("#modal-root .lg-same"), "같은 팀 안내");
+    assert.deepEqual(memoryDeckOf(S.store.setup.legends).map((d) => d.cardId), [rec.cardId], "memoryDeckOf = 엔진 규칙");
+    $("#modal-root .lg-done").click();
+    const wantLegends = [
+      { teamId: tidOf(twin), teamName: twin.name, charId: "ch_human_runner", name: "타리아", memoryCard: { cardId: rec.cardId, plus: rec.plus } },
+      { teamId: tidOf(regTeam), teamName: regTeam.name, charId: "ch_spirit_keeper", name: "네리아", memoryCard: { cardId: other.cardId, plus: other.plus } },
+    ];
+    assert.deepEqual(startWithSpy().legends, wantLegends, "startRun 레전드 (쌍둥이)");
+    assert.equal(startCalls.length, 2, "startRun 2번");
+    run2 = S.store.run;
+    assert.deepEqual(run2.legends, wantLegends, "state.legends");
+    mem = run2.deck.filter((e) => e.src === "memory");
+    assert.deepEqual(mem.map((e) => [e.cardId, e.plus]), [[rec.cardId, rec.plus]], "시작 덱 = 화면이 보여 준 카드 (앞 레전드)");
+    noErrorToast("레전드");
+    // 덱 화면 "메모리" 띠: 이벤트 카드 고르기 · 3택1 배경 등 덱 작은 카드 (cards.js miniCard) · 카드 앞면 (cardFace)
+    const { miniCard, cardFace } = await import(pathToFileURL(path.join(ROOT, "js/ui/cards.js")).href);
+    const memView = S.run.getWeekView(run2, data).deck.find((d) => d.memory);
+    assert.ok(memView, "주 뷰 덱 = memory 표시");
+    const mc = miniCard(memView, { data });
+    assert.ok(mc.classList.contains("memory") && mc.querySelector(".mc-mem")?.textContent === "메모리", "작은 카드 \"메모리\" 띠");
+    assert.ok(!miniCard({ ...memView, memory: false }, { data }).querySelector(".mc-mem"), "메모리 카드가 아니면 띠 없음");
+    const cf = cardFace({ cardId: memView.cardId, name: memView.name, family: memView.family, plus: memView.plus, memory: true }, { data });
+    assert.equal(cf.querySelector(".cf-meta .cf-mem")?.textContent, "메모리", "카드 앞면 계열 줄 \"메모리\" 띠");
+    S.actions.discardSave();
+    window.localStorage.removeItem(KEYS.teams);
   }
 
   assert.deepEqual(errors, [], "페이지 오류 없음");

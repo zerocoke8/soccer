@@ -749,3 +749,112 @@ button.rc-ep:hover { border-color: var(--purple); }
 .rc-ep.next { border-style: dashed; border-color: rgba(179, 136, 255, .5); }
 .rc-read { flex: none; pointer-events: none; }
 .rc-note { margin-top: auto; line-height: 1.5; word-break: keep-all; }
+
+/* ================================================================== */
+/* 레전드 · 메모리 카드 (LESSON_PROTO_PLAN §24.9 · §24.13, U5)            */
+/*   편성: 코치 패널 머리 [★ 레전드 n/2] (얼굴 · 메모리 수) → .legend-modal (칸 2 · 등록 팀 목록 · 시작 덱 메모리 카드)  */
+/*   결과: 버튼 줄 [팀 등록] 왼쪽 .res-memory (고른 메모리 카드 칩) → .memory-modal (작은 카드 그리드 + 앞면)              */
+/* ================================================================== */
+:root { --memory: linear-gradient(90deg, #c9a7ff, #8fd3ff); }
+/* 메모리 카드 한 줄 칩 (cards.js memoryChip): 계열 색 점 · 이름 (+) */
+.mem-chip {
+  display: inline-flex; align-items: center; gap: 5px; min-width: 0; max-width: 100%; padding: 1px 9px 1px 6px; border-radius: 999px;
+  background: rgba(179, 136, 255, .13); box-shadow: inset 0 0 0 1px rgba(179, 136, 255, .38);
+  font-size: 12px; line-height: 18px; font-weight: 700; color: var(--text); white-space: nowrap;
+}
+.mem-chip .mem-dot { flex: none; width: 8px; height: 8px; border-radius: 2px; background: var(--fam, var(--panel-3)); box-shadow: 0 0 0 1px rgba(255, 255, 255, .25); }
+.mem-chip .mem-nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.mem-chip.none { background: transparent; box-shadow: inset 0 0 0 1px var(--border); color: var(--muted); font-weight: 400; padding-left: 9px; }
+.mem-chip.dropped { opacity: .5; }
+.mem-chip.dropped .mem-nm { text-decoration: line-through; }
+
+/* 편성 코치 패널 머리 오른쪽: ⚑ 안내 + [★ 레전드 n/2] — 머리 높이(22)를 넘지 않게 버튼 위아래 여백을 당긴다 */
+.sp-head-r { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.legend-ctl { display: inline-flex; flex: none; }
+.legend-btn {
+  display: inline-flex; align-items: center; gap: 5px; min-height: 28px; min-width: 0; margin: -3px 0; padding: 2px 9px;
+  font-size: 12px; font-weight: 700; white-space: nowrap;
+}
+.legend-btn .lg-star { color: var(--gold); font-size: 13px; }
+.legend-btn.has { border-color: rgba(255, 209, 102, .7); background: rgba(255, 209, 102, .1); }
+.legend-btn .lg-faces { display: inline-flex; }
+.legend-btn .lg-face { box-shadow: 0 0 0 1.5px var(--panel-2); }
+.legend-btn .lg-face + .lg-face { margin-left: -5px; }
+.legend-btn .lg-mem { padding: 0 6px; border-radius: 999px; font-size: 10.5px; line-height: 16px; font-weight: 800; background: var(--memory); color: #160b2c; }
+.legend-ctl.locked { cursor: not-allowed; }
+
+/* 레전드 모달 (modal-lg 880) */
+.modal.legend-modal { gap: 0; }
+.legend-body { gap: 12px; min-width: 0; }
+.lg-head { align-items: flex-start; gap: 16px; }
+.lg-head h3 { font-size: 18px; }
+.lg-head .tiny { line-height: 1.45; word-break: keep-all; }
+.lg-slots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.lg-slot {
+  display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 64px; padding: 8px 8px 8px 10px; border-radius: 12px;
+  background: var(--panel-2); border: 1px solid var(--border);
+}
+.lg-slot.filled { border-color: rgba(255, 209, 102, .55); box-shadow: inset 3px 0 0 var(--gold); }
+.lg-slot.empty { justify-content: center; border-style: dashed; }
+.lg-slot-plus { font-size: 20px; font-weight: 800; color: var(--muted); }
+.lg-slot-face.avatar-md { width: 46px; height: 46px; }
+.lg-slot-txt { flex: 1 1 auto; min-width: 0; gap: 2px; }
+.lg-slot-nm { font-size: 15px; }
+.lg-slot-mem { flex: 0 1 auto; min-width: 0; max-width: 190px; align-items: flex-end; gap: 3px; }
+.lg-slot-why { white-space: nowrap; }
+.lg-remove { flex: none; min-height: 32px; min-width: 32px; padding: 0; font-size: 14px; }
+.lg-teams { display: flex; flex-direction: column; gap: 6px; max-height: 372px; padding-right: 2px; }
+.lg-team {
+  flex: none; display: grid; grid-template-columns: 30px 196px minmax(0, 1fr); align-items: center; gap: 10px;
+  padding: 6px 10px; border-radius: 12px; background: var(--panel-2); border: 1px solid transparent;
+}
+.lg-team-txt { min-width: 0; gap: 2px; align-items: flex-start; }
+.lg-pls { display: flex; justify-content: flex-end; gap: 4px; min-width: 0; }
+.lg-pl {
+  position: relative; flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; gap: 2px; width: 60px; padding: 4px 2px 3px;
+  border-radius: 10px; border: 1px solid transparent; background: transparent; color: var(--text); font: inherit; cursor: pointer;
+}
+.lg-pl:hover:not(:disabled) { border-color: var(--accent); background: rgba(74, 163, 255, .08); }
+.lg-pl:disabled { opacity: .4; cursor: not-allowed; }
+.lg-pl.picked { border-color: var(--gold); background: rgba(255, 209, 102, .12); }
+.lg-pl .lg-pl-face.avatar-sm { width: 38px; height: 38px; font-size: 16px; }
+.lg-pl .lg-pl-face.avatar-sm > .pt { transform: none; }
+.lg-pl-nm { max-width: 100%; font-size: 11px; line-height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lg-pl-n {
+  position: absolute; top: 1px; right: 5px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px;
+  font-size: 10.5px; line-height: 16px; font-weight: 800; text-align: center; background: var(--gold); color: #2a1d00;
+}
+.lg-foot { align-items: center; gap: 12px; padding-top: 2px; }
+.lg-deck { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; }
+.lg-done { min-width: 120px; }
+
+/* 결과 화면 메모리 카드 줄 (버튼 줄 [팀 등록] 왼쪽 — 버튼과 같은 높이) */
+.res-memory {
+  flex: 0 1 auto; display: flex; align-items: center; gap: 10px; min-width: 0; height: 52px; padding: 5px 8px 5px 12px;
+  border-radius: var(--radius-sm); background: var(--panel); border: 1px solid var(--border);
+}
+.res-memory.done { border-color: rgba(201, 167, 255, .55); }
+.rm-txt { flex: none; gap: 1px; line-height: 1.25; }
+.rm-title { font-size: 13px; }
+.rm-title::before { content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 2px; background: var(--memory); vertical-align: 1px; }
+.result-actions .res-memory .btn { min-height: 38px; min-width: 0; }
+.rm-pick { display: inline-flex; align-items: center; gap: 6px; max-width: 250px; min-width: 0; padding: 4px 8px 4px 6px; }
+.rm-pick.recommended { border-color: var(--accent); }
+.rm-pick .mem-chip { flex: 0 1 auto; }
+.rm-rec { flex: none; padding: 0 6px; border-radius: 999px; font-size: 10.5px; line-height: 16px; font-weight: 800; background: var(--accent); color: #041224; }
+.rm-change { flex: none; font-size: 11px; color: var(--muted); white-space: nowrap; }
+.rm-none { white-space: nowrap; }
+
+/* 메모리 카드 고르기 모달 (modal-lg): 작은 카드 4열 | 고른 카드 앞면 + [이 카드로] */
+.modal.memory-modal { gap: 0; }
+.rm-modal-body { gap: 12px; min-width: 0; }
+.rm-head { align-items: flex-start; gap: 16px; }
+.rm-head .tiny { line-height: 1.45; word-break: keep-all; }
+.rm-cols { display: grid; grid-template-columns: minmax(0, 1fr) 196px; gap: 16px; align-items: start; }
+.rm-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; align-content: start; }
+.rm-grid.dense { gap: 5px; }
+.rm-grid.dense .mc-desc { display: none; }
+.rm-detail { align-items: center; gap: 12px; padding: 10px; border-radius: 12px; background: var(--panel-2); }
+.rm-detail-empty { display: flex; align-items: center; justify-content: center; width: 176px; height: 204px; border: 1px dashed var(--border); border-radius: 12px; }
+.rm-ok { align-self: stretch; }
+.rm-grid .mini-card.selected { border-color: var(--gold); box-shadow: inset 4px 0 0 var(--fam, var(--panel-3)), 0 0 0 2px var(--gold); }

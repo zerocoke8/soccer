@@ -6,6 +6,8 @@
 // 2차 U3 (§24.13): og_event_* · og_card_offer · og_outing_story · og_season_start — 이벤트 기능 스위치를 켠 실제 데이터 (eventsOn) 로 걷고
 //     브라우저는 ?events=on (app.js). og_recollection* · og_start_keyart — 계정 저장 (KEYS.account) 주입. 터치 915×412: og_event_week_touch · og_recollection_touch.
 // 2차 U4 (§24.8): og_lesson_surprise · og_lesson_surprise_result · og_lesson_surprise_touch (915×412) — 레슨 깜짝 말풍선 (실제 흐름, surpriseScene).
+// 2차 U5 (§24.9): og_setup_legends · og_setup_legend_pick (+ _touch 915×412) — 등록 팀 3 (legendSampleTeams) 에서 레전드 고르기,
+//     og_result_memory · og_result_memory_done — 결과 화면 메모리 카드 줄 · 고르기 모달 · 등록 뒤. 등록 팀 (lessonRegisteredTeam) 은 감독 추천 메모리 카드를 남긴다.
 import * as lessonRun from "../js/engine/lessonRun.js";
 import * as manager from "../js/engine/manager.js";
 import * as match from "../js/engine/match.js";
@@ -123,8 +125,8 @@ export function playMatch(data, setup) {
   return match.getResult(ms);
 }
 
-/** 기본 편성 레슨 런 (slots = 기본 편성의 자리를 다른 캐릭터로 — 미르카 장면 { FW2: "ch_cat_trickster" }) */
-export function defaultLessonRun(data, { seed = 1, policy, slots } = {}) {
+/** 기본 편성 레슨 런 (slots = 기본 편성의 자리를 다른 캐릭터로 — 미르카 장면 { FW2: "ch_cat_trickster" }, legends = 레전드 사본 §24.9) */
+export function defaultLessonRun(data, { seed = 1, policy, slots, legends } = {}) {
   const cfg = data.config;
   return lessonRun.createRun({
     data,
@@ -134,17 +136,18 @@ export function defaultLessonRun(data, { seed = 1, policy, slots } = {}) {
     supportIds: cfg.defaultSupports,
     tactics: cfg.defaultTactics,
     policy: policy || data.lesson.defaultPolicy,
+    ...(legends ? { legends } : {}),
   });
 }
 
 /**
  * 감독 AI 로 걷다가 until(state) 를 만족하는 첫 상태의 복제본 (결정적). 못 찾으면 null.
  * @param {object} data
- * @param {{ seed?, policy?, until: (state) => boolean, maxSteps? }} opts
+ * @param {{ seed?, policy?, until: (state) => boolean, maxSteps?, slots?, legends? }} opts  legends = createRun 레전드 (§24.9 — 메모리 카드가 시작 덱에)
  * @returns {{ state: object, steps: number } | null}
  */
-export function walkLesson(data, { seed = 1, policy, until, maxSteps = 3000, slots } = {}) {
-  const state = defaultLessonRun(data, { seed, policy, slots });
+export function walkLesson(data, { seed = 1, policy, until, maxSteps = 3000, slots, legends } = {}) {
+  const state = defaultLessonRun(data, { seed, policy, slots, legends });
   for (let steps = 0; steps <= maxSteps; steps++) {
     if (until(state)) return { state: clone(state), steps };
     if (state.phase === "finished") break;
@@ -174,14 +177,40 @@ export function prepareLessonMatch(data, { runSeed = 1, kind = "friendly", maxSt
 }
 
 /**
- * 완주한 레슨 런 → 등록 팀 (app.js registerTeam 과 같은 모양 + policy, 등록 시각은 고정). og_start · og_challenge 의 등록 팀.
+ * 완주한 레슨 런 → 등록 팀 (app.js registerTeam 과 같은 모양 + policy, 등록 시각은 고정). og_start · og_challenge · og_setup_legend* 의 등록 팀.
+ * memoryCard = 결과 화면이 처음 골라 두는 감독 추천 (manager.recommendMemoryCard — §24.9). slots = 기본 편성의 자리를 다른 캐릭터로.
  */
-export function lessonRegisteredTeam(data, seed, registeredAt, policy) {
-  const found = walkLesson(data, { seed, policy, until: (s) => s.phase === "finished" });
+export function lessonRegisteredTeam(data, seed, registeredAt, policy, slots) {
+  const found = walkLesson(data, { seed, policy, slots, until: (s) => s.phase === "finished" });
   if (!found) throw new Error(`레슨 런 ${seed} 이 끝나지 않습니다`);
+  const memoryCard = manager.recommendMemoryCard(found.state, data);
   const { rating, registeredTeam: team } = lessonRun.finalizeRun(found.state, data);
-  return { ...team, grade: rating.cappedGrade ?? rating.grade ?? "-", score: rating.score ?? null, registeredAt };
+  return { ...team, memoryCard, grade: rating.cappedGrade ?? rating.grade ?? "-", score: rating.score ?? null, registeredAt };
 }
+
+// ---- 레전드 · 메모리 카드 장면 (§24.9 · §24.13, U5) ----
+/** 등록 팀 캐시 (같은 프로세스의 레전드 장면끼리 — 런 완주는 느리다). 키 = seed|policy|slots */
+const legendTeamCache = new Map();
+/**
+ * 레전드 장면의 등록 팀 3개 (최신순 저장 — addTeam 처럼 앞이 최신):
+ * ① 새 편성 A 역습형 (메모리 카드 = 감독 추천) · ② 기본 편성 팀형 (메모리 카드) · ③ 옛 등록 팀 (기본 편성 점유형, memoryCard 키 없음 → "메모리 카드 없음")
+ */
+export function legendSampleTeams(data, runSeed) {
+  const make = (seed, at, policy, slots) => {
+    const key = `${seed}|${policy}|${slots ? JSON.stringify(slots) : ""}`;
+    if (!legendTeamCache.has(key)) legendTeamCache.set(key, lessonRegisteredTeam(data, seed, at, policy, slots));
+    return clone(legendTeamCache.get(key));
+  };
+  const a = make(`${runSeed}-lgA`, "2026-10-04T10:00:00.000Z", "counter", SQUAD_A);
+  const b = make(`${runSeed}-lgB`, "2026-10-02T10:00:00.000Z", "team");
+  const old = make(`${runSeed}-lgC`, "2026-09-27T10:00:00.000Z", "poss");
+  delete old.memoryCard; // 옛 등록 팀 (U5 전) 은 메모리 카드가 없다
+  return [a, b, old];
+}
+/** 레전드 모달 열기 (편성 → 코치 패널 머리 [★ 레전드]) */
+const LEGEND_OPEN = [{ text: "새 런 시작" }, { click: ".setup-supports .legend-btn" }];
+/** 레전드 모달에서 등록 팀 i 번째 줄의 선수 얼굴 누르기 */
+const legendPick = (i, charId) => ({ click: `#modal-root .lg-team[data-idx="${i}"] .lg-pl[data-char="${charId}"]` });
 
 /**
  * 이벤트 모달 (2차 레슨 이벤트 주입 — 데이터 스위치는 꺼 둔 채): 자유 주 주 끝에 주 끝 랜덤 이벤트가 났다고 치고 —
@@ -1999,6 +2028,80 @@ export const LESSON_OG_SCENARIOS = [
     outgame: true,
     build: (data, { runSeed }) => walkOrThrow("og_result", data, { seed: runSeed, until: (s) => s.phase === "finished" }),
     ready: ".result-hero",
+    expect: { screen: "run", phase: "finished", modal: false },
+  },
+  // ---- 레전드 · 메모리 카드 (§24.9 · §24.13, U5): 등록 팀 3개 (legendSampleTeams — 새 편성 A · 기본 편성 · 옛 팀) ----
+  {
+    // 편성 → [★ 레전드] → 새 편성 A 팀 헤르타 + 기본 편성 팀 실루엔 (다른 팀 둘 = 메모리 카드 2장) → [완료]
+    name: "og_setup_legends",
+    title: "편성 — 레전드 2명 (다른 등록 팀 둘) 고른 뒤: 코치 패널 머리 [★ 레전드 2/2] 얼굴 2 · 메모리 2",
+    outgame: true,
+    build: (data, { runSeed }) => {
+      const teams = legendSampleTeams(data, runSeed);
+      return { runState: null, teams, summary: `저장된 런 없음 · 등록 팀 ${teams.map((t) => `${t.grade}(${t.seed}${t.memoryCard ? ` · ${t.memoryCard.cardId}${t.memoryCard.plus ? "+" : ""}` : " · 메모리 없음"})`).join(", ")} → [새 런 시작] → [★ 레전드] → 헤르타 · 실루엔 → [완료]` };
+    },
+    steps: [...LEGEND_OPEN, legendPick(0, "ch_giant_keeper"), legendPick(1, "ch_elf_playmaker"), { click: "#modal-root .lg-done" }],
+    ready: ".setup-supports .legend-btn.has .lg-mem",
+    expect: { screen: "setup", modal: false },
+  },
+  {
+    // 레전드 모달: 같은 등록 팀 (기본 편성 팀형) 에서 실루엔 · 네리아 → 메모리 카드 1장 (둘째 칸 "같은 팀 — 카드는 1장" · 아래 줄 안내),
+    // 옛 팀 "메모리 카드 없음", 2명이 차서 다른 얼굴은 잠김
+    name: "og_setup_legend_pick",
+    title: "편성 — 레전드 모달: 등록 팀 3 (최신순 · 등급 · 메모리 카드 · 7명 얼굴) · 같은 팀 둘 → 메모리 카드 1장",
+    outgame: true,
+    build: (data, { runSeed }) => ({ runState: null, teams: legendSampleTeams(data, runSeed), summary: "등록 팀 3 → [새 런 시작] → [★ 레전드] → 팀형 팀의 실루엔 · 네리아" }),
+    steps: [...LEGEND_OPEN, legendPick(1, "ch_elf_playmaker"), legendPick(1, "ch_spirit_keeper")],
+    ready: "#modal-root .legend-modal .lg-slot.mem-dropped",
+    expect: { screen: "setup", modal: ".legend-modal" },
+  },
+  {
+    // 터치 915×412: 레전드 모달 (탭으로 열고 고르기 — 다른 팀 둘), 잘림 · 스크롤 없음
+    name: "og_setup_legend_pick_touch",
+    title: "편성 — 레전드 모달 터치 915×412 (탭: 헤르타 · 실루엔 — 다른 팀 둘 = 메모리 카드 2장)",
+    outgame: true,
+    viewport: TOUCH_VIEWPORT,
+    build: (data, { runSeed }) => ({ runState: null, teams: legendSampleTeams(data, runSeed), summary: "등록 팀 3 → (탭) [새 런 시작] → [★ 레전드] → 헤르타 · 실루엔" }),
+    steps: [{ text: "새 런 시작" }, { tap: ".setup-supports .legend-btn" },
+      { tap: '#modal-root .lg-team[data-idx="0"] .lg-pl[data-char="ch_giant_keeper"]' }, { tap: '#modal-root .lg-team[data-idx="1"] .lg-pl[data-char="ch_elf_playmaker"]' }],
+    ready: '#modal-root .legend-modal .lg-slot.filled[data-slot="1"]',
+    expect: { screen: "setup", modal: ".legend-modal" },
+  },
+  {
+    // 레전드 둘 (다른 등록 팀 — 하이파이브+ · 라인 올리기+) 을 데려간 런의 상담: 덱 그리드 작은 카드 "메모리" 띠 · 고른 메모리 카드 앞면 계열 줄 띠
+    name: "og_consult_memory",
+    title: "상담 — 레전드 메모리 카드 2장이 든 덱: 작은 카드 \"메모리\" 띠 · 고른 카드 앞면 띠",
+    outgame: true,
+    build: (data, { runSeed }) => {
+      const legends = [
+        { teamId: "t_demo_a", teamName: "우리 클럽", charId: "ch_giant_keeper", name: "헤르타", memoryCard: { cardId: "cd_line_up", plus: true } },
+        { teamId: "t_demo_b", teamName: "우리 클럽", charId: "ch_elf_playmaker", name: "실루엔", memoryCard: { cardId: "cd_high_five", plus: true } },
+      ];
+      const b = walkOrThrow("og_consult_memory", data, { seed: runSeed, legends, until: (s) => s.phase === "consult" && s.trainingPoints >= 30 });
+      return { ...b, summary: `${b.summary} (레전드 2 — 메모리 카드 ${b.runState.deck.filter((e) => e.src === "memory").map((e) => e.cardId).join(" · ")})` };
+    },
+    steps: [{ click: ".cs-deck-grid .mini-card.memory" }],
+    ready: ".cs-detail .card-face.memory .cf-mem",
+    expect: { screen: "run", phase: "consult", modal: false },
+  },
+  {
+    // 결과 화면 메모리 카드 줄 (감독 추천이 골라져 있다) → 칩 → 고르기 모달 (후보 작은 카드 · 추천 배지 · 고른 카드 앞면)
+    name: "og_result_memory",
+    title: "결과 화면 — 메모리 카드 줄 (감독 추천) → 고르기 모달 (후보 · 추천 · 앞면 · [이 카드로])",
+    outgame: true,
+    build: (data, { runSeed }) => walkOrThrow("og_result_memory", data, { seed: runSeed, until: (s) => s.phase === "finished" }),
+    steps: [{ click: ".res-memory .rm-pick" }],
+    ready: "#modal-root .memory-modal .rm-grid .mini-card.selected",
+    expect: { screen: "run", phase: "finished", modal: ".memory-modal" },
+  },
+  {
+    // 추천이 아닌 첫 후보로 바꿔 [팀 등록] → "남긴 메모리 카드" 칩 · [팀 등록 완료]
+    name: "og_result_memory_done",
+    title: "결과 화면 — 메모리 카드를 바꿔 [팀 등록] 한 뒤: 남긴 메모리 카드 · [팀 등록 완료]",
+    outgame: true,
+    build: (data, { runSeed }) => walkOrThrow("og_result_memory_done", data, { seed: runSeed, until: (s) => s.phase === "finished" }),
+    steps: [{ click: ".res-memory .rm-pick" }, { click: "#modal-root .rm-grid .mini-card:not(.recommended)" }, { click: "#modal-root .rm-ok" }, { text: "^팀 등록$" }],
+    ready: ".res-memory.done .mem-chip",
     expect: { screen: "run", phase: "finished", modal: false },
   },
 ];

@@ -244,6 +244,10 @@ test("jsdom: 아웃게임 화면 전부 스테이지 안에 그려지고 주요 
     assert.ok(chip.title.includes(sp.partyPassive.name) && chip.title.includes(`유대 80: ${sp.partyPassive.text80}`), `편성: ${sp.name} title = 이름 · 유대 80 글`);
     if (sp.partyPassive.text80 && sp.partyPassive.text80 !== sp.partyPassive.text) assert.ok(ppEl.querySelector(".sp-pp-80")?.textContent.startsWith(" · 80: "), `편성: ${sp.name} 유대 80 (둘째)`);
   }
+  // 레전드 (§24.9, U5): 코치 패널 머리 [★ 레전드 0/2] — 등록 팀 "테스트 클럽" 은 선수 정보가 없는 옛 저장본이라 데려갈 팀이 없다 → 잠금 (title 안내)
+  const legendBtn = $(".setup-supports .og-panel-head .legend-btn");
+  assert.ok(legendBtn && /레전드 0\/2/.test(legendBtn.textContent), "편성: 코치 패널 머리 [★ 레전드 0/2]");
+  assert.ok(legendBtn.disabled && /등록 팀이 없습니다/.test(legendBtn.closest(".legend-ctl").title), "편성: 데려갈 등록 팀이 없으면 레전드 잠금 (title)");
   assert.ok($(".setup-pitch .setup-tactics .tac-rows"), "편성: 전술 지시 = 미니 필드 아래 한 줄 (L48)");
   assert.equal($$(".setup-tactics .tac-row select").length, 4, "편성: 전술 4개 (공격 성향 · 슛 타이밍 · 수비 성향 · 배급)");
   // 훈련 방침: 전술 패널 아래 별도 패널, <select> 가 아닌 버튼 5개 (편성 화면의 select 는 포메이션 + 전술 4)
@@ -793,6 +797,10 @@ test("jsdom: 아웃게임 화면 전부 스테이지 안에 그려지고 주요 
   assert.ok($$(".player-result .stat-grid").every((g) => g.querySelectorAll(".cell").length === 5), "결과: 스탯 5칸");
   const acts = $(".result-actions");
   for (const re of [/^처음으로$/, /^새 런 \(랜덤 seed\)$/, /^다시 하기/, /^팀 등록/]) assert.ok(btnByText(re, acts), `결과 버튼 줄: ${re}`);
+  // 메모리 카드 줄 (§24.9, U5): [팀 등록] 왼쪽 · 처음엔 감독 추천 (manager.recommendMemoryCard)
+  const memRec = S.manager.recommendMemoryCard(S.store.run, data);
+  assert.ok(acts.querySelector(".res-memory") && acts.querySelector(".res-memory").nextElementSibling === btnByText(/^팀 등록$/, acts), "결과: 메모리 카드 줄 = [팀 등록] 왼쪽");
+  assert.equal(acts.querySelector(".res-memory .rm-pick .mem-chip")?.dataset.card, memRec.cardId, "결과: 메모리 카드 = 감독 추천");
   noErrorToast("결과");
 
   // ---------- 도전 모드 (2026-10-01): 시작 [도전 모드] → 팀 선택 · 사다리 · 미리보기 · 결과 모달 (tools/scenarios.mjs og_challenge* 와 같은 상태) ----------

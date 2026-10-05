@@ -10,7 +10,15 @@
 // 배치는 라인업 보드(js/ui/lineup.js): 선수 카드를 끌어 슬롯에 놓기 (초록 = 가능 · 빨강 = 불가), 눌러서 고른 뒤 자리 누르기도 된다.
 // L48: 코치 칩에 파티 패시브 (data.supports[].partyPassive — 글 + "80: …" 유대 80 글, 이름 · 전체 글은 title). 칩이 커져
 //   전술 지시 4개는 옆 칸에서 미니 필드 아래 한 줄로 옮겼다 (옆 칸 = 코치 · 훈련 방침).
-import { h, avatar, select, toast, panel, openModal, closeOverlays } from '../dom.js';
+// 레전드 (LESSON_PROTO_PLAN §24.9 · §24.13, U5): 코치 패널 머리 [★ 레전드 n/2] (고른 레전드 얼굴 · 메모리 카드 수) → 모달 =
+//   고른 레전드 칸 2 (얼굴 · 이름 · 팀 · 메모리 카드 · ✕) + 시작 덱에 들어갈 메모리 카드 줄 + 등록 팀 목록 (최신순 · 등급 · 메모리 카드 · 7명 얼굴).
+//   얼굴을 누르면 칸에 들어간다 (2명까지 · 이번 런 선수와 같은 캐릭터도 된다 · 다시 누르면 뺀다). 같은 등록 팀 (teamId) 에서 둘이면 카드는 1장 —
+//   엔진 memoryDeckCards 와 같은 규칙 (memoryDeckOf: 팀마다 처음 있는 메모리 카드) 으로 어느 카드가 들어가는지 적는다.
+//   데려갈 등록 팀 (선수가 남아 있는 팀) 이 없으면 버튼을 잠근다 (title 안내). 고른 레전드는 store.setup.legends (편성과 함께 — 다시 그려도 남는다),
+//   [런 시작] · [기본 편성으로 시작] 이 사본 [{ teamId, teamName, charId, name, memoryCard }] 을 startRun 에 넘긴다.
+import { h, avatar, select, toast, panel, openModal, closeOverlays, gradeBadge, fmtDate } from '../dom.js';
+import { loadTeams } from '../store.js';
+import { memoryChip } from '../cards.js';
 import {
   STATS, POSITIONS, slotsOf, positionOfSlot, POSITION_LABELS, ELEMENT_LABELS, ELEMENT_ICONS, STYLE_LABELS,
   RACE_LABELS, SUPPORT_TYPE_LABELS, TACTIC_SETUP_KEYS, TACTIC_LABELS, TACTIC_OPTIONS,
@@ -35,7 +43,104 @@ export function initSetup(data, seedPrefill = '') {
     },
     policy: data?.lesson?.defaultPolicy || 'team', // 훈련 방침 (LESSON_PROTO_PLAN §6.3) — createRun({ policy })
     seed: seedPrefill || '',
+    // 레전드 (§24.9): [{ teamId, teamName, charId, name, memoryCard, grade, registeredAt, color }] — 앞 5개 키만 createRun 에 넘긴다 (legendArgs)
+    legends: [],
   };
+}
+
+/** 편성에 데려갈 수 있는 레전드 수 (엔진 lessonRun.MAX_LEGENDS — 엔진이 없으면 2) */
+export function maxLegends(run) {
+  return Number.isInteger(run?.MAX_LEGENDS) && run.MAX_LEGENDS > 0 ? run.MAX_LEGENDS : 2;
+}
+
+/** 등록 팀 id (엔진 challenge.teamIdOf — 도전 모듈이 없으면 같은 재료의 문자열) */
+function teamIdOfTeam(team, challenge) {
+  try {
+    const id = challenge && typeof challenge.teamIdOf === 'function' ? challenge.teamIdOf(team) : null;
+    if (id) return id;
+  } catch (_) { /* 아래 */ }
+  return `t_${team?.seed ?? ''}|${team?.createdTurnIndex ?? ''}|${team?.registeredAt ?? ''}`;
+}
+
+/**
+ * 등록 팀의 메모리 카드를 레전드에 실을 수 있는가 — 엔진 검사 (lessonRun.legendErrors) 를 그대로 쓴다.
+ * 옛 등록 팀 (memoryCard 없음) · 지금 데이터에 없는 카드 · 고유 · 대비 · 코치 카드 · 강화할 수 없는 + 는 null (메모리 카드 없음 — 레전드는 그대로 데려간다).
+ * @returns {{ cardId: string, plus: boolean } | null}
+ */
+function usableMemory(run, data, mc, charId) {
+  if (!mc || typeof mc !== 'object' || Array.isArray(mc) || typeof mc.cardId !== 'string') return null;
+  const copy = { cardId: mc.cardId, plus: mc.plus === true };
+  if (!run || typeof run.legendErrors !== 'function') return null;
+  try {
+    return run.legendErrors(data, [{ teamId: 'check', charId, memoryCard: copy }]).length ? null : copy;
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * 레전드 모달의 등록 팀 목록 (최신순 — 등록 시각 내림차순, 같으면 저장 순서). 선수가 남은 팀만 (지금 데이터에 있는 캐릭터).
+ * 같은 팀 id 의 팀이 둘이어도 둘 다 보인다 (메모리 카드는 memoryDeckOf 가 엔진처럼 팀 id 마다 1장으로 센다).
+ * @param {object} data
+ * @param {{ run?: object, challenge?: object }} engines
+ * @param {object[]} [teams] 등록 팀 저장본 (기본 loadTeams())
+ * @returns {Array<{ teamId, team, name, grade, score, formation, registeredAt, memoryCard, hadMemory, players: Array<{ charId, name, color, slot }> }>}
+ */
+export function legendTeams(data, { run, challenge } = {}, teams = loadTeams()) {
+  const chars = new Map((Array.isArray(data?.characters) ? data.characters : []).map((c) => [c.id, c]));
+  const list = [];
+  (Array.isArray(teams) ? teams : []).forEach((t, i) => {
+    if (!t || typeof t !== 'object' || Array.isArray(t) || t.isSample) return;
+    const order = slotsOf(t.formation);
+    const rank = (slot) => { const k = order.indexOf(slot); return k < 0 ? order.length : k; }; // 슬롯 순서 (GK → FW), 모르는 슬롯은 뒤
+    const players = (Array.isArray(t.players) ? t.players : [])
+      .filter((p) => p && typeof p === 'object' && chars.has(p.charId))
+      .map((p) => ({ charId: p.charId, name: typeof p.name === 'string' && p.name ? p.name : chars.get(p.charId).name, color: p.portraitColor || chars.get(p.charId).portraitColor, slot: p.slot ?? '' }))
+      .sort((a, b) => rank(a.slot) - rank(b.slot));
+    if (!players.length) return;
+    const memoryCard = usableMemory(run, data, t.memoryCard, players[0].charId);
+    const time = Date.parse(t.registeredAt);
+    list.push({
+      i, time: Number.isFinite(time) ? time : -Infinity,
+      teamId: teamIdOfTeam(t, challenge), team: t,
+      name: typeof t.name === 'string' && t.name ? t.name : '우리 클럽',
+      grade: t.grade ?? t.rating?.cappedGrade ?? t.rating?.grade ?? '-',
+      score: t.score ?? t.rating?.score ?? null,
+      formation: t.formation ?? '',
+      registeredAt: t.registeredAt ?? null,
+      memoryCard, hadMemory: !!t.memoryCard,
+      players,
+    });
+  });
+  list.sort((a, b) => (b.time - a.time) || (a.i - b.i));
+  return list.map(({ i, time, ...rest }) => rest);
+}
+
+/**
+ * 시작 덱에 들어갈 메모리 카드 — 엔진 lessonRun createRun (memoryDeckCards) 과 같은 규칙: 레전드 순서대로, 팀 id 마다 처음 있는 메모리 카드 1장.
+ * (같은 팀 둘 = 1장. 같은 팀 id 인데 카드가 다르면 앞 레전드의 카드 — 뒤 것은 들어가지 않는다.)
+ * @returns {Array<{ cardId: string, plus: boolean, index: number }>} index = 그 카드를 가져온 레전드 번호
+ */
+export function memoryDeckOf(legends) {
+  const out = [];
+  const teams = new Set();
+  (Array.isArray(legends) ? legends : []).forEach((l, index) => {
+    if (!l || !l.memoryCard || teams.has(l.teamId)) return;
+    teams.add(l.teamId);
+    out.push({ cardId: l.memoryCard.cardId, plus: l.memoryCard.plus === true, index });
+  });
+  return out;
+}
+
+/** createRun 에 넘길 레전드 사본 (§24.9 — teamId · teamName · charId · name · memoryCard 만) */
+export function legendArgs(legends) {
+  return (Array.isArray(legends) ? legends : []).map((l) => ({
+    teamId: l.teamId,
+    teamName: l.teamName,
+    charId: l.charId,
+    name: l.name,
+    memoryCard: l.memoryCard ? { cardId: l.memoryCard.cardId, plus: l.memoryCard.plus === true } : null,
+  }));
 }
 
 /** 고를 수 있는 훈련 방침 id (data.policies 순서, 없으면 labels.POLICIES) */
@@ -50,7 +155,7 @@ function aptBadge(apt) {
 }
 
 export function renderSetup(root, ctx) {
-  const { store, data, actions } = ctx;
+  const { store, data, actions, run, challenge } = ctx;
   if (!store.setup) store.setup = initSetup(data);
   const s = store.setup;
   const cfg = data.config || {};
@@ -265,6 +370,127 @@ export function renderSetup(root, ctx) {
     );
   }));
 
+  // ---- 레전드 (§24.9 · §24.13): 코치 패널 머리 [★ 레전드 n/2] → 모달 (고른 칸 2 · 시작 덱 메모리 카드 · 등록 팀 목록) ----
+  const maxL = maxLegends(run);
+  s.legends = (Array.isArray(s.legends) ? s.legends : []).filter((l) => l && charById.has(l.charId)).slice(0, maxL);
+  const lteams = run ? legendTeams(data, { run, challenge }) : [];
+  const legendFace = (l, size, cls) => avatar(l.color || charById.get(l.charId)?.portraitColor, l.name, size, cls, { art: faceOf(l.charId) });
+  const memName = (mc) => {
+    const def = (data.cards?.cards || []).find((c) => c.id === mc.cardId);
+    return `「${def?.name ?? mc.cardId}${mc.plus ? '+' : ''}」`;
+  };
+  const teamLine = (l) => [l.teamName, l.grade && l.grade !== '-' ? l.grade : null, fmtDate(l.registeredAt)].filter(Boolean).join(' · ');
+  const memDeck = memoryDeckOf(s.legends);
+  const lockWhy = !run ? '엔진을 불러오지 못해 레전드를 고를 수 없습니다'
+    : !lteams.length ? '데려갈 등록 팀이 없습니다 — 런을 끝내고 결과 화면에서 [팀 등록]을 하면 그 팀 선수를 레전드로 데려갈 수 있습니다' : '';
+  const legendTitle = lockWhy || [
+    `레전드 ${s.legends.length}/${maxL} — 코치와 따로 등록 팀 선수를 데려간다 (경기 · 평가에는 나오지 않는다)`,
+    ...s.legends.map((l) => `· ${l.name} (${teamLine(l)})`),
+    `시작 덱 메모리 카드: ${memDeck.length ? memDeck.map(memName).join(' · ') : '없음'}`,
+  ].join('\n');
+  const legendCtl = h('span', { class: ['legend-ctl', lockWhy ? 'locked' : ''], title: legendTitle },
+    h('button', {
+      type: 'button',
+      class: ['btn', 'btn-sm', 'legend-btn', s.legends.length ? 'has' : ''],
+      disabled: !!lockWhy,
+      title: legendTitle, // 잠긴 버튼에도 (브라우저마다 비활성 요소 위에서 부모 title 이 안 보일 수 있다)
+      'aria-label': `레전드 ${s.legends.length}/${maxL}`,
+      onclick: () => openLegendModal(),
+    },
+    h('span', { class: 'lg-star', 'aria-hidden': 'true' }, '★'),
+    h('span', { class: 'lg-txt' }, `레전드 ${s.legends.length}/${maxL}`),
+    s.legends.length ? h('span', { class: 'lg-faces' }, s.legends.map((l) => legendFace(l, 'xs', 'lg-face'))) : null,
+    memDeck.length ? h('span', { class: 'lg-mem' }, `메모리 ${memDeck.length}`) : null));
+
+  /** 레전드 모달: 칸 2 · 시작 덱 메모리 카드 · 등록 팀 (최신순). 닫으면 편성 화면을 다시 그린다 (머리 버튼 갱신) */
+  function openLegendModal() {
+    if (lockWhy) return;
+    const box = h('div', { class: 'col legend-body' });
+    const m = openModal(box, { className: 'modal-lg legend-modal', onClose: () => rerender() });
+    const pickedAt = (teamId, charId) => s.legends.findIndex((l) => l.teamId === teamId && l.charId === charId);
+    const toggle = (t, p) => {
+      const k = pickedAt(t.teamId, p.charId);
+      if (k >= 0) s.legends = s.legends.filter((_, i) => i !== k);
+      else if (s.legends.length < maxL) {
+        s.legends = [...s.legends, {
+          teamId: t.teamId, teamName: t.name, charId: p.charId, name: p.name,
+          memoryCard: t.memoryCard ? { ...t.memoryCard } : null,
+          grade: t.grade, registeredAt: t.registeredAt, color: p.color, // 화면 표시용 (createRun 에는 legendArgs 가 뺀다)
+        }];
+      } else {
+        toast(`레전드는 ${maxL}명까지입니다 — ✕ 로 빼고 고르세요`, 'info', 2500);
+        return;
+      }
+      draw();
+    };
+    const draw = () => {
+      const deck = memoryDeckOf(s.legends);
+      const joined = new Set(deck.map((d) => d.index));
+      const full = s.legends.length >= maxL;
+      const anyDropped = s.legends.some((l, i) => !!l.memoryCard && !joined.has(i)); // 같은 팀 (팀 id) 둘 — 뒤 레전드 카드는 들어가지 않는다
+      const slots = h('div', { class: 'lg-slots' }, Array.from({ length: maxL }, (_, i) => {
+        const l = s.legends[i];
+        if (!l) {
+          return h('div', { class: 'lg-slot empty', dataset: { slot: String(i) } },
+            h('span', { class: 'lg-slot-plus', 'aria-hidden': 'true' }, '+'),
+            h('span', { class: 'small muted' }, `레전드 ${i + 1} — 아래 등록 팀에서 선수를 누르세요`));
+        }
+        const dropped = !!l.memoryCard && !joined.has(i); // 같은 팀 (팀 id) 의 앞 레전드가 이미 카드를 가져왔다
+        return h('div', { class: ['lg-slot', 'filled', dropped ? 'mem-dropped' : ''], dataset: { slot: String(i), team: l.teamId, char: l.charId } },
+          legendFace(l, 'md', 'lg-slot-face'),
+          h('span', { class: 'col lg-slot-txt' },
+            h('b', { class: 'lg-slot-nm ellipsis' }, l.name),
+            h('span', { class: 'tiny muted ellipsis' }, teamLine(l))),
+          h('span', { class: 'col lg-slot-mem' },
+            memoryChip(data, l.memoryCard, { cls: dropped ? 'dropped' : '' }),
+            h('span', { class: ['tiny', dropped ? 'warn' : 'muted', 'lg-slot-why'] },
+              !l.memoryCard ? '카드 없이 합류' : dropped ? '같은 팀 — 카드는 1장' : '시작 덱 +1')),
+          h('button', {
+            type: 'button', class: 'btn btn-sm btn-ghost lg-remove', title: `${l.name} 빼기`, 'aria-label': `${l.name} 빼기`,
+            onclick: () => { s.legends = s.legends.filter((_, k) => k !== i); draw(); },
+          }, '✕'));
+      }));
+      const list = h('div', { class: 'lg-teams og-scroll', role: 'list', 'aria-label': '등록 팀' }, lteams.map((t, ti) =>
+        h('div', { class: 'lg-team', role: 'listitem', dataset: { team: t.teamId, idx: String(ti) } },
+          gradeBadge(t.grade, 'mid'),
+          h('span', { class: 'col lg-team-txt' },
+            h('b', { class: 'ellipsis' }, t.name),
+            h('span', { class: 'tiny muted ellipsis' }, [t.formation, t.score != null ? `점수 ${Math.round(Number(t.score) || 0)}` : null, fmtDate(t.registeredAt)].filter(Boolean).join(' · ')),
+            memoryChip(data, t.memoryCard, { empty: t.hadMemory ? '메모리 카드 없음 (쓸 수 없는 카드)' : '메모리 카드 없음' })),
+          h('div', { class: 'lg-pls' }, t.players.map((p) => {
+            const k = pickedAt(t.teamId, p.charId);
+            const off = full && k < 0;
+            return h('button', {
+              type: 'button',
+              class: ['lg-pl', k >= 0 ? 'picked' : ''],
+              dataset: { char: p.charId },
+              disabled: off,
+              'aria-pressed': k >= 0 ? 'true' : 'false',
+              title: k >= 0 ? `${p.name} — 레전드 ${k + 1} (다시 누르면 뺀다)` : off ? `레전드는 ${maxL}명까지 — ✕ 로 빼고 고르세요` : `${p.name} 데려가기`,
+              onclick: () => toggle(t, p),
+            },
+            legendFace(p, 'sm', 'lg-pl-face'),
+            h('span', { class: 'lg-pl-nm' }, p.name),
+            k >= 0 ? h('span', { class: 'lg-pl-n', 'aria-hidden': 'true' }, String(k + 1)) : null);
+          })))));
+      box.replaceChildren(
+        h('div', { class: 'row between lg-head' },
+          h('div', { class: 'col' },
+            h('h3', {}, `레전드 ${s.legends.length}/${maxL} — 등록 팀 선수 데려가기`),
+            h('span', { class: 'tiny muted' }, `코치와 따로 ${maxL}칸. 레전드는 경기 · 평가에 나오지 않고, 그 팀이 남긴 메모리 카드 1장을 시작 덱에 넣는다. 이번 런 선수와 같은 캐릭터도 된다.`)),
+          h('button', { type: 'button', class: 'btn btn-sm btn-ghost', onclick: () => m.close() }, '닫기')),
+        slots,
+        list,
+        h('div', { class: 'row lg-foot' },
+          h('span', { class: 'lg-deck' },
+            h('span', { class: 'small muted' }, '시작 덱 메모리 카드'),
+            deck.length ? deck.map((d) => memoryChip(data, d, { cls: 'lg-deck-chip' })) : h('span', { class: 'small muted lg-deck-none' }, '없음'),
+            anyDropped ? h('span', { class: 'tiny warn lg-same' }, '같은 팀에서 둘 — 메모리 카드는 1장') : null),
+          h('button', { type: 'button', class: 'btn btn-primary lg-done', onclick: () => m.close() }, '완료')));
+    };
+    draw();
+  }
+
   // ---- 전술 (미니 필드 아래 한 줄 = 라벨 + 선택 4칸): 공격 성향 · 슛 타이밍 · 수비 성향 · 배급 (GK 배급 2026-09-29) ----
   const tacticsEl = h('div', { class: 'tac-rows' }, TACTIC_SETUP_KEYS.map((key) =>
     h('label', { class: 'tac-row' },
@@ -305,6 +531,7 @@ export function renderSetup(root, ctx) {
       tactics: { ...s.tactics },
       policy: s.policy,
       seed: (s.seed || '').trim() || randomSeed(),
+      legends: legendArgs(s.legends), // 레전드 사본 (§24.9)
     });
   }
   function startDefault() {
@@ -317,6 +544,7 @@ export function renderSetup(root, ctx) {
       tactics: { ...(cfg.defaultTactics || {}) },
       policy: s.policy, // 기본 편성이어도 고른 방침은 쓴다
       seed: (s.seed || '').trim() || randomSeed(),
+      legends: legendArgs(s.legends), // 고른 레전드도 그대로 데려간다
     });
   }
 
@@ -356,10 +584,13 @@ export function renderSetup(root, ctx) {
 
       h('div', { class: 'setup-side' },
         // 서포트 칩은 데이터 개수만큼 늘어난다 → 이 패널만 남는 높이를 쓰고 안쪽 스크롤 (훈련 방침 패널은 늘 보인다 — outgame.css)
+        // 머리 오른쪽 = ⚑ 안내 + [★ 레전드 n/2] (§24.9 — 코치와 따로 2칸)
         panel(`코치 ${s.supportIds.length}/${supportCount}`, {
           cls: ['grow-panel', 'setup-supports', s.supportIds.length === supportCount ? 'done' : ''].filter(Boolean).join(' '),
           scroll: true,
-          right: h('span', { class: 'tiny muted' }, `${supports.length}명 중 ${supportCount}명 · ⚑ = 파티 패시브`),
+          right: h('span', { class: 'sp-head-r' },
+            h('span', { class: 'tiny muted', title: `코치 ${supports.length}명 중 ${supportCount}명을 고른다 · ⚑ = 파티 패시브 (편성하면 런 내내 경기 전체에)` }, '⚑ 파티 패시브'),
+            legendCtl),
         }, supportGrid),
         // 훈련 방침 (레슨 버프 — 경기 전술 아님): 머리 = 고른 방침 설명, 버튼 5
         panel('훈련 방침', { cls: 'setup-policy', right: policyDesc }, policyEl)),
