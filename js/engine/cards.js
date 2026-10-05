@@ -227,13 +227,21 @@ export function mainStatsOf(position) {
   }
 }
 
-/** 이 선수가 지금 결장인가 (레슨 중이면 lesson.out, 아니면 injuredTurns > 0) */
+/**
+ * 이번 레슨의 남은 턴을 쉬는 선수인가 (레슨 깜짝 "남은 턴 쉼" — lesson.rested, §24.8 · E5). 레슨 밖이면 false.
+ * 쉬는 선수는 결장처럼 빠진다 (흩어지기 · 대상 · 기본 훈련 · 벤치 없음) — 벤치 칸과는 따로 센다.
+ */
+export function isRested(state, id) {
+  return !!(state.lesson && Array.isArray(state.lesson.rested) && state.lesson.rested.includes(id));
+}
+
+/** 이 선수가 지금 결장인가 (레슨 중이면 lesson.out · 쉬는 선수 lesson.rested, 아니면 injuredTurns > 0) */
 export function isOut(state, player) {
-  if (state.lesson && Array.isArray(state.lesson.out)) return state.lesson.out.includes(player.id);
+  if (state.lesson && Array.isArray(state.lesson.out)) return state.lesson.out.includes(player.id) || isRested(state, player.id);
   return (Number(player.injuredTurns) || 0) > 0;
 }
 
-/** 출전 선수 = 결장이 아닌 선수 (벤치 포함, state.players 순서) */
+/** 출전 선수 = 결장 · 쉼이 아닌 선수 (벤치 포함, state.players 순서) */
 export function activePlayers(state) {
   return (state.players || []).filter((p) => !isOut(state, p));
 }
@@ -368,6 +376,7 @@ export function shapeView(def, data) {
 function fieldOwner(state, def) {
   const owner = ownerOf(state, def);
   if (!owner) throw new Error(`'${def.name}': 주인이 명단에 없습니다`);
+  if (isRested(state, owner.id)) throw new Error(`'${def.name}': 주인이 이번 레슨은 쉬는 중입니다`);
   if (isOut(state, owner)) throw new Error(`'${def.name}': 주인이 결장 중입니다`);
   if (isBenched(state, owner.id)) throw new Error(`'${def.name}': 주인이 벤치에 있습니다`);
   if (!fieldPlayers(state).some((p) => p.id === owner.id)) throw new Error(`'${def.name}': 주인이 경기장에 없습니다`);
@@ -582,6 +591,7 @@ export function deadReason(state, def) {
   if (kind === "owner") {
     const owner = ownerOf(state, def);
     if (!owner) return "주인이 명단에 없습니다";
+    if (isRested(state, owner.id)) return "주인이 이번 레슨은 쉬는 중입니다";
     if (isOut(state, owner)) return "주인이 결장 중입니다";
     if (isBenched(state, owner.id)) return "주인이 벤치에 있습니다";
     if (!fieldPlayers(state).some((p) => p.id === owner.id)) return "주인이 경기장에 없습니다";

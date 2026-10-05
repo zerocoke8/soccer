@@ -9,7 +9,9 @@
  * - 런에 남는 효과 (§24.4.1, scope "run") 는 모든 트리거가 쓴다. 단 깜짝 (surprise) 은 §24.4.2 끝의 목록
  *   (stamina · teamwork · condition · bond · coachHint · playerHint · tp · random) 만.
  * - 레슨 안 효과 (§24.4.2, scope "lesson") 는 깜짝 전용. 적용은 ctx.applyLesson (E5 — lesson.resolveSurprise 가 넘긴다) 이 맡고,
- *   없으면 (레슨 밖) 적용하기 전에 throw 한다. 미리보기 · 기대값은 여기서 만든다.
+ *   없으면 (레슨 밖) 적용하기 전에 throw 한다. 미리보기 · 기대값은 여기서 만든다 (E5: 레슨 중이면 지금 점수 · 버프 단계를 보고 —
+ *   "점수 +40 (상한에 닿아 퍼펙트로 끝)" · "압박 +1단계 (2 → 3, 최대)" — buff 의 key 로 에이스형의 호조 · 집중을 가른다).
+ * - 수업 (teach · coachHint) 의 "남은 레슨 없음 → SP" 는 진행 중인 레슨도 남은 레슨으로 센다 (깜짝에서 얻은 수업은 그 레슨 보상에서 받는다).
  * - 옛 effects.js 의 적용 함수는 부르지 않는다 (MODIFIER_KEYS 목록만 같이 쓴다 — 경기가 읽는 보정 키). 범위 · 보정은 같게 다시 쓴다
  *   (statCap · 체력 0 ~ 100 · 컨디션 0 ~ 4 · 팀워크 0 ~ 100 · 유대 0 ~ 100 + bondGain · SP × (1 + skillPointGain)).
  * - lessonRun · lesson.js 를 import 하지 않는다 (순환 import 방지 — 공용 도우미는 lessonCommon).
@@ -111,7 +113,8 @@ export const EFFECTS = Object.freeze({
   drawNext: def("lesson", "다음 턴 손패", SURPRISE_ONLY, { n: true }),
   extraPlayNext: def("lesson", "다음 턴 카드 추가 사용", SURPRISE_ONLY, { n: true }),
   score: def("lesson", "이번 레슨 점수", SURPRISE_ONLY, { amount: true }),
-  buff: def("lesson", "방침 버프", SURPRISE_ONLY, { n: true }),
+  // key (E5): 방침 버프가 둘인 방침 (에이스형 호조 · 집중) 에서 어느 버프인지. 없으면 지금 방침의 첫 버프. 이벤트 맨 위 policy 와 같이 쓴다
+  buff: def("lesson", "방침 버프", SURPRISE_ONLY, { n: true, key: false }),
   restRemaining: def("lesson", "이번 레슨 남은 턴 쉼", SURPRISE_ONLY, { target: false, stamina: true }, { targets: ["player", "char"], defaultTarget: "player" }),
   injureNow: def("lesson", "지금 결장 (이번 레슨 남은 턴도)", SURPRISE_ONLY, { target: false }, { targets: ["player", "char"], defaultTarget: "player" }),
 });
@@ -165,6 +168,7 @@ function intIn(v, min, max, { nonZero = false } = {}) {
  * @property {Set<string>|string[]} [guaranteed]  편성 · 결장 아님이 보장된 캐릭터 (char:<id> 대상)
  * @property {boolean} [hasCoach]     그 이벤트의 코치가 있다 (coach 트리거 · coach 키 · 깜짝 coachCardOkThisTurn)
  * @property {boolean} [allowTeach]   액티브 수업 (teach) 을 줄 수 있다 (선수 전용 · 이야기 = false, R4)
+ * @property {string} [policy]        이벤트 맨 위 policy (깜짝 방침 이벤트 — buff 의 key 검사)
  * @property {boolean} [nested]       random 의 then / else 안
  */
 
@@ -388,9 +392,24 @@ function valueErrors(eff, ix, ctx, bad) {
       break;
     case "drawNext":
     case "extraPlayNext":
-    case "buff":
       if (has("n") && !intIn(eff.n, 1, 3)) bad(`'${type}' 의 n 은 1 ~ 3 정수 (지금 ${show(eff.n)})`);
       break;
+    case "buff": {
+      if (has("n") && !intIn(eff.n, 1, 3)) bad(`'${type}' 의 n 은 1 ~ 3 정수 (지금 ${show(eff.n)})`);
+      if (!has("key")) break;
+      const keys = Object.keys(BUFF_LABELS);
+      if (!keys.includes(eff.key)) {
+        bad(`buff 의 key ${show(eff.key)} — 방침 버프 ${keys.join(" · ")} 중 하나`);
+        break;
+      }
+      if (ctx.trigger && typeof ctx.policy !== "string") {
+        bad("buff 의 key 는 이벤트 맨 위 policy 와 같이 쓴다 (그 방침의 버프 — 없으면 key 를 빼고 지금 방침의 첫 버프)");
+        break;
+      }
+      const pol = typeof ctx.policy === "string" && ix ? ix.policies.get(ctx.policy) : null;
+      if (pol && Array.isArray(pol.buffs) && !pol.buffs.includes(eff.key)) bad(`buff 의 key '${eff.key}' 는 ${ctx.policy} 방침의 버프가 아니다 (${pol.buffs.join(" · ")})`);
+      break;
+    }
     case "score":
       amount(-200, 200);
       break;
@@ -432,6 +451,36 @@ export const MODIFIER_LABELS = Object.freeze({
 export const COUNT_MODIFIERS = Object.freeze(["goalMatchCondition", "lossPenaltyHalf", "gaanpaTicket", "gaanpaCostHalf"]);
 /** 방침 버프 한국어 이름 */
 export const BUFF_LABELS = Object.freeze({ hojo: "호조", focus: "집중", mood: "분위기", steal: "탈취", press: "압박", poss: "점유" });
+/** 방침 버프 단위 (미리보기 — "호조 +1장" · "압박 +1단계") */
+const BUFF_UNITS = Object.freeze({ hojo: "장", press: "단계" });
+
+/** 진행 중인 레슨 (레슨 깜짝 미리보기가 지금 점수 · 버프를 본다) — 없으면 null */
+function liveLesson(state) {
+  const L = state && state.lesson;
+  return L && L.status === "playing" ? L : null;
+}
+
+/**
+ * buff 효과 (§24.4.2) 의 버프와 단계: key (없으면 방침 — ctx.policy 또는 state.policy — 의 첫 버프), 레슨 중이면 지금 값 → 더한 값
+ * (탈취 · 압박 · 점유는 lesson.json buffs 의 상한까지 — lesson.applyBuffEffect 와 같다).
+ * @returns {{ key: string|null, live: boolean, before?: number, after?: number, atCap?: boolean }}
+ */
+function buffStep(state, data, e, ctx) {
+  let key = typeof e.key === "string" ? e.key : null;
+  if (!key) {
+    const pol = ((data.policies && data.policies.policies) || []).find((x) => x.id === ((ctx && ctx.policy) || state.policy));
+    key = pol && Array.isArray(pol.buffs) && pol.buffs.length ? pol.buffs[0] : null;
+  }
+  const L = liveLesson(state);
+  if (!key || !L) return { key, live: false };
+  const B = (data.lesson && data.lesson.buffs) || {};
+  const caps = { steal: B.stealCap, press: B.pressCap, poss: B.possCap };
+  const cap = Number.isFinite(caps[key]) ? caps[key] : null;
+  const before = Number(L.buffs && L.buffs[key]) || 0;
+  const raw = before + (Number(e.n) || 0);
+  const after = cap === null ? raw : Math.max(before, Math.min(cap, raw));
+  return { key, live: true, before, after, atCap: cap !== null && after >= cap };
+}
 
 /** lesson.json events.fallback (§24.3.6) — 없는 값은 기본값 */
 export function fallbackOf(data) {
@@ -593,6 +642,15 @@ function playerHintCands(state, data, p, skillId) {
   return passives.playerHintCands(state, data, p.id);
 }
 
+/**
+ * 수업 (pendingTeach) 을 받을 레슨이 남았나 — lessonCommon.lessonsLeft 에 지금 진행 중인 레슨 (레슨 깜짝, E5) 을 더한다:
+ * 레슨 중에 얻은 수업은 그 레슨의 보상 (afterLesson) 에서 받는다.
+ */
+function lessonsAhead(state, data) {
+  const now = state.phase === "lesson" && state.lesson && state.lesson.status === "playing" ? 1 : 0;
+  return now + C.lessonsLeft(state, data);
+}
+
 /** SP 효과의 실제 값 (양수면 × (1 + skillPointGain), effects.js 와 같다) */
 const spGain = (state, amount) => (amount > 0 ? Math.round(amount * (1 + getModifier(state, "skillPointGain"))) : Math.round(amount));
 /** 유대 효과의 실제 값 (양수면 + bondGain, effects.js 와 같다) */
@@ -714,13 +772,13 @@ function describeOne(state, data, e, ctx) {
       const skill = skillName(data, e.skillId);
       const teacher = teacherOf(state, data, e);
       if (!teacher) return `${describeOne(state, data, { type: "coachHint", from: "fielded" }, ctx)} — ${withJosa(skill, "을/를")} 가르칠 편성 코치가 없음`;
-      if (C.lessonsLeft(state, data) === 0) return `코치 수업: ${skill} → 남은 레슨이 없어 런 끝에 SP +${C.declineSpOf(data)}`;
+      if (lessonsAhead(state, data) === 0) return `코치 수업: ${skill} → 남은 레슨이 없어 런 끝에 SP +${C.declineSpOf(data)}`;
       return `코치 수업: ${skill} (${supportName(data, teacher)} — 다음 레슨 보상에서 가르칠 선수를 고른다)`;
     }
     case "coachHint": {
       const from = e.from === "fielded" ? "편성 코치" : supportName(data, e.from === "coach" ? ctx.supportId : e.from);
       if (!coachHintPossible(state, data, e.from, ctx)) return `SP ${signed(fb.noHintSp)} (가르칠 코치 스킬 없음)`;
-      if (C.lessonsLeft(state, data) === 0) return `코치 수업 1 → 남은 레슨이 없어 런 끝에 SP +${C.declineSpOf(data)}`;
+      if (lessonsAhead(state, data) === 0) return `코치 수업 1 → 남은 레슨이 없어 런 끝에 SP +${C.declineSpOf(data)}`;
       return `코치 수업 1 (${from} 액티브 중 무작위)`;
     }
     case "playerHint": {
@@ -735,7 +793,7 @@ function describeOne(state, data, e, ctx) {
       const p = Math.round(Number(e.chance) * 100);
       return `${p}%: ${describeList(state, data, e.then, ctx)} / ${100 - p}%: ${describeList(state, data, e.else, ctx)}`;
     }
-    // ---- 레슨 안 효과 (§24.4.2 — E5 가 다듬는다) ----
+    // ---- 레슨 안 효과 (§24.4.2, E5) — 레슨 중이면 지금 레슨 상태로 (상한 · 버프 단계) ----
     case "nextPct":
       return `다음 카드 위력 ${signed(Number(e.pct) || 0)}%`;
     case "nextNoFail":
@@ -744,17 +802,23 @@ function describeOne(state, data, e, ctx) {
       return `다음 턴 손패 +${e.n}`;
     case "extraPlayNext":
       return `다음 턴 카드 ${e.n}장 더 낼 수 있다`;
-    case "score":
-      return `이번 레슨 점수 ${signed(a)}`;
+    case "score": {
+      const L = liveLesson(state);
+      const reach = !!L && a > 0 && L.score < L.cap && L.score + a >= L.cap;
+      return `이번 레슨 점수 ${signed(a)}${reach ? " (상한에 닿아 퍼펙트로 끝)" : ""}`;
+    }
     case "buff": {
-      const pol = ((data.policies && data.policies.policies) || []).find((x) => x.id === (ctx.policy || state.policy));
-      const key = pol && Array.isArray(pol.buffs) ? pol.buffs[0] : null;
-      return `${(key && BUFF_LABELS[key]) || "방침 버프"} +${e.n}`;
+      const b = buffStep(state, data, e, ctx);
+      if (!b.key) return `방침 버프 +${e.n} (지금 방침에 버프 없음 — 효과 없음)`;
+      const label = `${BUFF_LABELS[b.key] || b.key} +${e.n}${BUFF_UNITS[b.key] || ""}`;
+      if (!b.live) return label;
+      if (b.after === b.before) return `${label} (이미 최대 ${b.before} — 효과 없음)`;
+      return `${label} (${b.before} → ${b.after}${b.atCap ? ", 최대" : ""})`;
     }
     case "restRemaining":
-      return `${targetLabel(state, e, ctx)} 이번 레슨 남은 턴 쉼 (대상 제외, 체력 +${e.stamina})`;
+      return `${targetLabel(state, e, ctx)} 이번 레슨 남은 턴 쉼 (대상 제외, 체력 +${Number(e.stamina) || 0})`;
     case "injureNow":
-      return `${targetLabel(state, e, ctx)} 결장 (이번 레슨 남은 턴도)`;
+      return `${targetLabel(state, e, ctx)} 결장 (이번 레슨 남은 턴도)`; // §24.4.2 예시 그대로 (적용 줄은 "· 다음 레슨 1회" 까지)
     default:
       return `${e.type}?`;
   }
@@ -832,7 +896,7 @@ function pushTeach(state, skillId, supportId) {
 
 /** 수업 1개 줄 (남은 레슨이 없으면 런 끝에 SP 로 바뀐다 — lessonRun 시즌 끝) */
 function teachLine(state, data, skillId, supportId) {
-  const tail = C.lessonsLeft(state, data) === 0 ? ` (남은 레슨이 없어 런 끝에 SP +${C.declineSpOf(data)})` : "";
+  const tail = lessonsAhead(state, data) === 0 ? ` (남은 레슨이 없어 런 끝에 SP +${C.declineSpOf(data)})` : "";
   return `코치 수업: ${skillName(data, skillId)}${supportId ? ` (${supportName(data, supportId)})` : ""}${tail}`;
 }
 
@@ -1141,10 +1205,10 @@ function scoreOne(state, data, e, ctx) {
     }
     case "teach":
       if (!teacherOf(state, data, e)) return scoreOne(state, data, { type: "coachHint", from: "fielded" }, ctx);
-      return C.lessonsLeft(state, data) === 0 ? C.declineSpOf(data) * SCORE.sp : SCORE.teach;
+      return lessonsAhead(state, data) === 0 ? C.declineSpOf(data) * SCORE.sp : SCORE.teach;
     case "coachHint":
       if (!coachHintPossible(state, data, e.from, ctx)) return fb.noHintSp * SCORE.sp;
-      return C.lessonsLeft(state, data) === 0 ? C.declineSpOf(data) * SCORE.sp : SCORE.teach;
+      return lessonsAhead(state, data) === 0 ? C.declineSpOf(data) * SCORE.sp : SCORE.teach;
     case "playerHint": {
       const p = (targetsOf(state, e, ctx) || [])[0] || null;
       return p && playerHintCands(state, data, p, e.skillId).length ? SCORE.playerHint : fb.noHintSp * SCORE.sp;
@@ -1164,8 +1228,11 @@ function scoreOne(state, data, e, ctx) {
       return (Number(e.n) || 0) * SCORE.extraPlayNext;
     case "score":
       return a * SCORE.score;
-    case "buff":
-      return (Number(e.n) || 0) * SCORE.buff;
+    case "buff": {
+      const b = buffStep(state, data, e, ctx);
+      if (!b.key) return 0;
+      return (b.live ? b.after - b.before : Number(e.n) || 0) * SCORE.buff;
+    }
     case "restRemaining": {
       const p = (targetsOf(state, e, ctx) || [])[0] || null;
       return (p ? staminaValue(p, Number(e.stamina) || 0) : 0) - SCORE.restLost;

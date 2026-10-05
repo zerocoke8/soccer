@@ -1,6 +1,6 @@
 // test/lessonContent.test.mjs — LESSON_PROTO_PLAN §24.3 · §24.15 (실제 레슨 이벤트 데이터 data/lesson_ev_*.json)
 // E1: 검사 통과 · id 하나 · 파일 목록 4곳 = EVENT_FILES. E2: 모든 선택지가 만든 런 중간 상태 위에서 오류 없이 적용 (뷰 · 고르기 · 갈래 둘 다).
-// E5 가 깜짝 이벤트의 레슨 안 효과를 더한다.
+// E5: 모든 깜짝 이벤트의 모든 선택지 (random 두 갈래) 를 만든 레슨 위에서 띄워 (lesson.forceSurprise) 고른다 — 레슨 안 효과까지.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -10,6 +10,7 @@ import { loadData, clone } from "./helpers.mjs";
 import * as LE from "../js/engine/lessonEvents.js";
 import * as LF from "../js/engine/lessonEffects.js";
 import * as LR from "../js/engine/lessonRun.js";
+import * as lesson from "../js/engine/lesson.js";
 import { createRngFromState } from "../js/engine/rng.js";
 import { exampleBase, exampleFor } from "../tools/events_doc.mjs";
 
@@ -92,13 +93,6 @@ function midRunBase(d) {
   return s;
 }
 
-/** 레슨 안 효과를 뺀 효과 목록 (random 갈래 안까지) — 깜짝 이벤트의 런 효과만 (E5 전까지) */
-function runEffectsOnly(effects) {
-  return (effects || []).filter((e) => !LF.isLessonEffect(e.type)).map((e) => (e.type === "random"
-    ? { ...e, then: (e.then || []).filter((x) => !LF.isLessonEffect(x.type)), else: (e.else || []).filter((x) => !LF.isLessonEffect(x.type)) }
-    : e));
-}
-
 /** 효과를 바로 적용 (고르는 카드는 첫 후보) */
 function applyDirect(state, effects, ctx) {
   const needs = LF.effectNeeds(state, data, effects);
@@ -109,7 +103,7 @@ function applyDirect(state, effects, ctx) {
   return out;
 }
 
-test("실제 데이터: 모든 이벤트의 모든 선택지가 런 중간 상태 위에서 오류 없이 뜨고 · 보이고 · 적용된다 (고르는 카드 uid · random 두 갈래 · 3택1 · 유물, 깜짝은 런 효과만 — E5 전)", () => {
+test("실제 데이터: 모든 이벤트의 모든 선택지가 런 중간 상태 위에서 오류 없이 뜨고 · 보이고 · 적용된다 (고르는 카드 uid · random 두 갈래 · 3택1 · 유물, 깜짝은 미리보기만 — 적용은 아래 E5 테스트)", () => {
   const events = LE.allEvents(data);
   assert.ok(events.length >= 1);
   const base = midRunBase(data);
@@ -123,16 +117,7 @@ test("실제 데이터: 모든 이벤트의 모든 선택지가 런 중간 상�
       assert.ok(Number.isFinite(LF.scoreEffects(ex.state, data, c.effects, ex.ctx)), `${ev.id}: 기대값`);
     }
     if (ev.trigger === "surprise") {
-      for (const c of ev.choices) {
-        for (const side of [null, "then", "else"]) {
-          const effects = runEffectsOnly(c.effects);
-          const rnd = effects.find((e) => e.type === "random");
-          if (side && !rnd) continue;
-          const list = side ? [...effects.filter((e) => e.type !== "random"), ...rnd[side]] : effects;
-          applyDirect(clone(ex.state), list, ex.ctx);
-          applied += 1;
-        }
-      }
+      applied += ev.choices.length; // 깜짝은 레슨 위에서 띄워 고른다 (아래 E5 테스트)
       continue;
     }
     ev.choices.forEach((c, i) => {
@@ -160,6 +145,74 @@ test("실제 데이터: 모든 이벤트의 모든 선택지가 런 중간 상�
           applyDirect(t, [...c.effects.filter((e) => e.type !== "random"), ...rnd[side]], { ...ex.ctx, playerId: ex.player ? ex.player.id : null });
           applied += 1;
         }
+      }
+    });
+  }
+  assert.ok(applied >= events.length * 2);
+});
+
+// ---------------------------------------------------------------------------
+// E5 — 모든 실제 깜짝 이벤트를 레슨 위에서 띄워 고른다 (§24.15)
+// ---------------------------------------------------------------------------
+
+/** 그 이벤트의 선택지 i 를 random 의 한 갈래로 고정한 데이터 사본 (얕은 사본 — 그 이벤트가 든 파일만 바꾼다) */
+function branchData(d, ev, i, side) {
+  const file = LE.EVENT_FILES.find((f) => d[f] && Array.isArray(d[f].events) && d[f].events.some((e) => e.id === ev.id));
+  const c = ev.choices[i];
+  const rnd = c.effects.find((e) => e.type === "random");
+  const choice = { ...c, effects: [...c.effects.filter((e) => e.type !== "random"), ...rnd[side]], result: c.result[side] };
+  const ev2 = { ...ev, choices: ev.choices.map((x, k) => (k === i ? choice : x)) };
+  if (ev.alt && ev.alt.banmal) {
+    const r = ev.alt.banmal.results[i];
+    ev2.alt = { banmal: { ...ev.alt.banmal, results: ev.alt.banmal.results.map((x, k) => (k === i && r && typeof r === "object" ? r[side] : x)) } };
+  }
+  return { ...d, [file]: { ...d[file], events: d[file].events.map((e) => (e.id === ev.id ? ev2 : e)) } };
+}
+
+/** 예시 편성 위에서 레슨을 연다 (결장 없음 · 그 이벤트의 방침 · 중점 구역 · 특별) — 1턴 */
+function lessonFor(state, d, ev) {
+  const s = clone(state);
+  for (const p of s.players) p.injuredTurns = 0;
+  if (typeof ev.policy === "string") s.policy = ev.policy;
+  const cond = ev.cond || {};
+  const zone = Array.isArray(cond.zoneIn) ? cond.zoneIn[0] : "pass";
+  s.phase = "week";
+  s.queue = [];
+  s.weekOffer = { kind: "lesson", specials: cond.special ? [zone] : [] };
+  LR.applyWeekAction(s, d, { type: "lesson", zone });
+  assert.equal(s.phase, "lesson", `${ev.id}: 레슨`);
+  return s;
+}
+
+test("실제 데이터 (E5): 모든 깜짝 이벤트의 모든 선택지 (random 두 갈래) 가 만든 레슨 위에서 뜨고 · 말풍선이 보이고 · 고르면 효과 (레슨 안 효과 포함) 뒤 레슨이 이어진다", () => {
+  const events = LE.allEvents(data).filter((ev) => ev.trigger === "surprise");
+  const base = midRunBase(data);
+  let applied = 0;
+  for (const ev of events) {
+    const ex = exampleFor(base, data, ev);
+    const supportId = ev.cond && ev.cond.coachCardOkThisTurn ? ex.state.supports[0].id : undefined;
+    ev.choices.forEach((c, i) => {
+      const rnd = c.effects.find((e) => e.type === "random");
+      for (const side of rnd ? ["then", "else"] : [null]) {
+        const d = side ? branchData(data, ev, i, side) : data;
+        const s = lessonFor(ex.state, d, ev);
+        lesson.forceSurprise(s, d, { eventId: ev.id, supportId });
+        assert.ok(s.lesson.surprise.pending, `${ev.id}: 떴다`);
+        const v = LR.getLessonView(s, d).surprise;
+        for (const t of [v.title, v.text, ...v.choices.map((x) => x.label), ...v.choices.map((x) => x.preview)]) {
+          assert.ok(t && !/[{}]|undefined/.test(t), `${ev.id}: 말풍선 글 — ${t}`);
+        }
+        assert.equal(v.choices.filter((x) => x.recommended).length, 1, `${ev.id}: 추천 하나`);
+        const turn = s.lesson.turn;
+        LR.resolveSurprise(s, d, { choice: i });
+        const f = s.lesson.surprise.fired;
+        assert.ok(f && f.eventId === ev.id && f.choice === i, `${ev.id}[${i}]`);
+        assert.ok(f.result && !/[{}]/.test(f.result), `${ev.id}[${i}]: 결과 문구 ${f.result}`);
+        if (side) assert.equal(f.branch, null, "갈래를 고정한 사본에는 random 이 없다");
+        assert.ok(s.lesson.status !== "playing" ? s.phase === "reward" : s.lesson.turn === turn + 1, `${ev.id}[${i}]: 다음 턴 또는 보상`);
+        assert.ok(LR.isLessonRun(s));
+        assert.equal(JSON.stringify(JSON.parse(JSON.stringify(s))), JSON.stringify(s));
+        applied += 1;
       }
     });
   }

@@ -5,8 +5,9 @@
  * 상태를 바꾸는 함수 (startLesson · playCard · benchPlayer · endLessonTurn) 는 (state, data, args) 를 받아 state 를 돌려준다.
  *   - rng 는 함수에 들어올 때 state.rngState 로 열고, 나가기 직전에 저장한다 (§8). 검증은 rng · 상태를 건드리기 전에 끝낸다.
  *   - 상태를 바꾸는 레슨 호출마다 lesson.seq +1, lesson.lastFx 를 덮어쓴다 (startLesson 은 seq 0).
- *   - rng 를 쓰는 곳: 섞기 · 코치 지원 붙을 턴 (레슨 시작, 섞기 뒤) · 흩어지기 (턴 시작, 뽑기보다 먼저) · 뽑기 ·
- *     코치 지원 붙기 (턴 시작, 뽑기 뒤) · 실패 · 부상 · 지원 능력의 확률 (hint · condition). benchPlayer 는 rng 를 쓰지 않는다.
+ *   - rng 를 쓰는 곳: 섞기 · 코치 지원 붙을 턴 (레슨 시작, 섞기 뒤) · 깜짝 계획 (레슨 시작, 붙을 턴 다음 — 켜져 있을 때만 2번) ·
+ *     흩어지기 (턴 시작, 뽑기보다 먼저) · 뽑기 · 코치 지원 붙기 (턴 시작, 뽑기 뒤) · 실패 · 부상 · 지원 능력의 확률 (hint · condition) ·
+ *     깜짝 고르기 · 주인공 (턴 끝, 다음 턴 시작 앞) · 깜짝 효과 (resolveSurprise — random · 힌트). benchPlayer 는 rng 를 쓰지 않는다.
  * 뷰 · 미리보기 · 후보 점 (getLessonView · previewCard · dropCandidates · lessonResult) 는 rng 를 쓰지 않고 상태를 바꾸지 않는다.
  *
  * 턴 (§14.3): 시작 = 벤치 비우기 → 흩어지기 → 뽑기 → 죽은 카드 다시 뽑기 / 행동 = 카드 끌어다 놓기 · 벤치 · [턴 끝] /
@@ -20,12 +21,25 @@
  * 코치 지원 · 컷인 (§15.1 ~ §15.5): 레슨 시작에 붙을 턴 attach.count 개 (C3 에서 4~5 — 컷인이 레슨당 2~4번이 되게) 를 정하고, 그 턴 시작에 편성 코치 1명이 손패 1장에 붙는다
  *   (lesson.attach.cur). 붙은 카드는 그 턴만 한 단계 강화되고, 내면 컷인 fx · 코치 능력 (lesson.json attach.abilities) · 유대.
  *
+ * 레슨 깜짝 이벤트 (L29 · §24.8, E5 — 조건 · 후보 · 주인공 · 뷰는 lessonSurprise.js):
+ *   - lesson.json events.surprise.enabled 일 때만 startLesson 이 계획한다 (lesson.surprise · turnLog · rested · nextExtraPlay · streak ·
+ *     lastTargeted). 꺼져 있으면 이 필드가 없고 rng 도 쓰지 않는다 — 1차와 같은 레슨.
+ *   - 턴 기록: beginTurn 이 비우고 playCard · drawOne · benchPlayer 가 쓴다 (lesson.turnLog 가 있을 때만).
+ *   - 띄우기: endTurn 의 상한 · 마지막 턴 검사 뒤, 다음 턴 앞 → lesson.surprise.pending + fx { t: "surprise" } 를 남기고 멈춘다.
+ *     기다리는 동안 playCard · benchPlayer · endLessonTurn 은 throw, 뷰는 surprise 를 싣고 canEndTurn · canBench = false.
+ *   - 해결 resolveSurprise: 효과 (레슨 안 효과는 여기 applyLessonEffect, 런 효과는 lessonEffects) → fx { t: "surpriseResult" } →
+ *     상한이면 레슨 끝, 아니면 다음 턴.
+ *   - 쉬는 선수 (lesson.rested — "남은 턴 쉼") 는 결장처럼 빠진다 (cards.isOut): 흩어지기 · 대상 · 기본 훈련 · 벤치 없음. 벤치 칸과 따로 센다.
+ *
  * 순수 로직: DOM/fetch/Date/Math.random/localStorage 를 쓰지 않는다.
  */
 import { createRngFromState } from "./rng.js";
 import { clamp, trainingMult, failRateForStamina, getModifier, STAT_LABELS } from "./training.js";
 import * as cards from "./cards.js";
 import * as zones from "./zones.js";
+import * as surprise from "./lessonSurprise.js";
+import { eventById } from "./lessonEvents.js";
+import { applyEffects } from "./lessonEffects.js";
 
 /** 부동소수 오차 없이 반올림 */
 const rnd = cards.roundCost;
@@ -76,7 +90,23 @@ function assertPlaying(state) {
   }
   const L = assertLesson(state);
   if (L.status !== "playing") throw new Error(`레슨이 이미 끝났습니다 (${L.status})`);
+  if (surprisePending(L)) throw new Error("레슨 깜짝 이벤트의 선택지를 먼저 고르세요 (resolveSurprise)");
   return L;
+}
+
+/** 기다리는 깜짝 이벤트 (없으면 null) */
+function surprisePending(L) {
+  return (L && L.surprise && L.surprise.pending) || null;
+}
+
+/** 이번 레슨의 남은 턴을 쉬는 선수 (깜짝 "남은 턴 쉼" — 없으면 빈 배열) */
+function restedOf(L) {
+  return Array.isArray(L.rested) ? L.rested : [];
+}
+
+/** 결장이거나 쉬는 중 (흩어지기 · 기본 훈련 · 벤치에서 빠진다) */
+function isAway(L, id) {
+  return L.out.includes(id) || restedOf(L).includes(id);
 }
 
 /** 카드 이름 접두 "'카드': " 를 뗀 오류 문구 (미리보기 reason 용) */
@@ -375,7 +405,7 @@ export function scatterZones(state, data, rng) {
   const fw = LD.lesson.focus.weight;
   const out = {};
   for (const p of state.players) {
-    if (L.out.includes(p.id)) continue;
+    if (isAway(L, p.id)) continue; // 결장 · 쉬는 선수 (깜짝 "남은 턴 쉼") 는 흩어지지 않는다
     out[p.id] = rng.weighted(zones.ZONE_IDS, (z) => zones.zoneWeight(cfg, p.position, z, L.zone, fw));
   }
   L.zones = out;
@@ -396,7 +426,7 @@ function baseUnit(state, data) {
 function baseGainOf(state, data, p) {
   const L = state.lesson;
   const z = L.zones && L.zones[p.id];
-  if (!z || L.out.includes(p.id) || (L.bench || []).includes(p.id)) return { zone: z || null, g: 0, gain: 0 };
+  if (!z || isAway(L, p.id) || (L.bench || []).includes(p.id)) return { zone: z || null, g: 0, gain: 0 };
   const g = rnd(baseUnit(state, data) * growthOf(p, z) * zoneMult(L, data, z) * commonMult(state, data));
   const gain = Math.max(0, Math.min(g, data.config.statCap - p.stats[z]));
   return { zone: z, g, gain };
@@ -413,7 +443,7 @@ function turnEndTraining(state, data, fx) {
   const unit = baseUnit(state, data);
   for (const p of state.players) {
     const b = baseGainOf(state, data, p);
-    if (!b.zone || L.out.includes(p.id) || L.bench.includes(p.id)) continue;
+    if (!b.zone || isAway(L, p.id) || L.bench.includes(p.id)) continue;
     if (b.gain > 0) {
       p.stats[b.zone] += b.gain;
       L.score += b.gain;
@@ -849,6 +879,7 @@ function drawOne(L, rng) {
     if (!L.discard.length) return false;
     L.drawPile = rng.shuffle(L.discard);
     L.discard = [];
+    if (L.turnLog) L.turnLog.reshuffled = true; // 깜짝 턴 기록 (reshuffledThisTurn)
   }
   L.hand.push(L.drawPile.shift());
   return true;
@@ -858,16 +889,25 @@ function deadOf(state, data, uid) {
   return cards.deadReason(state, lessonCardDef(state, data, uid));
 }
 
-/** 턴 시작: 출전 0명이면 끝, 아니면 ① 벤치 비우기 ② 흩어지기 ③ 3 + drawNext 장 뽑기 ④ 죽은 카드 다시 뽑기 ⑤ playsLeft 1 */
+/**
+ * 턴 시작: 출전 0명이면 끝, 아니면 ① 벤치 비우기 (깜짝 턴 기록도) ② 흩어지기 ③ 3 + drawNext 장 뽑기 ④ 죽은 카드 다시 뽑기
+ * ⑤ playsLeft 1 (+ 깜짝 "다음 턴 추가 사용" nextExtraPlay)
+ */
 function beginTurn(state, data, rng, fx) {
   const L = state.lesson;
   if (cards.activePlayers(state).length === 0) return finishLesson(state, data, fx); // D45
   L.bench = [];
+  if (L.turnLog) L.turnLog = surprise.turnLogBlank();
   const zoneMap = scatterZones(state, data, rng);
   fx.push({ t: "scatter", zones: { ...zoneMap } });
+  if (L.turnLog) L.turnLog.emptyAtStart = zones.ZONE_IDS.filter((z) => !Object.values(zoneMap).includes(z));
   const n = lessonData(data).lesson.hand + (L.drawNext || 0);
   L.drawNext = 0;
   L.playsLeft = 1;
+  if (L.nextExtraPlay) {
+    L.playsLeft += L.nextExtraPlay;
+    L.nextExtraPlay = 0;
+  }
   L.playedThisTurn = 0;
   for (let i = 0; i < n; i++) if (!drawOne(L, rng)) break;
   const limit = L.drawPile.length + L.discard.length + L.hand.length;
@@ -882,8 +922,12 @@ function beginTurn(state, data, rng, fx) {
   attachTurn(state, data, rng, fx);
 }
 
-/** 턴 끝 (§14.3): ① 기본 훈련 ② 벤치 회복 ③ 분위기 감소 ④ 퍼펙트 판정 ⑤ 손패 버림 ⑥ 마지막 턴이면 끝, 아니면 다음 턴 시작 */
-function endTurn(state, data, rng, fx) {
+/**
+ * 턴 끝 (§14.3): ① 기본 훈련 ② 벤치 회복 ③ 분위기 감소 ④ 퍼펙트 판정 ⑤ 손패 버림 ⑥ 마지막 턴이면 끝,
+ * ⑦ 레슨 깜짝 (§24.8 — 띄우면 다음 턴을 시작하지 않고 멈춘다), 아니면 다음 턴 시작.
+ * forced = 도구 · 테스트가 띄울 깜짝 ({ ev, playerId?, supportId? } — forceSurprise). 없으면 계획 · 조건대로.
+ */
+function endTurn(state, data, rng, fx, forced = null) {
   const L = state.lesson;
   turnEndTraining(state, data, fx);
   turnEndBuffs(state, data, fx);
@@ -893,8 +937,154 @@ function endTurn(state, data, rng, fx) {
   L.hand = [];
   if (L.attach) L.attach.cur = null; // 안 낸 지원은 턴 끝에 떨어진다 (§15.1 ③)
   if (L.turn >= L.turns) return finishLesson(state, data, fx);
+  if (forced ? fireSurprise(state, data, rng, fx, forced.ev, { ...forced, forced: true }) : checkSurprise(state, data, rng, fx)) return;
   L.turn += 1;
   beginTurn(state, data, rng, fx);
+}
+
+// ---------------------------------------------------------------------------
+// 레슨 깜짝 이벤트 (L29 · §24.8, E5) — 띄우기 · 레슨 안 효과
+// ---------------------------------------------------------------------------
+
+/** 턴 끝 깜짝 확인: 계획 · 범위 → 후보 → 가중치 뽑기 (rng) → 띄우기. 띄웠으면 true */
+function checkSurprise(state, data, rng, fx) {
+  if (!surprise.shouldCheck(state, data)) return false;
+  const list = surprise.candidates(state, data);
+  if (!list.length) return false;
+  const ev = rng.weighted(list, surprise.surpriseWeight);
+  return fireSurprise(state, data, rng, fx, ev, {});
+}
+
+/**
+ * 깜짝을 띄운다: 주인공 (opts.playerId 가 없으면 후보 중 — 여럿이면 rng) · 코치 (실패 없이 끝난 이번 턴 코치 카드) →
+ * lesson.surprise.pending, 런 1회 기록 (usedEventIds), fx { t: "surprise" }. 이번 턴은 더 낼 수 없다.
+ */
+function fireSurprise(state, data, rng, fx, ev, opts) {
+  const L = state.lesson;
+  if (!L.surprise) L.surprise = surprise.surpriseBlank();
+  let playerId = opts.playerId || null;
+  if (!playerId) {
+    playerId = surprise.pickSurpriseProtagonist(state, data, ev, rng);
+    // 도구가 조건 없이 띄운 것 (forceSurprise) 은 후보가 없으면 결장 · 쉼 아닌 첫 선수
+    if (!playerId && opts.forced && ev.who && ev.who.pick && ev.who.pick !== "none") {
+      const first = surprise.readyPlayers(state)[0];
+      playerId = first ? first.id : null;
+    }
+  }
+  const supportId = opts.supportId || surprise.surpriseCoach(state);
+  L.surprise.pending = { eventId: ev.id, playerId, supportId: supportId || null, charIds: surprise.surpriseCharIds(state, ev), turn: L.turn };
+  if (!Array.isArray(state.usedEventIds)) state.usedEventIds = [];
+  if (!state.usedEventIds.includes(ev.id)) state.usedEventIds.push(ev.id);
+  L.playsLeft = 0;
+  fx.push({ t: "surprise", eventId: ev.id, playerId, supportId: supportId || null });
+  return true;
+}
+
+/** 깜짝 효과의 대상 선수 (target player = 주인공 · char:<id> = 그 캐릭터 선수) */
+function surpriseTarget(state, e, pend) {
+  const t = e.target === undefined ? "player" : e.target;
+  if (typeof t === "string" && t.startsWith("char:")) return state.players.find((p) => p.charId === t.slice(5)) || null;
+  return pend.playerId ? playerById(state, pend.playerId) : null;
+}
+
+/** "+40" · "−20" */
+function signedText(n) {
+  return n < 0 ? `−${-n}` : `+${n}`;
+}
+
+/**
+ * 레슨 안 효과 1개 (§24.4.2 — lessonEffects.applyEffects 의 ctx.applyLesson). 결과 한 줄 (한국어) 을 돌려준다.
+ *   nextPct (L.buffs.nextPct += pct/100, −100% 아래로는 내려가지 않는다) · nextNoFail · drawNext (다음 턴 손패) ·
+ *   extraPlayNext (L.nextExtraPlay → 다음 beginTurn 의 playsLeft) · score (점수에만 — L.surprise.bonus 에도 적는다) ·
+ *   buff (지금 방침의 버프 한 단위 × n — key 가 있으면 그 버프, applyBuffEffect 의 상한) ·
+ *   restRemaining (L.rested — 남은 턴 대상 · 흩어지기 · 기본 훈련 제외, 벤치에서도 뺀다, 체력 +stamina 지금) · injureNow (injure).
+ */
+function applyLessonEffect(state, data, e, pend, fx) {
+  const L = state.lesson;
+  switch (e.type) {
+    case "nextPct": {
+      const v = Math.max(-1, Math.round(((Number(L.buffs.nextPct) || 0) + e.pct / 100) * 1000) / 1000);
+      setBuff(L, "nextPct", v, fx);
+      return `다음 카드 위력 ${signedText(e.pct)}%`;
+    }
+    case "nextNoFail":
+      setBuff(L, "nextNoFail", true, fx);
+      return "다음 카드 실패 판정 없음";
+    case "drawNext":
+      L.drawNext = (L.drawNext || 0) + e.n;
+      return `다음 턴 손패 +${e.n}`;
+    case "extraPlayNext":
+      L.nextExtraPlay = (Number(L.nextExtraPlay) || 0) + e.n;
+      return `다음 턴 카드 ${e.n}장 더 낼 수 있다`;
+    case "score": {
+      L.score += e.amount;
+      L.surprise.bonus = (Number(L.surprise.bonus) || 0) + e.amount;
+      fx.push({ t: "score", n: e.amount, src: "surprise" });
+      return `이번 레슨 점수 ${signedText(e.amount)}`;
+    }
+    case "buff": {
+      const keys = policyBuffKeys(state, data);
+      const key = e.key || keys[0] || null;
+      if (!key) return "방침 버프 없음 (효과 없음)";
+      const before = Number(L.buffs[key]) || 0;
+      applyBuffEffect(state, data, { type: key, n: e.n }, { fx });
+      const after = Number(L.buffs[key]) || 0;
+      const label = BUFF_CHIP_LABELS[key] || key;
+      return after === before ? `${label} 이미 최대 (효과 없음)` : `${label} ${before} → ${after}`;
+    }
+    case "restRemaining": {
+      const p = surpriseTarget(state, e, pend);
+      if (!p) return "쉴 선수 없음";
+      if (!isAway(L, p.id)) {
+        if (!Array.isArray(L.rested)) L.rested = [];
+        L.rested.push(p.id);
+        L.bench = L.bench.filter((id) => id !== p.id);
+        delete L.zones[p.id];
+        fx.push({ t: "rest", id: p.id });
+      }
+      addStamina(p, Number(e.stamina) || 0, fx, "surprise");
+      return `${p.name} 이번 레슨 남은 턴 쉼 (체력 +${Number(e.stamina) || 0})`;
+    }
+    case "injureNow": {
+      const p = surpriseTarget(state, e, pend);
+      if (!p) return "결장할 선수 없음";
+      if (L.out.includes(p.id)) return `${p.name} 이미 결장 중`;
+      L.rested = restedOf(L).filter((id) => id !== p.id);
+      injure(state, data, p);
+      L.stats.injuries += 1;
+      fx.push({ t: "injure", id: p.id, src: "surprise" });
+      return `${p.name} 결장 (이번 레슨 남은 턴 · 다음 레슨 1회)`;
+    }
+    default:
+      throw new Error(`알 수 없는 레슨 안 효과 '${e.type}'`);
+  }
+}
+
+/**
+ * 깜짝 턴 기록 (§24.8 — lesson.turnLog 가 있을 때만): 낸 카드 한 줄 { uid, cardId, family, kind (대상 종류), shape (고유 카드 모양),
+ * targets (서로 다른 대상), failed (실패 선수 | null), coach (코치 카드의 코치 | null), ownerId (고유 카드 주인 | null) } · 실패 선수 ·
+ * 마지막 대상 턴 L.lastTargeted · 연속 대상 L.streak { n, turn } — 단일 카드 대상 · 고유 카드의 주인 · 받는 선수만 센다
+ * (원 · 구역의 동료는 세지 않는다 — R6). 같은 턴에 두 번 대상이 돼도 한 번, 지난 턴에 이어지면 +1, 아니면 1 부터.
+ */
+function recordPlay(L, { uid, def, plan, failerId, ownerId }) {
+  const kind = def.target.kind;
+  L.turnLog.plays.push({
+    uid, cardId: def.id, family: def.family, kind, shape: def.shape ? def.shape.kind : null,
+    targets: plan.T.slice(), failed: failerId || null,
+    coach: def.family === "coach" && def.coach ? def.coach.supportId : null,
+    ownerId: ownerId || null,
+  });
+  if (failerId && !L.turnLog.failed.includes(failerId)) L.turnLog.failed.push(failerId);
+  if (!L.lastTargeted || typeof L.lastTargeted !== "object") L.lastTargeted = {};
+  for (const id of plan.T) L.lastTargeted[id] = L.turn;
+  if (kind !== "single" && kind !== "owner") return;
+  if (!L.streak || typeof L.streak !== "object") L.streak = {};
+  const ids = [...new Set(plan.rows.filter((r) => kind === "single" || r.role === "owner" || r.role === "recv").map((r) => r.id))];
+  for (const id of ids) {
+    const s = L.streak[id];
+    if (s && s.turn === L.turn) continue;
+    L.streak[id] = { n: s && s.turn === L.turn - 1 ? s.n + 1 : 1, turn: L.turn };
+  }
 }
 
 /** 레슨 끝: 한나 효과 (결장이 아닌 선수) → 결과 판정 (+ 퍼펙트 체력, 7명) */
@@ -1086,6 +1276,8 @@ export function startLesson(state, data, { zone, special = false, prep = false, 
     attach: newAttach(),
   };
   planAttachTurns(state, data, rng);
+  // 레슨 깜짝 계획 (§24.8): 켜져 있을 때만 rng 2번 + 깜짝 필드. 꺼져 있으면 필드도 rng 도 없다 (1차와 같은 레슨)
+  if (surprise.surpriseCfg(data).enabled) surprise.planSurprise(state.lesson, data, rng);
   const fx = [];
   beginTurn(state, data, rng, fx);
   state.lesson.lastFx = fx;
@@ -1128,6 +1320,7 @@ export function playCard(state, data, { uid, at, playerId, zone } = {}) {
   if (sp && sp.move) {
     L.zones[sp.move.id] = sp.move.to;
     fx.push({ t: "move", id: sp.move.id, from: sp.move.from, to: sp.move.to });
+    if (L.turnLog && !L.turnLog.moved.includes(sp.move.id)) L.turnLog.moved.push(sp.move.id); // 깜짝 턴 기록 (movedThisTurn)
   }
 
   // 7. 비용 지불 (서로 다른 선수마다 1번)
@@ -1235,6 +1428,7 @@ export function playCard(state, data, { uid, at, playerId, zone } = {}) {
   // 13. 기록 · 카드 이동 · 퍼펙트 · 사용 횟수
   for (const id of T) L.targeted[id] = (L.targeted[id] || 0) + 1;
   const owner = def.family === "unique" ? cards.ownerOf(state, def) : null;
+  if (L.turnLog) recordPlay(L, { uid, def, plan, failerId, ownerId: owner ? owner.id : null });
   if (owner && L.out.includes(owner.id)) L.removed.push(uid);
   else if (def.exhaust) L.exhausted.push(uid);
   else L.discard.push(uid);
@@ -1268,14 +1462,19 @@ export function benchPlayer(state, data, { playerId, on = true } = {}) {
   const max = lessonData(data).lesson.bench.max;
   if (on) {
     if (L.out.includes(p.id)) throw new Error(`${p.name || p.id}: 결장 중인 선수는 벤치로 보낼 수 없습니다`);
+    if (restedOf(L).includes(p.id)) throw new Error(`${p.name || p.id}: 이번 레슨은 쉬는 중입니다`);
     if (L.bench.includes(p.id)) throw new Error(`${p.name || p.id}: 이미 벤치에 있습니다`);
     if (!L.zones[p.id]) throw new Error(`${p.name || p.id}: 경기장에 없습니다`);
     if (L.bench.length >= max) throw new Error(`벤치는 한 턴에 최대 ${max}명입니다`);
     L.bench.push(p.id);
     L.stats.benches += 1;
+    // 깜짝 턴 기록 (benchedThisTurn) · 벤치에 앉으면 연속 대상이 끊긴다 (R6)
+    if (L.turnLog && !L.turnLog.benched.includes(p.id)) L.turnLog.benched.push(p.id);
+    if (L.streak && L.streak[p.id]) delete L.streak[p.id];
   } else {
     if (!L.bench.includes(p.id)) throw new Error(`${p.name || p.id}: 벤치에 없습니다`);
     L.bench = L.bench.filter((id) => id !== p.id);
+    if (L.turnLog) L.turnLog.benched = L.turnLog.benched.filter((id) => id !== p.id);
   }
   L.seq += 1;
   L.lastFx = [{ t: "bench", id: p.id, on: !!on }];
@@ -1294,6 +1493,92 @@ export function endLessonTurn(state, data) {
   const fx = [];
   L.playsLeft = 0;
   endTurn(state, data, rng, fx);
+  L.seq += 1;
+  L.lastFx = fx;
+  state.rngState = rng.getState();
+  return state;
+}
+
+/**
+ * 레슨 깜짝 이벤트 선택지를 고른다 (§24.8). 검사 (기다리는 깜짝 · 선택지 번호 · 글 · 효과 검사) 를 먼저 끝내고 그 뒤에 바꾼다.
+ * rng 를 한 번 열어: 효과 (레슨 안 효과 = applyLessonEffect, 런 효과 = lessonEffects — 코치 bond "coach" = 이번 턴 코치 카드의 코치) →
+ * fx { t: "surpriseResult", eventId, choice, branch, text, lines } → pending 을 비우고 fired 에 남긴다 →
+ * 점수 ≥ 상한이면 레슨 끝 (퍼펙트), 아니면 L.turn + 1 · 다음 턴 시작 → seq · lastFx · rng 저장.
+ * phase 이동 (레슨이 끝났으면 보상) 은 lessonRun.resolveSurprise 가 한다.
+ * 기다리던 깜짝이 데이터에서 빠졌으면 (저장한 뒤 콘텐츠가 바뀌었다) 선택지는 0 ("계속한다") 하나 — 효과 없이 잇는다 (fired.missing).
+ * @param {object} state
+ * @param {object} data
+ * @param {{ choice: number }} args
+ * @returns {object} state
+ */
+export function resolveSurprise(state, data, { choice } = {}) {
+  if (state.phase !== undefined && state.phase !== null && state.phase !== "lesson") {
+    throw new Error(`이 행동은 phase 'lesson' 에서만 할 수 있습니다 (지금: '${state.phase}')`);
+  }
+  const L = assertLesson(state);
+  if (L.status !== "playing") throw new Error(`레슨이 이미 끝났습니다 (${L.status})`);
+  const pend = surprisePending(L);
+  if (!pend) throw new Error("기다리는 레슨 깜짝 이벤트가 없습니다");
+  const found = eventById(data, pend.eventId);
+  // 저장한 뒤 데이터에서 빠진 깜짝: 효과 없이 "계속한다" 하나 (뷰 = lessonSurprise 의 빈 말풍선)
+  const ev = found && found.trigger === "surprise" ? found : null;
+  const nChoices = ev ? ev.choices.length : 1;
+  const idx = Number(choice);
+  if (!Number.isInteger(idx) || idx < 0 || idx >= nChoices) {
+    throw new Error(`선택지 번호가 잘못되었습니다: ${choice} (0~${nChoices - 1})`);
+  }
+  const texts = ev
+    ? surprise.surpriseTexts(state, data, ev, pend) // 글을 먼저 (바꾸기 전에 실패하게)
+    : { title: "레슨 깜짝", labels: [surprise.MISSING_LABEL], results: [{ then: "", else: "" }] };
+  const rng = createRngFromState(state.rngState);
+  const fx = [];
+  let out = { branch: null, lines: [] };
+  if (ev) {
+    const ctx = { ...surprise.surpriseCtx(ev, pend), applyLesson: (st, d, e) => applyLessonEffect(st, d, e, pend, fx) };
+    out = applyEffects(state, data, ev.choices[idx].effects, ctx, rng); // 검사 실패면 아무것도 바꾸지 않고 throw
+  }
+  const result = out.branch === "else" ? texts.results[idx].else : texts.results[idx].then;
+  fx.push({ t: "surpriseResult", eventId: pend.eventId, choice: idx, branch: out.branch, text: result, lines: out.lines.slice() });
+  L.surprise.pending = null;
+  L.surprise.fired = {
+    eventId: pend.eventId, turn: pend.turn, playerId: pend.playerId || null, supportId: pend.supportId || null,
+    choice: idx, branch: out.branch, title: texts.title, label: texts.labels[idx], result, lines: out.lines.slice(),
+    ...(ev ? {} : { missing: true }),
+  };
+  if (L.score >= L.cap) finishLesson(state, data, fx);
+  else if (L.turn >= L.turns) finishLesson(state, data, fx);
+  else {
+    L.turn += 1;
+    beginTurn(state, data, rng, fx);
+  }
+  L.seq += 1;
+  L.lastFx = fx;
+  state.rngState = rng.getState();
+  return state;
+}
+
+/**
+ * 도구 · 테스트용 (장면 · 콘텐츠 검사): 지금 턴을 끝내고 (endLessonTurn 과 같다) 그 깜짝 이벤트를 조건 · 계획과 상관없이 띄운다.
+ * 주인공 = opts.playerId, 없으면 그 이벤트의 후보 (여럿이면 rng), 후보가 없으면 결장 · 쉼 아닌 첫 선수. 코치 = opts.supportId,
+ * 없으면 이번 턴 코치 카드. 깜짝 필드가 없는 레슨 (꺼져 있을 때) 에는 계획 없는 빈 값을 만든다. 이번 턴 끝에 레슨이 끝나면 띄우지 않는다.
+ * @param {object} state
+ * @param {object} data
+ * @param {{ eventId: string, playerId?: string, supportId?: string }} opts
+ * @returns {object} state
+ */
+export function forceSurprise(state, data, { eventId, playerId, supportId } = {}) {
+  const L = assertPlaying(state);
+  const ev = eventById(data, eventId);
+  if (!ev || ev.trigger !== "surprise") throw new Error(`레슨 깜짝 이벤트 '${eventId}' 이(가) 데이터에 없습니다`);
+  if (playerId != null) playerById(state, playerId);
+  if (!L.surprise) L.surprise = surprise.surpriseBlank();
+  if (!L.turnLog) L.turnLog = surprise.turnLogBlank();
+  if (!Array.isArray(L.rested)) L.rested = [];
+  if (!Number.isFinite(L.nextExtraPlay)) L.nextExtraPlay = 0;
+  const rng = createRngFromState(state.rngState);
+  const fx = [];
+  L.playsLeft = 0;
+  endTurn(state, data, rng, fx, { ev, playerId: playerId || null, supportId: supportId || null });
   L.seq += 1;
   L.lastFx = fx;
   state.rngState = rng.getState();
@@ -1370,8 +1655,11 @@ export function getLessonView(state, data) {
   const L = assertLesson(state);
   const LD = lessonData(data);
   const Z = LD.zones;
+  const pending = !!surprisePending(L);
   const playing = L.status === "playing";
+  const live = playing && !pending; // 깜짝을 기다리는 동안은 손패 · 벤치 · [턴 끝] 을 잠근다 (§24.8)
   const bench = (L.bench || []).slice();
+  const rested = restedOf(L);
   return {
     season: state.season, week: state.turn,
     zone: L.zone, special: L.special, prep: L.prep, policy: state.policy || null,
@@ -1385,8 +1673,8 @@ export function getLessonView(state, data) {
     positions: cards.fieldPositions(state, data),
     zones: { ...(L.zones || {}) },
     bench, benchMax: LD.lesson.bench.max,
-    canBench: playing && bench.length < LD.lesson.bench.max,
-    canEndTurn: playing,
+    canBench: live && bench.length < LD.lesson.bench.max,
+    canEndTurn: live,
     buffs: { ...L.buffs },
     chips: buffChips(state, data),
     hand: L.hand.map((uid) => cardView(state, data, uid)),
@@ -1394,19 +1682,24 @@ export function getLessonView(state, data) {
     cutins: Number(L.stats && L.stats.cutins) || 0,
     piles: { draw: L.drawPile.length, discard: L.discard.length, exhausted: L.exhausted.length, removed: L.removed.length },
     players: state.players.map((p) => {
-      const out = L.out.includes(p.id);
+      const injuredOut = L.out.includes(p.id);
+      const rest = rested.includes(p.id);
+      const out = injuredOut || rest; // 쉬는 선수 (깜짝 "남은 턴 쉼") 도 이번 레슨은 빠진다 — rested 로 가른다
       return {
         id: p.id, name: p.name, slot: p.slot, position: p.position, portraitColor: p.portraitColor,
         stamina: p.stamina,
         zone: out ? null : (L.zones && L.zones[p.id]) || null,
         bench: bench.includes(p.id),
         out,
-        injured: out && !L.outAtStart.includes(p.id),
+        rested: rest,
+        injured: injuredOut && !L.outAtStart.includes(p.id),
         targeted: L.targeted[p.id] || 0,
         baseNext: playing ? baseGainOf(state, data, p).gain : 0,
         failRate: playerFailRate(state, data, p),
       };
     }),
+    // 기다리는 레슨 깜짝 말풍선 (§24.8 — 없으면 null): { id, title, text, playerId, charId, choices [{ label, preview, lines, recommended }] }
+    surprise: pending ? surprise.surpriseView(state, data) : null,
     seq: L.seq,
     lastFx: L.lastFx.map((x) => JSON.parse(JSON.stringify(x))),
   };

@@ -745,3 +745,31 @@ test("L40 shapePlan: 자리 옮기기 (zone · at → zoneAt, 지금 구역이�
   assert.deepEqual(rowsOf(cards.shapePlan(layoutState({ zones: { ...LAYOUT, p7: "shoot" } }), fin, {}, d)), [["p7", "shoot", "owner", 2]]);
   assert.equal(cards.validateShapeData(d), true);
 });
+
+test("§24.8 E5 쉬는 선수 (lesson.rested — 깜짝 \"남은 턴 쉼\"): isRested · isOut · activePlayers · fieldPlayers · 단일 후보 · 고유 카드 주인 (쉬는 중) — 레슨 밖이면 injuredTurns 그대로", () => {
+  const s = layoutState();
+  s.lesson.rested = ["p5"];
+  const p5 = s.players.find((p) => p.id === "p5");
+  assert.equal(cards.isRested(s, "p5"), true);
+  assert.equal(cards.isRested(s, "p4"), false);
+  assert.equal(cards.isOut(s, p5), true);
+  assert.deepEqual(cards.activePlayers(s).map((p) => p.id), ["p1", "p2", "p3", "p4", "p6", "p7"]);
+  // 구역이 남아 있어도 경기장 선수가 아니다 (lesson.js 는 쉬면 구역을 지운다)
+  assert.ok(!cards.fieldPlayers(s).some((p) => p.id === "p5"));
+  assert.ok(!cards.singleCandidates(s, def("cd_coaching")).includes("p5"));
+  assert.deepEqual(cards.singleCandidates(s, def("cd_coaching")), ["p1", "p2", "p3", "p4", "p6", "p7"]);
+  assert.equal(cards.deadReason(s, def("cd_u_taria")), "주인이 이번 레슨은 쉬는 중입니다");
+  assert.throws(() => cards.shapePlan(s, def("cd_u_taria"), { zone: "shoot" }, data), /쉬는 중/);
+  // 원 카드: 패스 구역 중심에 놓아도 p5 는 대상이 아니다
+  const ids = cards.targetsFor(s, def("cd_mf_drill"), { at: { ...data.lesson.zones.centers.pass } }, data);
+  assert.ok(ids.includes("p4") && !ids.includes("p5"), ids.join(","));
+  // 회복 단일은 7명 (쉬는 선수 포함 — 결장과 같다)
+  assert.ok(cards.singleCandidates(s, def("cd_icing")).includes("p5"));
+  // rested 가 없는 레슨 · 레슨 밖은 그대로
+  const plain = layoutState();
+  assert.equal(cards.isRested(plain, "p5"), false);
+  assert.equal(cards.isOut(plain, plain.players[4]), false);
+  const week = { players: s.players.map((p) => ({ ...p, injuredTurns: p.id === "p5" ? 1 : 0 })) };
+  assert.equal(cards.isRested(week, "p5"), false);
+  assert.equal(cards.isOut(week, week.players[4]), true);
+});

@@ -284,15 +284,19 @@ function playAction(s) {
 
 /**
  * 레슨 중 다음 행동 (§14.14). 순수.
+ *   0. 레슨 깜짝을 기다리는 중이면 → { kind: "surprise", choice, eventId } (recommendSurprise, §24.8)
  *   1. 벤치 먼저: 그 턴에 카드를 아직 내지 않았고 벤치가 남았고 체력 < 25 인 경기장 선수가 있으면 → 체력 최저 (슬롯 순서) 1명
  *   2. 카드마다 후보 점 (dropCandidates) → previewCard 로 EV
  *   3. 최고 EV ≤ 0 이면 endTurn. 같은 EV 면 손패 순서 → 후보 순서
- * @returns {{ kind: "bench", playerId: string } | { kind: "play", uid: string, at?: {x,y}, playerId?: string, zone?: string, score: number } | { kind: "endTurn" }}
+ * @returns {{ kind: "bench", playerId: string } | { kind: "play", uid: string, at?: {x,y}, playerId?: string, zone?: string, score: number } |
+ *           { kind: "endTurn" } | { kind: "surprise", choice: number, eventId: string }}
  */
 export function recommendCard(state, data) {
   const L = state && state.lesson;
   if (!L || state.phase !== "lesson") throw new Error("레슨 중이 아닙니다");
   if (L.status !== "playing") throw new Error(`레슨이 이미 끝났습니다 (${L.status})`);
+  // 레슨 깜짝을 기다리는 중이면 그 선택지부터 (§24.11)
+  if (L.surprise && L.surprise.pending) return { kind: "surprise", ...recommendSurprise(state, data) };
   const view = lesson.getLessonView(state, data);
   if (L.playedThisTurn === 0 && view.canBench) {
     const tired = cards.fieldPlayers(state).filter((p) => p.stamina < BENCH_BELOW);
@@ -544,6 +548,20 @@ export function recommendEventChoice(state, data) {
 }
 
 /**
+ * 레슨 깜짝 이벤트 선택지 추천 (§24.11 · §24.8): 기대값 (lessonEvents.choiceScore — 깜짝 뷰의 recommended) 이 큰 쪽, 같으면 0번.
+ * 순수 · rng 없음. 기다리는 깜짝이 없으면 throw.
+ * @returns {{ choice: number, eventId: string }}
+ */
+export function recommendSurprise(state, data) {
+  const L = state && state.lesson;
+  if (!L || !L.surprise || !L.surprise.pending) throw new Error("기다리는 레슨 깜짝 이벤트가 없습니다");
+  const v = lesson.getLessonView(state, data).surprise;
+  let choice = v.choices.findIndex((c) => c.recommended);
+  if (choice < 0) choice = 0;
+  return { choice, eventId: v.id };
+}
+
+/**
  * 이벤트 보상 카드 3택1 추천 (§24.11 — 레슨 보상 추천과 같은 규칙): 방침 > 코치 > 고유 강화 > 공용 (같으면 강화판, 그다음 번호 순),
  * 덱이 20장을 넘으면 카드 추가는 건너뛴다. 순수.
  * @returns {{ pick: number|null }}
@@ -570,7 +588,8 @@ export function recommendCardOffer(state, data) {
 
 /**
  * 감독 AI 로 한 단계 진행한다 (상태를 바꾼다). 유물은 첫 번째, 루트는 (season − 1) % 루트 수 번째,
- * 이벤트는 recommendEventChoice (고르는 카드 포함), 카드 3택1 은 recommendCardOffer, 외출 상대는 안 본 이야기가 남은 선수 먼저 (recommendWeek).
+ * 이벤트는 recommendEventChoice (고르는 카드 포함), 카드 3택1 은 recommendCardOffer, 외출 상대는 안 본 이야기가 남은 선수 먼저 (recommendWeek),
+ * 레슨 깜짝은 recommendSurprise (레슨 phase 안 — recommendCard 가 kind "surprise" 로 돌려준다).
  * @param {object} state
  * @param {object} data
  * @param {{ playMatch?: (setup: object) => object }} [opts] match phase 에서 playMatch(getMatchSetup 결과) → 경기 결과
@@ -587,7 +606,8 @@ export function autoStep(state, data, { playMatch } = {}) {
     }
     case "lesson": {
       const a = recommendCard(state, data);
-      if (a.kind === "play") LR.playCard(state, data, { uid: a.uid, at: a.at, playerId: a.playerId, zone: a.zone });
+      if (a.kind === "surprise") LR.resolveSurprise(state, data, { choice: a.choice }); // 레슨 깜짝 (§24.8)
+      else if (a.kind === "play") LR.playCard(state, data, { uid: a.uid, at: a.at, playerId: a.playerId, zone: a.zone });
       else if (a.kind === "bench") LR.benchPlayer(state, data, { playerId: a.playerId, on: true });
       else LR.endLessonTurn(state, data);
       return { phase, action: a };

@@ -841,3 +841,35 @@ test("§24.6 · §24.7 E4 감독 AI 15주 완주 (코치 연속 · 이야기 본
   while (off.phase !== "finished") M.autoStep(off, dOff, { playMatch });
   same({ ...off, account: plain.account }, plain);
 });
+
+test("§24.8 · §24.11 E5 레슨 깜짝: recommendCard = { kind: \"surprise\", choice, eventId } (기대값이 큰 쪽) · recommendSurprise · autoStep 이 고르고 다음 턴으로 · 추천은 상태를 바꾸지 않는다", () => {
+  const d = clone(data);
+  d.lesson.events.surprise = { enabled: true, chance: 1, fromTurn: 2 };
+  d.lesson_ev_surprise = {
+    version: 1, notes: {},
+    events: [{
+      id: "ls_m_pick", trigger: "surprise", title: "고르기", text: "{선수|이/가} 묻습니다.", cond: { turnMin: 1 }, who: { pick: "random" },
+      choices: [
+        { label: "작게", effects: [{ type: "tp", amount: 1 }], result: "작습니다." },
+        { label: "크게", effects: [{ type: "extraPlayNext", n: 1 }], result: "큽니다." },
+      ],
+    }],
+  };
+  LE.validateLessonEvents(d);
+  const s = LR.createRun({ data: d, seed: 4 });
+  LR.applyWeekAction(s, d, { type: "lesson", zone: "pass" });
+  assert.equal(M.recommendCard(s, d).kind === "surprise", false, "기다리는 깜짝이 없으면 보통 추천");
+  assert.throws(() => M.recommendSurprise(s, d), /기다리는 레슨 깜짝/);
+  while (!(s.lesson.surprise && s.lesson.surprise.pending)) LR.endLessonTurn(s, d);
+  const before = JSON.stringify(s);
+  const rec = M.recommendCard(s, d);
+  assert.deepEqual(rec, { kind: "surprise", choice: 1, eventId: "ls_m_pick" });
+  assert.deepEqual(M.recommendSurprise(s, d), { choice: 1, eventId: "ls_m_pick" });
+  assert.equal(JSON.stringify(s), before);
+  const turn = s.lesson.turn;
+  const r = M.autoStep(s, d);
+  assert.deepEqual(r, { phase: "lesson", action: rec });
+  assert.equal(s.lesson.surprise.fired.choice, 1);
+  assert.equal(s.lesson.turn, turn + 1);
+  assert.equal(s.lesson.playsLeft, 2);
+});

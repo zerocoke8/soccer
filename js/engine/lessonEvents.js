@@ -487,7 +487,7 @@ function eventErrors(ev, { data, ix, lastWeek, bonds = COACH_STEP_BONDS, err }) 
   const choices = Array.isArray(ev.choices) ? ev.choices : null;
   if (!choices) err("choices 는 배열이다 (선택지 2개)");
   else if (choices.length !== 2) err(`선택지는 정확히 2개 (지금 ${choices.length}개)`);
-  const ectx = { trigger: trig, data, index: ix, ...cx };
+  const ectx = { trigger: trig, data, index: ix, ...cx, policy: typeof ev.policy === "string" ? ev.policy : undefined };
   (choices || []).forEach((c, ci) => {
     const at = `choices[${ci}]`;
     if (!isObj(c)) {
@@ -711,7 +711,7 @@ function charCondRule(v, ix) {
 // E2 — 주인공 · 띄우기 · 뷰 · 고르기 (§24.3.4 · §24.5.2 · §24.11)
 // ---------------------------------------------------------------------------
 
-/** 깜짝 전용 주인공 고르기 (E5 — 레슨 안 턴 기록이 필요하다) */
+/** 깜짝 전용 주인공 고르기 (레슨 안 턴 기록이 필요하다 — lessonSurprise.pickSurpriseProtagonist, E5) */
 const SURPRISE_PICKS = ["turnFailer", "streaker", "coachCardTarget", "multiTarget", "mostTargeted"];
 
 /** 이벤트 종류 배지 (§24.13) */
@@ -738,7 +738,7 @@ function defaultPick(ev) {
  *   coachTarget (E4) → 이번 런 그 코치 카드 대상 최다 → 같으면 코치 종목이 주 스탯인 선수 → 그래도 같으면 무작위 (결장 제외,
  *   coachTargetCandidates — 코치 = ctx.supportId · chain.supportId · coach).
  *   ctx.playerId 가 있으면 그 선수 (도구 · 테스트용 — 주입).
- * 깜짝 전용 (turnFailer …) 은 E5.
+ * 깜짝 전용 (turnFailer …) 은 lessonSurprise.pickSurpriseProtagonist (E5).
  * @param {object} state
  * @param {object} data
  * @param {object} ev
@@ -760,7 +760,7 @@ export function pickProtagonist(state, data, ev, ctx = {}, rng) {
   }
   const who = isObj(ev.who) ? ev.who : {};
   let pick = who.pick || defaultPick(ev);
-  if (SURPRISE_PICKS.includes(pick)) throw new Error(`주인공 '${pick}' 은(는) 레슨 깜짝 (E5) 에서 정한다`);
+  if (SURPRISE_PICKS.includes(pick)) throw new Error(`주인공 '${pick}' 은(는) 레슨 깜짝 (E5) 에서 정한다 — lessonSurprise.pickSurpriseProtagonist`);
   switch (pick) {
     case "none":
       return null;
@@ -830,7 +830,7 @@ export function fireEvent(state, data, ev, ctx = {}) {
   if (!state || typeof state !== "object") throw new Error("state 가 없습니다");
   if (!isObj(ev) || typeof ev.id !== "string") throw new Error("이벤트가 없습니다");
   if (!eventById(data, ev.id)) throw new Error(`레슨 이벤트 '${ev.id}' 이(가) 데이터에 없습니다`);
-  if (ev.trigger === "surprise") throw new Error("깜짝 이벤트는 레슨 안에서 띄운다 (E5)");
+  if (ev.trigger === "surprise") throw new Error("깜짝 이벤트는 레슨 안에서 띄운다 (lesson.js 턴 끝 — §24.8)");
   if (state.currentEvent) throw new Error(`이미 떠 있는 이벤트가 있습니다 (${state.currentEvent.eventId})`);
   const c = ctx || {};
   const rng = createRngFromState(state.rngState);
@@ -945,7 +945,7 @@ export function getEventView(state, data) {
 
 /**
  * 선택지 i 의 기대값 (감독 AI · 추천 배지 — §24.11 [가정]). 순수.
- * view = getEventView 결과 (eventId · player · support) — E5 의 깜짝 뷰 ({ id, playerId }) 도 받는다.
+ * view = getEventView 결과 (eventId · player · support) — 깜짝 뷰 (lessonSurprise.surpriseView — { id, playerId, supportId, art }) 도 받는다.
  * @returns {number}
  */
 export function choiceScore(state, data, view, i) {
@@ -1044,7 +1044,7 @@ export function resolveEvent(state, data, choiceIndex, { uid } = {}) {
 // E3 — 흐름 자격 · 고르기 (§24.2 · §24.3.2 ~ §24.3.4 · §24.7)
 // ---------------------------------------------------------------------------
 
-/** eligible 이 고르는 트리거 — 이야기 · 코치는 순서가 정해져 있어 따로 (storyNext · coachReady, E4), 깜짝은 E5 (레슨 안) */
+/** eligible 이 고르는 트리거 — 이야기 · 코치는 순서가 정해져 있어 따로 (storyNext · coachReady, E4), 깜짝은 레슨 안 (lessonSurprise.candidates, E5) */
 const FLOW_TRIGGERS = ["week", "seasonStart", "preMatch", "route", "outing"];
 
 /**

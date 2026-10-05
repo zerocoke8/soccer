@@ -15,6 +15,8 @@
  *     pickOutingEvent · pickFixedEvent) 로 0 ~ 1개를 띄운다 (fireEvent → phase event).
  *   - 코치 연속 이벤트 (§24.6, E4): 주 끝 슬롯이 준비된 코치 단계 (lessonEvents.pickCoachEvent — 2주 연속 금지) 를 주 끝 랜덤보다 먼저 띄운다.
  *     "레슨에 나왔다" (state.coachSeen) 는 afterLesson 이, 코치 카드 대상 횟수 (state.coachTargets — 주인공 coachTarget) 는 playCard 가 쌓는다.
+ *   - 레슨 깜짝 이벤트 (§24.8, E5): 레슨 안 (lesson.js · lessonSurprise.js) 에서 턴 끝에 뜨고 phase 는 lesson 그대로다.
+ *     고르기 = resolveSurprise (lesson.resolveSurprise + 레슨이 끝났으면 보상), 말풍선 = getLessonView().surprise.
  *   - 외출 이야기 (§24.7, E4): 외출 이벤트 단계가 외출 상대의 다음 화 (lessonEvents.pickStoryEvent) 를 일반 외출보다 먼저 띄운다.
  *     계정 진행은 createRun 의 account 스냅샷으로만 들어오고 (state.account), 이번 런 진행은 고른 순간에 storySeen · storyEps · coachSteps 에
  *     쌓인다 — 화면이 lessonEvents.accountMerge 로 계정 저장소에 합친다.
@@ -49,6 +51,7 @@ import { applyEffects } from "./effects.js";
 import * as passives from "./passives.js";
 import * as lessonEvents from "./lessonEvents.js";
 import * as lessonEffects from "./lessonEffects.js";
+import * as lessonSurprise from "./lessonSurprise.js";
 import {
   LD,
   supportCard,
@@ -628,12 +631,13 @@ function v5Fields() {
 }
 
 /**
- * 레슨 중 2차 필드 (§24.10 — 깜짝 이벤트 E5). 진행 중인 v4 레슨은 깜짝이 없는 레슨으로 이어 간다 (그 레슨의 rng 흐름 그대로).
- * turnLog 모양은 E5 의 lessonSurprise.turnLogBlank() 와 같아야 한다 (E5 가 바꾸면 여기도).
+ * 레슨 중 2차 필드 (§24.10 — 깜짝 이벤트 E5). 진행 중인 v4 레슨은 깜짝이 없는 레슨으로 이어 간다 (그 레슨의 rng 흐름 그대로):
+ * 계획 없는 surprise (lessonSurprise.surpriseBlank) · 빈 턴 기록 (turnLogBlank) · 쉬는 선수 [] · 다음 턴 추가 사용 0.
+ * 연속 대상 (streak) · 마지막 대상 턴 (lastTargeted) 은 lesson.js 가 처음 쓸 때 만든다.
  */
 function lessonV5Blank(L) {
-  if (!L.surprise || typeof L.surprise !== "object") L.surprise = { planned: false, randTurn: null, pending: null, fired: null };
-  if (!L.turnLog || typeof L.turnLog !== "object") L.turnLog = { plays: [], failed: [], coachOk: [], multiOk: 0, reshuffled: false, benched: [], moved: [], emptyAtStart: [] };
+  if (!L.surprise || typeof L.surprise !== "object") L.surprise = lessonSurprise.surpriseBlank();
+  if (!L.turnLog || typeof L.turnLog !== "object") L.turnLog = lessonSurprise.turnLogBlank();
   if (!Array.isArray(L.rested)) L.rested = [];
   if (!Number.isFinite(L.nextExtraPlay)) L.nextExtraPlay = 0;
 }
@@ -1003,6 +1007,22 @@ export function benchPlayer(state, data, args) {
 export function endLessonTurn(state, data) {
   assertPhase(state, "lesson");
   lesson.endLessonTurn(state, data);
+  return afterIfEnded(state, data);
+}
+
+/**
+ * 레슨 깜짝 이벤트 선택지 고르기 (§24.5.2 · §24.8, E5 — lesson.resolveSurprise). 로그 한 줄을 남기고, 점수가 상한에 닿아 레슨이
+ * 끝났으면 보상 단계로 (afterIfEnded). 깜짝은 레슨 뷰의 surprise (getLessonView) 로 보인다.
+ * @param {object} state
+ * @param {object} data
+ * @param {{ choice: number }} args
+ * @returns {object} state
+ */
+export function resolveSurprise(state, data, { choice } = {}) {
+  assertPhase(state, "lesson");
+  lesson.resolveSurprise(state, data, { choice });
+  const f = state.lesson && state.lesson.surprise && state.lesson.surprise.fired;
+  if (f) log(state, `레슨 깜짝 [${f.title}] ${f.label} → ${f.lines.length ? f.lines.join(", ") : "효과 없음"}`);
   return afterIfEnded(state, data);
 }
 

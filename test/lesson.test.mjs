@@ -2471,3 +2471,39 @@ test("L40 뷰 · 후보: 손패 shape · ownerId · 비용 = 1인 비용 · drop
   assert.deepEqual(JSON.parse(JSON.stringify(s)), s);
 });
 
+
+// ---------------------------------------------------------------------------
+// §24.8 레슨 깜짝 (E5) — lesson.js 쪽 (깜짝 이벤트 자체는 test/lessonSurprise.test.mjs)
+// ---------------------------------------------------------------------------
+
+test("§24.8 E5: 깜짝이 꺼진 데이터 (기본) 의 레슨에는 깜짝 필드가 생기지 않고 턴 기록도 쓰지 않는다 · 뷰 surprise null · 쉬는 선수 (rested) 는 흩어지기 · 기본 훈련 · 벤치에서 빠진다 · nextExtraPlay 는 다음 턴 playsLeft 에 한 번", () => {
+  const s = start();
+  const L = s.lesson;
+  for (const k of ["surprise", "turnLog", "rested", "nextExtraPlay", "streak", "lastTargeted"]) assert.ok(!(k in L), k);
+  autoLesson(clone(s)); // 끝까지 가도 (다른 사본)
+  lesson.endLessonTurn(s, data);
+  for (const k of ["surprise", "turnLog", "rested", "nextExtraPlay", "streak", "lastTargeted"]) assert.ok(!(k in s.lesson), k);
+  assert.equal(lesson.getLessonView(s, data).surprise, null);
+  // 쉬는 선수 · 다음 턴 추가 사용 (깜짝 효과가 남기는 필드 — 꺼진 레슨에서도 읽기만 하면 같다)
+  for (const p of s.players) p.stamina = 60;
+  s.lesson.rested = ["p5"];
+  delete s.lesson.zones.p5;
+  s.lesson.nextExtraPlay = 1;
+  const stats = { ...P(s, "p5").stats };
+  assert.throws(() => lesson.benchPlayer(s, data, { playerId: "p5" }), /쉬는 중/);
+  lesson.endLessonTurn(s, data);
+  assert.ok(!("p5" in s.lesson.zones), "흩어지지 않는다");
+  assert.equal(P(s, "p5").stamina, 60, "기본 훈련 체력 소모 없음");
+  assert.deepEqual(P(s, "p5").stats, stats, "기본 훈련 상승 없음");
+  assert.ok(P(s, "p4").stamina < 60, "다른 선수는 기본 훈련");
+  assert.equal(s.lesson.playsLeft, 2);
+  assert.equal(s.lesson.nextExtraPlay, 0);
+  const v = lesson.getLessonView(s, data).players.find((p) => p.id === "p5");
+  assert.deepEqual([v.out, v.rested, v.injured, v.zone, v.bench], [true, true, false, null, false]);
+  lesson.endLessonTurn(s, data);
+  assert.equal(s.lesson.playsLeft, 1, "한 번만");
+  // 모두 쉬거나 결장이면 다음 턴 시작에 레슨이 끝난다 (D45)
+  s.lesson.rested = s.players.map((p) => p.id);
+  lesson.endLessonTurn(s, data);
+  assert.notEqual(s.lesson.status, "playing");
+});

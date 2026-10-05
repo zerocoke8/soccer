@@ -5,6 +5,8 @@
 //   --events on|off: lesson.json events 의 기능 스위치를 모두 켜거나 끈다 (기본 = 데이터 그대로, §24.11). 이벤트가 하나라도 켜져 있으면
 //                    표 끝에 [이벤트] 줄 (런당 이벤트 — 트리거별 · 시간 어림 이벤트 하나 12초, 코치 단계 도달 · 이야기 화, §24.16) 을 더한다
 //                    (꺼져 있으면 표는 그대로).
+//                    레슨 깜짝 (§24.8, E5) 스위치가 켜져 있으면 [깜짝] 줄 (런당 깜짝 · 계획된 레슨 · 계획 중 뜬 비율 · 고른 선택지 몫 ·
+//                    깜짝이 뜬 / 안 뜬 레슨의 점수 · 퍼펙트율) 과 표 아래 id 별 깜짝 / 런 한 줄을 더한다.
 //   --account fresh|carry: 계정 스냅샷 (§24.7 — 이야기 진행 · 코치 첫 만남). fresh (기본) = 런마다 빈 계정, carry = 방침마다 빈 계정에서
 //                    시작해 끝난 런을 lessonEvents.accountMerge 로 합쳐 다음 런의 createRun 에 넘긴다 (방침 칸끼리는 섞지 않는다).
 //   --slot SLOT=charId: 편성의 그 자리를 다른 캐릭터로 (여러 번 가능 — 미르카 측정은 --slot FW2=ch_cat_trickster, §16.11).
@@ -166,6 +168,8 @@ export function simulateOne(data, { seed, policy, formation, slots = {}, playMat
     teach: 0, teachLearned: 0, teachReplaced: 0, teachDeclined: 0, teachNone: 0, teachSp: 0, injuredPlays: 0,
     // §24.16 이벤트: 트리거별 띄운 수 (고른 이벤트의 데이터 trigger)
     events: {},
+    // §24.16 E5 레슨 깜짝: 고른 깜짝 [{ id, choice }] · 끝난 레슨마다 { planned, fired, score, status }
+    surprises: [], surpriseLessons: [],
   };
   const benchTurnKeys = new Set();
   const uniqTurnKeys = new Set();
@@ -199,6 +203,10 @@ export function simulateOne(data, { seed, policy, formation, slots = {}, playMat
     if (dsp > 0) m.spGain += dsp; else m.spSpent -= dsp;
     m.coachAcquired += Math.max(0, state.deck.filter((e) => e.cardId.startsWith("cd_c_")).length - coach0);
     if (r.phase === "week" && r.action.type === "rest") m.weekRests += 1;
+    if (r.phase === "lesson" && r.action.kind === "surprise") {
+      m.surprises.push({ id: r.action.eventId, choice: r.action.choice });
+      m.events.surprise = (m.events.surprise || 0) + 1;
+    }
     if (r.phase === "lesson" && r.action.kind === "bench") {
       m.benches += 1;
       benchTurnKeys.add(`${state.record.lessons.length}-${state.lesson.turn}`);
@@ -265,6 +273,8 @@ export function simulateOne(data, { seed, policy, formation, slots = {}, playMat
       }
       m.lessonTurns += res.turnReached;
       m.actionsPerLesson.push({ plays: res.plays, actions: state.lesson.seq });
+      const S = state.lesson.surprise;
+      m.surpriseLessons.push({ planned: !!(S && S.planned), fired: !!(S && S.fired), score: res.score, status: res.status });
     }
   }
   m.benchTurns = benchTurnKeys.size;
@@ -574,6 +584,32 @@ export function summarize(data, args, policy) {
     coachMetSkip: mean(rs.map((r) => r.coachMetSkip)),
     storyPerRun: mean(rs.map((r) => r.storyEps)),
     accountStories: account ? Object.values(account.stories).reduce((a, b) => a + b, 0) : null,
+    // §24.16 E5 레슨 깜짝: 런당 깜짝 · id 별 (런당) · 고른 선택지 1번 비율 · 계획된 레슨 비율 · 계획 중 뜬 비율 · 깜짝이 뜬 / 안 뜬 레슨의 점수 · 퍼펙트율
+    ...surpriseSummary(rs),
+  };
+}
+
+/** 레슨 깜짝 지표 (§24.16 — E5) */
+function surpriseSummary(rs) {
+  const N = Math.max(1, rs.length);
+  const all = rs.flatMap((r) => r.surprises || []);
+  const byId = {};
+  for (const x of all) byId[x.id] = (byId[x.id] || 0) + 1;
+  for (const k of Object.keys(byId)) byId[k] /= N;
+  const ls = rs.flatMap((r) => r.surpriseLessons || []);
+  const planned = ls.filter((l) => l.planned);
+  const fired = ls.filter((l) => l.fired);
+  const quiet = ls.filter((l) => !l.fired);
+  const perfect = (a) => (a.length ? a.filter((l) => l.status === "perfect").length / a.length : NaN);
+  const avg = (a) => (a.length ? mean(a) : NaN);
+  return {
+    surprisesPerRun: all.length / N,
+    surpriseById: byId,
+    surpriseFirstChoice: all.length ? all.filter((x) => x.choice === 0).length / all.length : NaN,
+    surprisePlannedRate: ls.length ? planned.length / ls.length : NaN,
+    surpriseFiredRate: planned.length ? planned.filter((l) => l.fired).length / planned.length : NaN,
+    surpriseScore: [avg(fired.map((l) => l.score)), avg(quiet.map((l) => l.score))],
+    surprisePerfect: [perfect(fired), perfect(quiet)],
   };
 }
 
@@ -658,6 +694,13 @@ function printTable(sums, args) {
       [`[이벤트] 코치 단계 도달 / 런 1 · 2 · 3 (계정 ${args.account || "fresh"} — 첫 만남 건너뜀)`, (s) => `${s.coachSteps.map(f2).join(" · ")} (${f2(s.coachMetSkip)})`],
       [`[이벤트] 이야기 화 / 런 (계정 ${args.account || "fresh"}${args.account === "carry" ? " — 끝 계정 화 합" : ""})`, (s) => `${f2(s.storyPerRun)}${s.accountStories !== null ? ` (${s.accountStories})` : ""}`],
     ] : []),
+    // §24.16 E5 레슨 깜짝 — 깜짝 스위치가 켜져 있을 때만
+    ...(args.surpriseOn ? [
+      ["[깜짝] 런당 깜짝 · 계획된 레슨 · 계획 중 뜬 비율", (s) => `${f2(s.surprisesPerRun)} · ${pc(s.surprisePlannedRate)} · ${pc(s.surpriseFiredRate)}`],
+      ["[깜짝] 고른 선택지 1번 / 2번", (s) => (Number.isFinite(s.surpriseFirstChoice) ? `${pc(s.surpriseFirstChoice)} / ${pc(1 - s.surpriseFirstChoice)}` : "-")],
+      ["[깜짝] 레슨 점수 (뜬 레슨 / 안 뜬 레슨)", (s) => s.surpriseScore.map(f0).join(" / ")],
+      ["[깜짝] 퍼펙트율 (뜬 레슨 / 안 뜬 레슨)", (s) => s.surprisePerfect.map(pc).join(" / ")],
+    ] : []),
   ];
   const head = ["지표", ...sums.map((s) => s.policy)];
   const table = [head, ...rows.map(([label, fn]) => [label, ...sums.map(fn)])];
@@ -669,6 +712,12 @@ function printTable(sums, args) {
   };
   console.log(`lesson_sim: ${args.runs} runs/방침, seed ${args.seed}, formation ${args.formation || "기본"}, 경기 ${args.match ? "match.simulateAuto" : "없음 (1:0 승)"}, 특별 선택 ${args.specialRate < 1 ? `${args.specialRate} (시뮬 옵션)` : "감독 AI (늘)"}${args.eventsOn ? `, 이벤트 켬 (${EVENT_SWITCH_NAMES.filter((k) => switchOn(args.data, k)).join(" · ")}${args.events ? ` — --events ${args.events}` : " — 데이터"}), 계정 ${args.account || "fresh"}` : ""}`);
   for (const r of table) console.log(r.map((x, c) => pad(String(x), cols[c], c > 0)).join("  "));
+  if (args.surpriseOn) {
+    // id 별 깜짝 / 런 (방침 합 — 런 수로 나눈 평균)
+    const ids = [...new Set(sums.flatMap((s) => Object.keys(s.surpriseById)))].sort();
+    const per = (id) => sums.reduce((a, s) => a + (s.surpriseById[id] || 0) * s.runs, 0) / Math.max(1, sums.reduce((a, s) => a + s.runs, 0));
+    console.log(`\n[깜짝] id 별 / 런 (방침 합): ${ids.length ? ids.map((id) => `${id} ${f2(per(id))}`).join(", ") : "없음"}`);
+  }
   const names = sums[0].mains.map((x) => `${x.name}(${x.position})`).join(", ");
   console.log(`\n선수별 주 스탯 상승 순서: ${names}`);
   console.log("구역 방식 (§14). 보정 시뮬 tools/drafts/zone_sim.mjs 와 다른 점: 감독 AI 가 실제 후보 점(dropCandidates)으로 원을 놓는다 · 레슨 실패 · 상담 · 경기가 있다.");
@@ -761,7 +810,7 @@ export function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv);
   const data = applyEventsArg(loadData(), args.events);
   // 표 · 머리줄에만 쓰는 값 (JSON 출력의 args 에는 넣지 않는다)
-  const view = { ...args, eventsOn: eventsOn(data), data };
+  const view = { ...args, eventsOn: eventsOn(data), surpriseOn: switchOn(data, "surprise"), data };
   const policies = args.policy === "all" ? POLICIES : [args.policy];
   const sums = policies.map((p) => summarize(data, args, p));
   if (args.json) console.log(JSON.stringify({ args, results: sums, ...(args.uniqueReport ? { unique: uniqueReport(data, sums) } : {}) }, null, 2));
