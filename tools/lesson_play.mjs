@@ -22,6 +22,9 @@
 //   --slot SLOT=charId = 편성 화면에서 그 슬롯을 눌러 선수를 바꾼 뒤 [런 시작] (미르카 판: --slot FW2=ch_cat_trickster).
 //   아직 안 낸 고유 카드가 낼 수 있으면 감독 추천 대신 먼저 낸다 (덱의 고유 카드 모두 1번 이상 — 끝에 확인). --no-cover = 늘 감독 추천대로.
 // --watch-match (§19 K5) = 경기를 ⏭ 대신 자동 진행 4x 로 끝까지 보며 필살기 컷인(등급 · 합체기 · 역방향)을 세고, 엔진 이벤트 기대 장수 = 화면 장수 · 글자 잘림 없음을 확인한다.
+// --d25 (docs/SPRITE_25D_PLAN.md §6 — 브랜치 outgame-sprite) = 주소 ?d25=1 로 연다 → 경기 화면이 2.5D (원근 바닥 · 세운 선수 · 카메라).
+//   경기마다 .match-screen.d25 인지 보고, --watch-match 와 함께면 자동 진행 동안 카메라 배율 (.w-cam scale) 분포를 적는다 (풀코트 1 · 따라가기
+//   4배속 1.2 · 1x 1.4 — 자동 진행이라 결정 확대 2배는 없어야 한다) · 배율마다 첫 장면을 찍고, 경기가 끝나면 풀코트인지 본다.
 // 2차 이벤트 (LESSON_PROTO_PLAN §24.11 · §24.16, I1) — 데이터 스위치가 켜진 실제 앱:
 //  - 이벤트 모달 (phase event): 감독 추천 (manager.recommendEventChoice — 화면의 "추천" 배지와 같은지 본다) 선택지를 클릭 · 탭으로 누르고,
 //    고르는 선택지 (카드 1장 강화 · 삭제) 면 덱 고르기에서 추천 카드 → [확정]. 고른 뒤 결과 카드 (.evm-result — 결과 글 · 받은 효과) → [계속].
@@ -40,7 +43,7 @@ import { ROOT, loadData as loadNodeData } from "./scenarios.mjs";
 import { startServer, findBrowser } from "./shot.mjs";
 
 function parseArgs(argv) {
-  const o = { outDir: null, seed: "play-1", policy: "team", until: "season", lessons: null, width: 1280, height: 720, mobile: false, touchOnly: false, maxMin: 25, slots: {}, coverUniques: true, watchMatch: false, legends: false, outings: 0 };
+  const o = { outDir: null, seed: "play-1", policy: "team", until: "season", lessons: null, width: 1280, height: 720, mobile: false, touchOnly: false, maxMin: 25, slots: {}, coverUniques: true, watchMatch: false, legends: false, outings: 0, d25: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const next = () => argv[++i];
@@ -56,13 +59,14 @@ function parseArgs(argv) {
     else if (a === "--slot") { const [k, v] = String(next() || "").split("="); if (!k || !v) throw new Error("--slot SLOT=charId"); o.slots[k] = v; }
     else if (a === "--no-cover") o.coverUniques = false;
     else if (a === "--watch-match") o.watchMatch = true;
+    else if (a === "--d25") o.d25 = true;
     else if (a === "--legends") o.legends = true;
     else if (a === "--outings") o.outings = Math.max(0, parseInt(next(), 10) || 0);
     else if (a.startsWith("--")) throw new Error(`알 수 없는 옵션: ${a}`);
     else if (!o.outDir) o.outDir = a;
     else throw new Error(`인자가 너무 많습니다: ${a}`);
   }
-  if (!o.outDir) throw new Error("usage: node tools/lesson_play.mjs <outDir> [--seed S] [--policy P] [--until season|lesson|run] [--lessons N] [--width W --height H] [--mobile] [--touch-only] [--slot FW2=ch_cat_trickster] [--no-cover] [--watch-match] [--legends] [--outings N]");
+  if (!o.outDir) throw new Error("usage: node tools/lesson_play.mjs <outDir> [--seed S] [--policy P] [--until season|lesson|run] [--lessons N] [--width W --height H] [--mobile] [--touch-only] [--slot FW2=ch_cat_trickster] [--no-cover] [--watch-match] [--d25] [--legends] [--outings N]");
   return o;
 }
 
@@ -102,7 +106,8 @@ async function main() {
     page.on("pageerror", (e) => report.errors.push(`pageerror: ${e?.message ?? e}`));
     page.on("console", (m) => { if (m.type() === "error") report.errors.push(`console.error: ${m.text()}`); });
     await page.setViewport({ width: args.width, height: args.height, deviceScaleFactor: 1, isMobile: args.mobile, hasTouch: true });
-    await page.goto(`${baseUrl}/index.html`, { waitUntil: "load" });
+    // --d25: 2.5D 경기 화면 (store.isD25 — 주소를 모듈을 읽을 때 한 번 본다, 아래 reload 도 같은 주소)
+    await page.goto(`${baseUrl}/index.html${args.d25 ? "?d25=1" : ""}`, { waitUntil: "load" });
     await page.evaluate((teams) => {
       try {
         localStorage.clear();
@@ -209,6 +214,7 @@ async function main() {
         await delay(150);
       }
       const snapped = new Set();
+      const camZ = {}; // --d25: 카메라 배율 표본 (.w-cam scale)
       const tEnd = Date.now() + 8 * 60 * 1000;
       let done = false;
       while (Date.now() < tEnd) {
@@ -216,8 +222,11 @@ async function main() {
           const c = document.querySelector(".match-screen .m-cutin.show > .cut");
           const kind = !c ? null : c.classList.contains("cut-rev") ? "rev" : c.classList.contains("cut-name") ? "combo" : ([...c.classList].find((x) => x.startsWith("tier-")) || "tier-SSR");
           const fin = [...document.querySelectorAll("#modal-root button")].some((b) => (b.textContent || "").trim() === "확인" && !b.disabled);
-          return { kind, fin };
+          const m = /scale\(([\d.]+)\)/.exec(document.querySelector(".match-screen .w-cam")?.style.transform || "");
+          return { kind, fin, z: m ? m[1] : null };
         });
+        if (st.z) camZ[st.z] = (camZ[st.z] || 0) + 1;
+        if (args.d25 && st.z && !snapped.has(`z${st.z}`)) { snapped.add(`z${st.z}`); await snap(`${tag}_match_cam_z${st.z}`); }
         if (st.kind && !snapped.has(st.kind)) { snapped.add(st.kind); await snap(`${tag}_match_cut_${st.kind}`); }
         if (st.fin) { done = true; break; }
         await delay(120);
@@ -238,8 +247,17 @@ async function main() {
       // 합체기 1번 = 받은 선수 cutin 1장 → 컷인 2장 + 이름 카드 1장 (+2)
       const expected = res.cutins + 2 * res.combos + res.revs;
       const clipped = res.seen.filter((c) => c.clipped);
-      report.matches.push({ tag, ...res, expected, seenN: res.seen.length, clipped: clipped.length, shots: [...snapped] });
+      report.matches.push({ tag, ...res, expected, seenN: res.seen.length, clipped: clipped.length, shots: [...snapped], camZ });
       if (res.seen.length !== expected) report.fails.push(`${tag} 경기 컷인: 엔진 기대 ${expected}장 ≠ 화면 ${res.seen.length}장`);
+      if (args.d25) {
+        // 2.5D 카메라 (§5): 자동 진행 = 풀코트 1 · 따라가기 (4배속 1.2 · 배속을 바꾸기 전 1.4) 만 — 결정 확대 (2배) 는 없다, 끝 = 풀코트
+        const zs = Object.keys(camZ);
+        if (!zs.length) report.fails.push(`${tag} 2.5D 카메라 층 (.w-cam) 이 없음`);
+        for (const z of zs) if (!["1", "1.2", "1.4"].includes(z)) report.fails.push(`${tag} 자동 진행 중 카메라 z ${z} (1 · 1.2 · 1.4 만 기대)`);
+        await delay(500);
+        const endZ = await S(() => /scale\(([\d.]+)\)/.exec(document.querySelector(".match-screen .w-cam")?.style.transform || "")?.[1] ?? null);
+        if (endZ !== "1") report.fails.push(`${tag} 경기 끝 카메라 z ${endZ} (풀코트 1 기대)`);
+      }
       for (const c of clipped) report.fails.push(`${tag} 컷인 글자 잘림: ${c.name} (${c.cls})`);
       count("경기: 자동 진행 4x 끝까지");
     }
@@ -1148,6 +1166,9 @@ async function main() {
         await page.waitForSelector(".match-screen .skip-btn", { timeout: 10000 }).catch(() => {});
         await delay(600);
         await snap(`s${ph.season}w${ph.turn}_match`);
+        // --d25: 경기 화면이 2.5D 인가 (주소 ?d25=1), 아니면 평면인가
+        const is25 = await S(() => !!document.querySelector(".match-screen.d25"));
+        if (is25 !== !!args.d25) report.fails.push(`s${ph.season}w${ph.turn} 경기 화면 ${is25 ? "2.5D" : "평면"} (--d25 ${args.d25 ? "켬" : "끔"})`);
         if (args.watchMatch) await watchMatch(ph);
         for (let k = 0; k < 40 && (await phaseNow()).phase === "match"; k++) {
           if (await boxOf(".match-screen .skip-btn:not([disabled])")) await press(".match-screen .skip-btn:not([disabled])");
@@ -1178,7 +1199,7 @@ async function main() {
   }
 
   // ---- 보고 ----
-  log(`레슨판 한 판 점검 — seed ${args.seed} · 방침 ${args.policy} · 뷰포트 ${args.width}×${args.height}${args.mobile ? " (mobile)" : ""}${args.touchOnly ? " · 터치만" : ""} · ${Math.round((Date.now() - t0) / 1000)}초`);
+  log(`레슨판 한 판 점검 — seed ${args.seed} · 방침 ${args.policy} · 뷰포트 ${args.width}×${args.height}${args.mobile ? " (mobile)" : ""}${args.touchOnly ? " · 터치만" : ""}${args.d25 ? " · 2.5D (?d25=1)" : ""} · ${Math.round((Date.now() - t0) / 1000)}초`);
   log(`  끝: ${report.end ? `${report.end.phase} 시즌 ${report.end.season} ${report.end.turn}주` : "-"} · 레슨 ${report.lessonsDone ?? 0}번`);
   for (const l of report.lessons) log(`    레슨 시즌 ${l.season} ${l.week}주: ${l.status ?? "-"} ${l.score ?? ""}/${l.target ?? ""} · 붙기 ${l.attaches ?? "-"} · 컷인 ${l.cutins ?? "-"} (화면 ${l.seenCut})`);
   if (report.lessons.length) {
@@ -1194,7 +1215,7 @@ async function main() {
     log(`  경기 자동 진행 (--watch-match) ${report.matches.length}경기:`);
     for (const m of report.matches) {
       const fmtMap = (o) => Object.entries(o).map(([k, n]) => `${k} ${n}`).join(" · ") || "-";
-      log(`    ${m.tag}: ${m.score ? `${m.score.home}:${m.score.away}` : "-"} · 필살기 cutin ${m.cutins} (등급 ${fmtMap(m.tiers)} / 종류 ${fmtMap(m.types)}) · 합체기 ${m.combos} · 역방향 ${m.revs} → 화면 카드 ${m.seenN}/${m.expected} · 잘림 ${m.clipped} · 찍은 장면 ${m.shots.join(", ") || "-"}`);
+      log(`    ${m.tag}: ${m.score ? `${m.score.home}:${m.score.away}` : "-"} · 필살기 cutin ${m.cutins} (등급 ${fmtMap(m.tiers)} / 종류 ${fmtMap(m.types)}) · 합체기 ${m.combos} · 역방향 ${m.revs} → 화면 카드 ${m.seenN}/${m.expected} · 잘림 ${m.clipped} · 찍은 장면 ${m.shots.join(", ") || "-"}${args.d25 ? ` · 카메라 z 표본 ${fmtMap(m.camZ || {})}` : ""}`);
     }
   }
   // 2차 이벤트 (I1)

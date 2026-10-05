@@ -679,11 +679,13 @@
    겹침 = 화면 y 순 (inline z-index 100 + sy ≈ 130 ~ 630). 그 위 층: 공 1500 · 차지 토큰 1550 / 1560 · 미리보기 글자 층 1600 · 결과 한 줄 1700.
    아래 층: 화살표 · 궤적 60 · 골대 50 · 판 · 띠 (auto). 카메라 층 (.w-cam) 밖: 차지 막 (뒤) · 골 연출 (위) · 하늘 (.pitch 맨 뒤) */
 .match-screen.d25 .pitch { background: linear-gradient(180deg, #4f8f3f 0%, #4b893c 100%); }
+/* 하늘: 배경 띠 뒤 (카메라 밖). D2 카메라가 위쪽을 보면 띠가 내려오고 하늘은 이동의 30% 만 따라온다 (시차) — 위로 넉넉히 */
 .match-screen.d25 .w-sky {
-  position: absolute; left: 0; right: 0; top: 0; height: var(--ft); pointer-events: none;
-  background: linear-gradient(180deg, #5d9dd0 0%, #7ab3d3 100%);
+  position: absolute; left: 0; right: 0; top: -180px; height: calc(var(--ft) + 180px); pointer-events: none;
+  background: linear-gradient(180deg, #4f8fc6 0%, #5d9dd0 62%, #7ab3d3 100%);
+  transition: transform var(--t-cam, 0ms) var(--e-cam, ease);
 }
-.match-screen.d25 .w-cam { position: absolute; left: 0; top: 0; width: 100%; height: 100%; transform-origin: 0 0; }
+.match-screen.d25 .w-cam { position: absolute; left: 0; top: 0; width: 100%; height: 100%; transform-origin: 0 0; transition: transform var(--t-cam, 0ms) var(--e-cam, ease); }
 .match-screen.d25 .w-strip { position: absolute; pointer-events: none; background-size: 100% 100%; background-repeat: no-repeat; }
 .match-screen.d25 .w-ground {
   position: absolute; left: 0; top: 0; transform-origin: 0 0; overflow: hidden; pointer-events: none;
@@ -782,15 +784,23 @@
   0% { scale: 1; filter: drop-shadow(0 0 0 rgba(255, 122, 217, 0)); }
   100% { scale: 1.12; filter: drop-shadow(0 0 6px var(--ult)) drop-shadow(0 0 16px rgba(255, 122, 217, .85)); }
 }
-/* 체력 바 · 이름표 = 발 아래, 말풍선 = 머리 위 (screens/match.js labelCands · bubbleCands 와 같은 자리) */
+/* 체력 바 · 이름표 = 발 아래, 말풍선 = 머리 위 (screens/match.js labelCands25 · bubbleCands25 와 같은 자리).
+   D2 카메라: 붙는 자리 (--ny · --fh · --fhw) 는 월드 px (확대와 함께 커진다), 글자 상자는 화면 크기 그대로 = scale(1 / --cam-z) — 붙는 점
+   (transform-origin --lox · --loy / --box · --boy) 기준으로 줄어든다. 가로 비낌은 transform 대신 translate 속성 (scale 은 그 뒤에 걸린다) */
 .match-screen.d25 .tok-bar { left: -15px; width: 30px; top: var(--by, 14px); }
-.match-screen.d25 .tok-name { top: var(--ny, 20px); }
-.match-screen.d25 .tok.lbl-up .tok-name { top: auto; bottom: calc(var(--fh, 60px) + 3px); }
-.match-screen.d25 .tok.lbl-side .tok-name { top: calc(var(--fh, 60px) * -.5 - 8px); bottom: auto; left: calc(var(--fhw, 20px) + 5px); right: auto; transform: none; }
-.match-screen.d25 .tok.lbl-side-l .tok-name { top: calc(var(--fh, 60px) * -.5 - 8px); bottom: auto; left: auto; right: calc(var(--fhw, 20px) + 5px); transform: none; }
-.match-screen.d25 .tok-bubble { bottom: calc(var(--fh, 60px) + 3px); }
-.match-screen.d25 .tok.bub-d .tok-bubble { top: 10px; bottom: auto; }
-.match-screen.d25 .tok.bub-s .tok-bubble { top: calc(var(--fh, 60px) * -.75 - 9px); bottom: auto; left: calc(var(--fhw, 20px) + 4px); }
+.match-screen.d25 .tok-name {
+  --lox: 50%; --loy: 0px; top: var(--ny, 20px);
+  transform: none; translate: -50% 0; scale: calc(1 / var(--cam-z, 1)); transform-origin: var(--lox) var(--loy);
+}
+.match-screen.d25 .tok.lbl-up .tok-name { --loy: 100%; top: auto; bottom: calc(var(--fh, 60px) + 3px); }
+.match-screen.d25 .tok.lbl-sl .tok-name { --lox: calc(100% - 4px); transform: none; translate: calc(-100% + 4px) 0; }
+.match-screen.d25 .tok.lbl-sr .tok-name { --lox: 4px; transform: none; translate: -4px 0; }
+.match-screen.d25 .tok.lbl-side .tok-name { --lox: 0px; --loy: 50%; top: calc(var(--fh, 60px) * -.5 - 8px); bottom: auto; left: calc(var(--fhw, 20px) + 5px); right: auto; transform: none; translate: none; }
+.match-screen.d25 .tok.lbl-side-l .tok-name { --lox: 100%; --loy: 50%; top: calc(var(--fh, 60px) * -.5 - 8px); bottom: auto; left: auto; right: calc(var(--fhw, 20px) + 5px); transform: none; translate: none; }
+.match-screen.d25 .tok-bubble { --box: 0px; --boy: 100%; bottom: calc(var(--fh, 60px) + 3px); scale: calc(1 / var(--cam-z, 1)); transform-origin: var(--box) var(--boy); }
+.match-screen.d25 .tok.bub-l .tok-bubble { --box: 100%; }
+.match-screen.d25 .tok.bub-d .tok-bubble { --boy: 0px; top: 10px; bottom: auto; }
+.match-screen.d25 .tok.bub-s .tok-bubble { --boy: 50%; top: calc(var(--fh, 60px) * -.75 - 9px); bottom: auto; left: calc(var(--fhw, 20px) + 4px); }
 .match-screen.d25 .tok.bub-s.bub-l .tok-bubble { left: auto; right: calc(var(--fhw, 20px) + 4px); }
 .match-screen.d25 .tok-trait { left: calc(var(--fhw, 20px) * .55); top: calc(var(--fh, 60px) * -.92); }
 .match-screen.d25 .tok-yu { left: calc(var(--fhw, 20px) * -1 - 4px); top: calc(var(--fh, 60px) * -.92); }
@@ -807,4 +817,31 @@
   .match-screen.d25 .tok-figure, .match-screen.d25 .tok-ground, .match-screen.d25 .spr-img { transition: none !important; }
   .match-screen.d25 .tok.charge-user .tok-figure, .match-screen.d25 .tok.charge-user .tok-ring, .match-screen.d25 .tok.pick-flash .tok-figure { animation: none !important; }
   .match-screen.d25 .tok.charge-user .tok-figure { filter: drop-shadow(0 0 6px var(--ult)) drop-shadow(0 0 14px rgba(255, 122, 217, .8)); }
+}
+
+/* ---- 2.5D 카메라 (docs/SPRITE_25D_PLAN.md §5 — D2, screens/match.js setCam · js/ui/view25.js cameraTarget) ----
+   .w-cam = translate(W/2 − z·cx, H/2 − z·cy) scale(z) (JS), 하늘 = 이동의 30%. 트랜지션 길이 · 이징 = .pitch 의 --t-cam · --e-cam (JS — 결정 확대 0.35초,
+   액션 --t-act, 재배치 --t-move, 화면 열기 · ⏭ · 줄인 움직임 0). --cam-z (.m-field) 는 등록한 숫자라 카메라와 같이 트랜지션 → 글자 · 선 굵기 ÷ z 가
+   확대 중에도 화면 크기 그대로. 글자 = 이름표 · 말풍선 (위 토큰 묶음) · 결과 한 줄 · 연계 문구 (JS transform 끝 scale(1 / z) — 원점 0 0) ·
+   외침 배지 (g 의 CSS transform) · 미리보기 글자 (font-size ÷ z). 선 = 화살표 · 궤적 · 외침 점선 · ✕ (stroke-width · 점선 간격 ÷ z — 화살촉은 선 굵기 단위) */
+@property --cam-z { syntax: "<number>"; inherits: true; initial-value: 1; }
+.match-screen.d25 .m-field { transition: --cam-z var(--t-cam, 0ms) var(--e-cam, ease); }
+.match-screen.d25 .m-pop, .match-screen.d25 .m-link { transform-origin: 0 0; }
+.match-screen.d25 .pitch-svg .ar { stroke-width: calc(3.5px / var(--cam-z, 1)); }
+.match-screen.d25 .pitch-svg .ar.ar-gk { stroke-width: calc(2.5px / var(--cam-z, 1)); }
+.match-screen.d25 .pitch-svg .ar-halo { stroke-width: calc(7px / var(--cam-z, 1)); }
+.match-screen.d25 .pitch-svg .ar-halo.bar { stroke-width: calc(9px / var(--cam-z, 1)); }
+.match-screen.d25 .pitch-svg [stroke-dasharray].ar, .match-screen.d25 .pitch-svg [stroke-dasharray].ar-halo,
+.match-screen.d25 .pitch-svg path.ar, .match-screen.d25 .pitch-svg path.ar-halo { stroke-dasharray: calc(7px / var(--cam-z, 1)) calc(5px / var(--cam-z, 1)); }
+.match-screen.d25 .pitch-svg .ar-block { stroke-width: calc(4.5px / var(--cam-z, 1)); }
+.match-screen.d25 .pitch-svg .ar-tip { font-size: calc(12.5px / var(--cam-z, 1)); stroke-width: calc(3px / var(--cam-z, 1)); }
+.match-screen.d25 .pitch-svg .ar-ground { stroke-width: calc(3px / var(--cam-z, 1)); stroke-dasharray: calc(2px / var(--cam-z, 1)) calc(6px / var(--cam-z, 1)); }
+.match-screen.d25 .pitch-svg .trail { stroke-width: calc(2.5px / var(--cam-z, 1)); stroke-dasharray: calc(4px / var(--cam-z, 1)) calc(5px / var(--cam-z, 1)); }
+.match-screen.d25 .pitch-svg .trail.ult { stroke-width: calc(4.5px / var(--cam-z, 1)); stroke-dasharray: none; }
+.match-screen.d25 .pitch-svg .trail.ground { stroke-width: calc(2.5px / var(--cam-z, 1)); stroke-dasharray: none; }
+.match-screen.d25 .pitch-svg .ace-halo { stroke-width: calc(6.5px / var(--cam-z, 1)); stroke-dasharray: calc(.1px / var(--cam-z, 1)) calc(8px / var(--cam-z, 1)); }
+.match-screen.d25 .pitch-svg .ace-line { stroke-width: calc(3.5px / var(--cam-z, 1)); stroke-dasharray: calc(.1px / var(--cam-z, 1)) calc(8px / var(--cam-z, 1)); }
+.match-screen.d25 .pitch-svg .ace-origin { stroke-width: calc(2px / var(--cam-z, 1)); stroke-dasharray: calc(3px / var(--cam-z, 1)) calc(3px / var(--cam-z, 1)); }
+@media (prefers-reduced-motion: reduce) {
+  .match-screen.d25 .w-cam, .match-screen.d25 .w-sky, .match-screen.d25 .m-field { transition: none !important; }
 }

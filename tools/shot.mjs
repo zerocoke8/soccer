@@ -482,6 +482,39 @@ async function runScenario(browser, baseUrl, sc, prepared, opts) {
           if (inside !== target) overlaps.push(`원 판정 ${t.dataset.id} ${nameOf(t)}: 그림 ${inside ? "안" : "밖"} · 대상 ${target ? "예" : "아니오"}`);
         }
       }
+      // 2.5D 카메라 (docs/SPRITE_25D_PLAN.md §5 — D2): 멈춘 화면 (비트 연출 중이 아님) 에서 듀얼 둘 (공 가진 선수 · 듀얼 수비) 의 그림 · 발밑 ·
+      // 이름표가 카메라 창 (= 필드 영역 .m-field) 안이고 HUD 와 겹치지 않는가, 보이는 글자 (이름표 · 말풍선 · 결과 한 줄 · 연계 문구 · 미리보기 글자 ·
+      // 외침 배지) 가 창 가장자리에 걸려 잘리지 않는가 (창 밖에 통째로 있는 것은 괜찮다 — 카메라 밖 선수)
+      const d25s = document.querySelector(".match-screen.d25");
+      if (d25s && !(window.__soccer && window.__soccer.store && window.__soccer.store.matchUi && window.__soccer.store.matchUi.busy)) {
+        const fr = rectOf(d25s.querySelector(".m-field"));
+        const inside = (q) => q.left >= fr.left - 1 && q.right <= fr.right + 1 && q.top >= fr.top - 1 && q.bottom <= fr.bottom + 1;
+        const outside = (q) => q.right <= fr.left + 1 || q.left >= fr.right - 1 || q.bottom <= fr.top + 1 || q.top >= fr.bottom - 1;
+        const huds = [...d25s.querySelectorAll(".mh, .m-banner, .m-track, .m-dock, .m-ctl, .skill-row, .m-exits")].filter(vis).map((el) => ({ el, q: rectOf(el) }));
+        const who = (t) => `${t.dataset.side}:${(t.querySelector(".tok-name")?.textContent || t.dataset.id || "").trim()}`;
+        for (const t of d25s.querySelectorAll(".tok.role-carrier:not(.gone), .tok.role-defender:not(.gone)")) {
+          const parts = [["그림", t.querySelector(".tok-figure > img.spr-img") || t.querySelector(".tok-figure .tok-face")], ["발밑", t.querySelector(".tok-ground")]];
+          const nm = t.querySelector(".tok-name");
+          if (t.classList.contains("named") && nm && vis(nm)) parts.push(["이름표", nm]);
+          for (const [kind, el] of parts) {
+            if (!el) continue;
+            const q = rectOf(el);
+            if (!inside(q)) overlaps.push(`2.5D 카메라 창 밖 — 듀얼 ${who(t)} ${kind}`);
+            for (const hd of huds) if (cut(q, hd.q) > 4) overlaps.push(`2.5D HUD 가 듀얼을 가림 — ${who(t)} ${kind} ↔ ${hd.el.className.split(" ")[0]}`);
+          }
+        }
+        const texts = [
+          ...[...d25s.querySelectorAll(".tok.named .tok-name, .tok.has-bubble .tok-bubble")].map((el) => ["글자", el]),
+          ...[...d25s.querySelectorAll(".m-pop > span, .m-link > span")].map((el) => ["결과 · 연계 글자", el]),
+          ...[...d25s.querySelectorAll(".pitch-svg .ar-tip, .pitch-svg .ace-badge")].map((el) => ["미리보기 · 외침 글자", el]),
+        ];
+        for (const [kind, el] of texts) {
+          if (!vis(el)) continue;
+          const q = rectOf(el);
+          if (q.width < 1 || q.height < 1 || inside(q) || outside(q)) continue;
+          overlaps.push(`2.5D 글자가 창 가장자리에 잘림 — ${kind} "${(el.textContent || "").trim().slice(0, 16)}"`);
+        }
+      }
       // 고정 스테이지: 배율 · 위치 (js/ui/stage.js), 스테이지 밖으로 넘친 가로 폭 (#app 논리 px)
       const stageEl = document.getElementById("stage");
       const r = stageEl ? stageEl.getBoundingClientRect() : null;
@@ -588,6 +621,11 @@ async function enterMatch(page, sc, prepared, opts, out) {
   } else if (sc.interact && sc.interact.type === "steps") {
     // 여러 단계 조작 (v0.3): 스킬 줄 버튼 클릭(선택자) → 액션 hover / 액션 클릭(연출 타이머가 돌도록 고정 해제) → 대기
     for (const st of sc.interact.steps || []) {
+      // 타이머 고정 켜기/끄기 (아웃게임 steps 와 같은 { freeze: bool }) — 예: 2.5D 킥오프 배치의 결정 확대 (T.start 뒤) 를 기다릴 때
+      if (Object.prototype.hasOwnProperty.call(st, "freeze")) {
+        if (opts.freeze) await page.evaluate((v) => { if (window.__shot) window.__shot.frozen = v; }, !!st.freeze);
+        continue;
+      }
       if (st.click) {
         const r = await page.evaluate((sel) => {
           const el = document.querySelector(sel);

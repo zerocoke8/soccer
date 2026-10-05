@@ -8,6 +8,9 @@
 //   잔디 그림 · 구역 · 선이 project 와 정확히 같은 자리에 놓인다 (토큰 · 공 · 화살표 · 골대는 판 밖 층에서 project 로 그린다).
 // 크기 배율 s = 그 깊이에서 u 방향 1 판 px 의 화면 길이 ÷ 가까운 터치라인에서의 같은 값 (먼 쪽 약 0.83 ~ 가까운 쪽 1).
 // 모든 함수가 W · H 를 받는다 (스테이지 크기를 박아 두지 않는다). 같은 W · H 의 행렬은 한 번만 푼다.
+// 카메라 (D2 — §5, 파일 끝): 상태 { cx, cy, z } = 필드 영역 가운데에 올 월드 점 (투영 뒤 px) · 배율. cameraPhase (상황 → 표의 줄) ·
+//   cameraTarget (줄 → 목표, 범위 자르기까지) · clampCamera (보이는 창이 월드 사각형 = 투영된 판 + 배경 띠 밖으로 나가지 않게) · camTranslate ·
+//   camWindow (보이는 창의 월드 사각형 — 글자 자리 고르기의 화면 밖 판정) · figureBox (결정 틀의 선수 상자).
 
 /** 판 · 사다리꼴 · 세운 물체의 숫자 ([구현 결정] — §3 · §4 시작값, 시험해 보고 고칠 숫자) */
 export const V25 = Object.freeze({
@@ -260,7 +263,7 @@ export function stripRect(W, H) {
   return { x: W / 2 - w / 2, y: bottom - h, w, h };
 }
 
-/** 월드 사각형 (투영된 판 + 위쪽 배경 띠) { x0, y0, x1, y1 } — 카메라 범위 (D2) */
+/** 월드 사각형 (투영된 판 + 위쪽 배경 띠) { x0, y0, x1, y1 } — 카메라 범위 (D2 clampCamera) */
 export function worldRect(W, H) {
   const pts = [[0, 0], [PL, 0], [PL, PD], [0, PD]].map(([u, v]) => projectPlane(u, v, W, H));
   const st = stripRect(W, H);
@@ -308,4 +311,136 @@ export function goalShapes(end, W, H) {
     for (const v of [v1, v2]) grid.push([P(u0 + (ub - u0) * f, v, 0), P(u0 + (ub - u0) * f, v, GH + (BH - GH) * f)]);
   }
   return { frame, nets, grid };
+}
+
+/* ------------------------------------------------------------------ */
+/* 카메라 (D2 — §5)                                                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 카메라 숫자 ([구현 결정] — §5 시작값, 시험해 보고 고칠 숫자). 여백 · 위로 올림은 화면 px (확대해도 글자 크기는 그대로라 ÷ z 로 쓴다).
+ */
+export const CAM = Object.freeze({
+  Z_FOLLOW: 1.4, Z_FOLLOW_FAST: 1.2,     // 평소 공 따라가기 (4배속 1.2)
+  Z_DECIDE: 2.0,                         // 직접 결정할 때 (틀이 창에 안 들어가면 Z_FOLLOW 까지 낮춘다) = 가장 큰 배율
+  LEAD: 8,                               // 공 따라가기: 공격 방향 앞쪽 미리 보기 (필드 길이 %)
+  LIFT: 24,                              // 따라가기 · 액션: 가운데 = 공의 땅 점보다 위 (선수 몸 쪽 — 화면 px × 그 자리 s)
+  PAD_X: 44, PAD_T: 34, PAD_B: 30,       // 결정 틀 여백 (화면 px — 위 = 머리 위 말풍선, 아래 = 발밑 이름표, 옆 = 이름표 · 말풍선 폭)
+  DECIDE_MS: 350,                        // 결정 확대 들어가기 · 토글로 틀이 바뀔 때 (ms, 배속과 무관 — 멈춰 있는 동안)
+  SKY: 0.3,                              // 하늘 (.w-sky) = 카메라 이동의 30% (시차)
+});
+
+/** 평소 따라가기 배율 (배속 4 = 1.2, 그 밖 1.4) */
+export const followZoom = (speed) => (Number(speed) >= 4 ? CAM.Z_FOLLOW_FAST : CAM.Z_FOLLOW);
+
+/**
+ * 카메라 상황 → §5 표의 줄 ('full' | 'action' | 'decide' | 'follow'). 위가 먼저:
+ *   ⏭ · 경기 끝 · 골 연출 → 'full' / 액션 중 → 'action' (지금 z, 공이 갈 곳) / 사람이 고르는 중 → 'decide'
+ *   (경기 화면을 연 킥오프 배치면 startHold 동안 미룬다 — 잠깐 풀코트) / 킥오프 배치 · 경기 시작 → 'full' / 그 밖 → 'follow'.
+ * @param {{ skip?, finished?, goal?, action?, deciding?, startHold?, kickoff?, start? }} s 참 · 거짓 값들
+ */
+export function cameraPhase({ skip = false, finished = false, goal = false, action = false, deciding = false, startHold = false, kickoff = false, start = false } = {}) {
+  if (skip || finished || goal) return 'full';
+  if (action) return 'action';
+  if (deciding && !startHold) return 'decide';
+  if (kickoff || start || startHold) return 'full';
+  return 'follow';
+}
+
+const within = (c, lo, hi) => (lo > hi ? (lo + hi) / 2 : Math.min(hi, Math.max(lo, c)));
+const unionBox = (list) => list.reduce((u, b) => ({ l: Math.min(u.l, b.l), r: Math.max(u.r, b.r), t: Math.min(u.t, b.t), b: Math.max(u.b, b.b) }),
+  { l: Infinity, r: -Infinity, t: Infinity, b: -Infinity });
+
+/**
+ * 범위 자르기: z 를 1 ~ Z_DECIDE 로, 보이는 창 (W / z × H / z) 이 월드 사각형 (worldRect) 밖으로 나가지 않게 cx · cy 를 자른다.
+ * z = 1 이면 언제나 전체 (cx · cy = 필드 영역 가운데).
+ * @returns {{ cx: number, cy: number, z: number }}
+ */
+export function clampCamera({ cx, cy, z }, W, H, world = null) {
+  const zz = Math.min(CAM.Z_DECIDE, Math.max(1, Number(z) || 1));
+  if (zz <= 1 + 1e-9) return { cx: W / 2, cy: H / 2, z: 1 };
+  const wr = world || worldRect(W, H);
+  const hw = W / (2 * zz);
+  const hh = H / (2 * zz);
+  return { cx: within(Number(cx), wr.x0 + hw, wr.x1 - hw), cy: within(Number(cy), wr.y0 + hh, wr.y1 - hh), z: zz };
+}
+
+/** 카메라 → .w-cam 의 translate (transform-origin 0 0 · scale(z)): 화면 = (월드 − (cx, cy)) · z + (W / 2, H / 2) */
+export function camTranslate({ cx, cy, z }, W, H) {
+  return { tx: W / 2 - z * cx, ty: H / 2 - z * cy };
+}
+
+/** 카메라가 보여 주는 창 (필드 영역 W × H) 의 월드 사각형 { l, r, t, b } */
+export function camWindow({ cx, cy, z }, W, H) {
+  const hw = W / (2 * z);
+  const hh = H / (2 * z);
+  return { l: cx - hw, r: cx + hw, t: cy - hh, b: cy + hh };
+}
+
+/**
+ * 서 있는 선수 한 명의 월드 상자 { l, r, t, b } (z = 1 화면 px): 발 (x, y) 에서 위로 키, 좌우 반폭, 아래로 발밑 타원 · 체력 바 · 이름표 위 끝
+ * (screens/match.js tokGeo 의 --ny 와 같은 식). 결정 틀 (cameraTarget 'decide') 에 쓴다.
+ * @param {{ w: number, h: number, footX: number }|null} sprite data/sprites.json 항목 (없으면 스탠디)
+ */
+export function figureBox(x, y, W, H, sprite = null) {
+  const p = project(x, y, W, H);
+  const f = figureSize(p.s, sprite);
+  const gh = V25.GROUND_W * p.s * groundAspect(x, y, W, H);
+  return { l: p.sx - f.hw, r: p.sx + f.hw, t: p.sy - f.fh, b: p.sy + gh / 2 + 9 };
+}
+
+/**
+ * 결정 틀 (§5 '직접 결정할 때'): 상자들 (월드 px) 을 여백 (화면 px ÷ z) 과 함께 창에 넣는 가장 큰 z (Z_FOLLOW ~ Z_DECIDE) 와 가운데.
+ * 상자 표시: core = 꼭 보여야 하는 듀얼 둘 (틀이 Z_FOLLOW 에서도 안 들어가면 가운데를 core 쪽으로 당긴다), opt = 보이면 넣는 것
+ * (커버 수비 · 다른 받는 선수 후보 — 나머지로 정한 창에 걸리면 틀에 더한다), 그 밖 = 넣어야 하는 것 (고른 받는 선수 · 외치는 선수).
+ */
+function decideFrame(boxes, W, H) {
+  const { PAD_X: mx, PAD_T: mt, PAD_B: mb } = CAM;
+  const zFor = (u) => Math.min(CAM.Z_DECIDE, Math.max(CAM.Z_FOLLOW,
+    Math.min((W - 2 * mx) / Math.max(1, u.r - u.l), (H - mt - mb) / Math.max(1, u.b - u.t))));
+  const centre = (u, z) => ({ cx: (u.l + u.r) / 2, cy: (u.t - mt / z + u.b + mb / z) / 2 });
+  const need = boxes.filter((b) => !b.opt);
+  let u = unionBox(need.length ? need : boxes);
+  let z = zFor(u);
+  const c0 = centre(u, z);
+  const win = camWindow({ ...c0, z }, W, H);
+  const seen = boxes.filter((b) => b.opt && b.r > win.l && b.l < win.r && b.b > win.t && b.t < win.b);
+  if (seen.length) {
+    u = unionBox([...need, ...seen]);
+    z = zFor(u);
+  }
+  let { cx, cy } = centre(u, z);
+  const core = boxes.filter((b) => b.core);
+  if (core.length) {
+    const k = unionBox(core);
+    const hw = W / (2 * z);
+    const hh = H / (2 * z);
+    cx = within(cx, k.r + mx / z - hw, k.l - mx / z + hw);
+    cy = within(cy, k.b + mb / z - hh, k.t - mt / z + hh);
+  }
+  return { cx, cy, z };
+}
+
+/**
+ * 카메라 목표 (§5 표) → { cx, cy, z } (clampCamera 까지 한 값).
+ *   'full'   : z 1 · 전체
+ *   'follow' : z = followZoom(speed) (1.4 · 4배속 1.2), 가운데 = 공 (필드 %) + 공격 방향 앞쪽 LEAD (필드 길이 %), 땅 점보다 LIFT · s 위
+ *   'decide' : boxes (figureBox · core · opt) 를 여백과 함께 넣는 z (Z_FOLLOW ~ Z_DECIDE) · 가운데 (decideFrame)
+ *   'action' : z = current.z (지금), 가운데 = 공이 갈 곳 to (필드 %) 의 땅 점보다 LIFT · s 위
+ * 필요한 값이 없으면 (공 · 상자 · 갈 곳) 전체.
+ * @param {{ phase?: string, W: number, H: number, speed?: number, ball?: {x,y}|null, attackRight?: boolean,
+ *   boxes?: Array<{l,r,t,b,core?,opt?}>, to?: {x,y}|null, current?: {cx,cy,z}|null, world?: object|null }} o
+ */
+export function cameraTarget({ phase = 'full', W, H, speed = 1, ball = null, attackRight = true, boxes = [], to = null, current = null, world = null } = {}) {
+  const wr = world || worldRect(W, H);
+  if (phase === 'follow' && ball && Number.isFinite(Number(ball.x)) && Number.isFinite(Number(ball.y))) {
+    const p = project(Number(ball.x), Number(ball.y) + (attackRight ? 1 : -1) * CAM.LEAD, W, H);
+    return clampCamera({ cx: p.sx, cy: p.sy - CAM.LIFT * p.s, z: followZoom(speed) }, W, H, wr);
+  }
+  if (phase === 'action' && to && Number.isFinite(Number(to.x)) && Number.isFinite(Number(to.y))) {
+    const p = project(Number(to.x), Number(to.y), W, H);
+    return clampCamera({ cx: p.sx, cy: p.sy - CAM.LIFT * p.s, z: Number(current?.z) || 1 }, W, H, wr);
+  }
+  if (phase === 'decide' && Array.isArray(boxes) && boxes.length) return clampCamera(decideFrame(boxes, W, H), W, H, wr);
+  return clampCamera({ cx: W / 2, cy: H / 2, z: 1 }, W, H, wr);
 }

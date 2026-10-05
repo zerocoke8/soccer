@@ -86,6 +86,14 @@
 //    bubbleCands) 는 토큰에 단 변수 (--fh 키 · --fhw 반폭 · --ny 이름표 위 끝 …) 와 같은 숫자 — CSS 가 그리는 자리 = JS 상자.
 //  - 배치 간격: computeLayout(aspect = FD / FL, tokenSize = 46 / FD) — 판 px 기준 46 (몸 폭) 떨어지게.
 //  - 공: 발 앞 (투영한 공격 방향), 크기 s 배, 바닥 그림자. 크로스 · 롱패스 = 바닥 직선 위로 뜨는 포물선 (화살표 · 궤적 · 공이 같은 곡선 curveCtrl).
+// 2026-10-06 2.5D 카메라 (SPRITE_25D_PLAN §5 — D2): .w-cam = translate(W/2 − z·cx, H/2 − z·cy) scale(z) (camT = 목표, setCam).
+//  - 목표 (view25 cameraPhase · cameraTarget): ⏭ · 경기 끝 · 골 연출 · 킥오프 배치 = 전체 (z 1), 평소 = 공 따라가기 (1.4 · 4배속 1.2, 공격 방향 앞쪽 8%),
+//    사람이 고르는 중 (paused) = 결정 틀 2배 (공 가진 선수 · 듀얼 수비 · 고른 받는 선수 · 외치는 선수 · 보이면 커버 · 다른 후보 — 안 들어가면 1.4 까지),
+//    액션 중 = 지금 z 로 공이 갈 곳. 경기 화면을 연 킥오프 배치에서 사람이 고를 차례면 T.start 만큼 전체를 보여 준 뒤 확대한다.
+//  - 움직임 = CSS 트랜지션 (--t-cam · --e-cam, .pitch): 결정 확대 · 토글 0.35초, 액션 --t-act (공 이징), 재배치 --t-move (토큰 이징),
+//    골 연출 · 경기 끝 --t-move, 화면 열기 · ⏭ · 줄인 움직임 = 순간. 하늘 (.w-sky) 은 이동의 30% (시차).
+//  - 글자 크기 유지: --cam-z (.m-field, @property 로 카메라와 같이 트랜지션) → 이름표 · 말풍선 · 결과 한 줄 · 연계 문구 · 외침 배지 · 미리보기 글자는
+//    scale(1 / z), 화살표 · 궤적 선 굵기도 ÷ z. 자리 고르기 상자의 글자 크기 ÷ z, 화면 밖 판정 = 지금 카메라 창 (camBounds — 월드 좌표).
 //
 // 가로 전용 (고정 스테이지 1280×720 — js/ui/stage.js, css/match.css). 세로 경기 화면·방향 전환은 없다 (?orient · 저장값은 무시).
 //  - 필드 좌표(layout.js)는 그대로, 픽셀 변환만 가로 (layout.js fieldToScreen 'land' — home 골 왼쪽, away 골 오른쪽, 필드 x 0 = 위).
@@ -144,6 +152,8 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 // 2.5D 판 그림 (docs/SPRITE_25D_PLAN.md §2): 위에서 본 잔디 (필드 사각형에 맞춰 판 전체에 깐다) · 먼 쪽 배경 띠
 const GRASS_URL = './img/sprites/grass_top.webp';
 const STRIP_URL = './img/sprites/far_strip.webp';
+// 2.5D 카메라 (D2): 결과 한 줄 · 연계 문구 (.m-pop · .m-link — transform-origin 0 0) 는 확대해도 화면 크기 그대로 = 자리 뒤에 scale(1 / z)
+const POP_SCALE25 = ' scale(calc(1 / var(--cam-z, 1)))';
 const STEP_MARKS = ['①', '②', '③', '④'];
 const RECV_ACTIONS = ['pass', 'cross'];
 const ACTION_ORDER = ['dribble', 'pass', 'cross', 'shoot', 'tackle', 'intercept', 'hold', 'save'];
@@ -274,7 +284,8 @@ export function renderMatch(root, ctx) {
   // (2.5D: 차지 막은 카메라 층 뒤 — 판 · 띠 · 골대는 .charging 에서 스스로 흑백, 골 연출은 카메라 밖 위)
   const field = d25 ? h('div', { class: 'm-field' }, chargeVeil, cam, goalFx)
     : h('div', { class: 'm-field' }, bg, chargeVeil, tokLayer, ballEl, svg, svgTop, popLayer, goalFx);
-  const grass = h('div', { class: 'pitch' }, d25 ? h('div', { class: 'w-sky', 'aria-hidden': 'true' }) : null, field);
+  const skyEl = d25 ? h('div', { class: 'w-sky', 'aria-hidden': 'true' }) : null;
+  const grass = h('div', { class: 'pitch' }, skyEl, field);
   // 아래 가운데: 정보 줄(상대 예상 행동 근거) + 결정 카드 한 줄
   const info = h('div', { class: 'm-info' });
   const actGrid = h('div', { class: 'action-grid' });
@@ -320,6 +331,7 @@ export function renderMatch(root, ctx) {
   let tagBoxes = [];         // 이름 라벨·말풍선이 놓인 자리 (픽셀 박스)
   let laShown = null;        // 마지막 공격 배너를 띄운 추가 포제션 ("stage|possession") — 첫 배너만 "⏱ 추가시간 — 마지막 공격!"
   let curAce = null;         // 지금 그린 에이스의 외침 (aceInfo) — 같은 받는 선수의 미리보기 화살표면 점선을 숨긴다
+  let ballDest = null;       // 2.5D 카메라: 액션 연출에서 공이 가는 곳 (필드 %) — placeBallAt · arcBall
   let aceSig = null;         // 점선 모양 서명: 같으면 다시 그려도 페이드 없이
   const tokEls = new Map();
   const timers = new Set();
@@ -482,7 +494,82 @@ export function renderMatch(root, ctx) {
     });
     goalsSvg.setAttribute('viewBox', `0 0 ${round1(W)} ${round1(H)}`);
     drawGoals();
-    cam.style.transform = 'translate(0px, 0px) scale(1)'; // D1: 카메라 없이 전체 (D2 가 공 따라가기 · 결정 확대)
+    setCam(camT, 0); // 크기가 바뀌면 지금 목표를 새 W × H 로 다시 (순간)
+  }
+
+  /* 2.5D 카메라 (SPRITE_25D_PLAN §5 — D2) ---------------------------------- */
+  // camT = 지금 목표 { cx, cy, z } (.w-cam 의 CSS 트랜지션이 가는 곳). 글자 자리 고르기 (상자 크기 ÷ z · 화면 밖 판정) 는 이 목표의 창을 쓴다.
+  let camT = { cx: W / 2, cy: H / 2, z: 1 };
+  let camStartHold = false; // 경기 화면을 연 킥오프 배치에서 사람이 고를 차례: 결정 확대를 T.start 만큼 미룬다 (잠깐 풀코트)
+  const EASE_MOVE = 'cubic-bezier(.25, .8, .3, 1)'; // 토큰 재배치와 같은 이징 (css .tok)
+  const EASE_ACT = 'cubic-bezier(.45, .05, .55, .95)'; // 액션 중 공과 같은 이징 (css .phase-act .m-ball)
+  /**
+   * 글자 자리 고르기의 범위: 평면 = 필드 영역 { 0, W, 0, H } · 글자 배율 i 1, 2.5D = 지금 카메라 창 (월드 px) · i = 1 / z
+   * (글자는 화면 크기 그대로 — 월드 px 로는 ÷ z). 평면 값은 예전 식과 같은 수가 나오게 (0 + k · 1 = k, W − k · 1 = W − k).
+   */
+  function camBounds() {
+    if (!d25) return { l: 0, r: W, t: 0, b: H, i: 1 };
+    return { ...V.camWindow(camT, W, H), i: 1 / camT.z };
+  }
+  /** 카메라를 목표로 (범위 자르기 — view25.clampCamera): ms 동안 ease 로 (줄인 움직임 = 순간). 하늘은 이동의 30%, --cam-z 는 같은 트랜지션 */
+  function setCam(t, ms = 0, ease = EASE_MOVE) {
+    if (!d25) return;
+    camT = V.clampCamera({ ...t, z: round3(Number(t?.z) || 1) }, W, H);
+    const { tx, ty } = V.camTranslate(camT, W, H);
+    grass.style.setProperty('--t-cam', `${reduced ? 0 : Math.max(0, Math.round(ms))}ms`);
+    grass.style.setProperty('--e-cam', ease);
+    cam.style.transform = `translate(${round1(tx)}px, ${round1(ty)}px) scale(${camT.z})`;
+    field.style.setProperty('--cam-z', String(camT.z));
+    skyEl.style.transform = `translate(${round1(tx * V.CAM.SKY)}px, ${round1(ty * V.CAM.SKY)}px)`;
+  }
+  /**
+   * 이 배치 (Lay · view) 의 카메라 목표 (§5 표 — view25.cameraPhase): 경기 끝 = 전체, 사람이 고르는 중 = 결정 틀, 킥오프 배치 = 전체,
+   * 그 밖 = 공 따라가기 (배속 4 면 1.2). 액션 중 · 골 연출은 actionPhase · goalFlash 가 직접 정한다.
+   */
+  function camTargetFor(Lay, view) {
+    const finished = !!view?.finished || isFinished();
+    const phase = V.cameraPhase({
+      finished,
+      deciding: !busy && !finished && paused(view),
+      startHold: camStartHold,
+      kickoff: Lay?.mode === 'play' && view?.lastBeat?.type === 'kickoff',
+    });
+    if (phase === 'decide') return V.cameraTarget({ phase, W, H, boxes: decideBoxes(Lay, view) });
+    if (phase === 'follow' && Lay?.ball) {
+      return V.cameraTarget({ phase, W, H, speed: ui.speed, ball: Lay.ball, attackRight: Lay.attackingSide !== 'away' });
+    }
+    return V.cameraTarget({ phase: 'full', W, H });
+  }
+  /**
+   * 결정 틀의 선수 상자 (view25.figureBox — 발 · 머리 · 이름표 자리): 공 가진 선수 · 듀얼 수비 (core), 넣어야 하는 것 = 고른 받는 선수
+   * (사람 공격: 패스 · 크로스의 고른 선수 또는 기본값 / 사람 수비: 상대가 고를 패스 · 크로스의 받는 선수 / GK 배급: 짧게 · 길게 받는 선수) ·
+   * 에이스의 외침 ("줘!" — 점선 · 배지가 가리키는 선수, 탭해서 받는 선수로 고를 수 있어야 한다), 보이면 넣는 것 (opt — 나머지로 정한 창에
+   * 걸리면 틀을 넓힌다) = 커버 수비 · 다른 받는 선수 후보.
+   */
+  function decideBoxes(Lay, view) {
+    if (!Lay || Lay.mode !== 'play' || !view) return [];
+    const atk = Lay.attackingSide;
+    const def = atk === 'home' ? 'away' : 'home';
+    const box = (t, extra = {}) => (t ? { ...V.figureBox(t.x, t.y, W, H, spriteFor(t.side, t.id)), ...extra } : null);
+    const out = [box(tokOf(Lay, Lay.carrierId, atk), { core: true }), box(tokOf(Lay, Lay.defenderId, def), { core: true })];
+    const need = new Set();
+    if (Lay.dist) {
+      for (const a of DIST_ACTIONS) if (Lay.dist[a]) need.add(Lay.dist[a]);
+    } else if (view.attackingSide === humanOf(view)) {
+      for (const a of RECV_ACTIONS) { const id = recvInfo(view, a)?.id; if (id) need.add(id); }
+    } else {
+      const ea = view.expected?.attack?.action;
+      const id = ea === 'pass' || ea === 'cross' ? view.expected?.attack?.receiverId ?? view.receivers?.[ea]?.defaultId : null;
+      if (id) need.add(id);
+    }
+    const callId = aceInfo(view, Lay)?.call.playerId ?? null;
+    if (callId != null) need.add(callId);
+    for (const id of need) out.push(box(tokOf(Lay, id, atk)));
+    for (const t of Lay.tokens) {
+      const mine = t.side === atk && !need.has(t.id) && t.id !== Lay.carrierId;
+      if (t.role === 'cover' || (mine && t.role === 'receiver')) out.push(box(t, { opt: true }));
+    }
+    return out.filter(Boolean);
   }
   /** 서 있는 골대 두 개 (뒤 그물 → 옆 · 지붕 → 앞 틀 순서, 흰 선 SVG) */
   function drawGoals() {
@@ -633,7 +720,7 @@ export function renderMatch(root, ctx) {
   function spotScore(box, obstacles) {
     let s = 0;
     for (const o of obstacles) s += rectOverlap(box, o) * (o.w ?? 1);
-    const inside = rectOverlap(box, { l: 0, r: W, t: 0, b: H });
+    const inside = rectOverlap(box, d25 ? camBounds() : { l: 0, r: W, t: 0, b: H }); // 2.5D: 지금 카메라 창 (월드 좌표)
     const area = (box.r - box.l) * (box.b - box.t);
     return s + (area - inside) * 2; // 필드 밖으로 나가는 부분은 두 배로 싫다
   }
@@ -661,37 +748,44 @@ export function renderMatch(root, ctx) {
     const [cx, cy] = toPx(t.x, t.y);
     const r = tokPx / 2;
     const w = textWidth(text, FONT.label) + 10;
-    // 2.5D: 아래 = 발밑 체력 바 아래 (--ny), 위 = 머리 위 (--fh), 옆 = 몸 가운데 높이 · 반폭 (--fhw) 바깥 — css .d25 .tok-name
-    const g = d25 ? tokGeo(t) : null;
-    const vBox = (v) => (g
-      ? (v === 'up' ? { t: cy - g.fh - 19, b: cy - g.fh - 3 } : { t: cy + g.ny, b: cy + g.ny + 16 })
-      : (v === 'up' ? { t: cy - r - 19, b: cy - r - 3 } : { t: cy + r + 7, b: cy + r + 23 }));
+    if (d25) return labelCands25(t, cx, cy, w, vs, hzs, awayFromDuel);
+    const vBox = (v) => (v === 'up' ? { t: cy - r - 19, b: cy - r - 3 } : { t: cy + r + 7, b: cy + r + 23 });
     const hBox = (hz) => (hz === 'c' ? { l: cx - w / 2, r: cx + w / 2 } : hz === 'l' ? { l: cx - w + 4, r: cx + 4 } : { l: cx - 4, r: cx - 4 + w });
     const out = [];
     for (const v of vs) for (const hz of hzs) out.push({ v, hz, box: { ...vBox(v), ...hBox(hz) } });
-    const sr = g ? g.hw : r; // 옆 자리: 몸 반폭 바깥
-    const sm = g ? cy - g.fh / 2 : cy; // 옆 자리 세로 가운데
-    const sideR = { v: 'side', hz: 'c', box: { l: cx + sr + 5, r: cx + sr + 5 + w, t: sm - 8, b: sm + 8 } };
-    const sideL = { v: 'side-l', hz: 'c', box: { l: cx - sr - 5 - w, r: cx - sr - 5, t: sm - 8, b: sm + 8 } };
+    const sideR = { v: 'side', hz: 'c', box: { l: cx + r + 5, r: cx + r + 5 + w, t: cy - 8, b: cy + 8 } };
+    const sideL = { v: 'side-l', hz: 'c', box: { l: cx - r - 5 - w, r: cx - r - 5, t: cy - 8, b: cy + 8 } };
+    out.push(...(awayFromDuel === 'l' ? [sideL, sideR] : [sideR, sideL]));
+    return out;
+  }
+  /**
+   * 2.5D 이름표 후보 (css .d25 .tok-name — 붙는 자리는 월드 px, 글자 상자는 화면 크기 그대로 = 월드 × i (1 / z), 붙는 점 기준으로 줄어든다):
+   * 아래 = 발밑 체력 바 아래 (--ny) 에 위 끝, 위 = 머리 위 (--fh + 3) 에 아래 끝, 좌우 비낌 = 앵커에서 4 · i 걸침,
+   * 옆 = 몸 가운데 높이 (키의 1/2) · 반폭 (--fhw) + 5 바깥
+   */
+  function labelCands25(t, cx, cy, w, vs, hzs, awayFromDuel) {
+    const g = tokGeo(t);
+    const i = camBounds().i;
+    const ws = w * i;
+    const vBox = (v) => (v === 'up' ? { t: cy - g.fh - 3 - 16 * i, b: cy - g.fh - 3 } : { t: cy + g.ny, b: cy + g.ny + 16 * i });
+    const hBox = (hz) => (hz === 'c' ? { l: cx - ws / 2, r: cx + ws / 2 } : hz === 'l' ? { l: cx - ws + 4 * i, r: cx + 4 * i } : { l: cx - 4 * i, r: cx - 4 * i + ws });
+    const out = [];
+    for (const v of vs) for (const hz of hzs) out.push({ v, hz, box: { ...vBox(v), ...hBox(hz) } });
+    const sm = cy - g.fh / 2; // 옆 자리 세로 가운데
+    const sideR = { v: 'side', hz: 'c', box: { l: cx + g.hw + 5, r: cx + g.hw + 5 + ws, t: sm - 8 * i, b: sm + 8 * i } };
+    const sideL = { v: 'side-l', hz: 'c', box: { l: cx - g.hw - 5 - ws, r: cx - g.hw - 5, t: sm - 8 * i, b: sm + 8 * i } };
     out.push(...(awayFromDuel === 'l' ? [sideL, sideR] : [sideR, sideL]));
     return out;
   }
   /** 예상 행동 말풍선 후보: 토큰 위 오른쪽(기본) → 위 왼쪽 → 옆 오른쪽 → 옆 왼쪽 → 아래 오른쪽 → 아래 왼쪽 (CSS .tok-bubble: 줄 높이 18) */
   function bubbleCands(t, text) {
     const [cx, cy] = toPx(t.x, t.y);
-    let r = tokPx / 2;
+    const r = tokPx / 2;
     const bw = textWidth(text, FONT.bubble) + 14;
-    let up = { t: cy - r - 21, b: cy - r - 3 };
-    let mid = { t: cy - 9, b: cy + 9 };
-    let dn = { t: cy + r + 8, b: cy + r + 26 };
-    if (d25) {
-      // 2.5D: 위 = 머리 위 (--fh), 옆 = 머리 높이 (키의 3/4) · 반폭 (--fhw) 바깥, 아래 = 발 아래 — css .d25 .tok-bubble
-      const g = tokGeo(t);
-      r = g.hw;
-      up = { t: cy - g.fh - 21, b: cy - g.fh - 3 };
-      mid = { t: cy - g.fh * 0.75 - 9, b: cy - g.fh * 0.75 + 9 };
-      dn = { t: cy + 10, b: cy + 28 };
-    }
+    if (d25) return bubbleCands25(t, cx, cy, bw);
+    const up = { t: cy - r - 21, b: cy - r - 3 };
+    const mid = { t: cy - 9, b: cy + 9 };
+    const dn = { t: cy + r + 8, b: cy + r + 26 };
     return [
       { cls: '', box: { l: cx + 5, r: cx + 5 + bw, ...up } },
       { cls: 'bub-l', box: { l: cx - 5 - bw, r: cx - 5, ...up } },
@@ -699,6 +793,27 @@ export function renderMatch(root, ctx) {
       { cls: 'bub-s bub-l', box: { l: cx - r - 4 - bw, r: cx - r - 4, ...mid } },
       { cls: 'bub-d', box: { l: cx + 5, r: cx + 5 + bw, ...dn } },
       { cls: 'bub-d bub-l', box: { l: cx - 5 - bw, r: cx - 5, ...dn } },
+    ];
+  }
+  /**
+   * 2.5D 말풍선 후보 (css .d25 .tok-bubble — 붙는 자리는 월드 px, 상자는 화면 크기 그대로 = 월드 × i): 위 = 머리 위 (--fh + 3) 에 아래 끝,
+   * 옆 = 머리 높이 (키의 3/4) 가운데 · 반폭 (--fhw) + 4 바깥, 아래 = 발 아래 10 에 위 끝. 좌우 = 앵커에서 5 떨어진 쪽 끝
+   */
+  function bubbleCands25(t, cx, cy, bw) {
+    const g = tokGeo(t);
+    const i = camBounds().i;
+    const ws = bw * i;
+    const r = g.hw;
+    const up = { t: cy - g.fh - 3 - 18 * i, b: cy - g.fh - 3 };
+    const mid = { t: cy - g.fh * 0.75 - 9 * i, b: cy - g.fh * 0.75 + 9 * i };
+    const dn = { t: cy + 10, b: cy + 10 + 18 * i };
+    return [
+      { cls: '', box: { l: cx + 5, r: cx + 5 + ws, ...up } },
+      { cls: 'bub-l', box: { l: cx - 5 - ws, r: cx - 5, ...up } },
+      { cls: 'bub-s', box: { l: cx + r + 4, r: cx + r + 4 + ws, ...mid } },
+      { cls: 'bub-s bub-l', box: { l: cx - r - 4 - ws, r: cx - r - 4, ...mid } },
+      { cls: 'bub-d', box: { l: cx + 5, r: cx + 5 + ws, ...dn } },
+      { cls: 'bub-d bub-l', box: { l: cx - 5 - ws, r: cx - 5, ...dn } },
     ];
   }
 
@@ -882,10 +997,14 @@ export function renderMatch(root, ctx) {
     el.style.transform = `translate(${round1(sx)}px, ${round1(sy)}px)`;
   }
 
-  function applyLayout(Lay, view, { anim = true } = {}) {
+  /**
+   * camMs (2.5D): 카메라가 이 배치의 목표로 가는 시간 (기본 = 결정 확대 0.35초 · 재배치는 --t-move, 화면 열기 · ⏭ = 0). 글자 자리는 그 목표의 창으로 고른다
+   */
+  function applyLayout(Lay, view, { anim = true, camMs = V.CAM.DECIDE_MS } = {}) {
     if (!Lay) return;
     curL = Lay;
     curView = view;
+    if (d25) setCam(camTargetFor(Lay, view), camMs);
     if (!anim) screen.classList.add('no-anim'); // 토큰 · 공 · 트랙 칸 트랜지션 없이
     const seen = new Set();
     const ei = expectInfo(view);
@@ -901,9 +1020,20 @@ export function renderMatch(root, ctx) {
     }
     // 외치는 선수는 이름도 (자동 진행 중 예상 받는 선수가 아니어도 누가 외치는지 보이게)
     if (ace && !named.has(ace.key)) named.set(ace.key, ace.R.name);
+    // 2.5D 카메라: 발이 지금 카메라 창 밖인 선수 (몸이 HUD 아래 · 화면 밖) 에게는 이름표 · 말풍선을 달지 않는다 — 창 가장자리에 걸린 글자 ·
+    // 그림 없이 떠 있는 이름이 남지 않게 (듀얼 둘은 결정 틀 · 따라가기가 창 안에 둔다)
+    const offCam = new Set();
+    if (d25) {
+      const vb = camBounds();
+      for (const t of Lay.tokens) {
+        const [fx, fy] = toPx(t.x, t.y);
+        if (fx < vb.l || fx > vb.r || fy < vb.t || fy > vb.b) offCam.add(`${t.side}:${t.id}`);
+      }
+      for (const k of offCam) named.delete(k);
+    }
     const bubbles = [];
-    if (ei.bubble && oppKey) bubbles.push({ key: oppKey, text: ei.bubble });
-    if (ace) bubbles.push({ key: ace.key, text: ACE_BUBBLE });
+    if (ei.bubble && oppKey && !offCam.has(oppKey)) bubbles.push({ key: oppKey, text: ei.bubble });
+    if (ace && !offCam.has(ace.key)) bubbles.push({ key: ace.key, text: ACE_BUBBLE });
     // 이름표 · 말풍선은 미리보기 길과 외침 점선도 피한다 (점 박스 — 토큰보다 덜 싫다)
     const tags = placeTags(Lay, named, bubbles, [...previewLanes(Lay, view), ...(ace ? aceDots(ace) : [])]);
     tagBoxes = tags.boxes || [];
@@ -942,7 +1072,7 @@ export function renderMatch(root, ctx) {
         `${calling ? ` · "${ACE_BUBBLE}" ${ace.title}` : ''}`);
       place(el, t.x, t.y);
       el._bar.style.width = `${Math.round(clamp01(t.staminaRatio) * 100)}%`;
-      const bub = key === oppKey && ei.bubble ? ei.bubble : calling ? ACE_BUBBLE : '';
+      const bub = offCam.has(key) ? '' : key === oppKey && ei.bubble ? ei.bubble : calling ? ACE_BUBBLE : '';
       el._bubble.textContent = bub;
       el._bubble.title = bub ? (calling ? ace.title : ei.text) : '';
       el.classList.toggle('has-bubble', !!bub);
@@ -976,6 +1106,13 @@ export function renderMatch(root, ctx) {
     const by = Number(Lay?.ball?.y);
     if (!Number.isFinite(by)) return;
     const lead = Lay.mode === 'play' ? (Lay.attackingSide === 'away' ? -15 : 15) : 0;
+    if (d25) {
+      // 2.5D: 카메라가 공을 따라가므로 필드 절반이 아니라 화면 절반 — 공 + 앞쪽 15 의 땅 점이 지금 카메라 창의 오른쪽 절반이면 왼쪽
+      const sx = V.project(Number(Lay.ball.x) || 50, by + lead, W, H).sx;
+      const vb = camBounds();
+      logBox.classList.toggle('side-l', sx >= (vb.l + vb.r) / 2);
+      return;
+    }
     logBox.classList.toggle('side-l', by + lead >= 50);
   }
 
@@ -1010,6 +1147,7 @@ export function renderMatch(root, ctx) {
     return [sx + dx, sy + dy];
   }
   function placeBallAt(x, y, frontOf = null) {
+    ballDest = { x, y };
     const [bx, by] = ballPx(x, y, frontOf);
     // 2.5D: 크기 = 그 깊이의 배율 s (그림자 · 공 글자가 함께 — css .d25 .m-ball)
     ballEl.style.transform = `translate(${round1(bx)}px, ${round1(by)}px)${d25 ? ` scale(${round3(V.project(x, y, W, H).s)})` : ''}`;
@@ -1306,8 +1444,9 @@ export function renderMatch(root, ctx) {
       const rx = g.gw / 2 + 6;
       aceTipG.append(svgEl('ellipse', { cx: round1(a[0]), cy: round1(a[1]), rx: round1(rx), ry: round1(rx * g.ga), class: `ace-origin${ace.combo ? ' combo' : ''}` }));
     } else aceTipG.append(svgEl('circle', { cx: round1(a[0]), cy: round1(a[1]), r: round1(rTok + 2), class: `ace-origin${ace.combo ? ' combo' : ''}` }));
-    // 배지: 글자 12px 굵게, 좌우 여백 7, 높이 18
-    const hh = 18;
+    // 배지: 글자 12px 굵게, 좌우 여백 7, 높이 18 (2.5D: 화면 크기 그대로 — 자리 상자는 월드 px = × i, 그림은 g 의 scale(1 / z))
+    const vb = camBounds();
+    const hh = 18 * vb.i;
     const at = (t) => (ace.curve ? curvePoint(a, b, t) : lerp2(a, b, t));
     const tangent = (t) => {
       const d = sub2(at(Math.min(1, t + 0.05)), at(Math.max(0, t - 0.05)));
@@ -1317,7 +1456,8 @@ export function renderMatch(root, ctx) {
     const obstacles = [...Lay.tokens.map(tokenRect), ...tagBoxes, ballRect(Lay), ...aceDots(ace).map((d) => ({ ...d, w: 0.3 }))];
     /** 배지 글 text 의 자리: ① 점선 옆 (5px 띄움) ② 외치는 선수 너머 · 옆 (배지 = 그 선수의 필살기) ③ 한 칸 더 바깥 ④ 점선 위 */
     const spotFor = (text) => {
-      const w = textWidth(text, 12) + 14;
+      const ws = textWidth(text, 12) + 14; // 그리는 폭 (화면 px)
+      const w = ws * vb.i; // 자리 상자 폭 (월드 px — 평면은 같은 값)
       const halfAlong = (v) => (Math.abs(v[0]) * w + Math.abs(v[1]) * hh) / 2; // 배지 박스의 v 방향 반폭
       const cands = [];
       const beside = (gap) => {
@@ -1329,22 +1469,22 @@ export function renderMatch(root, ctx) {
           for (const s of [-1, 1]) cands.push([p[0] + n[0] * off * s, p[1] + n[1] * off * s]);
         }
       };
-      beside(5);
+      beside(5 * vb.i);
       const u1 = tangent(1);
       const n1 = [-u1[1], u1[0]];
-      const ahead = rTok + 4 + halfAlong(u1);
+      const ahead = rTok + 4 * vb.i + halfAlong(u1);
       cands.push([b[0] + u1[0] * ahead, b[1] + u1[1] * ahead]);
-      const across = rTok + 8 + halfAlong(n1);
+      const across = rTok + 8 * vb.i + halfAlong(n1);
       for (const s of [-1, 1]) cands.push([b[0] + n1[0] * across * s, b[1] + n1[1] * across * s]);
-      beside(5 + hh + 4);
+      beside(5 * vb.i + hh + 4 * vb.i);
       for (const t of [0.5, 0.4, 0.6]) cands.push(at(t));
       const spots = cands.map(([x0, y0]) => {
-        const x = clamp(x0, w / 2 + 2, W - w / 2 - 2);
-        const y = clamp(y0, hh / 2 + 2, H - hh / 2 - 2);
+        const x = clamp(x0, vb.l + w / 2 + 2 * vb.i, vb.r - w / 2 - 2 * vb.i);
+        const y = clamp(y0, vb.t + hh / 2 + 2 * vb.i, vb.b - hh / 2 - 2 * vb.i);
         return { x, y, box: { l: x - w / 2, r: x + w / 2, t: y - hh / 2, b: y + hh / 2 } };
       });
       const pick = pickSpot(spots, obstacles) || spots[0];
-      return { ...pick, w, text, score: spotScore(pick.box, obstacles) };
+      return { ...pick, w: ws, text, score: spotScore(pick.box, obstacles) };
     };
     // 긴 글("★ 연결하면 메테오 슛")이 토큰 · 이름표를 가리지 않고 놓일 자리가 없으면 짧은 글("★ 메테오 슛")이 더 나은지 본다
     let pick = spotFor(ace.text);
@@ -1353,8 +1493,10 @@ export function renderMatch(root, ctx) {
       if (alt.score < pick.score - 40) pick = alt;
     }
     const g = svgEl('g', { class: `ace-badge${ace.combo ? ' combo' : ''}`, transform: `translate(${round1(pick.x)},${round1(pick.y)})` });
+    // 2.5D: 배지 그림은 화면 크기 그대로 (CSS transform 이 속성을 덮는다 — 카메라 배율 --cam-z 를 따라 1 / z)
+    if (d25) g.style.transform = `translate(${round1(pick.x)}px, ${round1(pick.y)}px) scale(calc(1 / var(--cam-z, 1)))`;
     g.append(
-      svgEl('rect', { x: round1(-pick.w / 2), y: -hh / 2, width: round1(pick.w), height: hh, rx: 9, ry: 9 }),
+      svgEl('rect', { x: round1(-pick.w / 2), y: -18 / 2, width: round1(pick.w), height: 18, rx: 9, ry: 9 }),
       Object.assign(svgEl('text', { x: 0, y: 4.5, 'text-anchor': 'middle' }), { textContent: pick.text }));
     aceTipG.append(g);
     return { ...pick.box, w: 1.5, role: 'ace' };
@@ -2189,10 +2331,11 @@ export function renderMatch(root, ctx) {
 
   /** 미리보기 글자 한 줄을 토큰 위 층에: 후보 자리 중 토큰이 없는 첫 자리 (없으면 가장 덜 가리는 자리). extra = 더 피할 박스 (화살표 선의 점) */
   function tipText(cands, text, cls, extra = []) {
-    const w = textWidth(text, FONT.tip) + 4;
+    const i = camBounds().i; // 2.5D: 글자 (css .d25 .ar-tip — 12.5px ÷ z) 상자 = 월드 × i
+    const w = (textWidth(text, FONT.tip) + 4) * i;
     const boxOf = (c) => {
       const l = c.anchor === 'start' ? c.x : c.anchor === 'end' ? c.x - w : c.x - w / 2;
-      return { l, r: l + w, t: c.y - 12, b: c.y + 3 };
+      return { l, r: l + w, t: c.y - 12 * i, b: c.y + 3 * i };
     };
     // 수비 미리보기 동안 접힌 수비수 이름표(.previewing-def)는 보이지 않으니 피하지 않는다 → ✕ 옆 빈자리를 쓴다
     // 숨긴 외침 배지(.ace-off — 같은 받는 선수의 미리보기)도 피하지 않는다
@@ -2207,25 +2350,30 @@ export function renderMatch(root, ctx) {
 
   function sideLabel(p, text, off, dir, lineObs = []) {
     // ✕ 옆 차단 액션 이름: 막는 길(dir)이 대체로 좌우라 오른쪽·왼쪽은 길 위에 놓인다 → 길의 수직 양쪽(아래 먼저) → 오른쪽 → 왼쪽 → 위 → 아래
-    const rightFirst = p[0] < W * 0.62;
-    const R = { x: p[0] + off, y: p[1] + 4, anchor: 'start' };
-    const Lf = { x: p[0] - off, y: p[1] + 4, anchor: 'end' };
-    const across = dir ? normalTips(p, dir, textWidth(text, FONT.tip) + 4, off - 1, [rightFirst ? 0.01 : -0.01, p[1] < H * 0.62 ? 1 : -1]) : [];
+    // (2.5D: 화면 비율 · 글자 높이는 지금 카메라 창 · 배율 기준 — camBounds)
+    const vb = camBounds();
+    const rightFirst = p[0] < vb.l + (vb.r - vb.l) * 0.62;
+    const R = { x: p[0] + off, y: p[1] + 4 * vb.i, anchor: 'start' };
+    const Lf = { x: p[0] - off, y: p[1] + 4 * vb.i, anchor: 'end' };
+    const across = dir ? normalTips(p, dir, textWidth(text, FONT.tip) + 4, off - 1, [rightFirst ? 0.01 : -0.01, p[1] < vb.t + (vb.b - vb.t) * 0.62 ? 1 : -1]) : [];
     tipText([...across, rightFirst ? R : Lf, rightFirst ? Lf : R,
-      { x: p[0], y: p[1] - off - 2, anchor: 'middle' }, { x: p[0], y: p[1] + off + 12, anchor: 'middle' }], text, 'ar-tip def', lineObs);
+      { x: p[0], y: p[1] - off - 2 * vb.i, anchor: 'middle' }, { x: p[0], y: p[1] + off + 12 * vb.i, anchor: 'middle' }], text, 'ar-tip def', lineObs);
   }
   /**
    * 미리보기 글자 후보 2개: 선 방향 dir 의 수직 양쪽, 글자 박스(폭 w · 높이 15)가 선에서 gap 만큼 떨어지게.
    * prefer 와 같은 쪽(내적 > 0)을 먼저. tipText 후보 형식 { x, y(기준선), anchor: 'middle' }, 필드 안으로 clamp
    */
-  function normalTips(p, dir, w, gap, prefer) {
+  function normalTips(p, dir, w0, gap, prefer) {
+    // 2.5D: 글자 폭 w0 · 높이 15 · 간격은 화면 px → 월드 × i, 필드 안 = 지금 카메라 창 (camBounds — 평면은 예전 값 그대로)
+    const vb = camBounds();
+    const w = w0 * vb.i;
     const len = Math.hypot(dir[0], dir[1]);
     let n = len > 0.5 ? [-dir[1] / len, dir[0] / len] : [0, -1];
     if (n[0] * prefer[0] + n[1] * prefer[1] < 0) n = [-n[0], -n[1]];
-    const d = (Math.abs(n[0]) * w + Math.abs(n[1]) * 15) / 2 + gap; // 박스 중심까지: 박스의 n 방향 반폭 + 간격
+    const d = (Math.abs(n[0]) * w + Math.abs(n[1]) * 15 * vb.i) / 2 + gap; // 박스 중심까지: 박스의 n 방향 반폭 + 간격
     return [1, -1].map((s) => ({
-      x: clamp(p[0] + n[0] * d * s, w / 2 + 2, W - w / 2 - 2),
-      y: clamp(p[1] + n[1] * d * s + 4.5, 13, H - 5), // 기준선 = 박스 중심 + 4.5 (tipText 박스: 기준선 −12 ~ +3)
+      x: clamp(p[0] + n[0] * d * s, vb.l + w / 2 + 2 * vb.i, vb.r - w / 2 - 2 * vb.i),
+      y: clamp(p[1] + n[1] * d * s + 4.5 * vb.i, vb.t + 13 * vb.i, vb.b - 5 * vb.i), // 기준선 = 박스 중심 + 4.5 (tipText 박스: 기준선 −12 ~ +3)
       anchor: 'middle',
     }));
   }
@@ -2273,12 +2421,14 @@ export function renderMatch(root, ctx) {
     // 화살표 끝(또는 궤적 가운데) 옆에 짧은 라벨, 필드 밖으로 나가지 않게 clamp. 후보: 화살표 방향(from → to; 크로스 곡선 가운데의 접선도
     // 이 방향)의 수직 양쪽(위쪽 먼저) → 위 → 아래 → 앞 → 뒤 → 그래도 다 막히면 alts(패스·크로스 길 위 다른 점)의 수직 양쪽
     // (뒤에 붙인 후보라 앞 자리가 비면 결과는 그대로)
+    // (2.5D: 필드 안 = 지금 카메라 창, 글자 크기 여백 = 화면 px × i — camBounds. 평면은 예전 값 그대로)
+    const vb = camBounds();
     const side = p[0] >= from[0] ? 1 : -1;
-    const x = clamp(p[0] + side * (tokPx * 0.2), 34, W - 34);
-    const cy = (dy) => clamp(p[1] + dy, 13, H - 5);
+    const x = clamp(p[0] + side * (tokPx * 0.2), vb.l + 34 * vb.i, vb.r - 34 * vb.i);
+    const cy = (dy) => clamp(p[1] + dy, vb.t + 13 * vb.i, vb.b - 5 * vb.i);
     const off = tokPx * 0.8;
-    const right = { x: clamp(p[0] + off, 0, W - 40), y: cy(4), anchor: 'start' };
-    const left = { x: clamp(p[0] - off, 40, W), y: cy(4), anchor: 'end' };
+    const right = { x: clamp(p[0] + off, vb.l, vb.r - 40 * vb.i), y: cy(4 * vb.i), anchor: 'start' };
+    const left = { x: clamp(p[0] - off, vb.l + 40 * vb.i, vb.r), y: cy(4 * vb.i), anchor: 'end' };
     const w = textWidth(text, FONT.tip) + 4;
     tipText([
       ...normalTips(p, sub2(to, from), w, 8, [0, -1]),
@@ -2332,6 +2482,7 @@ export function renderMatch(root, ctx) {
    */
   function animateBeat(fresh, prevL, nextL, nextView, prevView, chosen = null) {
     setBusy(true);
+    camStartHold = false; // 2.5D: 화면을 연 킥오프의 풀코트 기다림은 첫 비트에서 끝난다
     hideArrow();
     clearAce(); // 공이 움직이면 외침(점선 · "줘!")은 걷는다 — 재배치 때 다음 결정의 외침
     clearPops(); // 이전 비트의 결과 한 줄은 새 비트가 시작되면 걷는다 (필드·로그와 어긋나지 않게)
@@ -2589,6 +2740,7 @@ export function renderMatch(root, ctx) {
     ballEl.classList.toggle('ult', !!ev.ultimate);
     let linkAt = C;
     const distBeat = ev.type === 'distribution' || (ev.type === 'turnover' && ev.distribution);
+    ballDest = null; // 2.5D 카메라: 이 액션에서 공이 가는 곳 (placeBallAt · arcBall 이 적는다)
 
     if (distBeat) {
       // GK 배급 (2026-09-29): 짧은 패스 = DF 에게 땅볼, 롱패스 = 중원 MF 에게 포물선 + 낙하 지점 경합 (성공: 우리 MF 가 잡음 ·
@@ -2695,6 +2847,8 @@ export function renderMatch(root, ctx) {
       const sk = ev.skillId && Array.isArray(data.skills) ? data.skills.find((s) => s.id === ev.skillId) : null;
       links.push(...[sk ? `${sk.name}!` : null, '롱패스!'].filter(Boolean));
     }
+    // 2.5D 카메라 (§5 '액션 중'): 지금 z 그대로 공이 갈 곳으로 — 공과 같은 길이 (--t-act) · 이징. 연계 문구 (0.5 · act) 는 이 창에 놓인다
+    if (d25 && ballDest) setCam(V.cameraTarget({ phase: 'action', W, H, to: ballDest, current: camT }), T.act * k, EASE_ACT);
     if (ok && links.length) later(() => linkPop(links.join(' '), linkAt, prevL), Math.round(T.act * k * 0.5));
   }
   /** 패스(직선) · 크로스(포물선) 길 위의 점 (필드 좌표) — t = 0 공 가진 선수 … 1 받는 선수 */
@@ -2716,33 +2870,35 @@ export function renderMatch(root, ctx) {
     if (!at) return;
     // 문구 상자(가운데 기준): 토큰 위(이름표 위) → 오른쪽 → 왼쪽 → 아래. 필드 위쪽 끝이라 위에 못 두면 아래부터.
     // 장애물 = 토큰 전원 + 연계가 터진 자리(공 가진 선수가 옮겨 간 자리) + 이름표·말풍선 + 공 → 수비수 이름표·GK 얼굴을 덮지 않는다
-    const w = textWidth(text, FONT.link) + 10;
-    const hh = 22;
+    // 2.5D: 글자 (16px) 는 화면 크기 그대로 → 상자 = 월드 × i, 필드 안 = 지금 카메라 창 (camBounds — 평면은 예전 값 그대로)
+    const vb = camBounds();
+    const w = (textWidth(text, FONT.link) + 10) * vb.i;
+    const hh = 22 * vb.i;
     const [cx, cy] = toPx(at.x, at.y);
     const r = tokPx / 2;
     const spot = (x0, y0) => {
-      const x = clamp(x0, w / 2 + 2, W - w / 2 - 2);
-      const y = clamp(y0, hh / 2 + 2, H - hh / 2 - 2);
+      const x = clamp(x0, vb.l + w / 2 + 2 * vb.i, vb.r - w / 2 - 2 * vb.i);
+      const y = clamp(y0, vb.t + hh / 2 + 2 * vb.i, vb.b - hh / 2 - 2 * vb.i);
       return { x, y, box: { l: x - w / 2, r: x + w / 2, t: y - hh / 2, b: y + hh / 2 } };
     };
     // 2.5D: at = 발 → 위 = 머리 위, 옆 = 몸 가운데 높이 · 반폭 바깥, 아래 = 발밑 이름표 아래
     const g = d25 ? tokGeo({ x: at.x, y: at.y, side: at.side, id: at.id }) : null;
     const rx = g ? g.hw : r;
-    const upY = g ? cy - g.fh - 16 : cy - r - 30;
+    const upY = g ? cy - g.fh - 5 * vb.i - hh / 2 : cy - r - 30;
     const midY = g ? cy - g.fh / 2 : cy;
     const up = spot(cx, upY);
-    const down = spot(cx, g ? cy + g.ny + 30 : cy + r + 26);
-    const right = spot(cx + rx + 8 + w / 2, midY);
-    const left = spot(cx - rx - 8 - w / 2, midY);
+    const down = spot(cx, g ? cy + g.ny + 19 * vb.i + hh / 2 : cy + r + 26);
+    const right = spot(cx + rx + 8 * vb.i + w / 2, midY);
+    const left = spot(cx - rx - 8 * vb.i - w / 2, midY);
     const upR = spot(cx + rx + w / 2, g ? cy - g.fh * 0.85 : cy - r - 14);
     const upL = spot(cx - rx - w / 2, g ? cy - g.fh * 0.85 : cy - r - 14);
-    const nearTop = upY - hh / 2 < 2;
+    const nearTop = upY - hh / 2 < vb.t + 2 * vb.i;
     const cands = nearTop ? [down, right, left, upR, upL, up] : [up, upR, upL, right, left, down];
     const L0 = Lay || curL;
     const obstacles = [...(L0?.tokens || []).map(tokenRect), tokenRect({ x: at.x, y: at.y, role: 'carrier' }), ...tagBoxes];
     if (L0?.ball) obstacles.push(ballRect(L0));
     const pick = pickSpot(cands, obstacles) || cands[0];
-    const el = h('div', { class: 'm-link', style: { transform: `translate(${round1(pick.x)}px, ${round1(pick.y)}px)` } }, h('span', {}, text));
+    const el = h('div', { class: 'm-link', style: { transform: `translate(${round1(pick.x)}px, ${round1(pick.y)}px)${d25 ? POP_SCALE25 : ''}` } }, h('span', {}, text));
     el.style.setProperty('--t-pop', `${Math.round(Math.max(600, (T.act + T.move) * fx()))}ms`);
     popLayer.append(el);
     later(() => el.remove(), Math.max(600, (T.act + T.move) * fx()));
@@ -2750,6 +2906,7 @@ export function renderMatch(root, ctx) {
 
   function goalFlash(ev, view) {
     const us = ev.side === humanOf(view);
+    if (d25) setCam({ cx: W / 2, cy: H / 2, z: 1 }, T.move * fx()); // 2.5D 카메라 (§5 '골 연출'): 풀코트로 (재배치 = 킥오프 배치도 전체)
     drawHud(view, isFinished());
     goalFx.textContent = us ? 'GOAL!' : '실점';
     goalFx.className = `goal-fx show ${us ? 'home' : 'away'}`;
@@ -2766,7 +2923,8 @@ export function renderMatch(root, ctx) {
     field.classList.add('phase-move');
     ballEl.classList.remove('ult');
     trailG.replaceChildren();
-    applyLayout(nextL, view, { anim: !reduced });
+    // 2.5D 카메라: 재배치와 같은 길이 · 이징 (--t-move) 으로 다음 배치의 목표 (공 따라가기 · 킥오프 배치면 전체)
+    applyLayout(nextL, view, { anim: !reduced, camMs: T.move * fx() });
     drawPanels(view);
     updateBanner(nextL, view);
   }
@@ -2782,42 +2940,48 @@ export function renderMatch(root, ctx) {
     let side;
     let x;
     let y;
+    // 2.5D: 필드 안 = 지금 카메라 창 (재배치 movePhase 가 정한 목표), 글자 (13px · 칩) 는 화면 크기 그대로 → 상자 = 월드 × i (camBounds — 평면은 예전 값 그대로)
+    const vb = camBounds();
+    const midX = vb.l + (vb.r - vb.l) / 2;
     if (ev.type === 'goal') {
-      side = 'c'; x = W / 2; y = H * 0.62;
+      side = 'c'; x = midX; y = vb.t + (vb.b - vb.t) * 0.62;
     }
     // 결정타 칩 (표시 전용): 결과 한 줄 맨 앞 — 자리 고르기의 폭에도 넣는다 (칩 = 글자 FONT.chip + 좌우 여백 · 간격 14)
     const chips = popChips(ev, view);
     const chipW = chips.reduce((s, c) => s + textWidth(c.text, FONT.chip) + 14, 0);
     if (ev.type !== 'goal') {
-      const w = textWidth(r.text, FONT.pop) + 20 + chipW;
+      const w = (textWidth(r.text, FONT.pop) + 20 + chipW) * vb.i;
+      const hy = 12 * vb.i; // 상자 반높이
+      const top = vb.t + 14 * vb.i;
+      const bot = vb.b - 14 * vb.i;
       const [ax, ay] = toPx(at.x, at.y);
-      const firstR = ax <= W / 2; // 공이 화면 왼쪽 절반이면 오른쪽부터
+      const firstR = ax <= midX; // 공이 화면 왼쪽 절반이면 오른쪽부터
       const cands = [];
       for (const dy of [0, -tokPx * 1.1, tokPx * 1.1]) {
         for (const s of firstR ? ['r', 'l'] : ['l', 'r']) {
           const px = ax + (s === 'r' ? 1 : -1) * tokPx;
-          const py = clamp(ay + dy, 14, H - 14);
-          cands.push({ side: s, x: px, y: py, box: { l: s === 'r' ? px : px - w, r: s === 'r' ? px + w : px, t: py - 12, b: py + 12 } });
+          const py = clamp(ay + dy, top, bot);
+          cands.push({ side: s, x: px, y: py, box: { l: s === 'r' ? px : px - w, r: s === 'r' ? px + w : px, t: py - hy, b: py + hy } });
         }
       }
       // 옆이 막혔으면 공 위 · 아래 (가운데 맞춤, 필드 안으로 당김) → 한 칸 더 위 · 아래 옆 (2026-09-30: 칩으로 줄이 길어져도 공 근처에)
-      const cx = clamp(ax, w / 2 + 4, W - w / 2 - 4);
+      const cx = clamp(ax, vb.l + w / 2 + 4 * vb.i, vb.r - w / 2 - 4 * vb.i);
       for (const dy of [-tokPx * 1.7, tokPx * 1.7, -tokPx * 2.5, tokPx * 2.5]) {
         const py = ay + dy;
-        if (py < 14 || py > H - 14) continue;
-        cands.push({ side: 'c', x: cx, y: py, box: { l: cx - w / 2, r: cx + w / 2, t: py - 12, b: py + 12 } });
+        if (py < top || py > bot) continue;
+        cands.push({ side: 'c', x: cx, y: py, box: { l: cx - w / 2, r: cx + w / 2, t: py - hy, b: py + hy } });
       }
       for (const dy of [-tokPx * 2.2, tokPx * 2.2]) {
         for (const s of firstR ? ['r', 'l'] : ['l', 'r']) {
           const px = ax + (s === 'r' ? 1 : -1) * tokPx;
           const py = ay + dy;
-          if (py < 14 || py > H - 14) continue;
-          cands.push({ side: s, x: px, y: py, box: { l: s === 'r' ? px : px - w, r: s === 'r' ? px + w : px, t: py - 12, b: py + 12 } });
+          if (py < top || py > bot) continue;
+          cands.push({ side: s, x: px, y: py, box: { l: s === 'r' ? px : px - w, r: s === 'r' ? px + w : px, t: py - hy, b: py + hy } });
         }
       }
       // 공 근처가 다 막혔으면 필드 가운데 줄 중 빈 띠로 (공과 가까운 띠부터)
-      const bands = [0.1, 0.28, 0.5, 0.72, 0.9].map((f) => H * f).sort((a, b) => Math.abs(a - ay) - Math.abs(b - ay));
-      for (const by of bands) cands.push({ side: 'c', x: W / 2, y: by, box: { l: W / 2 - w / 2, r: W / 2 + w / 2, t: by - 12, b: by + 12 } });
+      const bands = [0.1, 0.28, 0.5, 0.72, 0.9].map((f) => vb.t + (vb.b - vb.t) * f).sort((a, b) => Math.abs(a - ay) - Math.abs(b - ay));
+      for (const by of bands) cands.push({ side: 'c', x: midX, y: by, box: { l: midX - w / 2, r: midX + w / 2, t: by - hy, b: by + hy } });
       // 장애물 = 토큰 전원 + 공 + 이름표·말풍선 (재배치 applyLayout 이 방금 고른 자리 — 결과 한 줄이 예상 행동 말풍선을 덮지 않게)
       const obstacles = [...(nextL?.tokens || []).map(tokenRect), ...tagBoxes];
       if (nextL?.ball) obstacles.push(ballRect(nextL));
@@ -2829,7 +2993,7 @@ export function renderMatch(root, ctx) {
     const el = h('div', {
       // 4x (fast): 칩도 등장 애니메이션 없이 — 결과 한 줄 수명(다음 비트까지)은 그대로
       class: ['m-pop', side, r.tone, ev.type === 'goal' ? 'big' : '', fx() <= 0.25 ? 'fast' : ''],
-      style: { transform: `translate(${round1(x)}px, ${round1(y)}px)` },
+      style: { transform: `translate(${round1(x)}px, ${round1(y)}px)${d25 ? POP_SCALE25 : ''}` },
     }, h('span', {}, ...chips.map((c) => h('b', { class: c.cls, title: c.title }, c.text)), r.text));
     el.style.setProperty('--t-pop', `${Math.round(life)}ms`); // CSS 페이드 길이 = 배속 반영 수명
     for (const old of [...popLayer.querySelectorAll('.m-pop')]) old.remove();
@@ -2918,7 +3082,7 @@ export function renderMatch(root, ctx) {
   }
   /** 공이 포물선으로 날아간다 (높이 = 크기). Web Animations 가 없으면(jsdom) 바로 도착 */
   function arcBall(a, b, duration) {
-    if (d25) { arcBall25(a, b, duration); return; }
+    if (d25) { ballDest = { x: b.x, y: b.y }; arcBall25(a, b, duration); return; }
     stopBallArc();
     const p0 = toPx(a.x, a.y);
     const p2 = toPx(b.x, b.y);
@@ -3128,7 +3292,7 @@ export function renderMatch(root, ctx) {
   function refresh() {
     const view = getView();
     const Lay = layoutFor(view);
-    applyLayout(Lay, view, { anim: false });
+    applyLayout(Lay, view, { anim: false, camMs: 0 }); // 2.5D 카메라: 순간 (⏭ 뒤는 경기 끝 = 전체)
     drawPanels(view);
     updateBanner(Lay, view, true);
   }
@@ -3152,6 +3316,7 @@ export function renderMatch(root, ctx) {
 
   function showResult() {
     if (ui.resultShown || !alive()) return;
+    if (d25 && camT.z !== 1) setCam({ cx: W / 2, cy: H / 2, z: 1 }, T.move * fx()); // 2.5D 카메라 (§5 '경기 끝'): 풀코트
     const ms = store.match;
     const result = safe(() => match.getResult(ms));
     if (!result) return;
@@ -3263,9 +3428,12 @@ export function renderMatch(root, ctx) {
   preloadArt(cutArtUrls()); // 컷인 그림 (§24.12.4) — 기다리지 않는다
   const v0 = getView();
   const L0 = layoutFor(v0);
-  applyLayout(L0, v0, { anim: false });
+  // 2.5D 카메라 (§5 '경기 시작 · 킥오프 배치'): 킥오프 배치에서 사람이 고를 차례면 T.start 동안 풀코트를 보여 준 뒤 결정 확대 (0.35초)
+  if (d25) camStartHold = !!(L0 && v0?.lastBeat?.type === 'kickoff' && paused(v0) && !isFinished());
+  applyLayout(L0, v0, { anim: false, camMs: 0 });
   drawPanels(v0);
   updateBanner(L0, v0, true);
+  if (camStartHold) later(() => { camStartHold = false; if (!busy) relayout({ anim: false }); }, T.start * fx());
   if (isFinished()) showResult();
   else schedule(T.start * fx());
 }

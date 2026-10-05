@@ -1,6 +1,7 @@
 // test/view25.test.mjs — 2.5D 경기 화면 투영 (docs/SPRITE_25D_PLAN.md §3 · §6 — js/ui/view25.js, 순수 함수) + 모드 스위치 (js/ui/store.js isD25)
 //   호모그래피 네 귀퉁이 · project ↔ unproject 왕복 · cssMatrix3d 를 파싱해 project 와 같은 점 · 먼 쪽 s < 가까운 쪽 · project3 높이 ·
-//   세운 그림 크기 · 방향 · 호 높이 · 배경 띠 · 골대 · 주소로 켜고 끄기 (?d25=1 · ?flat=1 · /sprite/). 카메라 (cameraTarget) 는 D2.
+//   세운 그림 크기 · 방향 · 호 높이 · 배경 띠 · 골대 · 주소로 켜고 끄기 (?d25=1 · ?flat=1 · /sprite/).
+//   D2 카메라 (§5 표): cameraPhase (상황 → 줄) · cameraTarget 줄마다 (풀코트 · 따라가기 · 4배속 · 결정 틀 · 틀 낮추기 · 커버 · 액션) · clampCamera · camWindow.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
@@ -230,5 +231,139 @@ test("2.5D 모드 스위치 (store.isD25): ?d25=1 켬 · ?flat=1 · ?d25=0 끔 �
     assert.equal(st.isD25(), !want, "바꾸기");
     st.setD25ForTest(null);
     assert.equal(st.isD25(), want, "기본값으로");
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* D2 카메라 (§5)                                                         */
+/* ------------------------------------------------------------------ */
+const { CAM } = V;
+const [CW, CH] = SIZES[0];
+/** 창 (월드 사각형) 이 상자를 여백 (화면 px ÷ z) 과 함께 품는가 */
+const holds = (win, b, z, eps = 1e-6) => win.l <= b.l - CAM.PAD_X / z + eps && win.r >= b.r + CAM.PAD_X / z - eps &&
+  win.t <= b.t - CAM.PAD_T / z + eps && win.b >= b.b + CAM.PAD_B / z - eps;
+const insideWorld = (win, wr, eps = 1e-6) => win.l >= wr.x0 - eps && win.r <= wr.x1 + eps && win.t >= wr.y0 - eps && win.b <= wr.y1 + eps;
+
+test("카메라 상황 → §5 표의 줄 (cameraPhase): ⏭ · 경기 끝 · 골 = 전체, 액션 = 지금 z, 사람이 고르는 중 = 결정 (화면을 연 킥오프는 잠깐 미룸), 킥오프 · 시작 = 전체, 그 밖 = 따라가기", () => {
+  assert.equal(V.cameraPhase({}), "follow", "평소");
+  for (const k of ["skip", "finished", "goal"]) {
+    assert.equal(V.cameraPhase({ [k]: true }), "full", k);
+    assert.equal(V.cameraPhase({ [k]: true, deciding: true, action: true }), "full", `${k} 가 먼저`);
+  }
+  assert.equal(V.cameraPhase({ action: true }), "action");
+  assert.equal(V.cameraPhase({ action: true, deciding: true, kickoff: true }), "action", "액션 중에는 지금 z");
+  assert.equal(V.cameraPhase({ deciding: true }), "decide");
+  assert.equal(V.cameraPhase({ deciding: true, kickoff: true }), "decide", "킥오프 배치라도 사람이 고르는 중이면 결정 확대");
+  assert.equal(V.cameraPhase({ deciding: true, startHold: true }), "full", "화면을 연 킥오프: 잠깐 풀코트");
+  assert.equal(V.cameraPhase({ kickoff: true }), "full", "킥오프 배치");
+  assert.equal(V.cameraPhase({ start: true }), "full", "경기 시작 첫 비트");
+});
+
+test("카메라 '전체' (경기 시작 · 골 · 킥오프 · 끝 · ⏭): z 1 · 필드 영역 가운데 — 창 = 필드 영역 그대로, clampCamera 도 z ≤ 1 이면 전체", () => {
+  for (const [W, H] of SIZES) {
+    assert.deepEqual(V.cameraTarget({ phase: "full", W, H }), { cx: W / 2, cy: H / 2, z: 1 });
+    assert.deepEqual(V.clampCamera({ cx: 10, cy: -500, z: 1 }, W, H), { cx: W / 2, cy: H / 2, z: 1 }, "z 1 = 언제나 전체");
+    assert.deepEqual(V.clampCamera({ cx: 10, cy: 10, z: 0.5 }, W, H), { cx: W / 2, cy: H / 2, z: 1 }, "z < 1 → 1");
+    assert.deepEqual(V.camWindow({ cx: W / 2, cy: H / 2, z: 1 }, W, H), { l: 0, r: W, t: 0, b: H });
+    assert.deepEqual(V.camTranslate({ cx: W / 2, cy: H / 2, z: 1 }, W, H), { tx: 0, ty: 0 });
+    // 필요한 값이 없으면 전체
+    assert.deepEqual(V.cameraTarget({ phase: "follow", W, H, ball: null }), { cx: W / 2, cy: H / 2, z: 1 });
+    assert.deepEqual(V.cameraTarget({ phase: "decide", W, H, boxes: [] }), { cx: W / 2, cy: H / 2, z: 1 });
+    assert.deepEqual(V.cameraTarget({ phase: "action", W, H, to: null, current: { z: 2 } }), { cx: W / 2, cy: H / 2, z: 1 });
+  }
+});
+
+test("카메라 '공 따라가기': z 1.4 (4배속 1.2), 가운데 = 공 + 공격 방향 앞쪽 8% (필드 길이), 땅 점보다 LIFT · s 위", () => {
+  const ball = { x: 50, y: 45 };
+  for (const [speed, z] of [[1, CAM.Z_FOLLOW], [2, CAM.Z_FOLLOW], [4, CAM.Z_FOLLOW_FAST]]) {
+    assert.equal(V.followZoom(speed), z, `배속 ${speed}`);
+    for (const attackRight of [true, false]) {
+      const c = V.cameraTarget({ phase: "follow", W: CW, H: CH, speed, ball, attackRight });
+      const p = V.project(ball.x, ball.y + (attackRight ? 8 : -8), CW, CH);
+      assert.equal(c.z, z);
+      near(c.cx, p.sx, 1e-9, "가운데 x = 앞쪽 8% 의 투영");
+      near(c.cy, p.sy - CAM.LIFT * p.s, 1e-9, "가운데 y = 땅 점 − LIFT · s");
+      const b = V.project(ball.x, ball.y, CW, CH);
+      assert.ok(attackRight ? c.cx > b.sx : c.cx < b.sx, "공격 방향 앞쪽을 미리 본다");
+      // 공 (발) 은 창 안
+      const win = V.camWindow(c, CW, CH);
+      assert.ok(b.sx > win.l && b.sx < win.r && b.sy > win.t && b.sy < win.b, "공이 창 안");
+    }
+  }
+  assert.equal(V.cameraTarget({ phase: "follow", W: CW, H: CH, speed: 4, ball }).z, 1.2, "4배속 = 1.2");
+});
+
+test("카메라 '결정 틀': 가까운 듀얼 + 받는 선수 = 2배 · 상자 (+여백) 가 창 안, 먼 받는 선수 = 들어가는 z 로 낮춤 (1.4 까지), 그래도 안 들어가면 듀얼 둘 (core) 은 창 안, 커버 = 보이면", () => {
+  const W = CW;
+  const H = CH;
+  const fb = (x, y, extra = {}) => ({ ...V.figureBox(x, y, W, H), ...extra });
+  // 가까이 (2배)
+  const near3 = [fb(40, 46, { core: true }), fb(40, 50, { core: true }), fb(35, 60)];
+  const a = V.cameraTarget({ phase: "decide", W, H, boxes: near3 });
+  assert.equal(a.z, CAM.Z_DECIDE, "2배");
+  const wa = V.camWindow(a, W, H);
+  for (const b of near3) assert.ok(holds(wa, b, a.z), "상자 + 여백이 창 안");
+  near(a.cx, (Math.min(...near3.map((b) => b.l)) + Math.max(...near3.map((b) => b.r))) / 2, 1e-6, "가운데 = 틀 가운데");
+  // 4배속이어도 결정 확대는 2배 (배속과 무관)
+  assert.equal(V.cameraTarget({ phase: "decide", W, H, speed: 4, boxes: near3 }).z, CAM.Z_DECIDE);
+  // 먼 받는 선수: 2배 창에 안 들어가면 들어가는 z 로 (1.4 ~ 2)
+  const mid = [fb(40, 40, { core: true }), fb(40, 44, { core: true }), fb(85, 62)];
+  const b = V.cameraTarget({ phase: "decide", W, H, boxes: mid });
+  assert.ok(b.z > CAM.Z_FOLLOW && b.z < CAM.Z_DECIDE, `낮춘 z ${b.z}`);
+  const wb = V.camWindow(b, W, H);
+  for (const x of mid) assert.ok(holds(wb, x, b.z, 1e-3), "낮춘 z 에서 틀 전체가 창 안");
+  // 아주 먼 받는 선수 (1.4 에서도 안 들어감): z = 1.4, 듀얼 둘은 창 안 (여백 포함)
+  const far = [fb(10, 20, { core: true }), fb(10, 24, { core: true }), fb(95, 85)];
+  const c = V.cameraTarget({ phase: "decide", W, H, boxes: far });
+  assert.equal(c.z, CAM.Z_FOLLOW, "1.4 까지만 낮춘다");
+  const wc = V.camWindow(c, W, H);
+  for (const x of far.filter((q) => q.core)) assert.ok(holds(wc, x, c.z, 1e-3), "듀얼 둘 (core) 은 창 안");
+  assert.ok(!holds(wc, far[2], c.z), "먼 받는 선수는 창 밖일 수 있다");
+  // 커버 (opt): 2배 창 밖이면 틀을 넓히지 않는다, 창에 걸리면 넣는다
+  const outCover = V.cameraTarget({ phase: "decide", W, H, boxes: [...near3, fb(95, 95, { opt: true })] });
+  assert.deepEqual(outCover, a, "보이지 않는 커버는 무시");
+  const nearCover = [...near3, fb(42, 38, { opt: true })];
+  const d = V.cameraTarget({ phase: "decide", W, H, boxes: nearCover });
+  assert.ok(holds(V.camWindow(d, W, H), nearCover[3], d.z, 1e-3), "보이는 커버는 틀 안");
+});
+
+test("카메라 '액션 중': 지금 z 그대로 공이 갈 곳 (땅 점 − LIFT · s) 으로, z 1 이면 전체", () => {
+  const to = { x: 55, y: 62 };
+  const p = V.project(to.x, to.y, CW, CH);
+  for (const z of [1.4, 2, 1.2]) {
+    const c = V.cameraTarget({ phase: "action", W: CW, H: CH, to, current: { cx: 100, cy: 100, z } });
+    assert.equal(c.z, z, "지금 z");
+    near(c.cx, p.sx, 1e-9, "공이 갈 곳 x");
+    near(c.cy, p.sy - CAM.LIFT * p.s, 1e-9, "공이 갈 곳 y (몸 쪽으로 위)");
+  }
+  assert.deepEqual(V.cameraTarget({ phase: "action", W: CW, H: CH, to, current: { z: 1 } }), { cx: CW / 2, cy: CH / 2, z: 1 }, "z 1 = 전체");
+});
+
+test("범위 자르기 (clampCamera): 보이는 창이 월드 사각형 (투영된 판 + 배경 띠) 밖으로 나가지 않는다 · z 1 ~ 2 · 창 = 필드 영역으로 그대로 옮긴 것", () => {
+  for (const [W, H] of SIZES) {
+    const wr = V.worldRect(W, H);
+    for (const z of [1.05, 1.2, 1.4, 1.7, 2, 3]) {
+      for (const [cx, cy] of [[-500, -500], [W * 2, H * 2], [W / 2, -1000], [0, H], [W / 3, H / 3]]) {
+        const c = V.clampCamera({ cx, cy, z }, W, H);
+        assert.equal(c.z, Math.min(2, z), "z ≤ 2");
+        const win = V.camWindow(c, W, H);
+        assert.ok(insideWorld(win, wr), `${W}×${H} z ${z} (${cx}, ${cy}) 창 ${JSON.stringify(win)} ⊂ 월드`);
+        // 화면 = (월드 − (cx, cy)) · z + (W/2, H/2): 창의 네 귀퉁이 → 필드 영역 네 귀퉁이
+        const { tx, ty } = V.camTranslate(c, W, H);
+        near(win.l * c.z + tx, 0, 1e-6, "창 왼쪽 → 0");
+        near(win.r * c.z + tx, W, 1e-6, "창 오른쪽 → W");
+        near(win.t * c.z + ty, 0, 1e-6, "창 위 → 0");
+        near(win.b * c.z + ty, H, 1e-6, "창 아래 → H");
+      }
+      // 월드 안쪽 목표는 그대로
+      const keep = V.clampCamera({ cx: W / 2, cy: H / 2, z }, W, H);
+      near(keep.cx, W / 2, 1e-9, "안쪽 x 그대로");
+      near(keep.cy, H / 2, 1e-9, "안쪽 y 그대로");
+    }
+    // 먼 쪽 모서리 공 (따라가기) 도 창 = 월드 안, 위쪽 띠까지 보인다
+    const top = V.cameraTarget({ phase: "follow", W, H, ball: { x: 2, y: 99 } });
+    const wt = V.camWindow(top, W, H);
+    assert.ok(insideWorld(wt, wr), "모서리 따라가기도 월드 안");
+    near(wt.r, wr.x1, 1e-6, "오른쪽 끝에 붙는다");
   }
 });

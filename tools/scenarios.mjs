@@ -826,6 +826,56 @@ export const SCENARIOS = [
       return !!adeline && viewOf(s, data).defender?.id === adeline.id;
     },
     prefer: (s) => s.possession >= 2,
+    // D2 카메라: 킥오프 배치라 화면을 열면 풀코트 → T.start (0.7초) 뒤 결정 확대 (0.35초) — 타이머 고정을 풀고 기다린다
+    interact: { type: "steps", steps: [{ freeze: false }, { wait: 1400 }, { freeze: true }] },
+  },
+  // ---- 2.5D 카메라 (docs/SPRITE_25D_PLAN.md §5 — D2): 공 따라가기 · 결정 확대 (공격 · 수비) ----
+  {
+    // 평소 (§5 '공 따라가기'): 결정 확대 (킥오프 배치가 아니라 화면을 열면 바로 2배) → 드리블 클릭 → 액션 (지금 z 로 공이 갈 곳) →
+    // 재배치 (--t-move 0.65초 동안 1.4배 · 공격 방향 앞쪽 8%) → 결과 한 줄 (0.95초) 한가운데 = 클릭 2.0초 뒤 (1x) 캡처
+    name: "d25_follow",
+    title: "2.5D 공 따라가기 — 드리블 성공 뒤 재배치 · 결과 한 줄 (1.4배 · 공격 방향 앞쪽, 드리블 클릭 2.0초 뒤, 1x)",
+    matchKind: "friendly",
+    auto: false,
+    query: { d25: 1 },
+    require: (s, { data }) => atk(s, "home", 1) && needs(s, "attack") && viewOf(s, data).lastBeat?.type !== "kickoff" &&
+      actionEnabled(s, data, "dribble") && (() => {
+        const evs = tryDecision(s, data, { action: "dribble" }).events;
+        return evs.some((e) => e.type === "duel" && e.success === true && e.action === "dribble") &&
+          !evs.some((e) => e.type === "cutin" || e.type === "combo" || e.type === "goal");
+      })(),
+    prefer: (s) => s.possession >= 2,
+    interact: { type: "click", action: "dribble", waitMs: 2000 },
+    verify: (prev, live) => {
+      if (!live) return "캡처 시점 경기 상태를 읽지 못함";
+      const fresh = (live.events || []).slice((prev.events || []).length);
+      return fresh.some((e) => e.type === "duel" && e.success && e.action === "dribble") ? true : `드리블 성공 이벤트 없음 (${fresh.map((e) => e.type).join(",") || "-"})`;
+    },
+  },
+  {
+    // 사람 공격 결정 (§5 '직접 결정할 때'): 결정 틀 = 공 가진 선수 · 듀얼 수비 · 고른 받는 선수 · 외치는 선수 (+ 보이면 커버 · 다른 후보) —
+    // 2배, 안 들어가면 1.4 까지. 패스 hover — 화살표 굵기 · 끝 글자 · 이름표가 확대해도 화면 크기 그대로
+    name: "d25_decide_attack",
+    title: "2.5D 공격 결정 확대 — 결정 틀 (공 · 수비 · 받는 선수 · 외치는 선수, 1.4 ~ 2배), 패스 hover 화살표 · 끝 글자 (자동 끔)",
+    matchKind: "friendly",
+    auto: false,
+    query: { d25: 1 },
+    require: (s, { data }) => atk(s, "home", 1) && needs(s, "attack") && viewOf(s, data).lastBeat?.type !== "kickoff" &&
+      actionEnabled(s, data, "pass") && !!viewOf(s, data).receivers?.pass,
+    prefer: (s) => s.possession >= 2,
+    interact: { type: "hover", actions: ["pass"] },
+  },
+  {
+    // 사람 수비 결정: 상대 공 · 우리 듀얼 수비 (+ 상대가 노리는 받는 선수 · 보이면 커버) 2배 틀, 인터셉트 hover (흰 길 · ✕ · 차단 글자)
+    name: "d25_decide_defense",
+    title: "2.5D 수비 결정 확대 — 상대 공 · 우리 수비 2배 틀, 인터셉트 hover (길 · ✕ · 글자) (자동 끔)",
+    matchKind: "friendly",
+    auto: false,
+    query: { d25: 1 },
+    require: (s, { data }) => isDuel(s) && s.attackingSide === "away" && s.ball.lineIndex <= 2 && needs(s, "defense") &&
+      viewOf(s, data).lastBeat?.type !== "kickoff" && actionEnabled(s, data, "intercept"),
+    prefer: (s, { data }) => s.possession >= 2 && ["pass", "cross"].includes(viewOf(s, data).expected?.attack?.action),
+    interact: { type: "hover", actions: ["intercept"] },
   },
 ];
 
