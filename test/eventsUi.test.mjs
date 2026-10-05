@@ -1,5 +1,5 @@
 // test/eventsUi.test.mjs — LESSON_PROTO_PLAN §24.13 (이벤트 화면, jsdom). U3: 이벤트 모달 · 결과 카드 · 카드 3택1 · 외출 이야기 · 회상 · 키 아트 · 계정 저장.
-// (U4 · U5 가 깜짝 말풍선 · 레전드 화면을 더한다.)
+// U4: 레슨 깜짝 말풍선 (§24.8 — 턴 끝에 뜬다 · 선택지 2 · 추천 · 다른 조작 잠금 · 고르기 → 결과 띠 · 다음 턴 · 퍼펙트 → 보상). (U5 가 레전드 화면을 더한다.)
 // index.html 을 jsdom 으로 올려 js/ui/app.js 를 부트한다. fetch = dataFetch(ROOT, { events: true }) (데이터 그대로) + 부트 뒤 기능 스위치를 모두 켠다
 // (I1 전에는 data/lesson.json 이 꺼 둔다). 화면 검사는 테스트 안의 고정 이벤트 (ev_ui_* — data.lesson_ev_week 에 더한다) 로 하고,
 // 실제 콘텐츠는 흐름 (시즌 시작 · 외출 이야기 · 회상 목록) 에만 쓴다 — 개수 · 글은 데이터에서 읽는다.
@@ -78,6 +78,26 @@ const TEST_EVENTS = [
   },
 ];
 
+/** 테스트 안의 고정 깜짝 이벤트 (§24.8 U4 — 말풍선 검사): 주인공 있음 (가중치 1000 — 턴 끝 후보 중 이것) · 주인공 없음 (퍼펙트로 끝나는 선택지) */
+const TEST_SURPRISES = [
+  {
+    id: "ls_ui_talk", trigger: "surprise", title: "UI 시험 — 깜짝", text: "{선수|이/가} 손을 듭니다. \"감독님, 한 번 더 해 볼까요?\"",
+    cond: { turnMin: 1 }, who: { pick: "random" }, weight: 1000,
+    choices: [
+      { label: "맡긴다", effects: [{ type: "nextPct", pct: 20 }], result: "{선수|이/가} 고개를 끄덕입니다." },
+      { label: "점수를 챙긴다", effects: [{ type: "score", amount: 12 }, { type: "stamina", target: "player", amount: -5 }], result: "{선수|이/가} 한 바퀴 더 뜁니다." },
+    ],
+  },
+  {
+    id: "ls_ui_finish", trigger: "surprise", title: "UI 시험 — 마무리", text: "다 같이 숨을 고릅니다. 마지막 힘을 짜낼까요?",
+    cond: { turnMin: 1 }, who: { pick: "none" }, weight: 0.001,
+    choices: [
+      { label: "끝까지 간다", effects: [{ type: "score", amount: 30 }], result: "점수가 크게 올랐습니다." },
+      { label: "쉰다", effects: [{ type: "teamwork", amount: 1 }], result: "쉽니다." },
+    ],
+  },
+];
+
 test("store: 계정 저장 (KEYS.account) — 모양 검사 · 저장 삭제와 따로", async () => {
   const mem = new Map();
   const saved = globalThis.localStorage;
@@ -114,7 +134,7 @@ test("이벤트 화면 미리보기 줄 (event.js previewLines): 확률 갈래�
   assert.deepEqual(previewLines(["A / B"]), ["A / B"], "확률이 아니면 그대로");
 });
 
-test("jsdom: 이벤트 모달 · 결과 카드 · 3택1 · 외출 이야기 · 회상 · 키 아트 · 계정 저장 (§24.13 U3)", { skip: !JSDOM && "jsdom 미설치" }, async (t) => {
+test("jsdom: 이벤트 모달 · 결과 카드 · 3택1 · 외출 이야기 · 회상 · 키 아트 · 계정 저장 (§24.13 U3) · 레슨 깜짝 말풍선 (§24.8 U4)", { skip: !JSDOM && "jsdom 미설치" }, async (t) => {
   const html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
   const dom = new JSDOM(html, { url: "http://localhost/soccer/", pretendToBeVisual: true });
   const { window } = dom;
@@ -396,6 +416,168 @@ test("jsdom: 이벤트 모달 · 결과 카드 · 3택1 · 외출 이야기 · �
   [...$$(".rc-head button")].find((b) => b.textContent === "처음으로").click();
   assert.equal(S.store.screen, "start");
   noErrorToast("회상");
+
+  // ---------- 레슨 깜짝 말풍선 (§24.8 · §24.13, U4) ----------
+  // 실제 흐름으로 레슨 중간까지 걸은 뒤 고정 깜짝 이벤트 (TEST_SURPRISES — 실제 콘텐츠에 기대지 않는다) 를 데이터에 더한다.
+  // 움직임 줄이기 (연출 타이머 0ms) 로 빨리 끝낸다 — 결과 띠는 애니메이션 없이 2.5초 뒤 지운다.
+  const savedMM = g.matchMedia;
+  g.matchMedia = (q) => ({ matches: /reduce/.test(q), addEventListener() {}, removeEventListener() {} });
+  t.after(() => { g.matchMedia = savedMM; });
+  {
+    const clone = (x) => JSON.parse(JSON.stringify(x));
+    const LSN = await import(pathToFileURL(path.join(ROOT, "js/engine/lesson.js")).href);
+    const { walkLesson } = await import(pathToFileURL(path.join(ROOT, "tools/lesson_scenarios.mjs")).href);
+    const { previewLines } = await import(pathToFileURL(path.join(ROOT, "js/ui/screens/event.js")).href);
+    const base = walkLesson(data, {
+      seed: "sur-ui",
+      until: (s) => s.phase === "lesson" && s.lesson.status === "playing" && s.lesson.turn >= 2 && s.lesson.turn <= s.lesson.turns - 2
+        && !s.lesson.surprise?.pending && s.lesson.cap - s.lesson.score > 150 && !s.lesson.bench.length,
+    }).state;
+    data.lesson_ev_surprise.events.push(...clone(TEST_SURPRISES));
+    assert.deepEqual(LE.lessonEventErrors(data), [], "고정 깜짝 이벤트 + 실제 데이터 검사 통과");
+    const ui = S.store.lessonUi;
+    const notBusy = () => until(() => !ui.busy, 4000);
+    const putRun = (st) => {
+      S.store.run = clone(st);
+      S.store.match = null;
+      S.store.screen = "run";
+      S.render();
+      return S.store.run;
+    };
+    const lview = () => S.run.getLessonView(S.store.run, data);
+    const seqNow = () => S.store.run.lesson.seq;
+    const key = (k, target = doc) => target.dispatchEvent(new window.KeyboardEvent("keydown", { key: k, bubbles: true }));
+    const fieldW = 968;
+    const fieldH = 392;
+    const boxOf = (el) => {
+      const m = /translate\(([-\d.]+)px, ([-\d.]+)px\)/.exec(el.style.transform || "");
+      return m ? { l: Number(m[1]), t: Number(m[2]) } : null;
+    };
+
+    // ① 턴 끝에 뜬다: 계획을 이번 턴 끝으로 두고 [턴 끝] → 기본 훈련 연출 (턴 번호 없음) → 말풍선 · 다음 턴은 아직
+    const st1 = clone(base);
+    st1.lesson.surprise = { planned: true, randTurn: st1.lesson.turn, pending: null, fired: null };
+    const turn0 = st1.lesson.turn;
+    putRun(st1);
+    assert.ok(!$(".ls-sur") && !$(".lesson-screen.surprise-on"), "아직 깜짝 없음");
+    $(".ls-btns .ls-end").click();
+    await notBusy();
+    const L1 = S.store.run.lesson;
+    assert.equal(L1.surprise.pending?.eventId, "ls_ui_talk", "턴 끝 깜짝 (고정 이벤트 — 가중치 1000)");
+    assert.equal(L1.turn, turn0, "다음 턴은 시작하지 않았다");
+    assert.ok(!$$(".lesson-screen .ls-pop").some((e) => /^턴 \d/.test(e.textContent.trim())), "턴 배너 없음 (기본 훈련만)");
+    let vs = lview();
+    const s = vs.surprise;
+    assert.ok(s && s.choices.length === 2, "뷰 surprise");
+    const sur = $(".lesson-screen .m-field .ls-sur-layer .ls-sur");
+    assert.ok(sur && $(".lesson-screen.surprise-on"), "경기장 위 말풍선");
+    assert.equal(sur.dataset.id, "ls_ui_talk");
+    assert.equal(sur.querySelector(".lsr-title").textContent, s.title, "제목");
+    assert.equal(sur.querySelector(".lsr-text").textContent, s.text, "본문 (자리표시 채움)");
+    assert.ok(s.text.startsWith(s.name) && !s.text.includes("{"), "본문에 주인공 이름");
+    assert.equal(sur.querySelector(".lsr-name").textContent, s.name, "주인공 이름");
+    const charOf = (pid) => S.store.run.players.find((p) => p.id === pid).charId;
+    assert.ok(sur.querySelector(".lsr-face img.pt")?.getAttribute("src").includes(`${charOf(s.playerId)}.face.webp`), "주인공 얼굴 그림");
+    const cbs = $$(".ls-sur .lsr-choice");
+    assert.equal(cbs.length, 2, "선택지 2");
+    assert.deepEqual(cbs.map((b) => b.querySelector(".lsr-label").textContent.replace(/^\d/, "")), s.choices.map((c) => c.label), "선택지 이름 (앞 숫자 = 키)");
+    assert.deepEqual(cbs.map((b) => [...b.querySelectorAll(".pv-line")].map((e) => e.textContent)), s.choices.map((c) => previewLines(c.lines, c.preview)), "미리보기 줄 = 뷰 lines");
+    assert.deepEqual(cbs.map((b) => b.classList.contains("recommended")), s.choices.map((c) => c.recommended), "추천 = 뷰");
+    assert.equal($$(".ls-sur .lsr-rec").length, 1, "추천 배지 하나");
+    assert.equal(S.manager.recommendSurprise(S.store.run, data).choice, s.choices.findIndex((c) => c.recommended), "뷰 추천 = 감독 AI");
+    assert.ok(cbs.every((b) => !b.disabled), "선택지 켜짐");
+    // 자리: 늘 필드 안. 토큰 위에 들어가면 위 (꼬리), 아니면 위쪽 · 아래쪽 가운데 (꼬리 없음)
+    const bx = boxOf(sur);
+    assert.ok(bx && bx.l >= 0 && bx.t >= 0 && bx.l + 508 <= fieldW && bx.t + 196 <= fieldH, `필드 안 (${sur.style.transform})`);
+    const yPx = (vs.positions[s.playerId].y / 100) * fieldH;
+    if (yPx - 36 - 196 >= 6) {
+      assert.equal(sur.dataset.pos, "above", "주인공 토큰 위");
+      assert.ok(sur.querySelector(".lsr-tail.on"), "꼬리");
+    } else {
+      assert.ok(["top", "bottom"].includes(sur.dataset.pos), `위로 넘치면 위쪽 · 아래쪽 가운데 (${sur.dataset.pos})`);
+      assert.ok(!sur.querySelector(".lsr-tail.on"), "꼬리 없음");
+    }
+    assert.ok($(`.lesson-screen .tok.sur-who[data-id="${s.playerId}"]`), "주인공 토큰 금색 고리");
+    assert.ok($(`.ls-side .ls-row.sur-who[data-pid="${s.playerId}"]`), "명단 줄 표시");
+    // 다른 조작 잠금: 손패 없음 · [턴 끝] · [내기] · 벤치 · B 키 · 숫자 3
+    assert.equal($$(".ls-hand .card-face").length, 0, "손패 없음 (턴 끝에 버렸다)");
+    assert.ok($(".ls-btns .ls-end").disabled && $(".ls-btns .ls-play").disabled, "[턴 끝] · [내기] 꺼짐");
+    assert.ok(!vs.canEndTurn && !vs.canBench, "뷰도 잠금");
+    assert.ok($$(".ls-side .ls-bench-btn").every((b) => b.disabled), "명단 [벤치] 꺼짐");
+    const seqA = seqNow();
+    const fieldTok = $$(".lesson-screen .tok:not(.off)")[0];
+    key("b", fieldTok);
+    $$(".ls-side .ls-bench-btn")[0].click();
+    $(".ls-btns .ls-end").click();
+    key("3");
+    assert.equal(seqNow(), seqA, "잠긴 조작은 엔진을 부르지 않는다");
+    assert.ok(S.store.run.lesson.surprise.pending, "그대로 기다린다");
+    // dock 안내 · 기본 훈련 예상 (지난 턴 baseNext) 숨김
+    const info = $(".ls-info").textContent;
+    assert.ok(info.includes("선택지를 고르세요") && info.includes(s.title), `안내 (${info})`);
+    assert.ok(!info.includes("예상"), "기본 훈련 예상 숨김");
+    $(`.ls-row[data-pid="${s.playerId}"] .ls-pi-btn`).click();
+    const foot = $(".ls-pinfo.on .pi-foot")?.textContent || "";
+    assert.ok(foot.includes("깜짝 이벤트 중") && !foot.includes("예상"), `선수 정보: 기본 훈련 예상 숨김 (${foot})`);
+    key("Escape");
+    assert.ok(!$(".ls-pinfo.on"), "Esc = 선수 정보 닫기");
+    noErrorToast("깜짝 말풍선");
+    // 새로 그려도 (이어하기) 말풍선은 그대로
+    S.render();
+    assert.ok($(".ls-sur[data-id=\"ls_ui_talk\"]"), "다시 그려도 말풍선");
+
+    // ② 고르기 (점수 · 체력 선택지) → actions.resolveSurprise(1) → 결과 띠 · 다음 턴
+    const score0 = S.store.run.lesson.score;
+    const stam0 = S.store.run.players.find((p) => p.id === s.playerId).stamina;
+    const calls = [];
+    const origSur = S.actions.resolveSurprise;
+    S.actions.resolveSurprise = function (i) { calls.push(i); return origSur.call(this, i); };
+    $('.ls-sur .lsr-choice[data-choice="1"]').click();
+    S.actions.resolveSurprise = origSur;
+    assert.deepEqual(calls, [1], "resolveSurprise(1)");
+    assert.ok(!$(".ls-sur"), "말풍선 닫힘");
+    const banner = $(".lesson-screen .ls-sres");
+    assert.ok(banner, "결과 한 줄 띠");
+    const resText = S.store.run.lesson.surprise.fired.result;
+    assert.ok(resText.startsWith(s.name) && resText.endsWith(" 한 바퀴 더 뜁니다.") && !resText.includes("{"), `엔진 결과 글 (${resText})`);
+    assert.equal(banner.querySelector(".sres-text").textContent, resText, "띠 = 결과 글");
+    assert.equal(banner.querySelector(".sres-fx").textContent, S.store.run.lesson.surprise.fired.lines.join(" · "), "띠 = 받은 효과");
+    assert.equal(banner.style.getPropertyValue("--t-sres"), "2500ms", "띠 길이 2.5초 (CSS 애니메이션)");
+    await notBusy();
+    const L2 = S.store.run.lesson;
+    assert.equal(L2.surprise.pending, null, "해결");
+    assert.equal(L2.turn, turn0 + 1, "다음 턴 시작");
+    assert.equal(L2.score, score0 + 12, "점수 +12");
+    assert.equal(S.store.run.players.find((p) => p.id === s.playerId).stamina, Math.max(0, stam0 - 5), "주인공 체력 −5");
+    vs = lview();
+    assert.equal(vs.surprise, null);
+    assert.ok(!$(".lesson-screen.surprise-on") && !$(".ls-sur"), "말풍선 없음");
+    assert.equal($$(".ls-hand .card-face").length, vs.hand.length, "새 손패");
+    assert.ok(vs.hand.length > 0 && !$(".ls-btns .ls-end").disabled, "[턴 끝] 다시 켜짐");
+    assert.equal($(".lh-turn-n").textContent, `${turn0 + 1}/${vs.turns}`, "HUD 턴");
+    assert.ok($(".lesson-screen .ls-sres"), "띠는 다음 턴에도 잠깐 남는다 (2.5초)");
+    assert.match($(".ls-info").textContent, /카드를 끌어 경기장에 놓으세요/, "평소 안내");
+    noErrorToast("깜짝 고르기");
+
+    // ③ 주인공 없는 깜짝 + 퍼펙트로 끝나는 선택지 (숫자 키 1) → 레슨 끝 → 보상 모달
+    const st3 = clone(base);
+    LSN.forceSurprise(st3, data, { eventId: "ls_ui_finish" });
+    assert.ok(st3.lesson.surprise.pending, "주입 (forceSurprise)");
+    st3.lesson.score = st3.lesson.cap - 10;
+    putRun(st3);
+    const sur3 = $(".ls-sur");
+    assert.ok(sur3 && !sur3.querySelector(".lsr-name") && sur3.querySelector(".lsr-face"), "주인공 없음 = 이름 없이 얼굴 칸 (코치 · 표)");
+    assert.equal(sur3.dataset.pos, "top", "주인공 없음 = 필드 위쪽 가운데");
+    const bx3 = boxOf(sur3);
+    assert.equal(bx3.l, (fieldW - 508) / 2, "가운데");
+    key("1");
+    await until(() => S.store.run.phase === "reward" && $("#modal-root .reward-modal"), 4000);
+    assert.equal(S.store.run.phase, "reward", "퍼펙트 → 보상");
+    assert.equal(S.store.run.pendingReward.result.status, "perfect");
+    assert.ok($("#modal-root .reward-modal"), "보상 모달");
+    noErrorToast("깜짝 퍼펙트");
+    S.actions.discardSave();
+  }
 
   assert.deepEqual(errors, [], "페이지 오류 없음");
   assert.deepEqual(consoleErrors, [], "console.error 없음");

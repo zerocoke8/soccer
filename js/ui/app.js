@@ -352,6 +352,18 @@ const actions = {
     return engine(() => run[fnName](store.run, store.data, args));
   },
 
+  /**
+   * 레슨 깜짝 이벤트 선택지 (lessonRun.resolveSurprise { choice } — §24.8, U4). 레슨 화면 말풍선이 부른다.
+   * lessonCall 과 같다: 엔진 호출 1번 + 저장 (오류면 토스트 · undefined), render 없음 — 레슨 화면이 결과 줄 · 다음 턴 연출을 이어 그리고,
+   * 점수가 퍼펙트에 닿아 레슨이 끝났으면 연출 뒤 ctx.render() 로 보상 모달.
+   * @param {number} choice  선택지 번호 (0 · 1)
+   * @returns {object|undefined} 엔진 반환값 (오류면 undefined)
+   */
+  resolveSurprise(choice) {
+    if (!run || typeof run.resolveSurprise !== 'function') { toast('레슨 엔진 함수가 없습니다: resolveSurprise'); return undefined; }
+    return engine(() => run.resolveSurprise(store.run, store.data, { choice }));
+  },
+
   /** 레슨 결과 모달 [확인] (lessonRun.resolveReward { pick, upgradeUid }) */
   resolveReward(args) {
     const before = store.run?.log?.length ?? 0;

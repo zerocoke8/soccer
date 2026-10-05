@@ -40,6 +40,12 @@
 //   여는 법: 카드를 고르지 않았을 때 토큰 · 명단 줄 누르기 (탭) · 마우스 올리기 (잠깐 — 누르면 고정), 명단 ⓘ 버튼 (카드를 골랐어도 늘),
 //   토큰 포커스 + Enter · Space (카드를 고르지 않았을 때) · I (늘). 닫기: 바깥 누르기 · Esc · 같은 토큰 · 줄 · ⓘ 다시 · × 버튼. 끌기가 시작되면 닫는다.
 //   카드를 골랐을 때 토큰 누르기는 그대로 자리 고르기다 (팝오버를 열지 않는다).
+// 레슨 깜짝 이벤트 (L29 · LESSON_PROTO_PLAN §24.8 · §24.13, 2차 U4): 엔진이 턴 끝에 깜짝을 띄우면 (뷰 surprise — 다음 턴을 시작하지 않고 멈춘다)
+//   경기장 위 말풍선 (.ls-sur — 주인공 얼굴 · 이름 · 제목 · 본문 + 선택지 2 = 미리보기 줄 · 추천 배지). 자리 = 주인공 토큰 위 (꼬리가 토큰을 가리킨다) →
+//   위로 필드 밖이면 필드 위쪽 가운데 (그 자리가 주인공을 가리고 아래쪽 가운데가 덜 가리면 아래쪽 가운데). 늘 필드 안 (1280×720 · 915×412 같은 규칙).
+//   기다리는 동안 손패 · 벤치 · [턴 끝] · 끌기 잠금 (isLive false), dock 안내 = "선택지를 고르세요", 지난 턴의 기본 훈련 예상 (baseNext) 은 숨긴다.
+//   고르기 = 선택지 누르기 · 숫자 1 · 2 → actions.resolveSurprise → 결과 한 줄 띠 (.ls-sres, 경기장 위쪽 — CSS 애니메이션 2.5초,
+//   움직임 줄이기 = 애니메이션 없이 2.5초 뒤 지운다) + 효과 팝 (점수 · 체력 · 팀워크 · 버프 칩) → 다음 턴 흩어지기 · 새 손패 (퍼펙트면 레슨 끝 → 보상).
 import { h, avatar, bar, gradeBadge, openModal, toast, setFaceArt } from '../dom.js';
 import * as L from '../labels.js';
 import { cardFace, miniCard, attachTitle, shapeIconKey, shapeHow, multShort } from '../cards.js';
@@ -47,9 +53,14 @@ import { tokenSpot, pointerToField, circlePx, fxPlan, scoreAfterPlay, handStep, 
 import { stamCls } from '../hud.js';
 import { uniqueNote } from './reward.js';
 import { playerArt, portraitUrl, portraitUrls, preloadArt, cutArt } from '../art.js';
+import { previewLines } from './event.js';
 
 /** 연출 시간 (ms): 훈련 동작 · +N 머무르기 · 턴 끝 기본 훈련 · 흩어지기 · 턴 배너 · 레슨 끝 배너 · 자동 진행 간격 · 자동 진행 조준 보여 주기 */
 export const LESSON_T = { act: 280, hold: 560, tick: 650, scatter: 450, turn: 260, end: 1000, auto: 600, aimShow: 320, move: 450, pass: 300 };
+/** 깜짝 결과 한 줄 띠가 떠 있는 시간 (ms) — CSS 애니메이션 길이 (--t-sres), 움직임 줄이기에서는 이 시간 뒤 지운다 (§24.8 "2.5초") */
+export const SURPRISE_RESULT_MS = 2500;
+/** 깜짝 말풍선 아래 끝 ↔ 주인공 토큰 중심 (px) = 얼굴 반 + 실패율 표 + 꼬리 */
+const SUR_GAP = 36;
 const CARD_W = 176;
 const DRAG_PX = 6;
 /** 코치 컷인 길이 (ms) — data.lesson.attach.cutinMs 가 없을 때 (§15.3: 첫 번 900 · 다음부터 600) */
@@ -121,7 +132,12 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
       h('button', { class: 'btn', onclick: () => actions.resetToStart() }, '처음으로'));
     return;
   }
-  const isLive = () => !inert && st()?.phase === 'lesson' && st()?.lesson?.status === 'playing';
+  /** 레슨 깜짝 이벤트를 기다리는 중 (엔진 상태 — §24.8): 손패 · 벤치 · [턴 끝] · 끌기는 잠그고 말풍선 선택지만 받는다 */
+  const surprisePending = () => !!st()?.lesson?.surprise?.pending;
+  const playingNow = () => !inert && st()?.phase === 'lesson' && st()?.lesson?.status === 'playing';
+  const isLive = () => playingNow() && !surprisePending();
+  /** 말풍선 선택지를 고를 수 있다 (깜짝 기다리는 중 · 연출 중 아님) */
+  const surpriseLive = () => playingNow() && surprisePending() && !ui.busy;
   const alive = () => gen === ui.gen && screen.isConnected;
   ui.shownSeq = v.seq; // 새로고침 · 다시 그리기 뒤에는 지난 연출을 다시 재생하지 않는다
   ui.busy = false;
@@ -186,8 +202,10 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
   const tokLayer = h('div', { class: 'tok-layer' });
   const chipLayer = h('div', { class: 'zone-chips', 'aria-hidden': 'true' });
   const popLayer = h('div', { class: 'pop-layer', 'aria-hidden': 'true' }, aimTag);
+  // 레슨 깜짝 (§24.8): 말풍선 (.ls-sur) · 결과 한 줄 띠 (.ls-sres) — 경기장 좌표 (필드 px), 토큰 · 팝 위
+  const surLayer = h('div', { class: 'ls-sur-layer' });
   const field = h('div', { class: 'm-field', role: 'application', 'aria-label': '경기장 — 카드를 끌어 놓을 자리' },
-    bg, zoneLayer, aimLayer, tokLayer, ghostLayer, chipLayer, popLayer);
+    bg, zoneLayer, aimLayer, tokLayer, ghostLayer, chipLayer, popLayer, surLayer);
   const grass = h('div', { class: 'pitch' }, field);
   const pitchWrap = h('div', { class: 'ls-pitch' }, grass);
 
@@ -245,6 +263,9 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
   let infoPop = null;     // 선수 정보 팝오버 { id, src: 'tok' | 'row' | 'btn', pinned } (§17) — pinned = 누르기 · 키로 연 것 (hover 는 떠나면 닫힌다)
   let hoverTid = null;    // hover 로 여는 짧은 지연 타이머
   let chipRectsCache = null; // 구역 라벨 칩 사각형 { w, h, rects } (이름표 자리 고르기 장애물 — renderZones 가 비운다)
+  let surBox = null;      // 떠 있는 깜짝 말풍선 요소 (§24.8) — surKey (이벤트 id · seq) 가 같으면 다시 만들지 않고 자리만 다시 잡는다
+  let surKey = null;
+  let surNote = null;     // 깜짝을 고른 뒤 연출 중 dock 안내 { title, label } (refresh 가 비운다)
   const thresholds = data.config?.rating?.thresholds;
   let shown = { score: v.score, stamina: {} }; // 연출 중 보여 주는 값 (점수 · 체력 · 턴)
 
@@ -761,6 +782,7 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
       if (info.rec === p.id) cls.push('rec');
       if (liftId === p.id) cls.push('lifting');
       if (infoPop?.id === p.id) cls.push('info-on');
+      if (!inert && v.surprise?.playerId === p.id) cls.push('sur-who'); // 깜짝 말풍선의 주인공 (금색 고리)
       if (el.classList.contains('drilling')) cls.push('drilling');
       el.className = cls.join(' ');
       if (pos) placeTok(el, pos);
@@ -916,7 +938,7 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
       const d = playerStatInfo(st(), p.id, v, thresholds);
       row.className = ['ls-row', p.out ? 'out' : '', p.bench ? 'benched' : '', healAim ? 'pickable' : '',
         info.target.has(p.id) ? 'target' : '', info.healId === p.id ? 'heal-target' : '', rec?.kind === 'bench' && rec.playerId === p.id && live ? 'rec' : '',
-        infoPop?.id === p.id ? 'info-on' : ''].filter(Boolean).join(' ');
+        infoPop?.id === p.id ? 'info-on' : '', !inert && v.surprise?.playerId === p.id ? 'sur-who' : ''].filter(Boolean).join(' ');
       row.title = `${p.name} (${p.slot}) — ${where}${d?.cur ? ` · ${zoneShort(d.cur.stat)} ${d.cur.value} (이번 레슨 ${signed(d.cur.gain)})` : ''} · 체력 ${stam} · 실패율 ${pctText(fr)} · 이번 레슨 대상 ${p.targeted}회`;
       const btn = row._btn;
       const canOn = live && !p.out && !p.bench && v.canBench;
@@ -1083,7 +1105,9 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
         h('span', { class: 'muted' }, ` · 기본 ${sp.base} / 카드 ${sp.card}`), sp.sub ? h('span', { class: 'muted' }, ` · 부+${sp.sub}`) : null),
       h('span', { class: 'muted' }, d.out ? '이번 레슨은 훈련하지 않는다'
         : d.bench ? `벤치 — 이번 턴 기본 훈련 · 카드 대상 없음`
-          : `턴 끝 기본 훈련 +${d.baseNext} 예상 · 카드 대상 ${d.targeted}회`));
+          // 깜짝을 기다리는 동안 뷰 baseNext 는 방금 끝난 턴의 예상 (§24.8, E5) — 숨긴다
+          : v.surprise ? `깜짝 이벤트 중 · 카드 대상 ${d.targeted}회`
+            : `턴 끝 기본 훈련 +${d.baseNext} 예상 · 카드 대상 ${d.targeted}회`));
     // 패시브 3 (L48 — 고유 1 + 공용 2): 보유 = ✓ 초록, 아직 = 흐리게 (힌트 Lv 는 title)
     const pas = passivesOf(d.id);
     const pasEl = pas.length
@@ -1190,11 +1214,20 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     const c = isLive() && !ui.busy ? aimCard() : null;
     const lines = [];
     if (ui.busy && !inert) {
-      if (cutNote) {
+      if (surNote) {
+        // 깜짝 결과 연출 (§24.8): 고른 선택지 — 결과 글은 경기장 위쪽 띠
+        lines.push(h('b', { class: 'ls-guide ls-sur-guide' }, h('span', { class: 'badge badge-gold' }, '레슨 깜짝'), ` ${surNote.title}`));
+        lines.push(h('span', { class: 'small' }, `고른 선택지: ${surNote.label}`));
+      } else if (cutNote) {
         // 코치 지원 발동 (컷인 · 카드 연출 동안 — no-anim 에서는 컷인 덮개 대신 이 줄)
         lines.push(h('b', { class: 'ls-guide ls-cut-note' }, avatar(cutNote.color, cutNote.short, 'xs', '', { art: coachArt(cutNote.supportId) }), ` ${cutNote.short} 지원 발동`));
         lines.push(h('span', { class: 'small ls-cut-sub' }, h('b', {}, cutNote.ability), ` — ${cutNote.text}`));
       } else lines.push(h('b', { class: 'ls-guide' }, '훈련 중…'));
+    } else if (!inert && v.surprise && playingNow()) {
+      // 깜짝 이벤트 (§24.8): 손패 · 벤치 · [턴 끝] 잠금. 지난 턴의 기본 훈련 예상 (baseNext) 은 보이지 않는다
+      lines.push(h('b', { class: 'ls-guide ls-sur-guide' }, h('span', { class: 'badge badge-gold' }, '레슨 깜짝'), ` ${v.surprise.title}`));
+      lines.push(h('span', { class: 'small' }, '경기장 말풍선의 선택지를 고르세요'));
+      lines.push(h('span', { class: 'tiny muted' }, `고르면 ${v.turn + 1}턴이 시작됩니다 · 숫자 1 · 2 = 선택지`));
     } else if (inert || !isLive()) {
       lines.push(h('b', { class: 'ls-guide' }, `레슨 ${L.LESSON_STATUS_LABELS[v.status] ?? v.status}`));
     } else if (ui.drag?.kind === 'tok') {
@@ -1296,7 +1329,7 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     const ready = !!(c && pv?.ok && (!pointCard(c) || hasPick(a)));
     playBtn.disabled = !(live && !ui.drag && ready);
     endBtn.disabled = !(live && v.canEndTurn && !ui.drag);
-    endBtn.title = '남은 추가 사용을 버리고 턴을 끝냅니다 — 경기장 선수 기본 훈련 · 벤치 회복';
+    endBtn.title = surprisePending() && !inert ? '깜짝 이벤트 선택지를 먼저 고르세요' : '남은 추가 사용을 버리고 턴을 끝냅니다 — 경기장 선수 기본 훈련 · 벤치 회복';
     playBtn.title = c ? (ready ? `${c.name} 내기` : '놓을 자리를 먼저 고르세요') : '카드를 눌러 조준하면 켜집니다';
     const on = live && rec?.kind === 'endTurn';
     endBtn.classList.toggle('recommended', on);
@@ -1323,6 +1356,7 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     shown = { score: v.score, stamina: {} };
     cutNote = null;
     cutRecap = null;
+    surNote = null;
     attachNew = attached && v.attach?.uid === attached ? attached : null;
     setCoach(v.attach?.coachType, v.attach?.color);
     candCache = null;
@@ -1339,9 +1373,220 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     renderInfo();
     renderButtons();
     renderAim();
+    renderSurprise();
     benchFx = null;
     attachNew = null;
     scheduleAuto();
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* 레슨 깜짝 이벤트 (§24.8 · §24.13, U4): 말풍선 · 고르기 · 결과 한 줄 띠          */
+  /* ------------------------------------------------------------------ */
+  /** 말풍선을 그린다 (뷰 surprise — 없으면 지운다). 같은 깜짝 (id · seq) 이면 자리만 다시 잡는다 */
+  function renderSurprise() {
+    const s = !inert && playingNow() ? v.surprise : null;
+    screen.classList.toggle('surprise-on', !!s);
+    if (!s) {
+      if (surBox) surBox.remove();
+      surBox = null;
+      surKey = null;
+      return;
+    }
+    const key = `${s.id}|${v.seq}`;
+    if (surBox && surKey === key && surBox.isConnected) { syncSurprise(); placeSurprise(); return; }
+    if (surBox) surBox.remove();
+    const p = s.playerId ? playerOf(s.playerId) : null;
+    // 얼굴: 주인공 (그림 · 글자) → 없으면 코치 → 없으면 말풍선 표
+    const face = p ? faceSpan('lsr-face', p)
+      : s.supportId ? setFaceArt(h('span', { class: 'lsr-face coach' }, initialOf(String((data.supports || []).find((x) => x.id === s.supportId)?.name ?? '').split(/\s+/).pop())), coachArt(s.supportId))
+        : h('span', { class: 'lsr-face none', 'aria-hidden': 'true' }, '!');
+    const choices = (s.choices || []).map((c, i) => {
+      const lines = previewLines(c.lines, c.preview);
+      return h('button', {
+        class: ['lsr-choice', c.recommended ? 'recommended' : ''],
+        type: 'button',
+        dataset: { choice: String(i) },
+        title: `${c.label} — ${lines.join(' · ') || '효과 없음'}${c.recommended ? ' (감독 추천)' : ''}`,
+        onclick: (e) => { e.stopPropagation?.(); chooseSurprise(i); },
+      },
+      h('span', { class: 'lsr-label' }, h('span', { class: 'lsr-key', 'aria-hidden': 'true' }, String(i + 1)), c.label),
+      c.recommended ? h('span', { class: 'badge badge-accent lsr-rec' }, '추천') : null,
+      h('span', { class: 'lsr-pv' }, lines.length ? lines.map((t) => h('span', { class: 'pv-line' }, t)) : h('span', { class: 'pv-line' }, '효과 없음')));
+    });
+    surBox = h('div', {
+      class: 'ls-sur', role: 'dialog', 'aria-label': `레슨 깜짝 — ${s.title}`, dataset: { id: s.id, pid: s.playerId ?? '' },
+    },
+    h('div', { class: 'lsr-main' },
+      face,
+      h('div', { class: 'lsr-body' },
+        h('div', { class: 'lsr-head' },
+          h('span', { class: 'badge badge-gold lsr-kind' }, '레슨 깜짝'),
+          s.name ? h('b', { class: 'lsr-name' }, s.name) : null,
+          h('span', { class: 'lsr-title' }, s.title)),
+        h('p', { class: 'lsr-text' }, s.text))),
+    h('div', { class: ['lsr-choices', choices.length === 1 ? 'one' : ''] }, choices),
+    h('i', { class: 'lsr-tail', 'aria-hidden': 'true' }));
+    surLayer.append(surBox);
+    surKey = key;
+    syncSurprise();
+    placeSurprise();
+  }
+  /** 선택지 켜기 · 끄기 (연출 중 · 레슨이 끝났으면 끈다) */
+  function syncSurprise() {
+    if (!surBox) return;
+    const on = surpriseLive();
+    for (const b of surBox.querySelectorAll('.lsr-choice')) b.disabled = !on;
+  }
+  /**
+   * 말풍선 자리 (필드 px — 늘 필드 안, §24.13): ① 주인공 토큰 위 (꼬리가 토큰을 가리킨다, 가로는 필드 안으로 당긴다)
+   * ② 위로는 필드 밖으로 나가면 (토큰이 위 줄 · 가운데 · 벤치 · 주인공 없음) 필드 위쪽 가운데 (꼬리 없음 — 주인공은 금색 고리) —
+   *    위쪽 가운데가 주인공 얼굴을 가리고 아래쪽 가운데가 덜 가리면 아래쪽 가운데.
+   * 1280×720 · 915×412 (무대 배율만 다르다) 같은 규칙.
+   */
+  function placeSurprise() {
+    if (!surBox || !v.surprise) return;
+    const M = 6;
+    const bw = Math.min(W - 2 * M, surBox.offsetWidth || 508); // jsdom (레이아웃 없음) = CSS 폭 · 추정 높이
+    const bh = Math.min(H - 2 * M, surBox.offsetHeight || 196);
+    const pos = v.surprise.playerId ? v.positions?.[v.surprise.playerId] || null : null;
+    let mode = 'top';
+    let l = (W - bw) / 2;
+    let t = M;
+    let tail = null;
+    if (pos) {
+      const [x, y] = toPx(pos);
+      const up = y - SUR_GAP - bh;
+      if (up >= M) {
+        mode = 'above';
+        l = Math.max(M, Math.min(W - M - bw, x - bw / 2));
+        t = up;
+        tail = x - l;
+      } else {
+        // 주인공 얼굴 (토큰 40px + 금색 고리) 을 가리는 넓이
+        const r = TOKEN_PX / 2 + 2;
+        const cover = (top) => {
+          const ox = Math.max(0, Math.min(l + bw, x + r) - Math.max(l, x - r));
+          const oy = Math.max(0, Math.min(top + bh, y + r) - Math.max(top, y - r));
+          return ox * oy;
+        };
+        const low = H - M - bh;
+        if (cover(M) > 0 && cover(low) < cover(M)) { mode = 'bottom'; t = low; }
+      }
+    }
+    surBox.style.transform = `translate(${px(l)}, ${px(t)})`;
+    surBox.dataset.pos = mode;
+    for (const m of ['above', 'top', 'bottom']) surBox.classList.toggle(`at-${m}`, m === mode);
+    const tailEl = surBox.querySelector('.lsr-tail');
+    if (tailEl) {
+      tailEl.classList.toggle('on', tail != null);
+      if (tail != null) tailEl.style.left = px(Math.max(24, Math.min(bw - 24, tail)));
+    }
+  }
+  /** 선택지 고르기 → 엔진 (actions.resolveSurprise) → 결과 띠 · 효과 · 다음 턴 연출 */
+  function chooseSurprise(i) {
+    if (!surpriseLive()) return;
+    const vPrev = v;
+    const tw0 = Number(st().teamwork) || 0;
+    closeInfo();
+    const r = actions.resolveSurprise(i);
+    if (r === undefined) { refresh(); return; }
+    animateSurprise(vPrev, tw0);
+  }
+  /**
+   * 결과 한 줄 띠 (.ls-sres — 경기장 위쪽 가운데): 깜짝 · 결과 글 + 받은 효과 (작게). CSS 애니메이션 SURPRISE_RESULT_MS (나타남 → 머무름 → 사라짐)
+   * 뒤 지운다. 움직임 줄이기 (no-anim) = 애니메이션 없이 그 시간 뒤 지운다. 다음 깜짝 · 다시 그리기 전까지 하나만.
+   */
+  function showSurpriseResult(res) {
+    for (const old of surLayer.querySelectorAll('.ls-sres')) old.remove();
+    const text = String(res?.text || '').trim();
+    const lines = Array.isArray(res?.lines) ? res.lines.filter(Boolean) : [];
+    if (!text && !lines.length) return null;
+    const el = h('div', { class: 'ls-sres', role: 'status', 'aria-live': 'polite' },
+      h('span', { class: 'badge badge-gold lsr-kind' }, '깜짝'),
+      text ? h('span', { class: 'sres-text' }, text) : null,
+      lines.length ? h('span', { class: 'sres-fx' }, lines.join(' · ')) : null);
+    el.style.setProperty('--t-sres', `${SURPRISE_RESULT_MS}ms`);
+    surLayer.append(el);
+    const drop = () => { if (el.isConnected) el.remove(); };
+    el.addEventListener('animationend', (e) => { if (e.target === el) drop(); });
+    setTimeout(drop, SURPRISE_RESULT_MS + 120); // 움직임 줄이기 · animationend 가 오지 않을 때
+    return el;
+  }
+  /**
+   * 고른 뒤 연출: 말풍선 닫기 → 결과 띠 → ① 효과 팝 (점수 · 체력 · 팀워크 — 전후 뷰 차이, 쉼 · 결장 선수는 경기장을 떠난다) · 버프 칩
+   * → ② 다음 턴 흩어지기 · 턴 배너 → 새 손패 (레슨이 끝났으면 끝 배너 → 보상 모달).
+   */
+  function animateSurprise(vPrev, tw0) {
+    setBusy(true);
+    pv = null;
+    const L1 = st().lesson;
+    const fx = L1?.lastFx || [];
+    const plan = fxPlan(fx);
+    ui.shownSeq = L1?.seq ?? ui.shownSeq;
+    const res = fx.find((e) => e && e.t === 'surpriseResult') || null;
+    const pid = vPrev.surprise?.playerId || null;
+    const picked = vPrev.surprise?.choices?.[Number(res?.choice)] || null;
+    surNote = { title: vPrev.surprise?.title || '', label: picked?.label || '' };
+    const vNew = getView(true) || v;
+    const ended = st().phase !== 'lesson' || vNew.status !== 'playing';
+    v = { ...vPrev, surprise: null };
+    shown = { score: vPrev.score, stamina: {}, turn: vPrev.turn };
+    renderSurprise();
+    renderInfo();
+    renderButtons();
+    showSurpriseResult(res);
+    // ① 효과 (resolveSurprise 는 턴을 넘기기 전 효과만 바꾼다 — 점수 · 체력 · 팀워크 차이는 효과 몫)
+    let any = false;
+    const dScore = (Number(vNew.score) || 0) - (Number(vPrev.score) || 0);
+    if (dScore) {
+      if (pid && spotOf(pid)) popAt(pid, `점수 ${signed(dScore)}`, dScore > 0 ? 'gold' : 'bad');
+      else centerPop(`점수 ${signed(dScore)}`, dScore > 0 ? 'gold' : 'bad', 'mid');
+      any = true;
+    }
+    const before = new Map(vPrev.players.map((p) => [p.id, p]));
+    for (const p of vNew.players) {
+      const d = (Number(p.stamina) || 0) - (Number(before.get(p.id)?.stamina) || 0);
+      if (!d) continue;
+      popAt(p.id, `체력 ${d > 0 ? '+' : '−'}${Math.abs(d)}`, d > 0 ? 'heal' : 'bad', `small${p.id === pid && dScore ? ' row1' : ''}`);
+      any = true;
+    }
+    const dTw = (Number(st().teamwork) || 0) - tw0;
+    if (dTw) { pop({ x: 50, y: 92 }, `팀워크 ${signed(dTw)}`, 'good', 'small tw'); any = true; }
+    // 쉼 · 결장 (깜짝 "남은 턴 쉼" · "결장") 선수는 지금 자리에서 사라진다. 체력 · 버프 칩은 새 값으로
+    const gone = new Set(vNew.players.filter((p) => p.out).map((p) => p.id));
+    const newOf = new Map(vNew.players.map((p) => [p.id, p]));
+    v = {
+      ...v,
+      chips: vNew.chips,
+      positions: Object.fromEntries(Object.entries(vPrev.positions || {}).filter(([id]) => !gone.has(id))),
+      players: vPrev.players.map((p) => {
+        const n = newOf.get(p.id);
+        if (!n) return p;
+        return gone.has(p.id) ? { ...p, ...n, zone: null, bench: false } : { ...p, stamina: n.stamina, failRate: n.failRate };
+      }),
+    };
+    shown.score = vNew.score;
+    renderHud(shown.score);
+    const flash = Object.keys(plan.play.buffs || {});
+    if (flash.length) { renderChips(flash); any = true; }
+    renderTokens();
+    renderSide();
+    // ② 다음 턴 (또는 레슨 끝)
+    later(() => {
+      if (ended) { showEnded(vNew, plan.end?.status || vNew.status); return; }
+      v = vNew;
+      shown = { score: vNew.score, stamina: {}, turn: vNew.turn };
+      field.classList.add('scatter');
+      renderHud();
+      renderTokens();
+      renderSide();
+      centerPop(`턴 ${vNew.turn}`, 'turn', 'mid');
+      later(() => {
+        field.classList.remove('scatter');
+        setBusy(false);
+        refresh({ deal: !!plan.draw, attached: plan.attach?.uid ?? null });
+      }, plan.scatter ? LESSON_T.scatter : 0);
+    }, any ? LESSON_T.hold : LESSON_T.turn);
   }
 
   /* ------------------------------------------------------------------ */
@@ -1751,6 +1996,14 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
       if (ui.aim && !ui.busy) cancelAim();
       return;
     }
+    // 깜짝 말풍선 (§24.8): 숫자 1 · 2 = 선택지 (모달 · 입력 칸 안에서는 아니다)
+    if (surpriseLive() && /^[1-9]$/.test(e.key)) {
+      const tag = e.target?.tagName;
+      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || e.target?.closest?.('#modal-root')) return;
+      const i = Number(e.key) - 1;
+      if (i < (v.surprise?.choices?.length || 0)) { e.preventDefault(); chooseSurprise(i); }
+      return;
+    }
     if (!isLive() || ui.busy || ui.drag || !ui.aim) return;
     const tag = e.target?.tagName;
     if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
@@ -1922,6 +2175,18 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     if (plan.play.condition > 0) sideFoot.querySelector('.ls-cond')?.classList.add('flash');
   }
 
+  /** 레슨 끝 연출 (카드 · 턴 끝 · 깜짝 결과 모두): 새 뷰로 그리고 끝 배너 → LESSON_T.end 뒤 ctx.render() (보상 모달) */
+  function showEnded(vNew, status) {
+    v = vNew;
+    shown = { score: vNew.score, stamina: {}, turn: shown.turn };
+    renderHud(shown.score);
+    renderTokens();
+    renderSide();
+    centerPop(L.LESSON_STATUS_LABELS[status] ?? status, status === 'fail' ? 'bad' : status === 'perfect' ? 'gold' : 'good', 'big');
+    infoEl.replaceChildren(h('b', { class: 'ls-guide' }, `레슨 ${L.LESSON_STATUS_LABELS[status] ?? status}`), h('span', { class: 'small muted' }, '결과를 정리하는 중…'));
+    later(() => { setBusy(false); ctx.render(); }, LESSON_T.end);
+  }
+
   function animate(vPrev, act) {
     setBusy(true);
     pv = null;
@@ -2056,7 +2321,10 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
       if (flash.length) renderChips(flash);
       renderSide();
       renderTokens();
-      if (!ended) centerPop(ticks.length ? `턴 ${vNew.turn} — 기본 훈련 +${ticks.reduce((a, [, n]) => a + n, 0)}` : `턴 ${vNew.turn}`, 'turn', 'mid');
+      const baseTxt = ticks.length ? `기본 훈련 +${ticks.reduce((a, [, n]) => a + n, 0)}` : '';
+      // 깜짝이 떴으면 (§24.8) 다음 턴은 아직 시작하지 않았다 — 턴 번호 없이 기본 훈련만, 그 뒤 말풍선
+      if (!ended && vNew.surprise) { if (baseTxt) centerPop(baseTxt, 'turn', 'mid'); }
+      else if (!ended) centerPop(baseTxt ? `턴 ${vNew.turn} — ${baseTxt}` : `턴 ${vNew.turn}`, 'turn', 'mid');
       later(stepScatter, ticks.length ? LESSON_T.tick : LESSON_T.turn);
     };
     const stepScatter = () => {
@@ -2072,15 +2340,7 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     };
     const stepEnd = () => {
       if (ended) {
-        v = vNew;
-        const status = plan.end?.status || vNew.status;
-        shown = { score: vNew.score, stamina: {}, turn: shown.turn };
-        renderHud(shown.score);
-        renderTokens();
-        renderSide();
-        centerPop(L.LESSON_STATUS_LABELS[status] ?? status, status === 'fail' ? 'bad' : status === 'perfect' ? 'gold' : 'good', 'big');
-        infoEl.replaceChildren(h('b', { class: 'ls-guide' }, `레슨 ${L.LESSON_STATUS_LABELS[status] ?? status}`), h('span', { class: 'small muted' }, '결과를 정리하는 중…'));
-        later(() => { setBusy(false); ctx.render(); }, LESSON_T.end);
+        showEnded(vNew, plan.end?.status || vNew.status);
         return;
       }
       setBusy(false);
@@ -2097,6 +2357,15 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
   /* ------------------------------------------------------------------ */
   let autoTimer = null;
   function scheduleAuto() {
+    if (autoMode && surpriseLive() && !autoTimer) {
+      // 깜짝 (§24.8): 감독 추천 선택지 (manager.recommendCard → kind "surprise") 를 그대로 고른다
+      autoTimer = later(() => {
+        autoTimer = null;
+        const r = manager ? safe(() => manager.recommendCard(st(), data)) : null;
+        if (r?.kind === 'surprise' && surpriseLive()) chooseSurprise(r.choice);
+      }, LESSON_T.auto);
+      return;
+    }
     if (!autoMode || !isLive() || ui.busy || autoTimer) return;
     autoTimer = later(() => {
       autoTimer = null;
@@ -2146,6 +2415,7 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
         void screen.offsetWidth;
         if (!reduced) screen.classList.remove('no-anim');
       }
+      placeSurprise(); // 깜짝 말풍선: 글꼴 · 무대 배율이 잡힌 뒤 크기로 다시 놓는다
     });
   }
 }

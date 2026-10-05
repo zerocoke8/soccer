@@ -1,4 +1,5 @@
-// test/lessonUi.test.mjs — 카드 레슨 화면 jsdom 검사 (LESSON_PROTO_PLAN §9.3 · §14.17 lessonUi, ZU2 = 구역 방식 레슨 화면 · U4 = 보상 모달 · 상담 화면)
+// test/lessonUi.test.mjs — 카드 레슨 화면 jsdom 검사 (LESSON_PROTO_PLAN §9.3 · §14.17 lessonUi, ZU2 = 구역 방식 레슨 화면 · U4 = 보상 모달 · 상담 화면,
+//   2차 U4 = 깜짝 말풍선은 이벤트를 끈 데이터에서 안 뜬다 — 말풍선 검사는 eventsUi.test)
 // index.html 을 jsdom 으로 올려 js/ui/app.js 를 부트하고, 감독 AI 로 걸은 레슨 런(tools/lesson_scenarios.mjs)을 store.run 에 넣어 레슨 화면을 그린다.
 //  - 골격: HUD · 구역 바닥 5 · 토큰 = 뷰 positions · 벤치 칸 · 명단 7 · 손패 · [내기][턴 끝] ([쉬기] 없음)
 //  - 클릭 조준 → 다시 그려도 조준 유지 → 경기장 클릭 → seq +1 · 저장 · 대상 = 원 안 선수 · 같은 DOM (부분 갱신)
@@ -178,6 +179,9 @@ test("jsdom: 레슨 화면 (구역) — 골격 · 조준 · 키보드 · 벤치 
   assert.ok($(".ls-btns .ls-play").disabled, "[내기] 꺼짐 (조준 전)");
   assert.equal($(".ls-btns .ls-end").disabled, !v.canEndTurn, "[턴 끝] = canEndTurn (카드 0장이어도)");
   assert.match($(".ls-info").textContent, /카드를 끌어 경기장에 놓으세요/);
+  // 레슨 깜짝 (§24.8 U4): 이벤트를 끈 데이터 = 깜짝 필드 · 말풍선 없음 (말풍선 검사는 eventsUi.test — 켠 데이터 + 고정 깜짝)
+  assert.equal(v.surprise, null, "뷰 surprise 없음");
+  assert.ok(!$(".lesson-screen .ls-sur") && !$(".lesson-screen.surprise-on") && $(".lesson-screen .m-field .ls-sur-layer"), "말풍선 없음 (빈 층만)");
   assert.match($(".ls-piles").textContent, new RegExp(`덱 ${v.piles.draw}`), "덱 더미 수");
   // 얼굴 일러스트 (§24.12.3 · U1): 레슨 뷰에는 charId 가 없다 → 런 선수 charId 로 그림 (목록 주소 · draggable false), 글자 · 40px 토큰 상자는 그대로
   const PT = data.portraits;

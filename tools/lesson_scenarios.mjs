@@ -5,6 +5,7 @@
 //     이벤트(2차 라우팅 확인용 주입) · 유물 · 루트 · 결과.
 // 2차 U3 (§24.13): og_event_* · og_card_offer · og_outing_story · og_season_start — 이벤트 기능 스위치를 켠 실제 데이터 (eventsOn) 로 걷고
 //     브라우저는 ?events=on (app.js). og_recollection* · og_start_keyart — 계정 저장 (KEYS.account) 주입. 터치 915×412: og_event_week_touch · og_recollection_touch.
+// 2차 U4 (§24.8): og_lesson_surprise · og_lesson_surprise_result · og_lesson_surprise_touch (915×412) — 레슨 깜짝 말풍선 (실제 흐름, surpriseScene).
 import * as lessonRun from "../js/engine/lessonRun.js";
 import * as manager from "../js/engine/manager.js";
 import * as match from "../js/engine/match.js";
@@ -77,6 +78,43 @@ function outingWeekState(name, data, runSeed, account) {
   b.runState.account = { stories: { ...(account?.stories || {}) }, coachMet: { ...(account?.coachMet || {}) } };
   return b;
 }
+
+// ---- 레슨 깜짝 말풍선 장면 (§24.8 · §24.13, 2차 U4): 스위치를 켠 실제 데이터로 감독 AI 를 걷다가 턴 끝에 깜짝이 뜬 상태 (실제 흐름 — 감독 AI 는
+//   지나가는 깜짝을 추천 선택지로 고른다). pick(뷰, state) 로 장면을 고르고, 못 찾으면 seed 를 바꿔 찾는다. 브라우저도 ?events=on ----
+/**
+ * @param {string} name
+ * @param {object} data  원래 데이터 (스위치는 여기서 켠다)
+ * @param {*} runSeed
+ * @param {(view: object, state: object) => boolean} pick  기다리는 깜짝의 레슨 뷰로 장면 고르기
+ */
+function surpriseScene(name, data, runSeed, pick) {
+  const ed = eventsOn(data);
+  for (let k = 0; k < 40; k++) {
+    const seed = k ? `${runSeed}-surprise-${k}` : runSeed;
+    const st = defaultLessonRun(ed, { seed });
+    for (let steps = 0; steps < 3000 && st.phase !== "finished"; steps++) {
+      if (st.phase === "lesson" && st.lesson?.surprise?.pending) {
+        const v = lessonRun.getLessonView(st, ed);
+        if (pick(v, st)) {
+          const s = v.surprise;
+          return {
+            runState: clone(st), steps, preferred: true,
+            info: { eventId: s.id, playerId: s.playerId, rec: s.choices.findIndex((c) => c.recommended), pos: v.positions[s.playerId] || null },
+            summary: `${describeLessonRun(st)} (깜짝 ${s.id} · 주인공 ${s.name ?? "없음"}${k ? ` · seed ${seed}` : ""})`,
+          };
+        }
+      }
+      manager.autoStep(st, ed, { playMatch: (setup) => playMatch(ed, setup) });
+    }
+  }
+  throw new Error(`[${name}] 조건에 맞는 레슨 깜짝 상태를 찾지 못했습니다`);
+}
+/** 깜짝 주인공의 경기장 자리 (없으면 null — 벤치 · 주인공 없음) */
+const surprisePos = (v) => (v.surprise?.playerId ? v.positions[v.surprise.playerId] || null : null);
+/** 장면: 아래 줄 주인공 (말풍선이 토큰 위 — 꼬리) · 본문 60자 이상 · 선택지 2 */
+const surpriseAbove = (v) => { const p = surprisePos(v); return !!p && p.y >= 55 && v.surprise.choices.length === 2 && v.surprise.text.length >= 60; };
+/** 장면: 위 줄 양 끝 주인공 (위로는 필드 밖 → 필드 위쪽 가운데, 주인공 얼굴은 가리지 않는다) · 본문 55자 이상 */
+const surpriseTop = (v) => { const p = surprisePos(v); return !!p && p.y <= 42 && Math.abs(p.x - 50) >= 29 && v.surprise.choices.length === 2 && v.surprise.text.length >= 55; };
 
 /** 경기 결과 (실제 match.js 자동 진행) — manager.autoStep 의 playMatch */
 export function playMatch(data, setup) {
@@ -1854,6 +1892,39 @@ export const LESSON_OG_SCENARIOS = [
     build: (data, { runSeed }) => walkEvOrThrow("og_season_start", data, { seed: runSeed, until: (s) => curEv(s)?.kind === "seasonStart" }),
     ready: "#modal-root .event-modal .evm-kind.k-seasonStart",
     expect: EVENT_EXPECT,
+  },
+  // ---- 레슨 깜짝 말풍선 (§24.8 · §24.13, 2차 U4) — 실제 흐름 (스위치를 켠 데이터, 브라우저 ?events=on) ----
+  {
+    // 턴 끝에 뜬 깜짝: 아래 줄 주인공 토큰 위 말풍선 (꼬리) · 얼굴 · 제목 · 본문 · 선택지 2 (미리보기 줄 · 추천) · 손패 · 벤치 · [턴 끝] 잠금
+    name: "og_lesson_surprise",
+    title: "레슨 깜짝 말풍선 — 주인공 토큰 위 (꼬리) · 선택지 2 · 추천 · 손패 · 벤치 · [턴 끝] 잠금",
+    outgame: true,
+    query: EVENTS_QUERY,
+    build: (data, { runSeed }) => surpriseScene("og_lesson_surprise", data, runSeed, surpriseAbove),
+    ready: ".lesson-screen.surprise-on .ls-sur.at-above .lsr-choice",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // og_lesson_surprise 에서 추천 선택지를 고른 뒤 (1.5초): 결과 한 줄 띠 (경기장 위쪽) · 다음 턴 흩어지기 · 새 손패
+    name: "og_lesson_surprise_result",
+    title: "레슨 깜짝 — 고른 뒤 결과 한 줄 띠 (2.5초) · 다음 턴 시작 · 새 손패",
+    outgame: true,
+    query: EVENTS_QUERY,
+    build: (data, { runSeed }) => surpriseScene("og_lesson_surprise_result", data, runSeed, surpriseAbove),
+    steps: [{ freeze: false }, { click: ".ls-sur .lsr-choice.recommended", waitMs: 0 }, { wait: 1500 }, { pauseAnim: true }, { freeze: true }],
+    ready: ".lesson-screen .ls-sres",
+    expect: { screen: "run", phase: "lesson", modal: false },
+  },
+  {
+    // 터치 915×412: 위 줄 주인공 — 토큰 위로는 경기장 밖이라 경기장 위쪽 가운데 (꼬리 없음 · 주인공 금색 고리), 잘림 · 스크롤 없음
+    name: "og_lesson_surprise_touch",
+    title: "레슨 깜짝 말풍선 — 터치 915×412 (위 줄 주인공 → 경기장 위쪽 가운데)",
+    outgame: true,
+    viewport: TOUCH_VIEWPORT,
+    query: EVENTS_QUERY,
+    build: (data, { runSeed }) => surpriseScene("og_lesson_surprise_touch", data, runSeed, surpriseTop),
+    ready: ".lesson-screen.surprise-on .ls-sur.at-top .lsr-choice",
+    expect: { screen: "run", phase: "lesson", modal: false },
   },
   {
     // 회상 (시작 화면 [📖 회상] → 회상 화면): 16칸 · 본 화 진행 · 그레타 3화 목록 (1 · 2 = 읽기, 3 = 외출하면 볼 수 있다)
