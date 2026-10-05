@@ -1,5 +1,6 @@
-// test/lessonEvents.test.mjs — LESSON_PROTO_PLAN §24.3 · §24.4 · §24.5.1 (E1: 조사 · 자리표시 · 말투 · 효과 스키마 · 검사)
-// E2 ~ E4 가 주인공 · 띄우기 · 뷰 · 고르기 · 흐름 테스트를 이 파일에 더한다 (테스트 안의 고정 이벤트 + 스위치를 켠 데이터 사본).
+// test/lessonEvents.test.mjs — LESSON_PROTO_PLAN §24.3 · §24.4 · §24.5.1 (E1: 조사 · 자리표시 · 말투 · 효과 스키마 · 검사,
+// E2: 효과 적용 · 미리보기 · 대체값 · 주인공 · 띄우기 · 뷰 · 고르기 · 카드 3택1 · 기대값)
+// E3 · E4 가 흐름 테스트를 이 파일에 더한다 (테스트 안의 고정 이벤트 + 데이터 사본).
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -8,6 +9,9 @@ import { loadData, clone } from "./helpers.mjs";
 import * as LT from "../js/engine/lessonText.js";
 import * as LE from "../js/engine/lessonEvents.js";
 import * as LF from "../js/engine/lessonEffects.js";
+import * as LR from "../js/engine/lessonRun.js";
+import { createRngFromState } from "../js/engine/rng.js";
+import { canUpgrade, getCard } from "../js/engine/cards.js";
 import { buildEventsDoc } from "../tools/events_doc.mjs";
 
 const data = loadData();
@@ -342,9 +346,16 @@ test("검사: 실제 데이터 · 모든 트리거의 본보기 (이야기 3화 
   assert.match(doc, /^#### ev_fixture — 시험 이벤트$/m);
   assert.match(doc, /^- 트리거: 주 끝 · 주 1~14 · 시즌 1~3 · 조건 없음 · 가중치 2 · 1회용$/m);
   assert.match(doc, /^> \(반말판: "감독, 오늘 밤 슈팅 좀 더 찬다\."\)$/m);
-  assert.match(doc, /\| 70%: \{선수\} 슈팅 \+30 \/ 30%: \{선수\} 슈팅 \+30, \{선수\} 체력 −40, \{선수\} 다음 레슨 1회 결장 \|/);
+  // 효과 칸 = 엔진 미리보기 (lessonEffects.describe) — 예시 주인공 (FW · MF 중 하나) 이름으로
+  const ex = doc.match(/^- 주인공: FW · MF 중 무작위 \(결장 제외\) \(예시: (.+)\)$/m);
+  assert.ok(ex, "예시 주인공");
+  const nm = ex[1];
+  assert.ok(doc.includes(`| 70%: ${nm} 슈팅 +30 / 30%: ${nm} 슈팅 +30, ${nm} 체력 −40, ${nm} 다음 레슨 1회 결장 |`), "random 미리보기");
   assert.match(doc, /\{선수\\\|은\/는\} 슈팅이/);
-  assert.match(doc, /덱에 「인터벌 슈팅」 추가, 코치 하르나 유대 \+15/);
+  assert.match(doc, /덱에 「인터벌 슈팅」 추가, 하르나 유대 \+15/);
+  // 주인공이 정해진 이벤트 (이야기 · 짝) 는 그 선수 — 이야기 3화 A = 네리아 고유 카드 강화판
+  assert.match(doc, /\| 같이 듣는다 \| 네리아 고유 카드 「물결 세이브 루틴」 이번 런 동안 강화판, 컨디션 \+1 \|/);
+  assert.match(doc, /\| 끝까지 본다 \| 울리카 패스 \+15, 그레타 · 막판 집중 힌트 1 \|/);
   assert.match(doc, /- \*\*네리아\*\* \(`ch_spirit_keeper`\) — 호수를 떠난 정령/);
   assert.ok(!/undefined|\?\s\|/.test(doc), "빈 칸 없음");
 });
@@ -405,6 +416,7 @@ const BAD = [
   ["맨 위 random 두 개", () => { const d = W({}); const c = d.lesson_ev_week.events[0].choices[0]; c.effects.push(clone(c.effects[0])); return d; }, /choices\[0\]: random 은 선택지 맨 위에 하나까지 \(지금 2개\)/],
   ["random chance 범위", () => { const d = W({}); d.lesson_ev_week.events[0].choices[0].effects[0].chance = 70; return d; }, /random 의 chance 는 0 과 1 사이/],
   ["relic + rewardOffer 한 선택지", () => WC(1, { effects: [{ type: "relic" }, { type: "rewardOffer" }] }), /relic 과 rewardOffer 를 같이 쓰지 않는다/],
+  ["cardPick 두 개 (갈래를 합쳐서 — E2)", () => { const d = W({}); d.lesson_ev_week.events[0].choices[0].effects[0].else.push({ type: "cardPick", op: "delete" }); d.lesson_ev_week.events[0].choices[0].effects[0].then.push({ type: "cardPick", op: "upgrade" }); return d; }, /choices\[0\]: cardPick 은 한 선택지에 하나까지 \(갈래를 합쳐서 — 고르는 카드는 한 장, 지금 2개\)/],
   ["없는 캐릭터 (chars)", () => W({ chars: ["ch_nobody"] }), /chars: 없는 캐릭터 'ch_nobody'/],
   ["who.charId 가 편성 조건에 없다", () => W({ who: { pick: "char", charId: "ch_spirit_keeper" } }), /who\.charId 'ch_spirit_keeper' 는 편성 조건에도 적는다/],
   ["who.pick 트리거 (주 끝에 partner)", () => W({ who: { pick: "partner" } }), /who\.pick 'partner' 는 주 끝 랜덤 이벤트에서 쓸 수 없다/],
@@ -475,4 +487,660 @@ test("검사: 오류를 모두 모아 한 번에 던진다 (한 줄에 하나 ·
   assert.ok(lines.some((l) => l.startsWith("- lesson_ev_week.json ev_fixture: choices[1].effects[0]: 옛 효과 'summonTicket'")));
   assert.ok(lines.some((l) => l.startsWith("- lesson_ev_week.json ev_other: weeks 는")));
   assert.ok(lines.some((l) => l.startsWith("- lesson_ev_coach.json ev_coach_fixture_1: 코치 연속 코치 하르나 (sp_coach_harr) 묶음이 모자란다 — 2단계 · 3단계가 없다")));
+});
+
+// ===========================================================================
+// E2 — 효과 적용 · 미리보기 · 대체값 · 주인공 · 띄우기 · 뷰 · 고르기 · 3택1 · 기대값 (§24.4 · §24.5 · §24.11)
+// 테스트 안의 고정 이벤트 + 데이터 사본 (기능 스위치는 꺼 둔 채 — 흐름 단계는 E3, 여기서는 fireEvent 로 바로 띄운다).
+// 기본 편성: p1 네리아 GK · p2 도르비나 DF (반말) · p3 아델린 DF · p4 실루엔 MF · p5 타리아 MF · p6 울리카 FW · p7 그레타 FW,
+// 코치: 하르나 · 셀리아 · 오르넬라 · 바르바라 · 한나 · 루미.
+// ===========================================================================
+
+const P = (s, id) => s.players.find((p) => p.id === id);
+const same = (a, b) => assert.equal(JSON.stringify(a), JSON.stringify(b));
+const run0 = (d = data, seed = 7) => LR.createRun({ data: d, seed });
+const cardName = (id) => data.cards.cards.find((c) => c.id === id).name;
+const skillName = (id) => data.skills.find((k) => k.id === id).name;
+
+/** 효과를 바로 적용 (rng 를 열고 저장 — lessonEvents.resolveEvent 와 같게). 기본 주인공 p1 */
+function apply(s, effects, ctx = {}, d = data) {
+  const rng = createRngFromState(s.rngState);
+  const out = LF.applyEffects(s, d, effects, { playerId: "p1", ...ctx }, rng);
+  s.rngState = rng.getState();
+  return out;
+}
+const desc = (s, effects, ctx = {}, d = data) => LF.describe(s, d, effects, { playerId: "p1", ...ctx });
+
+/** 실패하는 호출은 상태를 바꾸지 않는다 */
+function rejects(state, fn, re) {
+  const before = JSON.stringify(state);
+  assert.throws(fn, re);
+  assert.equal(JSON.stringify(state), before, "상태 그대로");
+}
+
+test("E2 효과: stat (player · team · char · main · main2 · random) · stamina · condition · goalCondition · teamwork · sp · tp — 미리보기 = 적용, 범위 (statCap · 0 ~ 100 · 0 ~ 4)", () => {
+  const s = run0();
+  const cap = data.config.statCap;
+  // stat
+  assert.deepEqual(desc(s, [{ type: "stat", target: "player", stat: "shoot", amount: 15 }]), { text: "네리아 슈팅 +15", lines: ["네리아 슈팅 +15"] });
+  const sh = P(s, "p1").stats.shoot;
+  assert.deepEqual(apply(s, [{ type: "stat", target: "player", stat: "shoot", amount: 15 }]), { branch: null, lines: ["네리아 슈팅 +15"] });
+  assert.equal(P(s, "p1").stats.shoot, sh + 15);
+  const passes = s.players.map((p) => p.stats.pass);
+  assert.equal(desc(s, [{ type: "stat", target: "team", stat: "pass", amount: 6 }]).text, "7명 패스 +6");
+  apply(s, [{ type: "stat", target: "team", stat: "pass", amount: 6 }]);
+  s.players.forEach((p, i) => assert.equal(p.stats.pass, passes[i] + 6, p.name));
+  // main2 = cards.mainStatsOf(배치 포지션) — 그레타 FW: 슈팅 · 드리블
+  assert.equal(desc(s, [{ type: "stat", target: "char:ch_giant_striker", stat: "main2", amount: 10 }]).text, "그레타 주 스탯 2개 (슈팅 · 드리블) +10씩");
+  const g = { ...P(s, "p7").stats };
+  assert.deepEqual(apply(s, [{ type: "stat", target: "char:ch_giant_striker", stat: "main2", amount: 10 }]).lines, ["그레타 슈팅 · 드리블 +10씩"]);
+  assert.deepEqual([P(s, "p7").stats.shoot - g.shoot, P(s, "p7").stats.dribble - g.dribble, P(s, "p7").stats.pass - g.pass], [10, 10, 0]);
+  // main = 포지션 주 스탯 1개 (GK = 수비)
+  assert.equal(desc(s, [{ type: "stat", target: "player", stat: "main", amount: 5 }]).text, "네리아 주 스탯 (수비) +5");
+  // random = 5스탯 중 하나 (rng)
+  const before = Object.values(P(s, "p3").stats).reduce((a, b) => a + b, 0);
+  assert.equal(desc(s, [{ type: "stat", target: "player", stat: "random", amount: 7 }], { playerId: "p3" }).text, "아델린 무작위 스탯 +7");
+  const rl = apply(s, [{ type: "stat", target: "player", stat: "random", amount: 7 }], { playerId: "p3" }).lines[0];
+  assert.match(rl, /^아델린 (슈팅|드리블|패스|수비|피지컬) \+7$/);
+  assert.equal(Object.values(P(s, "p3").stats).reduce((a, b) => a + b, 0), before + 7);
+  // 상한 · 0
+  P(s, "p1").stats.pass = cap - 3;
+  apply(s, [{ type: "stat", target: "player", stat: "pass", amount: 10 }]);
+  assert.equal(P(s, "p1").stats.pass, cap);
+  P(s, "p1").stats.dribble = 4;
+  apply(s, [{ type: "stat", target: "player", stat: "dribble", amount: -10 }]);
+  assert.equal(P(s, "p1").stats.dribble, 0);
+  // stamina: 0 ~ 100 · 완전 회복
+  P(s, "p2").stamina = 50;
+  assert.equal(desc(s, [{ type: "stamina", target: "player", full: true }], { playerId: "p2" }).text, "도르비나 체력 완전 회복");
+  apply(s, [{ type: "stamina", target: "player", amount: 60 }], { playerId: "p2" });
+  assert.equal(P(s, "p2").stamina, 100);
+  P(s, "p2").stamina = 30;
+  apply(s, [{ type: "stamina", target: "player", full: true }], { playerId: "p2" });
+  assert.equal(P(s, "p2").stamina, 100);
+  for (const p of s.players) p.stamina = 5;
+  assert.equal(desc(s, [{ type: "stamina", target: "team", amount: -10 }]).text, "7명 체력 −10");
+  apply(s, [{ type: "stamina", target: "team", amount: -10 }]);
+  assert.ok(s.players.every((p) => p.stamina === 0));
+  // condition 0 ~ 4 · teamwork 0 ~ 100
+  s.condition = 3;
+  assert.deepEqual(apply(s, [{ type: "condition", amount: 2 }]).lines, ["컨디션 +2"]);
+  assert.equal(s.condition, 4);
+  s.teamwork = 98;
+  apply(s, [{ type: "teamwork", amount: 5 }]);
+  assert.equal(s.teamwork, 100);
+  // goalCondition = 이번 시즌 경계전 1회 (대비 레슨 보너스와 같은 꼴)
+  assert.equal(desc(s, [{ type: "goalCondition", amount: 1 }]).text, "다음 경계전 1회만 컨디션 +1");
+  apply(s, [{ type: "goalCondition", amount: 1 }], { eventId: "ev_x" });
+  assert.deepEqual(s.modifiers.at(-1), { key: "goalMatchCondition", amount: 1, untilSeason: 1, source: "event:ev_x" });
+  // sp: × (1 + skillPointGain) · tp: 0 아래로 안 간다
+  s.modifiers.push({ key: "skillPointGain", amount: 0.5, untilSeason: null });
+  const sp0 = s.skillPoints;
+  assert.equal(desc(s, [{ type: "sp", amount: 10 }]).text, "SP +15");
+  apply(s, [{ type: "sp", amount: 10 }]);
+  assert.equal(s.skillPoints, sp0 + 15);
+  s.trainingPoints = 5;
+  assert.equal(desc(s, [{ type: "tp", amount: -10 }]).text, "TP −10");
+  apply(s, [{ type: "tp", amount: -10 }]);
+  assert.equal(s.trainingPoints, 0);
+});
+
+test("E2 효과: bond (all · coach · 코치 id · bondGain · 0 ~ 100 · 편성 안 된 코치) · modifier (시즌 · 런 · 전야 문구)", () => {
+  const s = run0();
+  const b = (id) => s.supports.find((x) => x.id === id).bond;
+  const b0 = s.supports.map((x) => x.bond);
+  assert.equal(desc(s, [{ type: "bond", target: "all", amount: 5 }]).text, "편성 코치 전원 유대 +5");
+  apply(s, [{ type: "bond", target: "all", amount: 5 }]);
+  s.supports.forEach((x, i) => assert.equal(x.bond, b0[i] + 5));
+  assert.equal(desc(s, [{ type: "bond", target: "coach", amount: 10 }], { supportId: "sp_wind_dancer" }).text, "셀리아 유대 +10");
+  const c0 = b("sp_wind_dancer");
+  apply(s, [{ type: "bond", target: "coach", amount: 10 }], { supportId: "sp_wind_dancer" });
+  assert.equal(b("sp_wind_dancer"), c0 + 10);
+  // bondGain 은 양수에 더한다 (effects.js 와 같다)
+  s.modifiers.push({ key: "bondGain", amount: 2, untilSeason: null });
+  const h0 = b("sp_coach_harr");
+  assert.equal(desc(s, [{ type: "bond", target: "sp_coach_harr", amount: 15 }]).text, "하르나 유대 +17");
+  apply(s, [{ type: "bond", target: "sp_coach_harr", amount: 15 }]);
+  assert.equal(b("sp_coach_harr"), h0 + 17);
+  apply(s, [{ type: "bond", target: "sp_coach_harr", amount: 100 }]);
+  assert.equal(b("sp_coach_harr"), 100);
+  // 편성되지 않은 코치: 미리보기에 적고 적용은 아무것도 하지 않는다
+  assert.equal(desc(s, [{ type: "bond", target: "sp_street_striker", amount: 5 }]).text, "조이 유대 +7 (편성되지 않아 효과 없음)");
+  const snap = JSON.stringify(s.supports);
+  assert.deepEqual(apply(s, [{ type: "bond", target: "sp_street_striker", amount: 5 }]).lines, []);
+  assert.equal(JSON.stringify(s.supports), snap);
+  // modifier: { key, amount, untilSeason } — season = 이번 시즌, run = null
+  assert.equal(desc(s, [{ type: "modifier", key: "trainingEfficiency", amount: 0.1, duration: "season" }]).text, "이번 시즌 레슨 상승 +10%");
+  assert.equal(desc(s, [{ type: "modifier", key: "gaanpaTicket", amount: 1, duration: "season" }], { trigger: "preMatch" }).text, "이번 경계전 간파 사용권 1");
+  assert.equal(desc(s, [{ type: "modifier", key: "shootPower", amount: 0.05, duration: "run" }]).text, "런 동안 경기 슛 위력 +5%");
+  apply(s, [{ type: "modifier", key: "trainingEfficiency", amount: 0.1, duration: "season" }, { type: "modifier", key: "shootPower", amount: 0.05, duration: "run" }], { eventId: "ev_m" });
+  assert.deepEqual(s.modifiers.slice(-2), [
+    { key: "trainingEfficiency", amount: 0.1, untilSeason: 1, source: "event:ev_m" },
+    { key: "shootPower", amount: 0.05, untilSeason: null, source: "event:ev_m" },
+  ]);
+});
+
+test("E2 효과: injury (레슨 1회 · 이미 결장이면 체력 −20, 미리보기도 · randomPlayer = 결장 아닌 선수) · heal (주인공 · 전원)", () => {
+  const s = run0();
+  assert.equal(desc(s, [{ type: "injury" }], { playerId: "p5" }).text, "타리아 다음 레슨 1회 결장");
+  assert.deepEqual(apply(s, [{ type: "injury" }], { playerId: "p5" }).lines, ["타리아 다음 레슨 1회 결장"]);
+  assert.equal(P(s, "p5").injuredTurns, 1);
+  // 이미 결장 → 결장 대신 체력 −20 (lesson.json events.fallback.injuredStamina)
+  assert.equal(data.lesson.events.fallback.injuredStamina, -20);
+  P(s, "p5").stamina = 70;
+  assert.equal(desc(s, [{ type: "injury", target: "player" }], { playerId: "p5" }).text, "타리아 체력 −20 (이미 결장 중)");
+  assert.deepEqual(apply(s, [{ type: "injury", target: "player" }], { playerId: "p5" }).lines, ["타리아 체력 −20 (이미 결장 중)"]);
+  assert.deepEqual([P(s, "p5").injuredTurns, P(s, "p5").stamina], [1, 50]);
+  // 무작위 1명: 결장 아닌 선수 중
+  for (const p of s.players) if (p.id !== "p3" && p.id !== "p5") p.injuredTurns = 1;
+  assert.match(desc(s, [{ type: "injury", target: "randomPlayer" }]).text, /^무작위 1명 다음 레슨 1회 결장 \(이미 결장이면 체력 −20\)$/);
+  assert.deepEqual(apply(s, [{ type: "injury", target: "randomPlayer" }]).lines, ["아델린 다음 레슨 1회 결장"]);
+  // heal
+  assert.equal(desc(s, [{ type: "heal", target: "all" }]).text, "결장 중인 선수 전원 결장 해제 (7명)");
+  apply(s, [{ type: "heal", target: "player" }], { playerId: "p5" });
+  assert.equal(P(s, "p5").injuredTurns, 0);
+  apply(s, [{ type: "heal", target: "all" }]);
+  assert.ok(s.players.every((p) => p.injuredTurns === 0));
+  assert.equal(desc(s, [{ type: "heal", target: "all" }]).text, "결장 중인 선수 전원 결장 해제 (지금은 없음)");
+});
+
+test("E2 효과: 덱 — cardAdd (+ 코치 카드 유대 +15) · cardPick (상담과 같은 후보 · uid 검사 · 대체 TP +10) · cardUpgradeRandom · uniquePlus (대체 TP +20)", () => {
+  const s = run0();
+  const deck0 = s.deck.length;
+  // cardAdd
+  assert.equal(desc(s, [{ type: "cardAdd", cardId: "cd_one_two" }]).text, `덱에 「${cardName("cd_one_two")}」 추가`);
+  assert.equal(desc(s, [{ type: "cardAdd", cardId: "cd_c_harr" }]).text, `덱에 「${cardName("cd_c_harr")}」 추가, 하르나 유대 +15`);
+  assert.equal(desc(s, [{ type: "cardAdd", cardId: "cd_c_joy" }]).text, `덱에 「${cardName("cd_c_joy")}」 추가`, "편성 안 된 코치 카드 = 유대 없음");
+  const hb = s.supports.find((x) => x.id === "sp_coach_harr").bond;
+  apply(s, [{ type: "cardAdd", cardId: "cd_one_two", plus: true }, { type: "cardAdd", cardId: "cd_c_harr" }]);
+  assert.equal(s.deck.length, deck0 + 2);
+  assert.deepEqual(s.deck.slice(-2).map((e) => [e.cardId, e.plus]), [["cd_one_two", true], ["cd_c_harr", false]]);
+  assert.equal(s.supports.find((x) => x.id === "sp_coach_harr").bond, hb + 15);
+  // cardPick 강화: 후보 = upgradable (강화 안 됨 · 강화 가능)
+  const needs = LF.effectNeeds(s, data, [{ type: "cardPick", op: "upgrade" }]);
+  assert.equal(needs.op, "upgrade");
+  const upg = s.deck.filter((e) => !e.plus && canUpgrade(getCard(data, e.cardId)));
+  assert.deepEqual(needs.candidates.map((c) => c.uid), upg.map((e) => e.uid));
+  assert.deepEqual(Object.keys(needs.candidates[0]).sort(), ["cardId", "name", "plus", "uid"]);
+  assert.equal(desc(s, [{ type: "cardPick", op: "upgrade" }]).text, "덱의 카드 1장 강화 (고른다)");
+  rejects(s, () => apply(s, [{ type: "tp", amount: 5 }, { type: "cardPick", op: "upgrade" }]), /덱의 카드 1장을 골라야 합니다 \(강화 — uid\)/);
+  const plusUid = s.deck.find((e) => e.plus).uid;
+  rejects(s, () => apply(s, [{ type: "cardPick", op: "upgrade" }], { uid: plusUid }), /고를 수 없습니다 \(강화 후보가 아님\)/);
+  const target = needs.candidates[0];
+  assert.deepEqual(apply(s, [{ type: "cardPick", op: "upgrade" }], { uid: target.uid }).lines, [`「${target.name}+」 강화`]);
+  assert.equal(s.deck.find((e) => e.uid === target.uid).plus, true);
+  // cardPick 삭제: 덱이 minDeck (5) 아래로 줄지 않게
+  const del = s.deck[0];
+  apply(s, [{ type: "cardPick", op: "delete" }], { uid: del.uid });
+  assert.ok(!s.deck.some((e) => e.uid === del.uid));
+  const small = run0();
+  small.deck = small.deck.slice(0, data.lesson.consult.minDeck);
+  assert.deepEqual(LF.effectNeeds(small, data, [{ type: "cardPick", op: "delete" }]).candidates, []);
+  assert.equal(desc(small, [{ type: "cardPick", op: "delete" }]).text, "TP +10 (덱이 5장 아래로 줄지 않아 삭제할 카드 없음)");
+  const tp0 = small.trainingPoints;
+  assert.deepEqual(apply(small, [{ type: "cardPick", op: "delete" }]).lines, ["TP +10 (삭제할 카드 없음)"]);
+  assert.equal(small.trainingPoints, tp0 + 10);
+  // 강화할 카드가 없으면 TP +10 (고르지 않는다)
+  for (const e of small.deck) e.plus = true;
+  assert.equal(desc(small, [{ type: "cardPick", op: "upgrade" }]).text, "TP +10 (강화할 카드 없음)");
+  assert.equal(desc(small, [{ type: "cardUpgradeRandom" }]).text, "TP +10 (강화할 카드 없음)");
+  apply(small, [{ type: "cardPick", op: "upgrade" }, { type: "cardUpgradeRandom" }]);
+  assert.equal(small.trainingPoints, tp0 + 30);
+  // cardUpgradeRandom: 강화할 수 있는 카드 중 하나
+  const r = run0();
+  const n0 = r.deck.filter((e) => e.plus).length;
+  assert.match(apply(r, [{ type: "cardUpgradeRandom" }]).lines[0], /^「.+\+」 강화 \(무작위\)$/);
+  assert.equal(r.deck.filter((e) => e.plus).length, n0 + 1);
+  // uniquePlus: 그 선수 고유 카드 → 강화판, 이미 강화판 · 덱에 없음 → TP +20
+  const u = run0();
+  const un = cardName("cd_u_neria");
+  assert.equal(desc(u, [{ type: "uniquePlus" }]).text, `네리아 고유 카드 「${un}」 이번 런 동안 강화판`);
+  apply(u, [{ type: "uniquePlus" }]);
+  assert.equal(u.deck.find((e) => e.cardId === "cd_u_neria").plus, true);
+  assert.equal(desc(u, [{ type: "uniquePlus" }]).text, `TP +20 (네리아 고유 카드 「${un}」 이미 강화판)`);
+  const t1 = u.trainingPoints;
+  assert.deepEqual(apply(u, [{ type: "uniquePlus" }]).lines, ["TP +20 (네리아 고유 카드가 이미 강화판)"]);
+  assert.equal(u.trainingPoints, t1 + 20);
+  u.deck = u.deck.filter((e) => e.cardId !== "cd_u_dorbina");
+  assert.equal(desc(u, [{ type: "uniquePlus", target: "char:ch_dwarf_wall" }]).text, "TP +20 (덱에 도르비나 고유 카드가 없음)");
+});
+
+test("E2 효과: rewardOffer → pendingCardOffer · relic → pendingRelicChoices (남은 유물 없음) · 이미 3택1 이 있으면 바꾸기 전에 throw", () => {
+  const s = run0();
+  assert.equal(desc(s, [{ type: "rewardOffer" }]).text, "보상 카드 3택1");
+  apply(s, [{ type: "rewardOffer" }], { eventId: "ev_offer" });
+  assert.equal(s.pendingCardOffer.src, "ev_offer");
+  assert.equal(s.pendingCardOffer.cards.length, data.lesson.rewards.offer);
+  for (const c of s.pendingCardOffer.cards) assert.ok(["add", "upgrade"].includes(c.kind) && typeof c.cardId === "string");
+  rejects(s, () => apply(s, [{ type: "tp", amount: 5 }, { type: "rewardOffer" }]), /고르지 않은 보상 카드 3택1 이 이미 있습니다/);
+  // relic
+  const r = run0();
+  apply(r, [{ type: "relic" }]);
+  assert.equal(r.pendingRelicChoices.length, 3);
+  assert.ok(r.pendingRelicChoices.every((id) => data.relics.some((x) => x.id === id)));
+  const all = run0();
+  all.relics = data.relics.map((x) => x.id);
+  assert.equal(desc(all, [{ type: "relic" }]).text, "유물 3택1 (남은 유물 없음)");
+  assert.deepEqual(apply(all, [{ type: "relic" }]).lines, ["유물 3택1 (남은 유물 없음)"]);
+  assert.equal(all.pendingRelicChoices, null);
+});
+
+test("E2 효과: teach (맡을 코치 · 없으면 코치 힌트 · 남은 레슨 없음 → 런 끝 SP) · coachHint (fielded · coach · id · 후보 없음 → SP +10) · playerHint (이름 · 무작위 · Lv3 → SP +10)", () => {
+  const s = run0();
+  // supportId 가 있으면 그 코치, 없으면 그 액티브를 가르치는 첫 편성 코치 (함성 = 루미)
+  assert.equal(desc(s, [{ type: "teach", skillId: "sk_power_shot", supportId: "sp_coach_harr" }]).text, "코치 수업: 파워 슛 (하르나 — 다음 레슨 보상에서 가르칠 선수를 고른다)");
+  assert.equal(desc(s, [{ type: "teach", skillId: "sk_rally_cry" }]).text, "코치 수업: 함성 (루미 — 다음 레슨 보상에서 가르칠 선수를 고른다)");
+  apply(s, [{ type: "teach", skillId: "sk_power_shot", supportId: "sp_coach_harr" }, { type: "teach", skillId: "sk_rally_cry" }]);
+  assert.deepEqual(s.pendingTeach.map((t) => [t.skillId, t.supportId, t.src, t.result]), [["sk_power_shot", "sp_coach_harr", "event", null], ["sk_rally_cry", "sp_bard_lumi", "event", null]]);
+  assert.ok(!("sk_power_shot" in s.hints), "액티브는 힌트 레벨이 아니다");
+  // 가르칠 편성 코치가 없는 액티브 (루미 대신 조이 — 함성) → 코치 힌트 (편성 코치 액티브 중 무작위 → 수업)
+  const o = LR.createRun({ data, seed: 7, supportIds: ["sp_coach_harr", "sp_wind_dancer", "sp_elder_sage", "sp_iron_captain", "sp_mountain_monk", "sp_street_striker"] });
+  const taught = new Set(o.supports.flatMap((st) => data.supports.find((x) => x.id === st.id).teachSkillIds));
+  assert.ok(!taught.has("sk_rally_cry"));
+  assert.equal(desc(o, [{ type: "teach", skillId: "sk_rally_cry" }]).text, "코치 수업 1 (편성 코치 액티브 중 무작위) — 함성을 가르칠 편성 코치가 없음");
+  apply(o, [{ type: "teach", skillId: "sk_rally_cry" }]);
+  assert.equal(o.pendingTeach.length, 1);
+  assert.ok(taught.has(o.pendingTeach[0].skillId) && o.pendingTeach[0].supportId);
+  // coachHint: 그 코치 (coach = 이벤트의 코치) 의 수업 목록에서
+  assert.equal(desc(s, [{ type: "coachHint", from: "coach" }], { supportId: "sp_coach_harr" }).text, "코치 수업 1 (하르나 액티브 중 무작위)");
+  apply(s, [{ type: "coachHint", from: "coach" }], { supportId: "sp_coach_harr" });
+  const last = s.pendingTeach.at(-1);
+  assert.equal(last.supportId, "sp_coach_harr");
+  assert.ok(["sk_power_shot", "sk_see_through"].includes(last.skillId));
+  apply(s, [{ type: "coachHint", from: "sp_elder_sage" }]);
+  assert.equal(s.pendingTeach.at(-1).supportId, "sp_elder_sage");
+  // 후보가 없으면 SP +10 (미리보기도)
+  const d = clone(data);
+  for (const sc of d.supports) sc.teachSkillIds = [];
+  const n = run0(d);
+  assert.equal(desc(n, [{ type: "coachHint", from: "fielded" }], {}, d).text, "SP +10 (가르칠 코치 스킬 없음)");
+  const sp0 = n.skillPoints;
+  assert.deepEqual(apply(n, [{ type: "coachHint", from: "fielded" }], {}, d).lines, ["SP +10 (가르칠 코치 스킬 없음)"]);
+  assert.equal(n.skillPoints, sp0 + 10);
+  // playerHint: 이름이 있으면 그 스킬 (그 선수 목록 · 아직 없음 · Lv3 미만), 없으면 그 선수 목록에서 무작위
+  const h = run0();
+  assert.equal(desc(h, [{ type: "playerHint", skillId: "sk_calm_keeper" }]).text, `네리아 · ${skillName("sk_calm_keeper")} 힌트 1`);
+  apply(h, [{ type: "playerHint", skillId: "sk_calm_keeper" }]);
+  assert.equal(h.hints.sk_calm_keeper, 1);
+  h.hints.sk_calm_keeper = 3;
+  assert.equal(desc(h, [{ type: "playerHint", skillId: "sk_calm_keeper" }]).text, `SP +10 (네리아 · ${skillName("sk_calm_keeper")} 힌트를 더 줄 수 없음)`);
+  const hs = h.skillPoints;
+  apply(h, [{ type: "playerHint", skillId: "sk_calm_keeper" }]);
+  assert.equal(h.skillPoints, hs + 10);
+  assert.equal(desc(h, [{ type: "playerHint", target: "player" }], { playerId: "p6" }).text, "울리카 패시브 힌트 1");
+  const line = apply(h, [{ type: "playerHint" }], { playerId: "p6" }).lines[0];
+  const list = data.characters.find((c) => c.id === "ch_wolf_winger").passiveIds;
+  assert.ok(list.some((id) => line === `울리카 · ${skillName(id)} 힌트 Lv1`), line);
+  // 남은 레슨이 없으면 (마지막 대비 주가 지난 뒤) 미리보기 = SP, 대기열에 넣고 런 끝에 SP 로 바꾼다 (lessonRun)
+  const end = run0();
+  Object.assign(end, { season: 3, turn: 5, turnIndex: 14, phase: "event", queue: ["advanceWeek"] });
+  assert.equal(desc(end, [{ type: "teach", skillId: "sk_rally_cry" }]).text, "코치 수업: 함성 → 남은 레슨이 없어 런 끝에 SP +20");
+  assert.equal(desc(end, [{ type: "coachHint", from: "fielded" }]).text, "코치 수업 1 → 남은 레슨이 없어 런 끝에 SP +20");
+  assert.deepEqual(apply(end, [{ type: "teach", skillId: "sk_rally_cry" }]).lines, ["코치 수업: 함성 (루미) (남은 레슨이 없어 런 끝에 SP +20)"]);
+  // 이번 주가 아직 시작 전이면 (queue 에 beginWeek) 그 주도 센다
+  Object.assign(end, { season: 2, turn: 1, turnIndex: 5, queue: ["beginWeek"] });
+  assert.match(desc(end, [{ type: "teach", skillId: "sk_rally_cry" }]).text, /다음 레슨 보상에서/);
+});
+
+test("E2 효과: random (맨 위 1개 · 갈래 반환 · 같은 rngState = 같은 갈래) · 레슨 안 효과는 미리보기만, 레슨 밖 적용은 바꾸기 전에 throw (E5 갈고리) · 미리보기는 순수", () => {
+  const eff = [{ type: "random", chance: 0.5, then: [{ type: "tp", amount: 10 }], else: [{ type: "sp", amount: 10 }, { type: "condition", amount: 1 }] }];
+  const s = run0();
+  assert.equal(desc(s, eff).text, "50%: TP +10 / 50%: SP +10, 컨디션 +1");
+  const seen = new Set();
+  for (let seed = 1; seed <= 12; seed++) {
+    const a = run0(data, seed);
+    const b = clone(a);
+    const ra = apply(a, eff);
+    const rb = apply(b, eff);
+    same(a, b);
+    assert.deepEqual(ra, rb);
+    seen.add(ra.branch);
+    assert.deepEqual(ra.lines, ra.branch === "then" ? ["TP +10"] : ["SP +10", "컨디션 +1"]);
+  }
+  assert.deepEqual([...seen].sort(), ["else", "then"], "12 seed 안에 두 갈래 모두");
+  // 레슨 안 효과
+  const lessonOnly = [{ type: "nextPct", pct: 40 }, { type: "nextNoFail" }, { type: "drawNext", n: 1 }, { type: "extraPlayNext", n: 1 }, { type: "score", amount: 40 },
+    { type: "restRemaining", stamina: 20 }, { type: "injureNow" }];
+  assert.deepEqual(desc(s, lessonOnly).lines, ["다음 카드 위력 +40%", "다음 카드 실패 판정 없음", "다음 턴 손패 +1", "다음 턴 카드 1장 더 낼 수 있다", "이번 레슨 점수 +40",
+    "네리아 이번 레슨 남은 턴 쉼 (대상 제외, 체력 +20)", "네리아 결장 (이번 레슨 남은 턴도)"]);
+  assert.equal(desc(s, [{ type: "buff", n: 1 }]).text, "분위기 +1", "팀형 방침 버프");
+  for (const e of lessonOnly) rejects(s, () => apply(s, [{ type: "tp", amount: 5 }, e]), /레슨 안 효과라 레슨 깜짝 이벤트에서만 적용한다/);
+  // E5 갈고리 (ctx.applyLesson) 가 있으면 그것이 적용한다
+  const calls = [];
+  const out = apply(s, [{ type: "score", amount: 40 }, { type: "tp", amount: 5 }], { applyLesson: (st, d, e) => { calls.push(e.type); return "점수 +40 (갈고리)"; } });
+  assert.deepEqual(calls, ["score"]);
+  assert.deepEqual(out.lines, ["점수 +40 (갈고리)", "TP +5"]);
+  // 주인공이 필요한 효과에 주인공이 없으면 바꾸기 전에 throw · 모르는 type
+  rejects(s, () => apply(s, [{ type: "tp", amount: 5 }, { type: "stat", target: "player", stat: "pass", amount: 5 }], { playerId: null }), /주인공 \(ctx\.playerId\) 이 없습니다/);
+  rejects(s, () => apply(s, [{ type: "boost" }]), /알 수 없는 효과 type: 'boost'/);
+  // 미리보기 · 고르기 후보 · 기대값은 상태 (rngState 포함) 를 바꾸지 않는다
+  const before = JSON.stringify(s);
+  for (const e of [...eff, ...lessonOnly, { type: "cardPick", op: "upgrade" }, { type: "rewardOffer" }, { type: "teach", skillId: "sk_rally_cry" }, { type: "coachHint", from: "fielded" }, { type: "playerHint" }, { type: "injury", target: "randomPlayer" }]) {
+    desc(s, [e]);
+    LF.effectNeeds(s, data, [e]);
+    LF.scoreEffects(s, data, [e], { playerId: "p1" });
+  }
+  assert.equal(JSON.stringify(s), before);
+});
+
+// ---- 주인공 · 띄우기 · 뷰 · 고르기 ----
+
+/** E2 고정 이벤트: 고르는 카드 · 3택1 · 짝 · 코치 · 이야기 */
+const EV_PICK = {
+  id: "ev_fx_pick", trigger: "week", who: { pick: "lowestStamina" }, title: "카드 정리", text: "{선수|이/가} 카드 더미를 들고 옵니다.\n\"감독님, 이거 하나만 손봐 주세요.\"", scene: "clubhouse",
+  choices: [
+    { label: "강화한다", effects: [{ type: "cardPick", op: "upgrade" }], result: "{선수|이/가} 만족합니다." },
+    { label: "버린다", effects: [{ type: "cardPick", op: "delete" }, { type: "tp", amount: 5 }], result: "{선수|은/는} 더미를 가볍게 했습니다." },
+  ],
+  alt: { banmal: { text: "{선수|이/가} 카드 더미를 들고 옵니다.\n\"감독, 이거 하나만 봐 줘.\"", results: ["{선수|이/가} 고개를 끄덕입니다.", "{선수|은/는} 더미를 가볍게 했습니다."] } },
+};
+const EV_OFFER = {
+  id: "ev_fx_offer", trigger: "seasonStart", seasons: [1], title: "개막 선물", text: "후원자가 상자를 놓고 갑니다.",
+  choices: [
+    { label: "연다", effects: [{ type: "rewardOffer" }], result: "카드가 세 장 들어 있습니다." },
+    { label: "돌려보낸다", effects: [{ type: "relic" }], result: "대신 낡은 상자를 받았습니다." },
+  ],
+};
+
+function e2Data() {
+  const d = withEvents([WEEK_OK, ...MISC_OK, EV_PICK, EV_OFFER]);
+  d.lesson_ev_story = { version: 1, notes: {}, events: clone(STORY_OK) };
+  d.lesson_ev_coach = { version: 1, notes: {}, events: clone(COACH_OK) };
+  return d;
+}
+const E2D = e2Data();
+/** 기본 편성 런에 이벤트를 띄운다 (주 끝처럼 queue = advanceWeek) */
+function fired(id, ctx = {}, { d = E2D, seed = 7, mut } = {}) {
+  const s = LR.createRun({ data: d, seed });
+  if (mut) mut(s);
+  LE.fireEvent(s, d, LE.eventById(d, id), ctx);
+  s.queue = ["advanceWeek"];
+  return s;
+}
+
+test("E2 주인공 (§24.3.4): random · pos · char · lowest/highest (같으면 무작위) · partner (결장이어도) · 이야기 · ctx.playerId · 결장 제외 · 깜짝 전용은 E5", () => {
+  const d = E2D;
+  const pick = (s, ev, ctx = {}) => {
+    const rng = createRngFromState(s.rngState);
+    return LE.pickProtagonist(s, d, ev, ctx, rng);
+  };
+  const s = run0(d);
+  const ev = (patch) => ({ ...clone(WEEK_OK), ...patch });
+  // random + pos (FW · MF) → 그 포지션 중, 결장 제외 · 좁혀서 없으면 결장 아닌 전원
+  for (let seed = 1; seed <= 6; seed++) assert.ok(["MF", "FW"].includes(P(s, pick(run0(d, seed), ev({}))).position));
+  const fwOnly = clone(s);
+  P(fwOnly, "p6").injuredTurns = 1;
+  assert.equal(pick(fwOnly, ev({ who: { pick: "random", pos: ["FW"] } })), "p7");
+  P(fwOnly, "p7").injuredTurns = 1;
+  assert.notEqual(P(fwOnly, pick(fwOnly, ev({ who: { pick: "random", pos: ["FW"] } }))).injuredTurns, 1, "FW 가 모두 결장 → 결장 아닌 전원 중");
+  const one = clone(s);
+  for (const p of one.players) if (p.id !== "p3") p.injuredTurns = 1;
+  assert.equal(pick(one, ev({ who: { pick: "random" } })), "p3");
+  // char
+  assert.equal(pick(s, { ...clone(MISC_OK[4]), who: { pick: "char", charId: "ch_wolf_winger" } }), "p6");
+  // lowest / highest (pos) — 같으면 무작위 (그 중에서)
+  const st = clone(s);
+  st.players.forEach((p, i) => (p.stamina = 50 + i));
+  P(st, "p4").stamina = 20;
+  assert.equal(pick(st, ev({ who: { pick: "lowestStamina" } })), "p4");
+  P(st, "p4").injuredTurns = 1;
+  assert.equal(pick(st, ev({ who: { pick: "lowestStamina" } })), "p1", "결장 선수는 빼고");
+  assert.equal(pick(st, ev({ who: { pick: "highestStamina", pos: ["DF", "GK"] } })), "p3");
+  P(st, "p2").stamina = 52;
+  const tie = new Set();
+  for (let seed = 1; seed <= 10; seed++) {
+    const t = clone(st);
+    t.rngState = run0(d, seed).rngState;
+    tie.add(pick(t, ev({ who: { pick: "highestStamina", pos: ["DF"] } })));
+  }
+  assert.deepEqual([...tie].sort(), ["p2", "p3"], "같은 체력이면 무작위");
+  // none · partner (결장이어도) · 이야기 · ctx.playerId · coachTarget (E4 전까지 무작위)
+  assert.equal(pick(s, MISC_OK[0]), null);
+  const inj = clone(s);
+  P(inj, "p5").injuredTurns = 1;
+  assert.equal(pick(inj, MISC_OK[3], { partnerId: "p5" }), "p5");
+  assert.throws(() => pick(inj, MISC_OK[3], {}), /외출 상대/);
+  assert.equal(pick(s, STORY_OK[1], { partnerId: "p3" }), "p1", "이야기 = 그 캐릭터");
+  assert.equal(pick(s, ev({}), { playerId: "p2" }), "p2");
+  assert.throws(() => pick(s, ev({}), { playerId: "p9" }), /편성에 없습니다/);
+  assert.ok(P(s, pick(s, COACH_OK[0])));
+  assert.throws(() => pick(s, SURPRISE_OK), /레슨 깜짝 \(E5\)/);
+});
+
+test("E2 fireEvent: currentEvent { eventId, playerId, supportId, charIds, kind, ctx } · usedEventIds · usedEventSeasons (once season) · eventSeq · phase event · 검사", () => {
+  const s = fired("ev_fixture", { playerId: "p2", partnerId: "p9", fn: () => 1 });
+  assert.deepEqual(s.currentEvent, { eventId: "ev_fixture", playerId: "p2", supportId: null, charIds: [], kind: "week", ctx: { playerId: "p2", partnerId: "p9" } });
+  assert.equal(s.phase, "event");
+  assert.deepEqual(s.usedEventIds, ["ev_fixture"]);
+  assert.equal(s.eventSeq, 1);
+  assert.deepEqual(s.usedEventSeasons, {});
+  same(clone(s), s);
+  // 이미 떠 있으면 · 데이터에 없으면 · 깜짝이면 throw (상태 그대로)
+  rejects(s, () => LE.fireEvent(s, E2D, LE.eventById(E2D, "ev_fixture"), {}), /이미 떠 있는 이벤트/);
+  const t = run0(E2D);
+  rejects(t, () => LE.fireEvent(t, E2D, { ...clone(WEEK_OK), id: "ev_nowhere" }, {}), /데이터에 없습니다/);
+  // 코치 조건 · 짝 · 코치 연속 · 시즌 1회
+  const m = fired("ev_fixture_monk");
+  assert.equal(m.currentEvent.supportId, "sp_mountain_monk");
+  const pair = fired("ev_fixture_pair");
+  assert.deepEqual(pair.currentEvent.charIds, ["ch_wolf_winger", "ch_giant_striker"]);
+  const c3 = fired("ev_coach_fixture_3");
+  assert.equal(c3.currentEvent.supportId, "sp_coach_harr");
+  assert.equal(c3.currentEvent.kind, "coach");
+  const d = clone(E2D);
+  d.lesson_ev_week.events.find((e) => e.id === "ev_fixture_monk").once = "season";
+  const ss = fired("ev_fixture_monk", {}, { d });
+  assert.deepEqual(ss.usedEventSeasons, { ev_fixture_monk: [1] });
+});
+
+test("E2 getEventView: 지금 event.js 모양 (title · text · player · support · choices[{ text, preview }]) + kind · badge · scene · art · players · lines · needs · recommended, 조사 · 반말판, 순수", () => {
+  // 반말 선수 (도르비나) → alt.banmal, 존댓말 선수 (실루엔) → 기본 글. 조사는 이름에 맞게
+  const b = fired("ev_fixture", { playerId: "p2" });
+  const before = JSON.stringify(b);
+  const v = LR.getEventView(b, E2D);
+  assert.equal(JSON.stringify(b), before, "뷰는 순수 (rngState 포함)");
+  assert.equal(v.text, "도르비나가 감독실 문을 두드립니다.\n\"감독, 오늘 밤 슈팅 좀 더 찬다.\"");
+  assert.equal(v.title, "시험 이벤트");
+  assert.deepEqual(v.player, { id: "p2", charId: "ch_dwarf_wall", name: "도르비나", portraitColor: P(b, "p2").portraitColor, slot: "DF1", position: "DF", stamina: 100, injured: false });
+  assert.equal(v.support, null);
+  assert.deepEqual([v.kind, v.badge, v.scene, v.trigger, v.eventId], ["week", "주 끝", "clubhouse", "week", "ev_fixture"]);
+  assert.deepEqual(v.art, { charIds: ["ch_dwarf_wall"], supportId: null });
+  assert.deepEqual(v.players.map((p) => p.id), ["p2"]);
+  assert.equal(v.choices.length, 2);
+  assert.equal(v.choices[0].text, "\"오늘 밤은 네 날이다.\"");
+  assert.equal(v.choices[0].preview, "70%: 도르비나 슈팅 +30 / 30%: 도르비나 슈팅 +30, 도르비나 체력 −40, 도르비나 다음 레슨 1회 결장");
+  assert.deepEqual(v.choices[1].lines, ["컨디션 +1"]);
+  assert.equal(v.choices[0].needs, null);
+  assert.equal(v.choices.filter((c) => c.recommended).length, 1);
+  const p = fired("ev_fixture", { playerId: "p4" });
+  assert.equal(LR.getEventView(p, E2D).text, "실루엔이 감독실 문을 두드립니다.\n\"감독님, 오늘 밤만 슈팅을 더 차고 싶어요.\"");
+  // 짝: players 2명 · art.charIds · 기본 배경 (주 끝 = ground)
+  const pv = LR.getEventView(fired("ev_fixture_pair"), E2D);
+  assert.deepEqual(pv.players.map((x) => x.name), ["울리카", "그레타"]);
+  assert.deepEqual(pv.art.charIds, ["ch_wolf_winger", "ch_giant_striker"]);
+  assert.equal(pv.scene, "ground");
+  assert.equal(pv.player, null);
+  // 코치: support (유대) · 배지 · {코치} 칭호까지
+  const cv = LR.getEventView(fired("ev_coach_fixture_1", { playerId: "p6" }), E2D);
+  assert.deepEqual(cv.support, { id: "sp_coach_harr", name: "코치 하르나", portraitColor: data.supports.find((x) => x.id === "sp_coach_harr").portraitColor, type: data.supports.find((x) => x.id === "sp_coach_harr").type, bond: 25 });
+  assert.equal(cv.badge, "코치 · 첫 만남");
+  assert.equal(cv.text, "코치 하르나가 호루라기를 붑니다.\n\"울리카, 골문부터 봐!\" 울리카가 고개를 듭니다.");
+  assert.equal(cv.choices[1].preview, `덱에 「${cardName("cd_c_harr")}」 추가, 하르나 유대 +15, 하르나 유대 +5`);
+  assert.equal(LR.getEventView(fired("ev_coach_fixture_3"), E2D).badge, "코치 · 유대 80");
+  // 이야기: 배지 n/3화 · 기본 배경 nature 는 scene 으로 덮인다
+  const sv = LR.getEventView(fired("out_fixture_2", { partnerId: "p1" }), E2D);
+  assert.deepEqual([sv.badge, sv.scene, sv.kind], ["이야기 2/3화", "nature", "story"]);
+  // 시즌 시작 (주인공 없음) · 기본 배경 stands
+  const ov = LR.getEventView(fired("ev_fx_offer"), E2D);
+  assert.deepEqual([ov.badge, ov.scene, ov.player], ["시즌 시작", "stands", null]);
+  // 고르는 선택지: needs { op, candidates[{ uid, cardId, name, plus }] }
+  const k = fired("ev_fx_pick");
+  const kv = LR.getEventView(k, E2D);
+  assert.equal(kv.choices[0].needs.op, "upgrade");
+  assert.deepEqual(kv.choices[0].needs.candidates, k.deck.filter((e) => !e.plus && canUpgrade(getCard(data, e.cardId))).map((e) => ({ uid: e.uid, cardId: e.cardId, name: cardName(e.cardId), plus: false })));
+  assert.equal(kv.choices[1].needs.op, "delete");
+  assert.equal(kv.choices[1].needs.candidates.length, k.deck.length);
+  // phase event 가 아니면 throw
+  assert.throws(() => LR.getEventView(run0(E2D), E2D), /phase 'event'/);
+});
+
+test("E2 resolveEvent: 효과 · 갈래 결과 문구 (반말판) · lastEvent · 로그 · currentEvent 비움 · 흐름 (주 끝 advanceWeek) · JSON 왕복 결정성", () => {
+  const branches = new Set();
+  for (let seed = 1; seed <= 10; seed++) {
+    const s = fired("ev_fixture", { playerId: "p2" }, { seed });
+    const c = clone(s);
+    const shoot = P(s, "p2").stats.shoot;
+    LR.resolveEvent(s, E2D, 0);
+    LR.resolveEvent(c, E2D, 0);
+    same(s, c);
+    const le = s.lastEvent;
+    branches.add(le.branch);
+    assert.deepEqual([le.seq, le.eventId, le.title, le.kind, le.choice, le.label, le.playerId, le.supportId], [1, "ev_fixture", "시험 이벤트", "week", 0, "\"오늘 밤은 네 날이다.\"", "p2", null]);
+    assert.equal(P(s, "p2").stats.shoot, shoot + 30);
+    if (le.branch === "then") {
+      assert.equal(le.result, "도르비나는 슈팅이 날카로워졌습니다.");
+      assert.deepEqual(le.lines, ["도르비나 슈팅 +30"]);
+    } else {
+      assert.equal(le.result, "다음 날 아침 도르비나가 다리를 절며 나타났습니다.");
+      assert.deepEqual(le.lines, ["도르비나 슈팅 +30", "도르비나 체력 −40", "도르비나 다음 레슨 1회 결장"]);
+      assert.equal(P(s, "p2").injuredTurns, 1);
+    }
+    assert.equal(s.currentEvent, null);
+    assert.equal(s.phase, "week", "주 끝 queue (advanceWeek) 로 다음 주");
+    assert.equal(s.turn, 2);
+    assert.ok(s.log.some((l) => l.text === `[시험 이벤트] "오늘 밤은 네 날이다." → ${le.lines.join(", ")}`));
+  }
+  assert.deepEqual([...branches].sort(), ["else", "then"]);
+  // 반말판 결과 (갈래 없는 선택지)
+  const s = fired("ev_fixture", { playerId: "p2" });
+  LR.resolveEvent(s, E2D, 1);
+  assert.equal(s.lastEvent.result, "도르비나가 투덜대며 숙소로 돌아갑니다.");
+  assert.equal(s.lastEvent.branch, null);
+  // lessonEvents.resolveEvent 만 부르면 phase flow (흐름 잇기는 lessonRun)
+  const f = fired("ev_fixture", { playerId: "p4" });
+  LE.resolveEvent(f, E2D, 1);
+  assert.equal(f.phase, "flow");
+  assert.equal(f.lastEvent.result, "실루엔이 아쉬워하며 숙소로 돌아갑니다.");
+});
+
+test("E2 resolveEvent 검사: 선택지 번호 · 고르는 카드 uid (없음 · 후보 아님) 는 바꾸기 전에 throw · uid 가 맞으면 그 카드 · 후보가 없으면 TP", () => {
+  const s = fired("ev_fx_pick");
+  rejects(s, () => LR.resolveEvent(s, E2D, 2), /선택지 번호가 잘못되었습니다: 2/);
+  rejects(s, () => LR.resolveEvent(s, E2D, -1), /선택지 번호/);
+  rejects(s, () => LR.resolveEvent(s, E2D, 0), /덱의 카드 1장을 골라야 합니다/);
+  const done = s.deck[0];
+  done.plus = true;
+  rejects(s, () => LR.resolveEvent(s, E2D, 0, { uid: done.uid }), /고를 수 없습니다 \(강화 후보가 아님\)/);
+  rejects(s, () => LR.resolveEvent(s, E2D, 0, { uid: "k999" }), /고를 수 없습니다/);
+  const v = LR.getEventView(s, E2D);
+  const uid = v.choices[0].needs.candidates[1].uid;
+  LR.resolveEvent(s, E2D, 0, { uid });
+  assert.equal(s.deck.find((e) => e.uid === uid).plus, true);
+  assert.equal(s.phase, "week");
+  // 삭제 + TP (한 선택지)
+  const d = fired("ev_fx_pick");
+  const n = d.deck.length;
+  const tp = d.trainingPoints;
+  LR.resolveEvent(d, E2D, 1, { uid: d.deck[0].uid });
+  assert.equal(d.deck.length, n - 1);
+  assert.equal(d.trainingPoints, tp + 5);
+  // 후보가 없으면 uid 없이 TP +10 (대체값)
+  const e = fired("ev_fx_pick", {}, { mut: (x) => { for (const c of x.deck) c.plus = true; } });
+  assert.equal(LR.getEventView(e, E2D).choices[0].preview, "TP +10 (강화할 카드 없음)");
+  const tp2 = e.trainingPoints;
+  LR.resolveEvent(e, E2D, 0);
+  assert.equal(e.trainingPoints, tp2 + 10);
+});
+
+test("E2 카드 3택1 (§24.5.3): rewardOffer → phase cardOffer (흐름 멈춤) → 고르기 (덱 + 코치 카드 유대) · 건너뛰기 TP +10 · 검사 · 그 뒤 흐름 · 유물은 relic", () => {
+  const s = fired("ev_fx_offer");
+  LR.resolveEvent(s, E2D, 0);
+  assert.equal(s.phase, "cardOffer");
+  assert.deepEqual(s.queue, ["advanceWeek"], "남은 흐름은 그대로");
+  const v = LR.getCardOfferView(s, E2D);
+  assert.equal(v.cards.length, 3);
+  assert.deepEqual([v.src, v.title, v.skipTp], ["ev_fx_offer", "개막 선물", 10]);
+  for (const c of v.cards) assert.ok(c.name && c.cardId && ["add", "upgrade"].includes(c.kind));
+  same(JSON.parse(JSON.stringify(s)), s);
+  rejects(s, () => LR.resolveCardOffer(s, E2D, { pick: 3 }), /카드 번호가 잘못되었습니다: 3/);
+  rejects(s, () => LR.resolveCardOffer(s, E2D, { pick: 1.5 }), /카드 번호/);
+  const c = clone(s);
+  const n = s.deck.length;
+  const i = v.cards.findIndex((x) => x.kind === "add");
+  LR.resolveCardOffer(s, E2D, { pick: i });
+  assert.equal(s.pendingCardOffer, null);
+  assert.equal(s.deck.length, n + 1);
+  assert.equal(s.deck.at(-1).cardId, v.cards[i].cardId);
+  assert.equal(s.phase, "week");
+  assert.equal(s.turn, 2);
+  // 건너뛰기 = TP +offerSkipTp
+  const tp = c.trainingPoints;
+  LR.resolveCardOffer(c, E2D, { pick: null });
+  assert.equal(c.trainingPoints, tp + data.lesson.events.fallback.offerSkipTp);
+  assert.equal(c.deck.length, n);
+  // 코치 카드를 고르면 유대 +15, 고유 카드 강화 후보면 그 카드가 강화판
+  const k = fired("ev_fx_offer");
+  LR.resolveEvent(k, E2D, 0);
+  k.pendingCardOffer.cards = [{ cardId: "cd_c_harr", plus: false, kind: "add" }, { cardId: "cd_u_neria", plus: true, kind: "upgrade", uid: k.deck.find((e) => e.cardId === "cd_u_neria").uid }, { cardId: "cd_one_two", plus: false, kind: "add" }];
+  const k2 = clone(k);
+  const hb = k.supports.find((x) => x.id === "sp_coach_harr").bond;
+  LR.resolveCardOffer(k, E2D, { pick: 0 });
+  assert.equal(k.supports.find((x) => x.id === "sp_coach_harr").bond, hb + 15);
+  LR.resolveCardOffer(k2, E2D, { pick: 1 });
+  assert.equal(k2.deck.find((e) => e.cardId === "cd_u_neria").plus, true);
+  assert.equal(k2.deck.length, n, "강화는 덱이 늘지 않는다");
+  // 유물 → relic phase 가 먼저
+  const r = fired("ev_fx_offer");
+  LR.resolveEvent(r, E2D, 1);
+  assert.equal(r.phase, "relic");
+  LR.chooseRelic(r, E2D, r.pendingRelicChoices[0]);
+  assert.equal(r.phase, "week");
+  // phase 가 아니면 throw
+  assert.throws(() => LR.getCardOfferView(run0(E2D), E2D), /phase 'cardOffer'/);
+});
+
+test("E2 choiceScore (§24.11 [가정]): 표 · 확률은 기대값 · 대체값 · 추천 = 기대값이 큰 쪽 (같으면 0번), 순수", () => {
+  const s = fired("ev_fixture", { playerId: "p2" });
+  const v = LR.getEventView(s, E2D);
+  const before = JSON.stringify(s);
+  // 0: 70% 슈팅 +30 / 30% 슈팅 +30 · 체력 −40 (×0.3) · 결장 −40 → 0.7 × 30 + 0.3 × (30 − 12 − 40) = 14.4
+  assert.equal(LE.choiceScore(s, E2D, v, 0), 14.4);
+  // 1: 컨디션 +1 = 25 (최고 단계까지 남은 만큼)
+  assert.equal(LE.choiceScore(s, E2D, v, 1), 25);
+  assert.deepEqual(v.choices.map((c) => c.recommended), [false, true]);
+  assert.equal(JSON.stringify(s), before);
+  s.condition = 4;
+  assert.equal(LE.choiceScore(s, E2D, v, 1), 0, "컨디션 최고면 0");
+  assert.deepEqual(LR.getEventView(s, E2D).choices.map((c) => c.recommended), [true, false]);
+  // 표 값
+  const t = run0(E2D);
+  const sc = (effects, ctx = {}) => LF.scoreEffects(t, E2D, effects, { playerId: "p1", ...ctx });
+  assert.equal(sc([{ type: "stat", target: "team", stat: "pass", amount: 6 }]), 42);
+  assert.equal(sc([{ type: "stat", target: "player", stat: "main2", amount: 10 }]), 20);
+  assert.equal(sc([{ type: "teach", skillId: "sk_rally_cry" }]), 40);
+  assert.equal(sc([{ type: "playerHint" }]), 20);
+  assert.equal(sc([{ type: "cardAdd", cardId: "cd_one_two" }, { type: "rewardOffer" }, { type: "relic" }]), 30 + 35 + 50);
+  assert.equal(sc([{ type: "tp", amount: 20 }, { type: "sp", amount: 10 }, { type: "teamwork", amount: 5 }]), 30 + 10 + 15);
+  P(t, "p1").stamina = 40;
+  assert.equal(sc([{ type: "stamina", target: "player", amount: 20 }]), 12, "체력 50 미만이면 ×2");
+  assert.equal(sc([{ type: "nextPct", pct: 40 }, { type: "extraPlayNext", n: 1 }, { type: "drawNext", n: 1 }, { type: "buff", n: 1 }]), 32 + 80 + 30 + 30);
+  // 대체값: 이미 강화판 → TP +20 = 30
+  t.deck.find((e) => e.cardId === "cd_u_neria").plus = true;
+  assert.equal(sc([{ type: "uniquePlus" }]), 30);
+});
+
+test("E2 og_event 장면 (tools/lesson_scenarios.mjs): 레슨 이벤트 ev_local_kids 를 lessonEvents.fireEvent 로 주입 → 고르면 다음 주", async () => {
+  const { loadData: sload, OUTGAME_SCENARIOS } = await import("../tools/scenarios.mjs");
+  const sdata = sload();
+  const b = OUTGAME_SCENARIOS.find((x) => x.name === "og_event").build(sdata, { runSeed: 1 });
+  const s = clone(b.runState);
+  assert.equal(s.phase, "event");
+  assert.equal(s.currentEvent.eventId, "ev_local_kids");
+  const v = LR.getEventView(s, sdata);
+  assert.ok(v.player && v.choices.length === 2 && v.choices.every((c) => c.preview));
+  const turn = s.turn;
+  LR.resolveEvent(s, sdata, 1);
+  assert.equal(s.phase, "week");
+  assert.equal(s.turn, turn + 1);
+  assert.equal(s.pendingTeach.at(-1).skillId, "sk_rally_cry");
 });

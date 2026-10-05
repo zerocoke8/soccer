@@ -3,6 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { loadData, clone, run, match } from "./helpers.mjs";
 import * as LR from "../js/engine/lessonRun.js";
+import * as LE from "../js/engine/lessonEvents.js";
 import * as cards from "../js/engine/cards.js";
 import * as ch from "../js/engine/challenge.js";
 import { MAX_HINT_LEVEL } from "../js/engine/training.js";
@@ -158,8 +159,13 @@ test("createRun: 초기 상태 · 시작 덱 · 시즌 계획 · 1주 offer", ()
   const s = newRun();
   checkInvariants(s);
   assert.equal(s.kind, "lessonRun");
-  assert.equal(s.version, 4);
+  assert.equal(s.version, 5);
   assert.deepEqual(s.pendingTeach, []);
+  // 2차 필드 (§24.10) — 빈 값으로 시작
+  same(
+    Object.fromEntries(["storySeen", "outingSeen", "coachTargets", "coachSeen", "coachSteps", "lastCoachTurnIndex", "lastWeekEventId", "usedEventSeasons", "account", "legends", "pendingCardOffer", "lastEvent", "eventSeq"].map((k) => [k, s[k]])),
+    { storySeen: [], outingSeen: [], coachTargets: {}, coachSeen: {}, coachSteps: {}, lastCoachTurnIndex: null, lastWeekEventId: null, usedEventSeasons: {}, account: { stories: {}, coachMet: {} }, legends: [], pendingCardOffer: null, lastEvent: null, eventSeq: 0 },
+  );
   assert.equal(s.phase, "week");
   assert.equal(s.policy, data.lesson.defaultPolicy);
   assert.equal(s.season, 1);
@@ -196,7 +202,7 @@ test("createRun: 초기 상태 · 시작 덱 · 시즌 계획 · 1주 offer", ()
   assert.equal(LR.migrateLessonRun(clone(s)).kind, "lessonRun");
 });
 
-test("저장 v1 → v4 이행 (§14.15 · §18.7 · §19.13): 레슨 · 보상 밖이면 올리고 기록 stat → zone · rests → benches, 레슨 · 보상 중 v1 은 거절", () => {
+test("저장 v1 → v5 이행 (§14.15 · §18.7 · §19.13 · §24.10): 레슨 · 보상 밖이면 올리고 기록 stat → zone · rests → benches, 레슨 · 보상 중 v1 은 거절", () => {
   const s = newRun();
   startLessonWeek(s, "pass");
   clearLesson(s);
@@ -211,7 +217,7 @@ test("저장 v1 → v4 이행 (§14.15 · §18.7 · §19.13): 레슨 · 보상 �
   assert.ok(LR.canMigrateLessonRun(v1));
   delete v1.pendingTeach;
   assert.equal(LR.migrateLessonRun(v1, data), v1, "in-place");
-  assert.equal(v1.version, 4);
+  assert.equal(v1.version, 5);
   assert.deepEqual(v1.pendingTeach, []);
   assert.ok(LR.isLessonRun(v1));
   const rec = v1.record.lessons[0];
@@ -242,7 +248,8 @@ test("저장 v1 → v4 이행 (§14.15 · §18.7 · §19.13): 레슨 · 보상 �
   assert.equal(LR.migrateLessonRun(null), null);
   assert.ok(LR.isLessonRunSave({ kind: "lessonRun", version: 3, phase: "week" }));
   assert.ok(LR.isLessonRunSave({ kind: "lessonRun", version: 4, phase: "week" }));
-  assert.ok(!LR.isLessonRunSave({ kind: "lessonRun", version: 5, phase: "week" }));
+  assert.ok(LR.isLessonRunSave({ kind: "lessonRun", version: 5, phase: "week" }));
+  assert.ok(!LR.isLessonRunSave({ kind: "lessonRun", version: 6, phase: "week" }));
   assert.ok(!LR.canMigrateLessonRun(run.createRun({ data, seed: 1 })));
 });
 
@@ -1455,17 +1462,44 @@ test("§18.4 받지 않기 SP +20 · 같은 액티브 두 번 → 두 번째는 
   assert.equal(LR.canTeachSkill(t, data, "sk_power_shot", "p7").ok, true);
 });
 
-test("§18.3 이벤트 수업 대기열: 이벤트 효과로 늘어난 액티브 힌트는 되돌려 pendingTeach → 다음 보상 맨 앞 (패시브 힌트는 그대로)", () => {
+/** 레슨 이벤트 고정 본보기 (테스트 안 — 실제 콘텐츠에 기대지 않는다, §24.15). 이벤트 파일 7개를 비우고 주 끝 파일에 넣은 데이터 사본 */
+function withLessonEvents(events) {
   const d = clone(data);
-  d.lesson.events.support = true;
+  for (const f of LE.EVENT_FILES) d[f] = { version: 1, notes: {}, events: [] };
+  d.lesson_ev_week = { version: 1, notes: {}, events: clone(events) };
+  return d;
+}
+/** 하르나 편성 조건 이벤트: 0 = 수업 (파워 슛, 하르나) + 슈팅 +10, 1 = 주인공 패시브 힌트 (skillId 없이 — 그 선수 목록) */
+const EV_HARR_TEACH = {
+  id: "ev_fx_harr", trigger: "week", coach: "sp_coach_harr", who: { pick: "random" }, title: "골문부터", text: "{코치|이/가} {선수|을/를} 부릅니다.",
+  choices: [
+    { label: "슛을 배운다", effects: [{ type: "teach", skillId: "sk_power_shot", supportId: "sp_coach_harr" }, { type: "stat", target: "player", stat: "shoot", amount: 10 }], result: "{선수|이/가} 고개를 끄덕입니다." },
+    { label: "스스로 찾는다", effects: [{ type: "playerHint" }], result: "{선수|은/는} 혼자 남았습니다." },
+  ],
+};
+
+/** 주 phase 에서 이벤트를 띄운다 (주 끝 흐름처럼 고른 뒤 다음 주로) */
+function injectEvent(state, d, id, ctx = {}) {
+  LE.fireEvent(state, d, LE.eventById(d, id), ctx);
+  state.queue = ["advanceWeek"];
+  return state;
+}
+
+test("§18.3 · §24.4 이벤트 수업 대기열: 레슨 이벤트의 수업 (teach) → pendingTeach → 다음 보상 맨 앞 (패시브 힌트는 힌트 레벨) · 이벤트 뒤 주 끝 흐름", () => {
+  const d = withLessonEvents([EV_HARR_TEACH]);
   const s = LR.createRun({ data: d, seed: 11 });
-  for (const st of s.supports) st.bond = 0;
-  sup(s, "sp_coach_harr").bond = 100;
-  LR.applyWeekAction(s, d, { type: "rest" }); // 주 끝 supportEventCheck → 하르나 60 이벤트
+  injectEvent(s, d, "ev_fx_harr", { playerId: "p6" });
   assert.equal(s.phase, "event");
-  assert.equal(s.currentEvent.eventId, "ev_sp_harr_60");
-  LR.resolveEvent(s, d, 0); // 파워 슛 힌트 Lv2 + 슈팅 +10
-  assert.ok(!("sk_power_shot" in s.hints), "액티브 힌트는 되돌린다");
+  const v = LR.getEventView(s, d);
+  assert.equal(v.title, "골문부터");
+  assert.equal(v.text, `코치 하르나가 ${P(s, "p6").name}${P(s, "p6").name === "울리카" ? "를" : "을(를)"} 부릅니다.`);
+  assert.match(v.choices[0].preview, /^코치 수업: 파워 슛 \(하르나 — 다음 레슨 보상에서 가르칠 선수를 고른다\), 울리카 슈팅 \+10$/);
+  const shoot0 = P(s, "p6").stats.shoot;
+  LR.resolveEvent(s, d, 0);
+  assert.equal(s.phase, "week", "고른 뒤 주 끝 흐름 (advanceWeek) → 다음 주");
+  assert.equal(s.turn, 2);
+  assert.equal(P(s, "p6").stats.shoot, shoot0 + 10);
+  assert.ok(!("sk_power_shot" in s.hints), "액티브는 힌트가 아니다");
   assert.deepEqual(s.pendingTeach, [{ skillId: "sk_power_shot", supportId: "sp_coach_harr", src: "event", result: null, playerId: null, replaced: null, sp: 0 }]);
   checkInvariants(s);
   // JSON 왕복 뒤 다음 레슨 보상 맨 앞에 붙고 대기열은 빈다
@@ -1492,16 +1526,27 @@ test("§18.3 이벤트 수업 대기열: 이벤트 효과로 늘어난 액티브
   LR.resolveTeach(e, data, { playerId: "p1" });
   assert.equal(lastLog(e), "수업: 코치진 → 네리아 '함성' 습득");
 
-  // 패시브 힌트 이벤트 (오르넬라 60: 연계의 달인 Lv2) 는 지금처럼 힌트
+  // 패시브 힌트 (playerHint) 는 힌트 레벨 — 수업 대기열에 들어가지 않는다
   const s2 = LR.createRun({ data: d, seed: 11 });
-  for (const st of s2.supports) st.bond = 0;
-  sup(s2, "sp_elder_sage").bond = 100;
-  LR.applyWeekAction(s2, d, { type: "rest" });
-  assert.equal(s2.currentEvent.eventId, "ev_sp_elder_sage_60");
-  LR.resolveEvent(s2, d, 0);
-  assert.equal(s2.hints.sk_chain_master, 2);
+  injectEvent(s2, d, "ev_fx_harr", { playerId: "p1" });
+  LR.resolveEvent(s2, d, 1);
+  const lv = Object.entries(s2.hints);
+  assert.equal(lv.length, 1);
+  assert.ok(data.characters.find((x) => x.id === "ch_spirit_keeper").passiveIds.includes(lv[0][0]), "네리아 패시브 목록에서");
+  assert.equal(lv[0][1], 1);
   assert.deepEqual(s2.pendingTeach, []);
+  assert.equal(s2.lastEvent.lines[0], `네리아 · ${data.skills.find((k) => k.id === lv[0][0]).name} 힌트 Lv1`);
 });
+
+/** v4 → v5 이행이 진행 중인 레슨에 더하는 깜짝 필드 (§24.10) 를 뺀 사본 — 그 밖의 레슨 상태가 그대로인지 비교할 때 */
+function withoutV5Lesson(L) {
+  const { surprise, turnLog, rested, nextExtraPlay, ...rest } = L;
+  assert.deepEqual(surprise, { planned: false, randTurn: null, pending: null, fired: null });
+  assert.deepEqual(rested, []);
+  assert.equal(nextExtraPlay, 0);
+  assert.ok(turnLog && typeof turnLog === "object");
+  return rest;
+}
 
 /** v2 저장본 만들기: 지금 상태에 액티브 힌트 · 옛 필드 모양 */
 function asV2(state, activeHints) {
@@ -1526,7 +1571,7 @@ test("§18.7 저장 v2 → v3: 액티브 힌트 → 레벨 × noHintSp SP · 패
   assert.ok(!LR.isLessonRun(v2) && LR.isLessonRunSave(v2) && LR.canMigrateLessonRun(v2));
   const sp0 = v2.skillPoints;
   assert.equal(LR.migrateLessonRun(v2, data), v2);
-  assert.equal(v2.version, 4); // 2 → 3 → 4
+  assert.equal(v2.version, 5); // 2 → 3 → 4 → 5
   assert.ok(LR.isLessonRun(v2));
   same(v2.hints, { sk_focus_finish: 2 });
   assert.equal(v2.skillPoints, sp0 + 3 * noHint);
@@ -1565,7 +1610,7 @@ test("§18.7 저장 v2 → v3: 액티브 힌트 → 레벨 × noHintSp SP · 패
   const keep = rv2.pendingReward.result.hints.filter((h) => h.skillId !== "sk_power_shot");
   assert.ok(LR.canMigrateLessonRun(rv2), "v2 는 보상 중이어도 이행");
   LR.migrateLessonRun(rv2, data);
-  assert.equal(rv2.version, 4);
+  assert.equal(rv2.version, 5);
   same(rv2.pendingReward.result.hints, keep);
   assert.deepEqual(rv2.pendingReward.result.teach, []);
   assert.deepEqual(rv2.pendingReward.teach, []);
@@ -1581,18 +1626,18 @@ test("§18.7 저장 v2 → v3: 액티브 힌트 → 레벨 × noHintSp SP · 패
   const lv2 = asV2(l, { sk_power_shot: 1 });
   const lessonBefore = JSON.stringify(lv2.lesson);
   LR.migrateLessonRun(lv2, data);
-  assert.equal(lv2.version, 4);
-  assert.equal(JSON.stringify(lv2.lesson), lessonBefore);
+  assert.equal(lv2.version, 5);
+  assert.equal(JSON.stringify(withoutV5Lesson(lv2.lesson)), lessonBefore, "레슨 상태는 그대로 (v5 깜짝 필드만 더한다)");
   while (lv2.phase === "lesson") LR.endLessonTurn(lv2, HARR_PS);
   assert.equal(lv2.pendingReward.teach.length, 1);
   assert.equal(lv2.pendingReward.teach[0].skillId, "sk_power_shot");
   checkInvariants(lv2);
 
-  // v1 (주) → v4 한 번에
+  // v1 (주) → v5 한 번에
   const one = asV2(w, { sk_rally_cry: 2 });
   one.version = 1;
   LR.migrateLessonRun(one, data);
-  assert.equal(one.version, 4);
+  assert.equal(one.version, 5);
   assert.ok(!("sk_rally_cry" in one.hints));
 });
 
@@ -1614,7 +1659,7 @@ function asV3(state) {
 }
 const innateOf = (charId) => data.characters.find((c) => c.id === charId).innateSkillId;
 
-test("§19.13 저장 v3 → v4: 옛 고유 스킬 → 캐릭터의 새 필살기 (보상 없음) · 주 · 상담 · 보상 · 레슨 · 경기 전 준비 중 · 멱등 · data 없으면 3 그대로", () => {
+test("§19.13 저장 v3 → v4 (→ v5): 옛 고유 스킬 → 캐릭터의 새 필살기 (보상 없음) · 주 · 상담 · 보상 · 레슨 · 경기 전 준비 중 · 멱등 · data 없으면 3 그대로", () => {
   // 주
   const w = newRun();
   const v3 = asV3(w);
@@ -1622,7 +1667,7 @@ test("§19.13 저장 v3 → v4: 옛 고유 스킬 → 캐릭터의 새 필살기
   const sp0 = v3.skillPoints;
   const learned0 = v3.players.map((p) => p.learnedSkillIds.slice());
   assert.equal(LR.migrateLessonRun(v3, data), v3, "in-place");
-  assert.equal(v3.version, 4);
+  assert.equal(v3.version, 5);
   assert.ok(LR.isLessonRun(v3));
   for (const p of v3.players) assert.equal(p.innateSkillId, innateOf(p.charId), p.name);
   assert.deepEqual(v3.players.map((p) => p.learnedSkillIds), learned0, "옛 고유는 습득 목록에 넣지 않는다");
@@ -1635,7 +1680,7 @@ test("§19.13 저장 v3 → v4: 옛 고유 스킬 → 캐릭터의 새 필살기
   checkInvariants(v3);
   walk(v3, (x) => x.phase === "week" && x.turn === 3);
   checkInvariants(v3);
-  // 이미 v4 인 런은 로그가 늘지 않는다
+  // 이미 v5 인 런은 로그가 늘지 않는다
   const fresh = newRun();
   const logN = fresh.log.length;
   LR.migrateLessonRun(fresh, data);
@@ -1650,7 +1695,7 @@ test("§19.13 저장 v3 → v4: 옛 고유 스킬 → 캐릭터의 새 필살기
   P(odd, "p1").learnedSkillIds.push("sk_high_tide", "sk_calm_keeper");
   P(odd, "p2").charId = "ch_nobody";
   LR.migrateLessonRun(odd, data);
-  assert.equal(odd.version, 4);
+  assert.equal(odd.version, 5);
   assert.deepEqual(P(odd, "p1").learnedSkillIds, ["sk_calm_keeper"]);
   assert.equal(P(odd, "p2").innateSkillId, "sk_iron_tackle", "캐릭터를 모르면 그대로");
   assert.equal(lastLog(odd), "저장본 이행: 고유 스킬 → 필살기 (4명)");
@@ -1662,7 +1707,7 @@ test("§19.13 저장 v3 → v4: 옛 고유 스킬 → 캐릭터의 새 필살기
   const cv3 = asV3(c);
   LR.migrateLessonRun(cv3, data);
   assert.equal(cv3.phase, "consult");
-  assert.equal(cv3.version, 4);
+  assert.equal(cv3.version, 5);
   for (const p of cv3.players) assert.equal(p.innateSkillId, innateOf(p.charId));
   LR.getConsultView(cv3, data);
 
@@ -1673,14 +1718,14 @@ test("§19.13 저장 v3 → v4: 옛 고유 스킬 → 캐릭터의 새 필살기
   const lessonBefore = JSON.stringify(lv3.lesson);
   assert.ok(LR.canMigrateLessonRun(lv3), "v3 는 레슨 중이어도 이행");
   LR.migrateLessonRun(lv3, data);
-  assert.equal(lv3.version, 4);
-  assert.equal(JSON.stringify(lv3.lesson), lessonBefore);
+  assert.equal(lv3.version, 5);
+  assert.equal(JSON.stringify(withoutV5Lesson(lv3.lesson)), lessonBefore, "레슨 상태는 그대로 (v5 깜짝 필드만 더한다)");
   endToEnd(lv3);
   assert.equal(lv3.phase, "reward");
   checkInvariants(lv3);
   const rv3 = asV3(lv3);
   LR.migrateLessonRun(rv3, data);
-  assert.equal(rv3.version, 4);
+  assert.equal(rv3.version, 5);
   for (const p of rv3.players) assert.equal(p.innateSkillId, innateOf(p.charId));
   while (rv3.pendingReward.teach.some((x) => x.result === null)) LR.resolveTeach(rv3, data, { playerId: null });
   LR.resolveReward(rv3, data, { pick: null });
@@ -1693,11 +1738,141 @@ test("§19.13 저장 v3 → v4: 옛 고유 스킬 → 캐릭터의 새 필살기
   const pv3 = asV3(pr);
   LR.migrateLessonRun(pv3, data);
   assert.equal(pv3.phase, "prep");
-  assert.equal(pv3.version, 4);
+  assert.equal(pv3.version, 5);
   LR.confirmPrep(pv3, data, {});
   const setup = LR.getMatchSetup(pv3, data);
   for (const p of setup.home.players) {
     const ch = pv3.players.find((x) => x.id === p.id);
     if (!p.isYouth) assert.equal(p.skillIds[0], innateOf(ch.charId), `${p.name} 경기 스킬 = 새 필살기`);
   }
+});
+
+// ---------------------------------------------------------------------------
+// LESSON_PROTO_PLAN §24.10 — 저장 v4 → v5 · 런 끝 남은 수업 → SP (E2)
+// ---------------------------------------------------------------------------
+
+/** 2차 런 필드 (§24.10) 와 빈 값 */
+const V5_DEFAULTS = {
+  storySeen: [], outingSeen: [], coachTargets: {}, coachSeen: {}, coachSteps: {}, lastCoachTurnIndex: null, lastWeekEventId: null,
+  usedEventSeasons: {}, account: { stories: {}, coachMet: {} }, legends: [], pendingCardOffer: null, lastEvent: null, eventSeq: 0,
+};
+/** 지금 저장본을 옛 v4 모양으로 (버전 4 · 2차 필드 없음) */
+function asV4(state) {
+  const o = clone(state);
+  o.version = 4;
+  for (const k of Object.keys(V5_DEFAULTS)) delete o[k];
+  return o;
+}
+
+test("§24.10 저장 v4 → v5: 2차 필드를 빈 값으로 (rng 없음 · 멱등) · 주 · 레슨 (깜짝 필드) · 보상 · 상담 · 경기 · 이벤트 (옛 이벤트는 건너뛰고 흐름) · v1 ~ v3 사슬", () => {
+  const check = (v4, label) => {
+    const before = clone(v4);
+    assert.ok(!LR.isLessonRun(v4) && LR.isLessonRunSave(v4) && LR.canMigrateLessonRun(v4), label);
+    assert.equal(LR.migrateLessonRun(v4, data), v4, `${label}: in-place`);
+    assert.equal(v4.version, 5, label);
+    assert.ok(LR.isLessonRun(v4), label);
+    for (const [k, v] of Object.entries(V5_DEFAULTS)) same(v4[k], v);
+    assert.equal(v4.rngState, before.rngState, `${label}: rng 를 쓰지 않는다`);
+    same(LR.migrateLessonRun(clone(v4), data), v4); // 멱등
+    // data 없이 부르면 4 그대로
+    const nd = clone(before);
+    LR.migrateLessonRun(nd);
+    assert.equal(nd.version, 4, label);
+    checkInvariants(v4);
+    return v4;
+  };
+  // 주
+  const w = check(asV4(newRun()), "주");
+  walk(w, (x) => x.phase === "week" && x.turn === 3);
+  // 레슨 중: 깜짝 필드 (빈 값) 만 더하고 레슨은 그대로 이어 간다
+  const l = newRun();
+  startLessonWeek(l, "pass");
+  const lv = asV4(l);
+  const lessonBefore = JSON.stringify(lv.lesson);
+  check(lv, "레슨");
+  assert.equal(JSON.stringify(withoutV5Lesson(lv.lesson)), lessonBefore);
+  endToEnd(lv);
+  assert.equal(lv.phase, "reward");
+  // 보상 · 상담
+  const r = newRun();
+  startLessonWeek(r, "pass");
+  clearLesson(r);
+  const rv = check(asV4(r), "보상");
+  finishReward(rv, { pick: null });
+  assert.equal(rv.phase, "week");
+  const c = newRun();
+  forceFree(c, ["consult", "meeting", "outing"]);
+  LR.applyWeekAction(c, data, { type: "consult" });
+  const cv = check(asV4(c), "상담");
+  LR.endConsult(cv, data);
+  assert.equal(cv.phase, "week");
+  // 경기 (친선전)
+  const m = newRun();
+  forceFree(m, ["friendly", "meeting", "outing"]);
+  LR.applyWeekAction(m, data, { type: "friendly" });
+  assert.equal(m.phase, "match");
+  const mv = check(asV4(m), "경기");
+  LR.finishMatch(mv, data, WIN);
+  assert.equal(mv.phase, "week");
+  // 이벤트: v4 의 currentEvent 는 옛 data.events — 레슨 이벤트가 아니면 버리고 흐름 (queue 그대로, 비었으면 advanceWeek)
+  const e = newRun();
+  e.phase = "event";
+  e.currentEvent = { eventId: "ev_sp_harr_60", playerId: "p1", supportId: "sp_coach_harr" };
+  e.queue = ["advanceWeek"];
+  const ev4 = asV4(e);
+  assert.ok(LR.canMigrateLessonRun(ev4));
+  LR.migrateLessonRun(ev4, data);
+  assert.equal(ev4.version, 5);
+  assert.equal(ev4.currentEvent, null);
+  assert.equal(ev4.phase, "week");
+  assert.equal(ev4.turn, 2);
+  assert.ok(ev4.log.some((x) => x.text === "저장본 이행: 옛 이벤트 ev_sp_harr_60 건너뜀"));
+  same(LR.migrateLessonRun(clone(ev4), data), ev4);
+  const e2 = asV4(e);
+  e2.queue = [];
+  LR.migrateLessonRun(e2, data);
+  assert.deepEqual([e2.phase, e2.turn], ["week", 2], "queue 가 비었으면 v4 주 끝 그대로 advanceWeek");
+  // 레슨 이벤트면 그대로 둔다 (뷰가 열린다)
+  const k = newRun();
+  LE.fireEvent(k, data, LE.eventById(data, "ev_local_kids"), { playerId: "p3" });
+  k.queue = ["advanceWeek"];
+  const kv4 = asV4(k);
+  LR.migrateLessonRun(kv4, data);
+  assert.equal(kv4.phase, "event");
+  assert.equal(kv4.currentEvent.eventId, "ev_local_kids");
+  assert.equal(LR.getEventView(kv4, data).player.name, "아델린");
+  LR.resolveEvent(kv4, data, 0);
+  assert.equal(kv4.phase, "week");
+  // v3 · v2 · v1 → v5 한 번에 (2차 필드도)
+  for (const ver of [3, 2, 1]) {
+    const o = asV4(newRun());
+    o.version = ver;
+    LR.migrateLessonRun(o, data);
+    assert.equal(o.version, 5, `v${ver}`);
+    for (const [kk, v] of Object.entries(V5_DEFAULTS)) same(o[kk], v);
+  }
+});
+
+test("§24.5.2 런 끝: 마지막 레슨 뒤에 얻은 코치 수업 (이벤트) 은 받을 레슨이 없어 SP 로 (declineSp 씩, 로그) · 미리보기도 SP", () => {
+  const d = withLessonEvents([EV_HARR_TEACH]);
+  const s = LR.createRun({ data: d, seed: 11 });
+  walk(s, (x) => x.phase === "week" && x.season === 3 && x.turn === 5);
+  // 시즌 3 대비 주 — 이 주의 행동 뒤 (경계전 전야 자리) 에 이벤트가 뜬 것처럼
+  LR.applyWeekAction(s, d, { type: "rest" });
+  assert.equal(s.phase, "prep");
+  injectEvent(s, d, "ev_fx_harr", { playerId: "p6" });
+  assert.match(LR.getEventView(s, d).choices[0].preview, /^코치 수업: 파워 슛 → 남은 레슨이 없어 런 끝에 SP \+20, 울리카 슈팅 \+10$/);
+  LR.resolveEvent(s, d, 0);
+  assert.equal(s.phase, "prep");
+  assert.equal(s.pendingTeach.length, 1);
+  LR.confirmPrep(s, d, {});
+  LR.finishMatch(s, d, WIN);
+  let sp = s.skillPoints;
+  if (s.phase === "relic") LR.chooseRelic(s, d, s.pendingRelicChoices[0]);
+  else sp = null;
+  assert.equal(s.phase, "finished");
+  assert.deepEqual(s.pendingTeach, []);
+  if (sp !== null) assert.equal(s.skillPoints, sp + data.lesson.rewards.teach.declineSp);
+  assert.ok(s.log.some((x) => x.text === `남은 코치 수업 1개 (파워 슛) — 남은 레슨이 없어 SP +${data.lesson.rewards.teach.declineSp}`));
+  checkInvariants(s);
 });

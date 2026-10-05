@@ -4,42 +4,23 @@
 // 데이터는 tools/lesson_sim.mjs 와 같게 읽고 (lessonEvents.validateLessonEvents 를 통과해야 쓴다), 파일 · 트리거별로
 //   "#### id — 제목" · 트리거 줄 (주 범위 · 시즌 · 조건 · 가중치 · 1회/반복) · 주인공 줄 · 본문 ("> " 줄, 반말판은 괄호) ·
 //   선택지 | 효과 | 결과 문구 표 · 파일 notes (이야기 줄기 · 새 설정) 를 적는다.
-// 효과 칸은 이 도구의 짧은 한국어 서식이다 (E2 부터 엔진 미리보기 lessonEffects.describe 로 바꾼다).
+// 효과 칸은 엔진 미리보기 (lessonEffects.describe, E2) 를 예시 주인공 · 예시 편성으로 만든 것이다 (게임 화면과 같은 글 — 이름 ·
+// 대체값은 그 예시 기준). 예시 편성 = 기본 편성 · 기본 코치 6명에 그 이벤트가 꼭 부르는 선수 · 코치를 바꿔 넣은 것.
 // 자리표시 · 조사 꼴은 데이터 그대로 둔다 ({선수|이/가}) — 표 칸 안의 | 는 \| 로 적는다.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadData } from "./lesson_sim.mjs";
 import * as LE from "../js/engine/lessonEvents.js";
-import { STAT_LABELS } from "../js/engine/training.js";
+import * as LF from "../js/engine/lessonEffects.js";
+import * as LR from "../js/engine/lessonRun.js";
+import * as cardsMod from "../js/engine/cards.js";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const DEFAULT_OUT = path.join(ROOT, "docs", "LESSON_EVENTS.md");
 
-const MINUS = "−";
-const signed = (n) => (n < 0 ? `${MINUS}${-n}` : `+${n}`);
 const ZONE_LABELS = { shoot: "슈팅", dribble: "드리블", pass: "패스", defense: "수비", physical: "피지컬" };
-const BUFF_LABELS = { hojo: "호조", focus: "집중", mood: "분위기", steal: "탈취", press: "압박", poss: "점유" };
-const MOD_LABELS = {
-  trainingEfficiency: "레슨 상승",
-  injuryRate: "부상률",
-  restEffect: "휴식 효과",
-  bondGain: "유대 획득",
-  hintRate: "힌트율",
-  skillPointGain: "SP 획득",
-  goalMatchCondition: "경계전 컨디션",
-  shootPower: "경기 슛 위력",
-  defense: "경기 수비",
-  passAttack: "경기 패스",
-  tensionGain: "텐션 획득",
-  staminaCost: "체력 소모",
-  lossPenaltyHalf: "패배 페널티 절반",
-  dribbleStaminaRefund: "드리블 체력 환급",
-  gaanpaTicket: "간파 사용권",
-  gaanpaCostHalf: "간파 비용 절반",
-};
-/** 정수로 세는 보정 (나머지는 %) */
-const COUNT_MODS = new Set(["goalMatchCondition", "lossPenaltyHalf", "gaanpaTicket", "gaanpaCostHalf"]);
+const BUFF_LABELS = LF.BUFF_LABELS;
 
 /** 표 칸: | → \| , 줄바꿈 → <br> */
 const cell = (s) => String(s ?? "").replace(/\|/g, "\\|").replace(/\r?\n/g, "<br>");
@@ -68,132 +49,130 @@ function namer(data) {
     sup: (id) => nm(sups, id),
     skill: (id) => nm(skills, id),
     card: (id) => nm(cards, id),
-    cardObj: (id) => cards.get(id) || null,
-    uniqueOf: (charId) => [...cards.values()].find((c) => c.family === "unique" && c.ownerCharId === charId) || null,
     route: (id) => nm(routes, id),
     policy: (id) => nm(pols, id),
-    acquireBond: (data.lesson && data.lesson.bond && data.lesson.bond.acquire) || 15,
   };
 }
 
-/** 주인공이 정해진 이벤트 (이야기 · who char) 의 캐릭터 id */
-function fixedCharOf(ev) {
-  if (!ev) return null;
-  if (ev.trigger === "story" && ev.story) return ev.story.charId;
-  if (ev.who && ev.who.pick === "char") return ev.who.charId;
-  return null;
-}
+// ---------------------------------------------------------------------------
+// 예시 편성 · 예시 주인공 (효과 칸 = lessonEffects.describe)
+// ---------------------------------------------------------------------------
 
-/** target → 이름 ("{선수}" · "7명" · 선수 이름 …). 주인공이 정해진 이벤트면 player = 그 선수 이름 */
-function targetText(t, N, ev, def = "player") {
-  const v = t === undefined ? def : t;
-  if (v === "player") return fixedCharOf(ev) ? N.char(fixedCharOf(ev)) : "{선수}";
-  if (v === "team") return "7명";
-  if (v === "randomPlayer") return "무작위 1명";
-  if (v === "all") return "결장 중인 선수 전원";
-  if (typeof v === "string" && v.startsWith("char:")) return N.char(v.slice(5));
-  return String(v);
-}
+const clone = (x) => JSON.parse(JSON.stringify(x));
+const APT_RANK = { S: 0, A: 1, B: 2, C: 3, D: 4 };
 
-/**
- * 효과 목록 → 짧은 한국어 (예: "팀워크 +8, 7명 체력 −10", "70%: … / 30%: …").
- * @param {object[]} effects
- * @param {ReturnType<typeof namer>} N
- * @param {object} ev  이벤트 (방침 버프 이름용)
- */
-export function effectsText(effects, N, ev = {}) {
-  const list = Array.isArray(effects) ? effects : [];
-  const parts = list.map((e) => effectText(e, N, ev));
-  return parts.length ? parts.join(", ") : "효과 없음";
-}
-
-function effectText(e, N, ev) {
-  if (!e || typeof e !== "object") return "?";
-  const a = e.amount;
-  switch (e.type) {
-    case "stat": {
-      const who = targetText(e.target, N, ev);
-      if (e.stat === "main2") return `${who} 주 스탯 2개 ${signed(a)}씩`;
-      const st = e.stat === "main" ? "주 스탯" : e.stat === "random" ? "무작위 스탯" : STAT_LABELS[e.stat] || e.stat;
-      return `${who} ${st} ${signed(a)}`;
-    }
-    case "stamina":
-      return e.full ? `${targetText(e.target, N, ev)} 체력 완전 회복` : `${targetText(e.target, N, ev)} 체력 ${signed(a)}`;
-    case "condition":
-      return `컨디션 ${signed(a)}`;
-    case "goalCondition":
-      return `다음 경계전 1회만 컨디션 ${signed(a)}`;
-    case "teamwork":
-      return `팀워크 ${signed(a)}`;
-    case "sp":
-      return `SP ${signed(a)}`;
-    case "tp":
-      return `TP ${signed(a)}`;
-    case "bond": {
-      const who = e.target === "all" ? "편성 코치 전원" : e.target === "coach" ? "{코치}" : N.sup(e.target);
-      return `${who} 유대 ${signed(a)}`;
-    }
-    case "injury":
-      return `${targetText(e.target, N, ev)} 다음 레슨 1회 결장`;
-    case "heal":
-      return e.target === "all" ? "결장 중인 선수 전원 결장 해제" : `${targetText(e.target, N, ev)} 결장 해제`;
-    case "relic":
-      return "유물 3택1";
-    case "modifier": {
-      const dur = e.duration === "run" ? "런 동안" : ev.trigger === "preMatch" ? "이번 경계전" : "이번 시즌";
-      const label = MOD_LABELS[e.key] || e.key;
-      const amt = COUNT_MODS.has(e.key) ? signed(a) : `${signed(Math.round(a * 1000) / 10)}%`;
-      return `${dur} ${label} ${amt}`;
-    }
-    case "cardAdd": {
-      const c = N.cardObj(e.cardId);
-      const coach = c && c.family === "coach" && c.coach ? `, ${N.sup(c.coach.supportId)} 유대 +${N.acquireBond}` : "";
-      return `덱에 「${N.card(e.cardId)}${e.plus ? "+" : ""}」 추가${coach}`;
-    }
-    case "cardPick":
-      return e.op === "delete" ? "덱의 카드 1장 삭제 (고른다)" : "덱의 카드 1장 강화 (고른다)";
-    case "cardUpgradeRandom":
-      return "덱의 카드 1장 무작위 강화";
-    case "rewardOffer":
-      return "보상 카드 3택1";
-    case "uniquePlus": {
-      const t = e.target === undefined ? "player" : e.target;
-      const u = typeof t === "string" && t.startsWith("char:") ? N.uniqueOf(t.slice(5)) : fixedCharOf(ev) ? N.uniqueOf(fixedCharOf(ev)) : null;
-      return `${targetText(t, N, ev)} 고유 카드${u ? ` 「${u.name}」` : ""} 이번 런 동안 강화판`;
-    }
-    case "teach":
-      return `코치 수업: ${N.skill(e.skillId)}${e.supportId ? ` (${N.sup(e.supportId)})` : " (가르치는 편성 코치)"}`;
-    case "coachHint": {
-      const from = e.from === "fielded" ? "편성 코치" : e.from === "coach" ? "{코치}" : N.sup(e.from);
-      return `코치 수업 1 (${from} 액티브 중 무작위)`;
-    }
-    case "playerHint": {
-      const who = targetText(e.target, N, ev);
-      return e.skillId ? `${who} · ${N.skill(e.skillId)} 힌트 1` : `${who} 패시브 힌트 1 (그 선수 목록에서)`;
-    }
-    case "random": {
-      const p = Math.round(e.chance * 100);
-      return `${p}%: ${effectsText(e.then, N, ev)} / ${100 - p}%: ${effectsText(e.else, N, ev)}`;
-    }
-    case "nextPct":
-      return `다음 카드 위력 ${signed(e.pct)}%`;
-    case "nextNoFail":
-      return "다음 카드 실패 판정 없음";
-    case "drawNext":
-      return `다음 턴 손패 +${e.n}`;
-    case "extraPlayNext":
-      return `다음 턴 카드 ${e.n}장 더 낼 수 있다`;
-    case "score":
-      return `이번 레슨 점수 ${signed(a)}`;
-    case "buff":
-      return `방침 버프 +${e.n}${ev.policy ? ` (${N.policy(ev.policy)})` : ""}`;
-    case "restRemaining":
-      return `${targetText(e.target, N, ev)} 이번 레슨 남은 턴 쉼 (대상 제외, 체력 +${e.stamina})`;
-    case "injureNow":
-      return `${targetText(e.target, N, ev)} 결장 (이번 레슨 남은 턴도)`;
-    default:
-      return `${e.type}?`;
+/** 효과 목록 + random 갈래 안 */
+function flatEffects(effects) {
+  const out = [];
+  for (const e of Array.isArray(effects) ? effects : []) {
+    if (!e || typeof e !== "object") continue;
+    out.push(e);
+    if (e.type === "random") for (const side of ["then", "else"]) for (const b of Array.isArray(e[side]) ? e[side] : []) if (b) out.push(b);
   }
+  return out;
+}
+
+/** 예시 편성 바탕: 기본 편성 · 기본 코치의 새 런 (이벤트 스위치를 끈 데이터 사본 — 첫 주에서 멈춘다) */
+export function exampleBase(data) {
+  const lesson = clone(data.lesson);
+  LE.setEventSwitches(lesson, false);
+  return LR.createRun({ data: { ...data, lesson }, seed: 1 });
+}
+
+/** 그 이벤트가 꼭 부르는 선수 · 코치 (주인공 고정 · 편성 조건 · char:<id> 대상 · 코치 조건 · 코치 대상) */
+function needsOf(ev) {
+  const chars = new Set();
+  const coaches = new Set();
+  if (ev.trigger === "story" && ev.story) chars.add(ev.story.charId);
+  if (ev.who && ev.who.pick === "char" && ev.who.charId) chars.add(ev.who.charId);
+  if (Array.isArray(ev.chars) && ev.chars.length) {
+    if (ev.charMode === "any") chars.add(ev.chars[0]);
+    else for (const c of ev.chars) chars.add(c);
+  }
+  if (ev.cond && ev.cond.char && ev.cond.char.id) chars.add(ev.cond.char.id);
+  if (typeof ev.coach === "string") coaches.add(ev.coach);
+  if (ev.chain && ev.chain.supportId) coaches.add(ev.chain.supportId);
+  for (const c of ev.choices || []) {
+    for (const e of flatEffects(c.effects)) {
+      if (typeof e.target === "string" && e.target.startsWith("char:")) chars.add(e.target.slice(5));
+      if (e.type === "bond" && typeof e.target === "string" && e.target !== "all" && e.target !== "coach") coaches.add(e.target);
+      if (e.type === "teach" && e.supportId) coaches.add(e.supportId);
+      if (e.type === "coachHint" && typeof e.from === "string" && !["fielded", "coach"].includes(e.from)) coaches.add(e.from);
+    }
+  }
+  return { chars: [...chars], coaches: [...coaches] };
+}
+
+/** 그 선수 자리에 다른 캐릭터를 넣는다 (스탯 = 캐릭터 기본, 덱의 고유 카드도 바꾼다) */
+function swapChar(state, data, p, ch) {
+  const uniq = (charId) => cardsMod.cardList(data).find((c) => c.family === "unique" && c.ownerCharId === charId) || null;
+  const oldU = uniq(p.charId);
+  const newU = uniq(ch.id);
+  const e = oldU ? state.deck.find((x) => x.cardId === oldU.id) : null;
+  if (e && newU) e.cardId = newU.id;
+  else if (newU) state.deck.push({ uid: `k${state.nextUid++}`, cardId: newU.id, plus: false });
+  Object.assign(p, {
+    charId: ch.id, name: ch.name, portraitColor: ch.portraitColor || "#888888", race: ch.race, element: ch.element, style: ch.style, rarity: ch.rarity,
+    stats: { ...ch.baseStats }, growth: { ...ch.growth }, innateSkillId: ch.innateSkillId || null, learnedSkillIds: [],
+  });
+}
+
+/** 예시 상태: 바탕 사본에 꼭 부르는 선수 (적성이 가장 좋은 자리, 같으면 뒤 슬롯) · 코치 (뒤에서부터) 를 넣는다 */
+function exampleState(base, data, ev) {
+  const { chars, coaches } = needsOf(ev);
+  const s = clone(base);
+  const keep = new Set(chars);
+  for (const cid of chars) {
+    if (s.players.some((p) => p.charId === cid)) continue;
+    const ch = data.characters.find((c) => c.id === cid);
+    const free = s.players.filter((p) => !keep.has(p.charId));
+    if (!ch || !free.length) continue;
+    const rank = (p) => APT_RANK[(ch.aptitude || {})[p.position]] ?? 9;
+    const target = free.slice().sort((a, b) => rank(a) - rank(b) || s.players.indexOf(b) - s.players.indexOf(a))[0];
+    swapChar(s, data, target, ch);
+  }
+  for (const sid of coaches) {
+    if (s.supports.some((x) => x.id === sid)) continue;
+    let i = s.supports.length - 1;
+    while (i >= 0 && coaches.includes(s.supports[i].id)) i -= 1;
+    const sc = data.supports.find((x) => x.id === sid);
+    if (i >= 0 && sc) s.supports[i] = { id: sid, bond: Number(sc.initialBond) || 0, firedEventIds: [] };
+  }
+  return s;
+}
+
+/** 예시 주인공: 고정이면 그 선수, 아니면 후보 (pos 로 좁힌 선수) 중 이벤트 id 로 정한 한 명 (같은 데이터 = 같은 문서) */
+function exampleProtagonist(s, ev) {
+  if (ev.trigger === "story" && ev.story) return s.players.find((p) => p.charId === ev.story.charId) || null;
+  const who = ev.who || {};
+  const pick = who.pick || (ev.trigger === "outing" ? "partner" : ev.trigger === "coach" ? "coachTarget" : "none");
+  if (pick === "none") return null;
+  if (pick === "char") return s.players.find((p) => p.charId === who.charId) || null;
+  if (ev.trigger === "surprise" && ev.cond && ev.cond.char && ev.cond.char.id) {
+    const p = s.players.find((x) => x.charId === ev.cond.char.id);
+    if (p) return p;
+  }
+  const narrowed = Array.isArray(who.pos) ? s.players.filter((p) => who.pos.includes(p.position)) : [];
+  const pool = narrowed.length ? narrowed : s.players;
+  let h = 0;
+  for (const ch of String(ev.id)) h = (h * 31 + ch.charCodeAt(0)) % 1000003;
+  return pool[h % pool.length] || null;
+}
+
+/** 이벤트 하나의 예시 (상태 · 주인공 · 효과 ctx) */
+export function exampleFor(base, data, ev) {
+  const state = exampleState(base, data, ev);
+  const player = exampleProtagonist(state, ev);
+  const charIds = ev.trigger === "story" && ev.story ? [ev.story.charId] : Array.isArray(ev.chars) ? ev.chars.slice() : [];
+  const ctx = {
+    eventId: ev.id,
+    trigger: ev.trigger,
+    playerId: player ? player.id : null,
+    supportId: (ev.chain && ev.chain.supportId) || (typeof ev.coach === "string" ? ev.coach : null),
+    charIds,
+    policy: typeof ev.policy === "string" ? ev.policy : undefined,
+  };
+  return { state, player, ctx };
 }
 
 function weekCondText(cond) {
@@ -354,12 +333,14 @@ function resultText(r, ev, ci) {
   return String(r ?? "");
 }
 
-/** 한 이벤트 → Markdown 줄 */
-function eventBlock(ev, N) {
+/** 한 이벤트 → Markdown 줄 (효과 칸 = 엔진 미리보기, 예시 편성 · 예시 주인공) */
+function eventBlock(ev, N, data, base) {
+  const ex = exampleFor(base, data, ev);
   const L = [];
   L.push(`#### ${ev.id} — ${ev.title}`);
   L.push(`- 트리거: ${triggerLine(ev, N)}`);
-  L.push(`- 주인공: ${whoLine(ev, N)}`);
+  const fixed = ev.trigger === "story" || (ev.who && ev.who.pick === "char");
+  L.push(`- 주인공: ${whoLine(ev, N)}${ex.player && !fixed ? ` (예시: ${ex.player.name})` : ""}`);
   if (ev.trigger !== "surprise") L.push(`- 배경: ${LE.sceneOf(ev)}${ev.scene ? "" : " (기본)"}`);
   for (const line of String(ev.text || "").split("\n")) L.push(`> ${line}`);
   const alt = ev.alt && ev.alt.banmal;
@@ -378,7 +359,7 @@ function eventBlock(ev, N) {
       const b = resultText(alt.results[ci], ev, ci);
       if (b !== res) res += ` (반말판: ${b})`;
     }
-    L.push(`| ${cell(c.label)} | ${cell(effectsText(c.effects, N, ev))} | ${cell(res)} |`);
+    L.push(`| ${cell(c.label)} | ${cell(LF.describe(ex.state, data, c.effects, ex.ctx).text)} | ${cell(res)} |`);
   });
   L.push("");
   return L;
@@ -391,13 +372,14 @@ function eventBlock(ev, N) {
  */
 export function buildEventsDoc(data) {
   const N = namer(data);
+  const base = exampleBase(data);
   const L = [];
   const files = LE.EVENT_FILES.filter((f) => data[f] && Array.isArray(data[f].events));
   const total = files.reduce((s, f) => s + data[f].events.length, 0);
   L.push("# 레슨 런 이벤트 — 검토용 (생성물)");
   L.push("");
   L.push("> `node tools/events_doc.mjs` 가 `data/lesson_ev_*.json` 에서 만든다. **손으로 고치지 않는다** — 데이터를 고치고 다시 만든다 (LESSON_PROTO_PLAN §24.11).");
-  L.push("> 효과 칸은 데이터에서 만든 짧은 글이다. 게임 화면의 미리보기는 엔진이 그때 상태로 만든다 (이름 · 조사 · 대체값). 자리표시 · 조사 꼴은 데이터 그대로 둔다 (`{선수|이/가}`).");
+  L.push("> 효과 칸은 게임 화면과 같은 엔진 미리보기 (`lessonEffects.describe`) 다 — 예시 편성 (기본 편성 · 기본 코치에 그 이벤트가 부르는 선수 · 코치를 넣은 첫 주 상태) 과 예시 주인공 기준이라, 실제 런에서는 이름 · 대체값 (이미 결장 → 체력, 이미 강화판 → TP, 남은 레슨 없음 → SP …) 이 그때 상태로 바뀐다. 자리표시 · 조사 꼴은 데이터 그대로 둔다 (`{선수|이/가}`).");
   L.push(`> 검사 (\`validateLessonEvents\`) 통과 · 이벤트 ${total}개.`);
   L.push("");
   L.push("| 파일 | 트리거 | 개수 |");
@@ -422,7 +404,7 @@ export function buildEventsDoc(data) {
       if (!evs.length) continue;
       L.push(`### ${LE.TRIGGER_LABELS[t]} (${t}) — ${evs.length}개`);
       L.push("");
-      for (const ev of evs) L.push(...eventBlock(ev, N));
+      for (const ev of evs) L.push(...eventBlock(ev, N, data, base));
     }
     const notes = file.notes && typeof file.notes === "object" ? Object.entries(file.notes) : [];
     if (notes.length) {

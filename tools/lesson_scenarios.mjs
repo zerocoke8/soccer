@@ -6,7 +6,7 @@
 import * as lessonRun from "../js/engine/lessonRun.js";
 import * as manager from "../js/engine/manager.js";
 import * as match from "../js/engine/match.js";
-import { fireEvent } from "../js/engine/run.js"; // og_event 주입 전용 (1차 레슨 런에는 이벤트가 없다 — §7 D1)
+import { fireEvent, eventById } from "../js/engine/lessonEvents.js"; // og_event 주입 전용 (레슨 이벤트 — 데이터 스위치는 꺼 둔 채, §24 E2)
 
 export { lessonRun, manager };
 
@@ -80,19 +80,17 @@ export function lessonRegisteredTeam(data, seed, registeredAt, policy) {
 }
 
 /**
- * 이벤트 모달 (2차 라우팅 확인용 주입): 1차에는 이벤트가 없다 (lesson.events.support = false). 자유 주 주 끝에 유대 60 서포트 이벤트가
- * 났다고 치고 — 편성 코치의 선택지 2개 이상인 서포트 이벤트를 run.fireEvent 로 띄우고, queue 에 advanceWeek 를 남긴다 (주 끝 흐름과 같게).
+ * 이벤트 모달 (2차 레슨 이벤트 주입 — 데이터 스위치는 꺼 둔 채): 자유 주 주 끝에 주 끝 랜덤 이벤트가 났다고 치고 —
+ * 레슨 이벤트 ev_local_kids (data/lesson_ev_week.json 본보기) 를 lessonEvents.fireEvent 로 띄우고, queue 에 advanceWeek 를 남긴다
+ * (주 끝 흐름과 같게 — 고르면 다음 주로).
  */
 function eventInjectedState(data, runSeed) {
   const found = walkLesson(data, { seed: runSeed, until: (s) => s.phase === "week" && s.weekOffer?.kind === "free" });
   if (!found) return null;
   const st = found.state;
-  const ids = new Set(st.supports.map((x) => x.id));
-  const ev = data.events.find((e) => e.trigger === "support" && ids.has(e.supportId) && (e.choices || []).length >= 2);
+  const ev = eventById(data, "ev_local_kids");
   if (!ev) return null;
-  const sup = st.supports.find((x) => x.id === ev.supportId);
-  sup.bond = Math.max(sup.bond, Number(ev.bondAtLeast) || 0);
-  fireEvent(st, data, ev, ev.supportId);
+  fireEvent(st, data, ev, { kind: "week" });
   st.queue = ["advanceWeek"];
   return { state: st, steps: found.steps, eventId: ev.id };
 }
@@ -1653,12 +1651,12 @@ export const LESSON_OG_SCENARIOS = [
   // ---- 이벤트 · 유물 · 루트 · 결과 (레슨 런, I1) ----
   {
     name: "og_event",
-    title: "이벤트 모달 — 유대 60 서포트 이벤트 (2차 라우팅 확인용 주입, 배경 = 주 선택 화면 inert)",
+    title: "이벤트 모달 — 주 끝 랜덤 이벤트 ev_local_kids (레슨 이벤트 주입, 배경 = 주 선택 화면 inert)",
     outgame: true,
     build: (data, { runSeed }) => {
       const found = eventInjectedState(data, runSeed);
       if (!found) throw new Error("[og_event] 이벤트를 주입할 상태를 찾지 못했습니다");
-      return { runState: found.state, steps: found.steps, preferred: true, summary: `${describeLessonRun(found.state)} (이벤트 ${found.eventId} 주입 — 1차에는 나오지 않음)` };
+      return { runState: found.state, steps: found.steps, preferred: true, summary: `${describeLessonRun(found.state)} (레슨 이벤트 ${found.eventId} 주입 — 스위치는 꺼 둠)` };
     },
     ready: "#modal-root .choice-btn",
     expect: { screen: "run", phase: "event", modal: ".modal" },

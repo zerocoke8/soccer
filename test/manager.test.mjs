@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { loadData, clone, match } from "./helpers.mjs";
 import * as LR from "../js/engine/lessonRun.js";
 import * as M from "../js/engine/manager.js";
+import * as LE from "../js/engine/lessonEvents.js";
 import { mainStatsOf as cardsMainOf } from "../js/engine/cards.js";
 import { ZONE_IDS } from "../js/engine/zones.js";
 
@@ -546,4 +547,85 @@ test("§18.8 recommendTeach: 빈 슬롯 후보 중 지금 포지션 주 스탯 2
   const a3 = M.autoStep(s, data);
   assert.ok("pick" in a3.action);
   assert.equal(s.phase, "week");
+});
+
+// ---------------------------------------------------------------------------
+// LESSON_PROTO_PLAN §24.11 — 이벤트 · 카드 3택1 (E2)
+// ---------------------------------------------------------------------------
+
+/** 레슨 이벤트 고정 본보기 (테스트 안) — 기대값: TP 1 = 1.5 · 컨디션 1 = 25 · 강화 25 · 삭제 15 · 3택1 35 */
+const MGR_EVENTS = [
+  { id: "ev_m_cond", trigger: "week", title: "쉬는 날", text: "비가 옵니다.", choices: [
+    { label: "훈련한다", effects: [{ type: "tp", amount: 5 }], result: "땀을 흘렸습니다." },
+    { label: "쉰다", effects: [{ type: "condition", amount: 1 }], result: "푹 쉬었습니다." }] },
+  { id: "ev_m_up", trigger: "week", title: "카드 손질", text: "작전판을 펼칩니다.", choices: [
+    { label: "강화한다", effects: [{ type: "cardPick", op: "upgrade" }], result: "카드가 좋아졌습니다." },
+    { label: "넘긴다", effects: [{ type: "tp", amount: 1 }], result: "다음에 하기로 했습니다." }] },
+  { id: "ev_m_del", trigger: "week", title: "카드 정리", text: "작전판을 정리합니다.", choices: [
+    { label: "버린다", effects: [{ type: "cardPick", op: "delete" }], result: "가벼워졌습니다." },
+    { label: "넘긴다", effects: [{ type: "tp", amount: 5 }], result: "다음에 하기로 했습니다." }] },
+  { id: "ev_m_offer", trigger: "week", title: "후원자", text: "상자가 왔습니다.", choices: [
+    { label: "연다", effects: [{ type: "rewardOffer" }], result: "카드가 들어 있습니다." },
+    { label: "돌려보낸다", effects: [{ type: "tp", amount: 10 }], result: "돌려보냈습니다." }] },
+];
+
+function mgrData() {
+  const d = clone(data);
+  for (const f of LE.EVENT_FILES) d[f] = { version: 1, notes: {}, events: [] };
+  d.lesson_ev_week = { version: 1, notes: {}, events: clone(MGR_EVENTS) };
+  return d;
+}
+
+test("§24.11 recommendEventChoice (기대값이 큰 쪽 · 고르는 카드 uid = 상담 강화 / 가장 약한 공용 삭제) · recommendCardOffer (보상과 같은 규칙) · autoStep 이 고르고 흐름을 잇는다 · 상태 불변", () => {
+  const d = mgrData();
+  const fire = (id) => {
+    const s = LR.createRun({ data: d, seed: 4, policy: "team" });
+    LE.fireEvent(s, d, LE.eventById(d, id), {});
+    s.queue = ["advanceWeek"];
+    return s;
+  };
+  const step = (s, want) => {
+    const before = JSON.stringify(s);
+    const rec = want.phase === "cardOffer" ? M.recommendCardOffer(s, d) : M.recommendEventChoice(s, d);
+    assert.equal(JSON.stringify(s), before, "추천이 상태 (rngState 포함) 를 바꿨습니다");
+    const r = M.autoStep(s, d, { playMatch });
+    assert.equal(r.phase, want.phase);
+    same(r.action, rec);
+    return rec;
+  };
+  // 컨디션 +1 (25) > TP +5 (7.5)
+  const a = fire("ev_m_cond");
+  assert.deepEqual(step(a, { phase: "event" }), { choice: 1 });
+  assert.equal(a.phase, "week");
+  assert.equal(a.lastEvent.choice, 1);
+  // 강화 (25) > TP +1 — uid = 고유가 아닌 첫 강화 가능 카드 (상담 강화와 같다)
+  const u = fire("ev_m_up");
+  const up = step(u, { phase: "event" });
+  assert.equal(up.choice, 0);
+  assert.equal(u.deck.find((e) => e.uid === up.uid).cardId, "cd_basic");
+  assert.equal(u.deck.find((e) => e.uid === up.uid).plus, true);
+  // 삭제 (15) > TP +5 (7.5) — uid = 가장 약한 공용 (cd_basic → cd_coaching …)
+  const x = fire("ev_m_del");
+  const n = x.deck.length;
+  const del = step(x, { phase: "event" });
+  assert.equal(del.choice, 0);
+  assert.equal(x.deck.length, n - 1);
+  assert.ok(!x.deck.some((e) => e.cardId === "cd_basic"), "기초 훈련부터 지운다");
+  // 3택1 (35) > TP +10 (15) → phase cardOffer → 방침 > 코치 > 고유 강화 > 공용
+  const o = fire("ev_m_offer");
+  assert.deepEqual(step(o, { phase: "event" }), { choice: 0 });
+  assert.equal(o.phase, "cardOffer");
+  o.pendingCardOffer.cards = [{ cardId: "cd_one_two", plus: true, kind: "add" }, { cardId: "cd_c_harr", plus: false, kind: "add" }, { cardId: "cd_one_team", plus: false, kind: "add" }];
+  const o2 = clone(o);
+  assert.deepEqual(step(o, { phase: "cardOffer" }), { pick: 2 });
+  assert.equal(o.deck.at(-1).cardId, "cd_one_team");
+  assert.equal(o.phase, "week");
+  // 덱이 20장을 넘으면 카드 추가는 건너뛴다 (TP)
+  while (o2.deck.length <= 20) o2.deck.push({ uid: `k${o2.nextUid++}`, cardId: "cd_basic", plus: false });
+  const tp = o2.trainingPoints;
+  assert.deepEqual(step(o2, { phase: "cardOffer" }), { pick: null });
+  assert.equal(o2.trainingPoints, tp + 10);
+  // 감독 AI 는 rng 를 쓰지 않는다 (위 "rng 없음" 테스트) — 추천은 뷰 (recommended) 와 같다
+  const v = fire("ev_m_cond");
+  assert.equal(LR.getEventView(v, d).choices.findIndex((c) => c.recommended), M.recommendEventChoice(v, d).choice);
 });

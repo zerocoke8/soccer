@@ -1,18 +1,24 @@
 /**
  * lessonEvents.js — 레슨 런 이벤트 (LESSON_PROTO_PLAN §24.3 · §24.5.1).
  *
- * E1 (이 판): 데이터 읽기 · 검사.
+ * E1: 데이터 읽기 · 검사 (E2 가 "cardPick 은 한 선택지에 하나까지" 규칙을 더했다 — 고르는 카드 uid 는 한 장).
  *   - EVENT_FILES: data/lesson_ev_*.json 7개 (js/ui/app.js · test/helpers.mjs · tools/lesson_sim.mjs · tools/scenarios.mjs 의 목록과 같다 —
  *     test/lessonContent 가 비교한다). 파일마다 `{ version: 1, notes: { [charId|supportId]: { arc, setting[] } }, events: [] }`.
  *   - allEvents(data) · eventById(data, id): 7개 파일을 이어 붙여 한 목록으로 본다 (없는 파일은 건너뛴다, 캐시 없음).
  *   - validateLessonEvents(data): §24.3.7 규칙 전부. 오류를 모두 모아 "레슨 이벤트 데이터: …" 한 번에 throw, 통과면 true.
  *   - setEventSwitches(lesson, on): lesson.json events 의 기능 스위치를 모두 켜거나 끈다 (테스트 · 도구용 — 데이터 사본에).
- * E2 ~ E4 가 주인공 · 띄우기 · 뷰 · 고르기 · 흐름 자격 · 코치 · 이야기를 더한다.
+ * E2 (이 판): 주인공 pickProtagonist · 띄우기 fireEvent · 뷰 getEventView · 고르기 resolveEvent · 감독 AI 기대값 choiceScore.
+ *   - resolveEvent 는 효과 · 결과 문구 · lastEvent · 기록 갈고리까지 하고 phase 를 "flow" 로 둔다. 흐름 잇기 (continueFlow) 는
+ *     lessonRun.resolveEvent 가 한다 (lessonEvents 는 lessonRun 을 import 하지 않는다 — 순환 import 방지).
+ * E3 · E4 가 흐름 자격 · 코치 · 이야기를 더한다.
  *
- * 순수 로직: DOM/Date/Math.random/localStorage 를 쓰지 않는다. setEventSwitches 말고는 입력을 바꾸지 않는다.
+ * 순수 로직: DOM/Date/Math.random/localStorage 를 쓰지 않는다. 상태를 바꾸는 함수 (fireEvent · resolveEvent · setEventSwitches) 말고는
+ * 입력을 바꾸지 않는다. rng 는 state.rngState 로만 (fireEvent · resolveEvent 가 한 번 열고 나갈 때 저장), 뷰 · 기대값은 rng 를 쓰지 않는다.
  */
-import { TRIGGERS, TRIGGER_LABELS, effectErrors, buildRefIndex } from "./lessonEffects.js";
-import { scanText, bareJosaErrors } from "./lessonText.js";
+import { createRngFromState } from "./rng.js";
+import { logLine } from "./run.js";
+import { TRIGGERS, TRIGGER_LABELS, effectErrors, buildRefIndex, describe, applyEffects, effectNeeds, scoreEffects } from "./lessonEffects.js";
+import { scanText, bareJosaErrors, fillText, pickText } from "./lessonText.js";
 import { POSITIONS } from "./training.js";
 import { ZONE_IDS } from "./zones.js";
 import { POLICY_FAMILIES } from "./cards.js";
@@ -484,6 +490,9 @@ function eventErrors(ev, { data, ix, lastWeek, err }) {
       const rnd = c.effects.find((e) => isObj(e) && e.type === "random");
       const paths = rnd ? ["then", "else"].map((s) => [...top, ...(Array.isArray(rnd[s]) ? rnd[s].filter(isObj).map((e) => e.type) : [])]) : [top];
       if (paths.some((p) => p.includes("relic") && p.includes("rewardOffer"))) err(`${at}: 한 선택지 (갈래) 에 relic 과 rewardOffer 를 같이 쓰지 않는다`);
+      // 고르는 카드 (uid) 는 한 번에 하나 — 갈래 둘을 합쳐 cardPick 하나까지 (E2 · §24.5.3)
+      const picks = [...top, ...(rnd ? ["then", "else"].flatMap((s) => (Array.isArray(rnd[s]) ? rnd[s].filter(isObj).map((e) => e.type) : [])) : [])].filter((t) => t === "cardPick").length;
+      if (picks > 1) err(`${at}: cardPick 은 한 선택지에 하나까지 (갈래를 합쳐서 — 고르는 카드는 한 장, 지금 ${picks}개)`);
     }
     const r = c.result;
     if (isBranch(r)) {
@@ -673,4 +682,307 @@ function charCondRule(v, ix) {
   if (v.zone !== undefined && !ZONE_IDS.includes(v.zone)) out.push(`zone 은 ${ZONE_IDS.join(" · ")} 중 하나`);
   for (const k of ["aloneInZone", "movedThisTurn", "targetedThisTurn", "ownCardThisTurn"]) if (v[k] !== undefined && v[k] !== true) out.push(`${k} 는 true 만`);
   return out.length ? out : true;
+}
+
+// ---------------------------------------------------------------------------
+// E2 — 주인공 · 띄우기 · 뷰 · 고르기 (§24.3.4 · §24.5.2 · §24.11)
+// ---------------------------------------------------------------------------
+
+/** 깜짝 전용 주인공 고르기 (E5 — 레슨 안 턴 기록이 필요하다) */
+const SURPRISE_PICKS = ["turnFailer", "streaker", "coachCardTarget", "multiTarget", "mostTargeted"];
+
+/** 이벤트 종류 배지 (§24.13) */
+export const KIND_BADGES = Object.freeze({
+  week: "주 끝", seasonStart: "시즌 시작", preMatch: "경계전 전야", route: "루트", outing: "외출", story: "이야기", coach: "코치", surprise: "레슨 깜짝",
+});
+
+const isInjured = (p) => (Number(p && p.injuredTurns) || 0) > 0;
+const playerOf = (state, id) => (id ? (state.players || []).find((p) => p.id === id) || null : null);
+const supportOf = (data, id) => (id ? (data.supports || []).find((s) => s && s.id === id) || null : null);
+
+/** 그 이벤트의 기본 who.pick (who 가 없을 때 — 외출 · 이야기 = 외출 상대, 코치 = coachTarget, 그 밖 = 없음) */
+function defaultPick(ev) {
+  if (ev.trigger === "outing" || ev.trigger === "story") return "partner";
+  if (ev.trigger === "coach") return "coachTarget";
+  return "none";
+}
+
+/**
+ * 주인공 ({선수}) 을 고른다 (§24.3.4). 결장 선수는 빼고 (외출 상대만 예외), 무작위 · 같은 값 깨기에만 rng 를 쓴다.
+ *   none → null · random → 결장 아닌 선수 중 (pos = 배치 포지션으로 좁힌다, 좁혀서 없으면 결장 아닌 선수 전원) ·
+ *   char → who.charId 선수 (편성 안 됐으면 random) · lowestStamina / highestStamina → 체력 최저 / 최고 (같으면 무작위, pos 가능) ·
+ *   partner → ctx.partnerId (결장이어도) · coachTarget → 지금은 random (E4 가 바꾼다) · 이야기 → 그 캐릭터 선수.
+ *   ctx.playerId 가 있으면 그 선수 (도구 · 테스트용 — 주입).
+ * 깜짝 전용 (turnFailer …) 은 E5.
+ * @param {object} state
+ * @param {object} data
+ * @param {object} ev
+ * @param {{ playerId?: string, partnerId?: string }} [ctx]
+ * @param {object} rng  createRngFromState 로 연 rng (저장은 부르는 쪽)
+ * @returns {string|null} 선수 id
+ */
+export function pickProtagonist(state, data, ev, ctx = {}, rng) {
+  const c = ctx || {};
+  if (c.playerId) {
+    if (!playerOf(state, c.playerId)) throw new Error(`주인공 '${c.playerId}' 이(가) 편성에 없습니다`);
+    return c.playerId;
+  }
+  if (ev.trigger === "story" && isObj(ev.story)) {
+    const p = state.players.find((x) => x.charId === ev.story.charId);
+    if (p) return p.id;
+    if (playerOf(state, c.partnerId)) return c.partnerId;
+    throw new Error(`이야기 ${ev.id}: ${ev.story.charId} 이(가) 편성에 없습니다`);
+  }
+  const who = isObj(ev.who) ? ev.who : {};
+  let pick = who.pick || defaultPick(ev);
+  if (SURPRISE_PICKS.includes(pick)) throw new Error(`주인공 '${pick}' 은(는) 레슨 깜짝 (E5) 에서 정한다`);
+  switch (pick) {
+    case "none":
+      return null;
+    case "partner": {
+      const p = playerOf(state, c.partnerId);
+      if (!p) throw new Error(`${ev.id}: 외출 상대 (ctx.partnerId) 가 없습니다`);
+      return p.id;
+    }
+    case "char": {
+      const p = state.players.find((x) => x.charId === who.charId);
+      if (p) return p.id;
+      pick = "random";
+      break;
+    }
+    case "coachTarget":
+      pick = "random"; // E4: 이번 런 코치 카드 대상 최다 → 코치 종목 주 스탯 → 무작위
+      break;
+    default:
+      break;
+  }
+  const healthy = state.players.filter((p) => !isInjured(p));
+  const base = healthy.length ? healthy : state.players.slice();
+  const narrowed = Array.isArray(who.pos) && who.pos.length ? base.filter((p) => who.pos.includes(p.position)) : base;
+  const pool = narrowed.length ? narrowed : base;
+  if (!pool.length) return null;
+  if (pick === "lowestStamina" || pick === "highestStamina") {
+    const sign = pick === "lowestStamina" ? 1 : -1;
+    const best = Math.min(...pool.map((p) => sign * (Number(p.stamina) || 0)));
+    const tied = pool.filter((p) => sign * (Number(p.stamina) || 0) === best);
+    return tied.length === 1 ? tied[0].id : rng.pick(tied).id;
+  }
+  return rng.pick(pool).id;
+}
+
+/** 뷰 · 효과용 선수 모양 */
+function playerBrief(p) {
+  if (!p) return null;
+  return {
+    id: p.id, charId: p.charId, name: p.name, portraitColor: p.portraitColor || "#888888", slot: p.slot, position: p.position,
+    stamina: p.stamina, injured: isInjured(p),
+  };
+}
+
+/** currentEvent 에 남길 ctx (JSON 값만) */
+function plainCtx(ctx) {
+  const out = {};
+  for (const [k, v] of Object.entries(ctx || {})) {
+    if (v === null || ["string", "number", "boolean"].includes(typeof v)) out[k] = v;
+  }
+  return out;
+}
+
+/**
+ * 이벤트를 띄운다 (§24.5.1): 주인공 · 코치 · 등장 선수 → state.currentEvent, 사용 기록 (usedEventIds · 시즌 1회면 usedEventSeasons),
+ * eventSeq + 1, phase "event". rng = 주인공 고르기에만 (한 번 열고 저장).
+ * @param {object} state
+ * @param {object} data
+ * @param {object} ev  레슨 이벤트 (data/lesson_ev_*.json 안에 있어야 한다)
+ * @param {{ kind?: string, partnerId?: string, playerId?: string, supportId?: string, routeId?: string, free?: boolean }} [ctx]
+ * @returns {object} state
+ */
+export function fireEvent(state, data, ev, ctx = {}) {
+  if (!state || typeof state !== "object") throw new Error("state 가 없습니다");
+  if (!isObj(ev) || typeof ev.id !== "string") throw new Error("이벤트가 없습니다");
+  if (!eventById(data, ev.id)) throw new Error(`레슨 이벤트 '${ev.id}' 이(가) 데이터에 없습니다`);
+  if (ev.trigger === "surprise") throw new Error("깜짝 이벤트는 레슨 안에서 띄운다 (E5)");
+  if (state.currentEvent) throw new Error(`이미 떠 있는 이벤트가 있습니다 (${state.currentEvent.eventId})`);
+  const c = ctx || {};
+  const rng = createRngFromState(state.rngState);
+  const playerId = pickProtagonist(state, data, ev, c, rng);
+  state.rngState = rng.getState();
+  const supportId = c.supportId || (ev.trigger === "coach" && isObj(ev.chain) ? ev.chain.supportId : null) || (typeof ev.coach === "string" ? ev.coach : null) || null;
+  let charIds = [];
+  if (ev.trigger === "story" && isObj(ev.story)) charIds = [ev.story.charId];
+  else if (Array.isArray(ev.chars)) charIds = ev.chars.filter((id) => state.players.some((p) => p.charId === id));
+  state.currentEvent = { eventId: ev.id, playerId, supportId, charIds, kind: c.kind || ev.trigger, ctx: plainCtx(c) };
+  if (!Array.isArray(state.usedEventIds)) state.usedEventIds = [];
+  if (!state.usedEventIds.includes(ev.id)) state.usedEventIds.push(ev.id);
+  if (ev.once === "season") {
+    if (!isObj(state.usedEventSeasons)) state.usedEventSeasons = {};
+    const list = Array.isArray(state.usedEventSeasons[ev.id]) ? state.usedEventSeasons[ev.id] : [];
+    if (!list.includes(state.season)) state.usedEventSeasons[ev.id] = [...list, state.season];
+  }
+  state.eventSeq = (Number(state.eventSeq) || 0) + 1;
+  state.phase = "event";
+  return state;
+}
+
+/** 효과 ctx (lessonEffects) */
+function effectCtx(ev, cur) {
+  return {
+    eventId: ev.id,
+    trigger: ev.trigger,
+    playerId: cur.playerId || null,
+    supportId: cur.supportId || null,
+    charIds: Array.isArray(cur.charIds) ? cur.charIds.slice() : [],
+    policy: typeof ev.policy === "string" ? ev.policy : undefined,
+  };
+}
+
+/** 글 자리표시 값 */
+function textVars(state, data, cur) {
+  const p = playerOf(state, cur.playerId);
+  const sc = supportOf(data, cur.supportId);
+  return { player: p ? p.name : undefined, coach: sc ? sc.name : undefined, season: state.season };
+}
+
+/** 종류 배지 (§24.13): "주 끝" · "이야기 2/3화" · "코치 · 첫 만남 / 유대 40 / 유대 80" … */
+function badgeOf(ev, kind) {
+  if (ev.trigger === "story" && isObj(ev.story)) return `이야기 ${ev.story.ep}/${STORY_EPS.length}화`;
+  if (ev.trigger === "coach" && isObj(ev.chain)) return ev.chain.step === 1 ? "코치 · 첫 만남" : `코치 · 유대 ${ev.bondAtLeast}`;
+  return KIND_BADGES[kind] || KIND_BADGES[ev.trigger] || "이벤트";
+}
+
+function currentOrThrow(state, data) {
+  if (!state || state.phase !== "event") throw new Error(`phase 'event' 에서만 가능합니다 (현재 '${state && state.phase}')`);
+  const cur = state.currentEvent;
+  if (!cur) throw new Error("currentEvent 가 없습니다");
+  const ev = eventById(data, cur.eventId);
+  if (!ev) throw new Error(`레슨 이벤트 '${cur.eventId}' 을(를) 찾을 수 없습니다`);
+  return { cur, ev };
+}
+
+/**
+ * 이벤트 모달 뷰 (§24.5.2). 순수 — rng · 상태 변경 없음.
+ * 지금 screens/event.js 가 읽는 모양 (title · text · player · support · choices[{ text, preview }]) 에
+ * kind · badge · scene · art { charIds, supportId } · players (짝) · choices[].lines · .needs · .recommended 를 더했다.
+ * 글은 lessonText 로 채운다 (조사 · 반말판).
+ */
+export function getEventView(state, data) {
+  const { cur, ev } = currentOrThrow(state, data);
+  const player = playerOf(state, cur.playerId);
+  const sc = supportOf(data, cur.supportId);
+  const supState = sc ? (state.supports || []).find((s) => s.id === sc.id) || null : null;
+  const vars = textVars(state, data, cur);
+  const fill = (s) => fillText(s, vars);
+  const texts = pickText(ev, player ? player.charId : null, data);
+  const ctx = effectCtx(ev, cur);
+  const charIds = Array.isArray(cur.charIds) && cur.charIds.length ? cur.charIds.slice() : player ? [player.charId] : [];
+  const pairPlayers = Array.isArray(cur.charIds) && cur.charIds.length >= 2
+    ? cur.charIds.map((id) => state.players.find((p) => p.charId === id)).filter(Boolean)
+    : player ? [player] : [];
+  const view = {
+    eventId: ev.id,
+    trigger: ev.trigger,
+    kind: cur.kind || ev.trigger,
+    badge: badgeOf(ev, cur.kind || ev.trigger),
+    scene: sceneOf(ev),
+    title: fill(ev.title),
+    text: fill(texts.text),
+    art: { charIds, supportId: cur.supportId || null },
+    player: playerBrief(player),
+    players: pairPlayers.map(playerBrief),
+    support: sc ? { id: sc.id, name: sc.name, portraitColor: sc.portraitColor || "#888888", type: sc.type, bond: supState ? supState.bond : null } : null,
+    choices: [],
+  };
+  view.choices = ev.choices.map((c) => {
+    const d = describe(state, data, c.effects, ctx);
+    const label = fill(c.label);
+    return { text: label, label, preview: d.text, lines: d.lines, needs: effectNeeds(state, data, c.effects), recommended: false };
+  });
+  const scores = view.choices.map((_, i) => choiceScore(state, data, view, i));
+  let best = 0;
+  scores.forEach((s, i) => {
+    if (s > scores[best]) best = i;
+  });
+  if (view.choices[best]) view.choices[best].recommended = true;
+  return view;
+}
+
+/**
+ * 선택지 i 의 기대값 (감독 AI · 추천 배지 — §24.11 [가정]). 순수.
+ * view = getEventView 결과 (eventId · player · support) — E5 의 깜짝 뷰 ({ id, playerId }) 도 받는다.
+ * @returns {number}
+ */
+export function choiceScore(state, data, view, i) {
+  const ev = eventById(data, view && (view.eventId || view.id));
+  if (!ev) throw new Error(`레슨 이벤트 '${view && (view.eventId || view.id)}' 을(를) 찾을 수 없습니다`);
+  const c = ev.choices[i];
+  if (!c) throw new Error(`선택지 번호가 잘못되었습니다: ${i}`);
+  const ctx = {
+    eventId: ev.id,
+    trigger: ev.trigger,
+    playerId: (view.player && view.player.id) || view.playerId || null,
+    supportId: (view.support && view.support.id) || view.supportId || null,
+    charIds: (view.art && view.art.charIds) || [],
+    policy: typeof ev.policy === "string" ? ev.policy : undefined,
+  };
+  return scoreEffects(state, data, c.effects, ctx);
+}
+
+/**
+ * 고른 뒤 기록 갈고리 (E4 가 채운다 — 이야기 storySeen · 코치 단계). 지금은 아무것도 하지 않는다.
+ * @param {object} _state
+ * @param {object} _data
+ * @param {object} _ev
+ * @param {{ choice: number, branch: string|null, kind: string, playerId: string|null, supportId: string|null, ctx: object }} _info
+ */
+function onEventResolved(_state, _data, _ev, _info) {}
+
+/**
+ * 이벤트 선택지를 고른다 (§24.5.2). 검사를 먼저 끝내고 (선택지 번호 · 고르는 카드 uid · 글) 그 뒤에 바꾼다.
+ * rng 를 한 번 열어 효과를 적용하고 저장 → state.lastEvent { seq, eventId, title, kind, choice, label, branch, result, lines } →
+ * 로그 → currentEvent 비움 → 기록 갈고리 → phase "flow". 흐름 잇기는 부르는 쪽 (lessonRun.resolveEvent → continueFlow).
+ * @param {object} state
+ * @param {object} data
+ * @param {number} choiceIndex
+ * @param {{ uid?: string }} [opts]  고르는 선택지 (cardPick) 면 덱 카드 uid 가 꼭 있어야 한다
+ * @returns {object} state
+ */
+export function resolveEvent(state, data, choiceIndex, { uid } = {}) {
+  const { cur, ev } = currentOrThrow(state, data);
+  const idx = Number(choiceIndex);
+  if (!Number.isInteger(idx) || idx < 0 || idx >= ev.choices.length) {
+    throw new Error(`선택지 번호가 잘못되었습니다: ${choiceIndex} (0~${ev.choices.length - 1})`);
+  }
+  const choice = ev.choices[idx];
+  const player = playerOf(state, cur.playerId);
+  const vars = textVars(state, data, cur);
+  const fill = (s) => fillText(s, vars);
+  // 글을 먼저 채운다 (바꾸기 전에 실패하게)
+  const title = fill(ev.title);
+  const label = fill(choice.label);
+  const raw = pickText(ev, player ? player.charId : null, data).results[idx];
+  const results = isBranch(raw) ? { then: fill(raw.then), else: fill(raw.else) } : { then: fill(raw), else: fill(raw) };
+  // 적용 (applyEffects 가 uid · 레슨 안 효과 · 주인공을 바꾸기 전에 검사한다)
+  const ctx = { ...effectCtx(ev, cur), uid: uid === undefined || uid === null ? undefined : String(uid) };
+  const rng = createRngFromState(state.rngState);
+  const out = applyEffects(state, data, choice.effects, ctx, rng);
+  state.rngState = rng.getState();
+  const result = out.branch === "else" ? results.else : results.then;
+  state.lastEvent = {
+    seq: Number(state.eventSeq) || 0,
+    eventId: ev.id,
+    title,
+    kind: cur.kind || ev.trigger,
+    choice: idx,
+    label,
+    branch: out.branch,
+    result,
+    lines: out.lines.slice(),
+    playerId: cur.playerId || null,
+    supportId: cur.supportId || null,
+  };
+  logLine(state, `[${title}] ${label} → ${out.lines.length ? out.lines.join(", ") : "효과 없음"}`);
+  state.currentEvent = null;
+  onEventResolved(state, data, ev, { choice: idx, branch: out.branch, kind: cur.kind || ev.trigger, playerId: cur.playerId || null, supportId: cur.supportId || null, ctx: cur.ctx || {} });
+  state.phase = "flow";
+  return state;
 }

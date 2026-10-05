@@ -495,11 +495,70 @@ export function recommendPrep(_state, _data) {
 }
 
 // ---------------------------------------------------------------------------
+// 이벤트 · 카드 3택1 (LESSON_PROTO_PLAN §24.11)
+// ---------------------------------------------------------------------------
+
+/**
+ * 이벤트 고를 카드 (cardPick) 추천. 순수.
+ *   강화 = 상담 강화와 같은 규칙 (고유가 아닌 첫 강화 가능 카드, 없으면 첫 후보),
+ *   삭제 = 가장 약한 공용 카드 (상담 삭제 순서 cd_basic → cd_coaching, 그다음 강화 안 된 공용 → 공용 → 첫 후보).
+ * @param {{ op: "upgrade"|"delete", candidates: Array<{ uid: string, cardId: string, plus: boolean }> }} needs
+ * @returns {string|null} uid
+ */
+function recommendPickUid(state, data, needs) {
+  const list = needs && Array.isArray(needs.candidates) ? needs.candidates : [];
+  if (!list.length) return null;
+  const fam = (c) => cards.getCard(data, c.cardId).family;
+  if (needs.op === "upgrade") return (list.find((c) => fam(c) !== "unique") || list[0]).uid;
+  for (const id of CONSULT_DELETE_IDS) {
+    const c = list.find((x) => x.cardId === id && !x.plus) || list.find((x) => x.cardId === id);
+    if (c) return c.uid;
+  }
+  return (list.find((c) => fam(c) === "common" && !c.plus) || list.find((c) => fam(c) === "common") || list[0]).uid;
+}
+
+/**
+ * 이벤트 선택지 추천 (§24.11): 기대값 (lessonEvents.choiceScore — 뷰의 recommended) 이 큰 쪽, 같으면 0번.
+ * 고르는 선택지면 uid 도 고른다. 순수 · rng 없음.
+ * @returns {{ choice: number, uid?: string }}
+ */
+export function recommendEventChoice(state, data) {
+  const v = LR.getEventView(state, data);
+  let choice = v.choices.findIndex((c) => c.recommended);
+  if (choice < 0) choice = 0;
+  const needs = v.choices[choice] && v.choices[choice].needs;
+  const uid = needs && needs.candidates.length ? recommendPickUid(state, data, needs) : null;
+  return uid ? { choice, uid } : { choice };
+}
+
+/**
+ * 이벤트 보상 카드 3택1 추천 (§24.11 — 레슨 보상 추천과 같은 규칙): 방침 > 코치 > 고유 강화 > 공용 (같으면 강화판, 그다음 번호 순),
+ * 덱이 20장을 넘으면 카드 추가는 건너뛴다. 순수.
+ * @returns {{ pick: number|null }}
+ */
+export function recommendCardOffer(state, data) {
+  const v = LR.getCardOfferView(state, data);
+  const deckFull = state.deck.length > REWARD_DECK_MAX;
+  let pick = null;
+  let bestKey = null;
+  v.cards.forEach((o, i) => {
+    if (deckFull && o.kind !== "upgrade") return;
+    const key = rewardRank(state, o) * 2 + (o.plus ? 1 : 0);
+    if (bestKey === null || key > bestKey) {
+      bestKey = key;
+      pick = i;
+    }
+  });
+  return { pick };
+}
+
+// ---------------------------------------------------------------------------
 // 한 단계 진행
 // ---------------------------------------------------------------------------
 
 /**
- * 감독 AI 로 한 단계 진행한다 (상태를 바꾼다). 유물은 첫 번째, 루트는 (season − 1) % 루트 수 번째.
+ * 감독 AI 로 한 단계 진행한다 (상태를 바꾼다). 유물은 첫 번째, 루트는 (season − 1) % 루트 수 번째,
+ * 이벤트는 recommendEventChoice (고르는 카드 포함), 카드 3택1 은 recommendCardOffer.
  * @param {object} state
  * @param {object} data
  * @param {{ playMatch?: (setup: object) => object }} [opts] match phase 에서 playMatch(getMatchSetup 결과) → 경기 결과
@@ -568,8 +627,14 @@ export function autoStep(state, data, { playMatch } = {}) {
       return { phase, action: { routeId: id } };
     }
     case "event": {
-      LR.resolveEvent(state, data, 0);
-      return { phase, action: { choice: 0 } };
+      const a = recommendEventChoice(state, data);
+      LR.resolveEvent(state, data, a.choice, a.uid ? { uid: a.uid } : {});
+      return { phase, action: a };
+    }
+    case "cardOffer": {
+      const a = recommendCardOffer(state, data);
+      LR.resolveCardOffer(state, data, a);
+      return { phase, action: a };
     }
     case "finished":
       return { phase, action: null };

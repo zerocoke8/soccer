@@ -451,7 +451,7 @@ test("lesson.json v2 기본 모양 (§14.13)", () => {
   assert.equal(L.buffs.pressRestHeal, undefined);
   assert.equal(L.buffs.possNoMF, undefined);
   assert.equal(L.buffs.possNoPass, 2);
-  assert.equal(L.events.support, false);
+  assert.equal(L.events.support, undefined); // 옛 유대 60 스위치는 E2 (§24.3.6) 가 지웠다
   assert.equal(L.routeOverrides.rt_hotspring.freeOuting, 1);
   assert.ok(data.routes.some((r) => r.id === "rt_hotspring"));
   assert.deepEqual(data.policies.policies.map((p) => p.id), cards.POLICY_FAMILIES);

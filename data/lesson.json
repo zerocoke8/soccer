@@ -74,7 +74,6 @@
     "rt_hotspring": { "description": "전원 체력 100·컨디션 최고 단계로 회복. 다음 시즌 첫 주에 주를 쓰지 않는 외출 1번", "freeOuting": 1 }
   },
   "events": {
-    "support": false,
     "week": false, "seasonStart": false, "preMatch": false, "route": false, "outing": false,
     "coach": { "enabled": false, "firstMeet": "account", "gapWeeks": 1 },
     "surprise": { "enabled": false, "chance": 0.5, "fromTurn": 2 },

@@ -12,13 +12,13 @@ export const KEYS = {
   challengeMatch: `${STORAGE_PREFIX}challengeMatch`, // 진행 중인 도전 경기 { version, teamId, stage, attempt, resets, seed, team, match } — 시작 화면 [도전 모드] 가 이어서 한다
 };
 /**
- * 레슨 런 저장본인가 — 엔진 lessonRun.isLessonRunSave 와 같은 검사 (kind "lessonRun" · version 1 ~ 4 · phase 문자열).
- * version 1 ~ 3 은 continueRun 이 엔진 migrateLessonRun 으로 4 로 올린다 (1 은 레슨 · 보상 중이면 못 올린다, §14.15 · §18.7 · §19.13).
+ * 레슨 런 저장본인가 — 엔진 lessonRun.isLessonRunSave 와 같은 검사 (kind "lessonRun" · version 1 ~ 5 · phase 문자열).
+ * version 1 ~ 4 는 continueRun 이 엔진 migrateLessonRun 으로 5 로 올린다 (1 은 레슨 · 보상 중이면 못 올린다, §14.15 · §18.7 · §19.13 · §24.10).
  * store 는 엔진을 정적으로 불러오지 않으므로(엔진 로드가 실패해도 시작 화면은 뜬다) 여기 사본을 두고, test/outgame.test.mjs 가 엔진과 같은지 확인한다.
  */
 export const LESSON_RUN_KIND = 'lessonRun';
-export const LESSON_RUN_VERSION = 4;
-export const LESSON_RUN_SAVE_VERSIONS = [1, 2, 3, 4];
+export const LESSON_RUN_VERSION = 5;
+export const LESSON_RUN_SAVE_VERSIONS = [1, 2, 3, 4, 5];
 export function isLessonRunSave(s) {
   return !!s && typeof s === 'object' && s.kind === LESSON_RUN_KIND && LESSON_RUN_SAVE_VERSIONS.includes(s.version) && typeof s.phase === 'string';
 }

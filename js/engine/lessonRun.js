@@ -9,8 +9,11 @@
  *   - 주 행동 (applyWeekAction) · 레슨 (playCard …) · 보상 (코치 수업 resolveTeach → resolveReward, §18.4) · 상담 (consultAction · endConsult) ·
  *     경기 전 준비 (confirmPrep) 는 이 모듈의 phase 다.
  *   - 주 끝 · 시즌 끝처럼 이어지는 단계는 state.queue (문자열 배열) 에 넣고 continueFlow 가 멈추는 phase 까지 처리한다.
+ *   - 2차 이벤트 (§24, E2): 이벤트 뷰 · 고르기는 lessonEvents (getEventView · resolveEvent → 여기서 continueFlow), 효과는 lessonEffects.
+ *     "보상 카드 3택1" 효과 = phase cardOffer (getCardOfferView · resolveCardOffer). 덱 · 유대 · 수업 도우미는 lessonCommon.
  *
- * queue 단계: "beginWeek" · "supportEventCheck" · "advanceWeek" · "seasonEnd" · "routeFriendly"
+ * queue 단계: "beginWeek" · "supportEventCheck" (E2 부터 아무것도 하지 않는다 — E3 이 weekSlot 의 별칭으로) · "advanceWeek" ·
+ *   "seasonEnd" · "routeFriendly"
  *
  * 순수 로직: DOM/fetch/Date/Math.random/localStorage 를 쓰지 않는다. 상태는 JSON 순수 객체.
  * 난수는 state.rngState 로만 쓰고, 함수에 들어올 때 열어 나가기 직전에 저장한다 (다른 rng 함수를 부르는 동안에는 들고 있지 않는다).
@@ -20,8 +23,6 @@ import { createRng, createRngFromState } from "./rng.js";
 import {
   STATS,
   STAT_LABELS,
-  MAX_HINT_LEVEL,
-  MAX_LEARNED_SKILLS as MAX_SKILL_SLOTS,
   clamp,
   getModifier,
   resolveRest,
@@ -33,14 +34,35 @@ import * as lesson from "./lesson.js";
 import * as zones from "./zones.js";
 import { applyEffects } from "./effects.js";
 import * as passives from "./passives.js";
+import * as lessonEvents from "./lessonEvents.js";
+import * as lessonEffects from "./lessonEffects.js";
+import {
+  LD,
+  supportCard,
+  coachCardOf,
+  skillById,
+  isActiveSkill,
+  declineSpOf,
+  addBond,
+  addToDeck,
+  acquireBond,
+  deckEntry,
+  upgradable,
+  cardPrice,
+  canTeachSkill,
+  drawHint,
+  drawHintFrom,
+  teachEntry,
+  rollRewardOffer,
+} from "./lessonCommon.js";
 
 // run.js 에서 그대로 다시 내보내는 것 (같은 이름 · 같은 동작).
 // getMatchSetup · buildTeamSnapshot 은 다시 내보내지 않고 아래에서 감싼다 — 부상은 레슨에만 (§18.1, 유스 교체 없음).
+// 이벤트 뷰는 2차 레슨 이벤트 (lessonEvents.getEventView, §24.5.2) — run.getEventView 는 다시 내보내지 않는다.
 export {
   getPhase,
   buildOpponentSnapshot,
   nextMatchView,
-  getEventView,
   getEffectiveStats,
   opponentStyleHint,
   normalizeTactics,
@@ -59,18 +81,21 @@ export {
   getModifier,
 } from "./run.js";
 export { lessonResult } from "./lesson.js";
+export { canTeachSkill } from "./lessonCommon.js";
+export { getEventView } from "./lessonEvents.js";
 
 export const RUN_KIND = "lessonRun";
-export const RUN_VERSION = 4;
+export const RUN_VERSION = 5;
 /**
- * 저장소가 받는 저장본 버전. migrateLessonRun 이 4 로 올린다:
+ * 저장소가 받는 저장본 버전. migrateLessonRun 이 5 로 올린다:
  *   1 → 2 는 레슨 · 보상 중이 아니어야 한다 (§14.15), 2 → 3 은 늘 된다 (액티브 힌트 → SP · 수업 필드, §18.7),
- *   3 → 4 도 늘 된다 (옛 고유 스킬 → 캐릭터의 새 필살기, LESSON_PROTO_PLAN §19.13).
+ *   3 → 4 도 늘 된다 (옛 고유 스킬 → 캐릭터의 새 필살기, LESSON_PROTO_PLAN §19.13),
+ *   4 → 5 도 늘 된다 (2차 이벤트 · 이야기 · 코치 · 레전드 필드, §24.10).
  */
-export const SAVE_VERSIONS = [1, 2, 3, 4];
+export const SAVE_VERSIONS = [1, 2, 3, 4, 5];
 
 /** 사용자 입력을 기다리는 phase (continueFlow 가 여기서 멈춘다) */
-const STOP_PHASES = new Set(["week", "lesson", "reward", "consult", "prep", "event", "match", "relic", "route", "finished"]);
+const STOP_PHASES = new Set(["week", "lesson", "reward", "consult", "prep", "event", "cardOffer", "match", "relic", "route", "finished"]);
 /** 주 끝 queue */
 const WEEK_END = ["supportEventCheck", "advanceWeek"];
 /** 자유 주 행동 */
@@ -93,10 +118,6 @@ function assertPhase(state, phase) {
   if (state.phase !== phase) throw new Error(`phase '${phase}' 에서만 가능합니다 (현재 '${state.phase}')`);
 }
 
-function LD(data) {
-  return data.lesson;
-}
-
 function weeksPerSeason(data) {
   return LD(data).weeksPerSeason || LD(data).weekKinds.length;
 }
@@ -109,31 +130,6 @@ function playerById(state, id) {
   const p = state.players.find((x) => x.id === id);
   if (!p) throw new Error(`선수 '${id}' 을(를) 찾을 수 없습니다`);
   return p;
-}
-
-function supportCard(data, supportId) {
-  return data.supports.find((s) => s.id === supportId) || null;
-}
-
-/** 그 코치의 코치 카드 (없으면 null) */
-function coachCardOf(data, supportId) {
-  return cards.cardList(data).find((c) => c.family === "coach" && c.coach && c.coach.supportId === supportId) || null;
-}
-
-function skillById(data, id) {
-  return data.skills.find((s) => s.id === id) || null;
-}
-
-/** 액티브 스킬인가 — 레슨 런에서는 코치 수업으로만 배운다 (§18.2). 상점 · 힌트 레벨에는 들어가지 않는다. */
-function isActiveSkill(sk) {
-  return !!sk && sk.kind === "active";
-}
-
-/** 수업을 받지 않거나 받을 선수가 없을 때 SP (lesson.json rewards.teach.declineSp, 없으면 20 — §18.2) */
-function declineSpOf(data) {
-  const t = LD(data).rewards && LD(data).rewards.teach;
-  const v = Number(t && t.declineSp);
-  return Number.isFinite(v) && v >= 0 ? v : 20;
 }
 
 /** 이름 마지막 낱말 ("코치 하르나" → "하르나", §15.5) */
@@ -158,10 +154,6 @@ function addStamina(p, n) {
   p.stamina = clamp(Math.round((Number(p.stamina) || 0) + n), 0, 100);
 }
 
-function addBond(st, n) {
-  st.bond = clamp(Math.round((Number(st.bond) || 0) + n), 0, 100);
-}
-
 function addCondition(state, n) {
   state.condition = clamp(Math.round(state.condition + n), 0, 4);
 }
@@ -172,34 +164,6 @@ function addTeamwork(state, n) {
 
 function log(state, text) {
   run.logLine(state, text);
-}
-
-/** 덱에 카드 추가 (uid k{nextUid}) */
-function addToDeck(state, cardId, plus = false) {
-  const uid = `k${state.nextUid}`;
-  state.nextUid += 1;
-  state.deck.push({ uid, cardId, plus: !!plus });
-  return uid;
-}
-
-/** 코치 카드면 그 코치 유대 +acquire (D23) */
-function acquireBond(state, data, cardId) {
-  const raw = cards.getCard(data, cardId);
-  if (raw.family !== "coach" || !raw.coach) return 0;
-  const st = state.supports.find((s) => s.id === raw.coach.supportId);
-  if (!st) return 0;
-  const before = st.bond;
-  addBond(st, LD(data).bond.acquire);
-  return st.bond - before;
-}
-
-function deckEntry(state, uid) {
-  return state.deck.find((e) => e.uid === uid) || null;
-}
-
-/** 이 덱 항목을 강화할 수 있는가 (강화 안 됨 · 강화 가능 카드) */
-function upgradable(data, entry) {
-  return !!entry && !entry.plus && cards.canUpgrade(cards.getCard(data, entry.cardId));
 }
 
 /** 레슨 목표 · 상한 (lesson.startLesson 과 같은 계산) */
@@ -405,7 +369,20 @@ function seasonEnd(state, data) {
   } else {
     state.phase = "finished";
     log(state, "모든 시즌이 끝났습니다. 런 종료.");
+    leftoverTeachToSp(state, data);
   }
+}
+
+/**
+ * 런 끝 (§24.5.2): 받지 못한 코치 수업 (이벤트 · 마지막 레슨 뒤) 은 하나에 declineSp 씩 SP 로 바꾼다. rng 없음.
+ */
+function leftoverTeachToSp(state, data) {
+  const left = Array.isArray(state.pendingTeach) ? state.pendingTeach : [];
+  if (!left.length) return;
+  const sp = left.length * declineSpOf(data);
+  state.skillPoints = (Number(state.skillPoints) || 0) + sp;
+  log(state, `남은 코치 수업 ${left.length}개 (${left.map((t) => skillName(data, t.skillId)).join(" · ")}) — 남은 레슨이 없어 SP +${sp}`);
+  state.pendingTeach = [];
 }
 
 function runStep(state, data, step) {
@@ -414,14 +391,7 @@ function runStep(state, data, step) {
       beginWeek(state, data);
       break;
     case "supportEventCheck":
-      if (LD(data).events && LD(data).events.support) {
-        const found = run.findSupportEvent(state, data, null);
-        if (found) {
-          const before = { ...state.hints };
-          run.fireEvent(state, data, found.event, found.supportId);
-          routeEventHints(state, data, before, found.supportId); // 액티브 힌트 → 수업 대기열 (§18.3)
-        }
-      }
+      // 옛 유대 60 서포트 이벤트 자리 (lesson.json events.support — E2 에서 지웠다). E3 이 weekSlot 의 별칭으로 바꾼다.
       break;
     case "advanceWeek":
       advanceWeek(state, data);
@@ -439,12 +409,16 @@ function runStep(state, data, step) {
 }
 
 /**
- * 남은 queue 를 멈추는 phase 까지 처리한다 (유물 후보가 남아 있으면 relic).
+ * 남은 queue 를 멈추는 phase 까지 처리한다 (유물 후보가 남아 있으면 relic, 이벤트의 보상 카드 3택1 이 남아 있으면 cardOffer).
  * @returns {object} state
  */
 function continueFlow(state, data) {
   if (state.pendingRelicChoices && state.pendingRelicChoices.length) {
     state.phase = "relic";
+    return state;
+  }
+  if (state.pendingCardOffer) {
+    state.phase = "cardOffer";
     return state;
   }
   state.phase = "flow";
@@ -476,7 +450,7 @@ export function isLessonRun(s) {
 }
 
 /**
- * 저장소가 받는 레슨 런 저장본인가 (version 1 ~ 4 — 1 ~ 3 은 migrateLessonRun 으로 올린다). store.isLessonRunSave 의 원본.
+ * 저장소가 받는 레슨 런 저장본인가 (version 1 ~ 5 — 1 ~ 4 는 migrateLessonRun 으로 올린다). store.isLessonRunSave 의 원본.
  * @param {any} s
  * @returns {boolean}
  */
@@ -485,13 +459,13 @@ export function isLessonRunSave(s) {
 }
 
 /**
- * 저장본을 지금 버전으로 올릴 수 있는가: 4 → 참, 3 · 2 → 늘 참 (레슨 · 보상 · 경기 전 준비 중이어도, §18.7 · §19.13),
+ * 저장본을 지금 버전으로 올릴 수 있는가: 5 → 참, 4 · 3 · 2 → 늘 참 (레슨 · 보상 · 경기 전 준비 · 이벤트 중이어도, §18.7 · §19.13 · §24.10),
  * 1 → 레슨 · 보상 중이 아니어야 (§14.15).
  */
 export function canMigrateLessonRun(s) {
   if (isLessonRun(s)) return true;
   if (!isLessonRunSave(s)) return false;
-  if (s.version === 2 || s.version === 3) return true;
+  if (s.version === 2 || s.version === 3 || s.version === 4) return true;
   return s.version === 1 && s.lesson == null && s.pendingReward == null;
 }
 
@@ -544,15 +518,67 @@ function migrateV3toV4(s, data) {
   if (n > 0) log(s, `저장본 이행: 고유 스킬 → 필살기 (${n}명)`);
 }
 
+/** 2차 (§24.10) 가 쓰는 런 필드와 빈 값 — createRun · migrateV4toV5 가 같이 쓴다 (새 객체를 만든다) */
+function v5Fields() {
+  return {
+    storySeen: [], // 이번 런에 본 이야기 id (E4 — 고른 순간에 센다)
+    outingSeen: [], // 이번 런에 본 일반 외출 id (E3 — 6종을 다 보면 비운다)
+    coachTargets: {}, // { supportId: { playerId: 코치 카드 대상 횟수 } } (E4)
+    coachSeen: {}, // { supportId: true } — 레슨에 나온 코치 (E4)
+    coachSteps: {}, // { supportId: [이번 런에 본 단계] } (E4)
+    lastCoachTurnIndex: null, // 마지막 코치 이벤트의 주 (E4 — 2주 연속 금지)
+    lastWeekEventId: null, // 지난 주 끝 랜덤 이벤트 (E3 — 반복 이벤트가 바로 다음 주에 다시 뜨지 않게)
+    usedEventSeasons: {}, // { eventId: [시즌] } — once "season"
+    account: { stories: {}, coachMet: {} }, // 계정 스냅샷 (E4 — createRun 옵션)
+    legends: [], // 레전드 (E6)
+    pendingCardOffer: null, // 이벤트 "보상 카드 3택1" { cards: [{ cardId, plus, kind, uid? }], src }
+    lastEvent: null, // 방금 고른 이벤트 (화면의 결과 카드) { seq, eventId, title, kind, choice, label, branch, result, lines }
+    eventSeq: 0, // 띄운 이벤트 수 (lastEvent.seq)
+  };
+}
+
+/**
+ * 레슨 중 2차 필드 (§24.10 — 깜짝 이벤트 E5). 진행 중인 v4 레슨은 깜짝이 없는 레슨으로 이어 간다 (그 레슨의 rng 흐름 그대로).
+ * turnLog 모양은 E5 의 lessonSurprise.turnLogBlank() 와 같아야 한다 (E5 가 바꾸면 여기도).
+ */
+function lessonV5Blank(L) {
+  if (!L.surprise || typeof L.surprise !== "object") L.surprise = { planned: false, randTurn: null, pending: null, fired: null };
+  if (!L.turnLog || typeof L.turnLog !== "object") L.turnLog = { plays: [], failed: [], coachOk: [], multiOk: 0, reshuffled: false, benched: [], moved: [], emptyAtStart: [] };
+  if (!Array.isArray(L.rested)) L.rested = [];
+  if (!Number.isFinite(L.nextExtraPlay)) L.nextExtraPlay = 0;
+}
+
+/**
+ * version 4 → 5 (§24.10, rng 없음 · 멱등): 2차 런 필드를 모두 더한다 (있는 값은 그대로). 진행 중인 레슨에는 깜짝 필드 (빈 값).
+ * currentEvent 가 레슨 이벤트 (data/lesson_ev_*.json) 가 아니면 (v4 는 옛 data.events 를 썼다) 버리고, phase 가 event 였으면
+ * 흐름을 잇는다 (queue 가 비었으면 v4 의 주 끝 그대로 advanceWeek).
+ */
+function migrateV4toV5(s, data) {
+  for (const [k, v] of Object.entries(v5Fields())) if (s[k] === undefined) s[k] = v;
+  if (!Array.isArray(s.usedEventIds)) s.usedEventIds = [];
+  if (s.lesson && typeof s.lesson === "object") lessonV5Blank(s.lesson);
+  s.version = 5;
+  if (s.currentEvent && !lessonEvents.eventById(data, s.currentEvent.eventId)) {
+    const dropped = s.currentEvent.eventId;
+    s.currentEvent = null;
+    log(s, `저장본 이행: 옛 이벤트 ${dropped} 건너뜀`);
+    if (s.phase === "event") {
+      if (!Array.isArray(s.queue) || !s.queue.length) s.queue = ["advanceWeek"];
+      continueFlow(s, data);
+    }
+  }
+}
+
 /**
  * 저장본 이행. in-place, 멱등.
  *   - version 1 (종목 레슨): 레슨 · 보상 중이 아니면 version 2 로 — record.lessons[].stat → zone, rests → benches (§14.15).
  *     레슨 · 보상 중인 1 은 그대로 둔다 (isLessonRun 이 거짓 → UI 는 "저장 없음" + 토스트).
  *   - version 2 → 3 (§18.7, data 가 있어야 한다 — 액티브 판정 · noHintSp): migrateV2toV3. data 가 없으면 2 그대로 둔다.
  *   - version 3 → 4 (§19.13, data.characters 가 있어야 한다): migrateV3toV4. data 가 없으면 3 그대로 둔다.
- *   - version 4: tactics · modifiers 를 run.migrateRun 으로.
+ *   - version 4 → 5 (§24.10, data.lesson 이 있어야 한다): migrateV4toV5. data 가 없으면 4 그대로 둔다.
+ *   - version 5: tactics · modifiers 를 run.migrateRun 으로.
  * @param {object} s
- * @param {object} [data] 데이터 번들 (2 → 3 · 3 → 4 에 필요)
+ * @param {object} [data] 데이터 번들 (2 → 3 · 3 → 4 · 4 → 5 에 필요)
  * @returns {object}
  */
 export function migrateLessonRun(s, data) {
@@ -567,9 +593,19 @@ export function migrateLessonRun(s, data) {
   }
   if (isLessonRunSave(s) && s.version === 2 && data && Array.isArray(data.skills) && data.lesson) migrateV2toV3(s, data);
   if (isLessonRunSave(s) && s.version === 3 && data && Array.isArray(data.characters)) migrateV3toV4(s, data);
+  if (isLessonRunSave(s) && s.version === 4 && data && data.lesson && Array.isArray(data.supports)) migrateV4toV5(s, data);
   if (!isLessonRun(s)) return s;
   if (!Array.isArray(s.pendingTeach)) s.pendingTeach = [];
   return run.migrateRun(s);
+}
+
+/** 검사를 통과한 데이터 객체 (createRun 마다 다시 검사하지 않는다 — 테스트가 바꾸는 사본은 새 객체라 다시 검사한다) */
+const validatedData = new WeakSet();
+
+function validateEventsOnce(data) {
+  if (validatedData.has(data)) return;
+  lessonEvents.validateLessonEvents(data);
+  validatedData.add(data);
 }
 
 /**
@@ -582,6 +618,7 @@ export function createRun({ data, seed, squad, formation, supportIds, tactics, p
   assertData(data);
   cards.validateAttachData(data); // 코치 지원 데이터 (§15.3)
   cards.validateShapeData(data); // 고유 카드 모양 데이터 (L40 · §16.2 ④)
+  validateEventsOnce(data); // 레슨 이벤트 데이터 (§24.3.7 — 데이터 객체마다 한 번)
   if (seed === undefined || seed === null || seed === "") throw new Error("seed 가 필요합니다");
   const pol = policy || LD(data).defaultPolicy || "team";
   if (!policyOf(data, pol)) throw new Error(`알 수 없는 훈련 방침: '${pol}'`);
@@ -634,6 +671,7 @@ export function createRun({ data, seed, squad, formation, supportIds, tactics, p
     pendingRoutes: null,
     record: { goalMatches: [], friendlies: [], losses: 0, lessons: [] },
     usedEventIds: [],
+    ...v5Fields(), // 2차 (§24.10)
     log: [],
     rating: null,
     queue: [],
@@ -844,127 +882,6 @@ export function dropCandidates(state, data, args) {
 }
 
 /**
- * 힌트 후보인가 (§18.3): 배울 수 있는 스킬 중
- *   - 패시브 (그 밖) — 힌트 레벨 3 미만 (지금 그대로)
- *   - 액티브 — 누군가 새로 배울 수 있다 (포지션이 맞고 그 스킬이 없는 선수 1명 이상, 슬롯이 가득이어도 바꾸기로 배울 수 있다)
- */
-function hintCandidate(state, data, id) {
-  const sk = skillById(data, id);
-  if (!sk || !sk.learnable) return false;
-  if (isActiveSkill(sk)) return state.players.some((p) => canTeachSkill(state, data, id, p.id).ok);
-  return (state.hints[id] || 0) < MAX_HINT_LEVEL;
-}
-
-/**
- * 뽑은 힌트 적용: 패시브 = 힌트 레벨 +1 (상점 할인 · 진열), 액티브 = state.hints 를 건드리지 않는다 (호출한 쪽이 수업으로).
- * @returns {{ skillId: string, level: number, supportId: string, active: boolean }}
- */
-function grantHint(state, data, skillId, supportId) {
-  if (isActiveSkill(skillById(data, skillId))) return { skillId, level: 0, supportId, active: true };
-  state.hints[skillId] = clamp((state.hints[skillId] || 0) + 1, 0, MAX_HINT_LEVEL);
-  return { skillId, level: state.hints[skillId], supportId, active: false };
-}
-
-/**
- * 코치가 주는 스킬 목록 (L48): 레슨판은 `teachSkillIds` (수업할 액티브만 — 패시브는 선수 목록 · 선수 힌트로 옮겼다).
- * 없으면 옛 `hintSkillIds`. 코치가 없으면 null.
- */
-function coachSkillList(data, supportId) {
-  const sc = supportCard(data, supportId);
-  if (!sc) return null;
-  if (Array.isArray(sc.teachSkillIds)) return sc.teachSkillIds;
-  return Array.isArray(sc.hintSkillIds) ? sc.hintSkillIds : null;
-}
-
-/**
- * 힌트 1개 뽑기 (D26): hintRate 가중으로 편성 코치 → 그 코치 스킬 중 균등 (후보 = hintCandidate). 후보가 없으면 null.
- * rng 호출 수 · 순서는 §18 전과 같다 (후보 목록만 다르다).
- * @returns {{ skillId: string, level: number, supportId: string, active: boolean }|null}
- */
-function drawHint(state, data, rng) {
-  const cands = [];
-  for (const st of state.supports) {
-    const list = coachSkillList(data, st.id);
-    if (!list) continue;
-    const sc = supportCard(data, st.id);
-    const skills = list.filter((id) => hintCandidate(state, data, id));
-    if (skills.length) cands.push({ supportId: st.id, skills, w: Number(sc.hintRate) || 0 });
-  }
-  if (!cands.length) return null;
-  const c = rng.weighted(cands, (x) => x.w);
-  const skillId = rng.pick(c.skills);
-  return grantHint(state, data, skillId, c.supportId);
-}
-
-/**
- * 그 코치 한 명의 힌트 1개 (§15.5 컷인 힌트): 그 코치 hintSkillIds 중 후보 (hintCandidate) 균등. 없으면 null.
- * @returns {{ skillId: string, level: number, supportId: string, active: boolean }|null}
- */
-function drawHintFrom(state, data, rng, supportId) {
-  const list = coachSkillList(data, supportId);
-  if (!list) return null;
-  const skills = list.filter((id) => hintCandidate(state, data, id));
-  if (!skills.length) return null;
-  const skillId = rng.pick(skills);
-  return grantHint(state, data, skillId, supportId);
-}
-
-/** 수업 항목 (pendingReward.teach[], §18.3) */
-function teachEntry(skillId, supportId, src) {
-  return { skillId, supportId: supportId || null, src, result: null, playerId: null, replaced: null, sp: 0 };
-}
-
-/**
- * 이벤트 효과로 늘어난 액티브 힌트를 되돌리고 수업 대기열 (state.pendingTeach) 로 (§18.3 — 1차는 이벤트가 꺼져 있다).
- * 레벨이 n 늘었어도 수업은 1번. before = 처리 전 state.hints 사본.
- */
-function routeEventHints(state, data, before, supportId) {
-  for (const [id, lv] of Object.entries(state.hints)) {
-    const prev = Number(before[id]) || 0;
-    if (!(lv > prev) || !isActiveSkill(skillById(data, id))) continue;
-    if (prev > 0) state.hints[id] = prev;
-    else delete state.hints[id];
-    if (!Array.isArray(state.pendingTeach)) state.pendingTeach = [];
-    state.pendingTeach.push(teachEntry(id, supportId, "event"));
-  }
-}
-
-/** 보상 후보 (§5.4.3 5, D7 · D8). rng. */
-function rollRewardOffer(state, data, rng, status, special) {
-  const R = LD(data).rewards;
-  const w = R.weights;
-  const cand = [];
-  for (const c of cards.cardList(data)) {
-    if (!c.pool) continue;
-    if (c.family === "common") cand.push({ kind: "add", cardId: c.id, w: w.common });
-    else if (c.family === state.policy) cand.push({ kind: "add", cardId: c.id, w: w.policy });
-  }
-  for (const st of state.supports) {
-    const cc = coachCardOf(data, st.id);
-    const sc = supportCard(data, st.id);
-    if (cc) cand.push({ kind: "add", cardId: cc.id, w: (w.coachBase * (Number(sc && sc.specialtyRate) || 0)) / w.coachRef });
-  }
-  for (const e of state.deck) {
-    const raw = cards.getCard(data, e.cardId);
-    if (raw.family === "unique" && upgradable(data, e)) cand.push({ kind: "upgrade", cardId: e.cardId, uid: e.uid, w: w.uniquePlus });
-  }
-  const offer = [];
-  let pool = cand.filter((c) => c.w > 0);
-  while (offer.length < R.offer && pool.length) {
-    const pick = rng.weighted(pool, (c) => c.w);
-    offer.push(pick);
-    pool = pool.filter((c) => c.cardId !== pick.cardId);
-  }
-  const pc = R.plusChance;
-  const chance = Math.min(pc.max, (special ? pc.special : 0) + (status === "perfect" ? pc.perfect : 0));
-  return offer.map((o) => {
-    if (o.kind === "upgrade") return { cardId: o.cardId, plus: true, kind: "upgrade", uid: o.uid };
-    const plus = chance > 0 && cards.canUpgrade(cards.getCard(data, o.cardId)) && rng.chance(chance);
-    return { cardId: o.cardId, plus, kind: "add" };
-  });
-}
-
-/**
  * 레슨이 끝난 직후 (§5.4.3 afterLesson): 결과 보상 · 힌트 · 결장 감소 · 기록 · 보상 후보 → phase reward.
  */
 function afterLesson(state, data) {
@@ -1132,27 +1049,6 @@ function afterLesson(state, data) {
 // ---------------------------------------------------------------------------
 // 보상 (phase reward)
 // ---------------------------------------------------------------------------
-
-/**
- * 코치 수업을 받을 수 있는 선수인가 (§18.4). 순수. 힌트 검사가 없다 (training.canLearnSkill 과 다른 점). 다친 선수도 받는다.
- *   액티브 · learnable 이 아님 → "수업할 수 없는 스킬", 선수 없음 → "선수 없음", 습득 · 고유로 이미 가짐 → "이미 보유",
- *   positions 밖 → "FW만" (positions 를 " · " 로 이은 것 + "만").
- * @returns {{ ok: boolean, reason: string|null, full: boolean }} full = 습득 슬롯 3개가 가득 (ok 면 바꿀 스킬을 골라야 배운다)
- */
-export function canTeachSkill(state, data, skillId, playerId) {
-  const sk = skillById(data, skillId);
-  if (!sk || !sk.learnable || !isActiveSkill(sk)) return { ok: false, reason: "수업할 수 없는 스킬", full: false };
-  const p = (state.players || []).find((x) => x.id === playerId);
-  if (!p) return { ok: false, reason: "선수 없음", full: false };
-  const learned = Array.isArray(p.learnedSkillIds) ? p.learnedSkillIds : [];
-  // 슬롯 3 = 액티브 몫 (L48 — 패시브는 자기 목록 3개로 따로)
-  const full = learned.filter((id) => isActiveSkill(skillById(data, id))).length >= MAX_SKILL_SLOTS;
-  if (learned.includes(skillId) || p.innateSkillId === skillId) return { ok: false, reason: "이미 보유", full };
-  if (Array.isArray(sk.positions) && sk.positions.length && !sk.positions.includes(p.position)) {
-    return { ok: false, reason: `${sk.positions.join(" · ")}만`, full };
-  }
-  return { ok: true, reason: null, full };
-}
 
 /** 코치 표시 (수업 · 뷰). supportId 가 없으면 (이벤트) "코치진" */
 function teachCoach(data, supportId) {
@@ -1358,14 +1254,6 @@ export function resolveReward(state, data, { pick = null, upgradeUid = null } = 
 // ---------------------------------------------------------------------------
 // 상담 (phase consult)
 // ---------------------------------------------------------------------------
-
-function cardPrice(data, cardId) {
-  const price = LD(data).consult.price;
-  const fam = cards.getCard(data, cardId).family;
-  if (fam === "common") return price.common;
-  if (fam === "coach") return price.coach;
-  return price.policy;
-}
 
 /** 상담 진열 (§5.4.3): 편성 코치 카드 1장 (specialtyRate 가중) + pool 공용 · 내 방침 카드 2장. rng. */
 function rollConsult(state, data) {
@@ -1664,16 +1552,72 @@ export function chooseRoute(state, data, routeId) {
   return continueFlow(state, data);
 }
 
-/** 이벤트 선택 (1차에는 쓰지 않는다) → 흐름을 잇는다 */
-export function resolveEvent(state, data, choiceIndex) {
+/**
+ * 이벤트 선택지 고르기 (§24.5.2) — lessonEvents.resolveEvent (검사 → 효과 → lastEvent → 기록) 뒤에 흐름을 잇는다
+ * (유물 · 보상 카드 3택1 이 생겼으면 그 phase 에서 멈춘다).
+ * @param {{ uid?: string }} [opts]  고르는 선택지 (카드 강화 · 삭제) 면 덱 카드 uid
+ * @returns {object} state
+ */
+export function resolveEvent(state, data, choiceIndex, opts = {}) {
   assertData(data);
   assertPhase(state, "event");
   if (!state.currentEvent) throw new Error("currentEvent 가 없습니다");
   run.migrateRun(state);
-  const before = { ...state.hints };
-  const supportId = state.currentEvent.supportId || null;
-  run.applyEventChoice(state, data, choiceIndex);
-  routeEventHints(state, data, before, supportId); // 이벤트 효과로 늘어난 액티브 힌트 → 다음 보상의 코치 수업 (§18.3)
+  lessonEvents.resolveEvent(state, data, choiceIndex, opts || {});
+  return continueFlow(state, data);
+}
+
+/**
+ * 이벤트 "보상 카드 3택1" 뷰 (§24.5.3, phase cardOffer). 순수.
+ * @returns {{ src: string|null, title: string|null, cards: object[], skipTp: number, deckSize: number }}
+ *   cards[i] = 덱 카드 뷰 (보상 모달과 같은 모양) + kind ("add" | "upgrade" — 고유 카드 강화) · uid
+ */
+export function getCardOfferView(state, data) {
+  assertPhase(state, "cardOffer");
+  const po = state.pendingCardOffer;
+  if (!po) throw new Error("pendingCardOffer 가 없습니다");
+  const ev = po.src ? lessonEvents.eventById(data, po.src) : null;
+  return {
+    src: po.src || null,
+    title: ev ? ev.title : null,
+    cards: po.cards.map((o) => ({ ...cardView(state, data, { uid: o.uid ?? null, cardId: o.cardId, plus: o.plus }), kind: o.kind || "add", uid: o.uid ?? null })),
+    skipTp: lessonEffects.fallbackOf(data).offerSkipTp,
+    deckSize: state.deck.length,
+  };
+}
+
+/**
+ * 보상 카드 3택1 고르기 (§24.5.3): pick 0 ~ 2 → 덱에 추가 (+ 코치 카드 유대) · 고유 카드면 강화판, null → 건너뛰기 TP +offerSkipTp.
+ * 검사가 실패하면 상태를 바꾸지 않는다. 그 뒤 흐름을 잇는다.
+ * @param {{ pick?: number|null }} args
+ */
+export function resolveCardOffer(state, data, { pick = null } = {}) {
+  assertData(data);
+  assertPhase(state, "cardOffer");
+  const po = state.pendingCardOffer;
+  if (!po || !Array.isArray(po.cards)) throw new Error("pendingCardOffer 가 없습니다");
+  let chosen = null;
+  if (pick !== null && pick !== undefined) {
+    if (!Number.isInteger(pick) || pick < 0 || pick >= po.cards.length) throw new Error(`카드 번호가 잘못되었습니다: ${pick}`);
+    chosen = po.cards[pick];
+    if (chosen.kind === "upgrade" && !upgradable(data, deckEntry(state, chosen.uid))) throw new Error("강화할 수 없는 카드입니다");
+  }
+  if (chosen) {
+    const name = cards.getCard(data, chosen.cardId).name;
+    if (chosen.kind === "upgrade") {
+      deckEntry(state, chosen.uid).plus = true;
+      log(state, `카드 3택1: ${name}+ 강화`);
+    } else {
+      addToDeck(state, chosen.cardId, chosen.plus);
+      const b = acquireBond(state, data, chosen.cardId);
+      log(state, `카드 3택1: ${name}${chosen.plus ? "+" : ""} 획득${b ? ` (유대 +${b})` : ""}`);
+    }
+  } else {
+    const tp = lessonEffects.fallbackOf(data).offerSkipTp;
+    state.trainingPoints += tp;
+    log(state, `카드 3택1 건너뛰기: TP +${tp}`);
+  }
+  state.pendingCardOffer = null;
   return continueFlow(state, data);
 }
 
