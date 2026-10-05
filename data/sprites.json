@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "height": 240,
+  "chars": {
+    "ch_elf_playmaker": {
+      "w": 141,
+      "h": 240,
+      "footX": 0.461,
+      "v": "cd6118dc"
+    },
+    "ch_elf_regista": {
+      "w": 161,
+      "h": 240,
+      "footX": 0.36,
+      "v": "39a172a5"
+    },
+    "ch_human_captain": {
+      "w": 131,
+      "h": 240,
+      "footX": 0.417,
+      "v": "21a66243"
+    }
+  }
+}
