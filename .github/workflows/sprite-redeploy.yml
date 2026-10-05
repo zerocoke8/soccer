@@ -1,0 +1,38 @@
+name: Sprite branch → redeploy Pages
+
+# outgame-sprite 브랜치에 푸시하면 테스트를 돌린 뒤 main 의 pages.yml 을 다시 실행한다.
+# (Pages 는 main 에서만 배포되므로 main 워크플로가 / · /lesson/ · /sprite/ 를 함께 올린다.)
+
+on:
+  push:
+    branches: [outgame-sprite]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: sprite-redeploy
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+  dispatch:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run main's Pages workflow (it builds /, /lesson/ and /sprite/)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run pages.yml --repo "$GITHUB_REPOSITORY" --ref main

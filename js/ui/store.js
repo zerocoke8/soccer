@@ -2,7 +2,10 @@
 // 카드 레슨 시험판 (LESSON_PROTO_PLAN §2.2): 본편(/soccer/)과 같은 origin 을 쓰므로 키 앞머리를 'soccer-lesson.' 으로 나눈다.
 // 본편 키('soccer.' 로 시작)는 읽지도 옮기지도 않는다 — 레슨판의 등록 팀 · 도전 기록은 처음에 비어 있다.
 
-export const STORAGE_PREFIX = 'soccer-lesson.'; // 'soccer.'로 시작하면 안 된다 (본편 키와 섞이지 않게)
+// 스프라이트 시험판 (outgame-sprite 브랜치 → /soccer/sprite/, 2026-10-05): 레슨판 (/soccer/lesson/) 과 같은 origin 이라 주소로 앞머리를 가른다
+// ('soccer-sprite.') — 두 시험판의 저장이 섞이지 않는다. 주소가 /sprite/ 가 아니면 (레슨판 · 로컬 · 테스트) 지금 그대로 'soccer-lesson.'.
+export const SPRITE_SITE = typeof location !== 'undefined' && /\/sprite\//.test(String((location && location.pathname) || ''));
+export const STORAGE_PREFIX = SPRITE_SITE ? 'soccer-sprite.' : 'soccer-lesson.'; // 'soccer.'로 시작하면 안 된다 (본편 키와 섞이지 않게)
 export const KEYS = {
   run: `${STORAGE_PREFIX}run`,
   match: `${STORAGE_PREFIX}match`,

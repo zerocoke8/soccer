@@ -1,0 +1,2 @@
+outgame-sprite 브랜치를 /soccer/sprite/ 에 올리라는 표시 파일 (main 의 .github/workflows/pages.yml 이 읽는다).
+저장 키는 주소가 /sprite/ 일 때 soccer-sprite. 앞머리 — 레슨판 (soccer-lesson.) 과 섞이지 않는다 (js/ui/store.js SPRITE_SITE).

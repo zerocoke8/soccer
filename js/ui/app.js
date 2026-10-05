@@ -16,7 +16,7 @@ import { mountStage } from './stage.js';
 import {
   store, saveRun, loadRun, saveMatch, loadMatch, clearRunSaves, addTeam, resetMatchUi, resetLessonUi, loadTeams, TEAMS_CAP,
   loadChallengeProgress, saveChallengeProgress, loadChallengeMatch, saveChallengeMatch, CHALLENGE_MATCH_VERSION,
-  loadAccount, saveAccount,
+  loadAccount, saveAccount, SPRITE_SITE,
 } from './store.js';
 import { h, toast, closeOverlays } from './dom.js';
 import { renderStart } from './screens/start.js';
@@ -780,6 +780,8 @@ export function render() {
 let stage = null; // mountStage() 결과 (index.html 에 #stage 가 없으면 null)
 
 async function boot() {
+  // 스프라이트 시험판 (/soccer/sprite/ — store.SPRITE_SITE): 탭 제목으로 레슨판과 구분한다
+  if (SPRITE_SITE) document.title = '경계전 클럽 — 스프라이트 시험판';
   // 고정 스테이지: 데이터를 기다리기 전에 창에 맞춘다 (로딩 화면부터 스테이지 안). 화면은 인게임·아웃게임 모두 가로 전용
   stage = mountStage();
   const root = document.getElementById('app');
