@@ -1,5 +1,664 @@
 {
   "version": 1,
-  "notes": {},
-  "events": []
+  "notes": {
+    "ch_giant_keeper": {
+      "arc": "수정굴에서는 한 경기에 한 번만 짧게 호령할 수 있던 거인 골키퍼가, 천장 없는 하늘 아래에서 처음으로 온 목소리를 낸다 — 명령이 아니라 동료들의 이름을 부르는 목소리로.",
+      "setting": [
+        "산맥의 수정굴 경기장은 천장과 벽에 박힌 수정 빛으로 경기를 한다. 하늘이 없다.",
+        "수정굴의 수정은 소리에 빛난다 — 낮은 목소리에는 은은하게 밝아지고, 너무 큰 소리에는 금이 간다. 그래서 거인들은 굴 안에서 목소리를 낮춘다.",
+        "굴 경기장에서는 골키퍼 주장만 한 경기에 딱 한 번 짧게 호령할 수 있고, 그 소리에 경기장의 수정이 한꺼번에 밝아진다. 헤르타의 말이 짧은 것은 이 버릇이다.",
+        "헤르타는 수정굴 경기장 팀의 주장이었고, 하늘 아래에서 공을 차 보고 싶어서 산을 내려왔다. 옛 굴 팀과는 지금도 소포를 주고받는다 (주 끝 ev_herta_crystal_lamp 의 수정 등).",
+        "작은 뿔도 수정이라, 큰 소리를 내면 희미하게 울린다. 산에서는 온 목소리를 한 번도 내 본 적이 없다 (굴이 무너질까 봐).",
+        "감독을 \"감독\"이라고 부른다 (님 없이)."
+      ]
+    },
+    "ch_spirit_striker": {
+      "arc": "기다리는 걸 못 참는 번개의 정령이, 자기가 태어난 벼락 맞은 나무 앞에서 번개도 하루 종일 구름 속에 모였다가 딱 한 번 친다는 걸 알고 — 모았다가 한 번에 치는 법을 받아들인다.",
+      "setting": [
+        "브론테는 마을 밖 들판 한가운데의 외딴 떡갈나무에 떨어진 낙뢰에서 태어났다. 줄기 한쪽이 검게 갈라진 그 나무는 아직 서 있고, 그날을 기억하는 늙은 목동이 있다.",
+        "번개의 정령은 태어난 날을 \"친 날\"이라고 부른다.",
+        "맑은 날이 길면 몸이 근질거리고 잠을 못 잔다. 머리끝에서 불꽃이 튀고, 슛이 자꾸 뜬다. 비 오기 전 냄새를 누구보다 먼저 맡는다.",
+        "줄 서기 · 신호 기다리기를 못 참는다. 장터 놀이판에서 반응이 빠른 판은 다 이기지만, 깃발을 기다리는 달리기는 늘 먼저 뛰어 나가 진다.",
+        "감독을 \"감독\"이라고 부른다 (님 없이)."
+      ]
+    },
+    "ch_elf_regista": {
+      "arc": "사람과도 배 한 척 거리를 두고 바다처럼 재던 바다 엘프 항해사가, 계산이 틀린 날 '사람은 물어보면 대답해 준다'는 걸 배우고 — 팀을 자기의 두 번째 군도로 그린다.",
+      "setting": [
+        "바다 엘프는 남쪽 군도의 배 위에서 자란다. 숲 엘프 (실루엔) · 고원 엘프 (리시엘) 와는 다른 사회다.",
+        "바다 엘프는 처음 만난 상대와는 물길을 다 읽을 때까지 \"배 한 척 거리\"를 둔다 — 부딪히지 않게. 실례가 아니라 예의다. 나엘리스가 늘 두 걸음 떨어져 걷는 까닭이다.",
+        "지나온 섬마다 조개 하나를 머리에 땋아 넣는다 (조개 땋은 머리).",
+        "조약 함대는 대전쟁 뒤 바다 종족들의 함대를 하나로 묶은 것으로, 섬 사이 경계전에 팀과 입회인을 실어 나르고 바다 경계선을 해도로 그린다. 나엘리스는 그 항해사였고, 놋쇠 나침반은 그때 쓰던 것이다.",
+        "항해사 시절 처음 찾아낸 좁은 물길이 함대 해도에 「나엘리스 물길」로 실렸다 (주 끝 ev_naelis_fleet_chart).",
+        "동료마다 보폭 · 버릇 · 자주 뛰는 길을 해도처럼 그린 수첩 (\"사람 해도\") 을 갖고 있다. 배가 길을 잃으면 바다 탓이 아니라 해도 탓을 한다."
+      ]
+    },
+    "ch_spirit_dribbler": {
+      "arc": "막히면 돌아가면 그만이라며 혼자 흘러 다니던 급류의 정령이, 물가를 오래 떠나 무거워진 걸 들키고 나서 — 급류는 바위가 있어야 생긴다며 동료들을 자기 바위라고 부른다.",
+      "setting": [
+        "온디나는 먼 바다 산호초의 급류 — 산호 바위 사이로 물이 몰려 빨라지는 곳 — 에서 생긴 정령이다. 강 상류의 여울이 고향과 가장 닮았다고 한다.",
+        "물의 정령이라 물가를 오래 떠나 있으면 몸이 무거워진다 (네리아와 같다). 무거워지면 늘 물빛으로 찰랑이던 머리끝이 바싹 마른다.",
+        "몸이 무거워진 걸 들키기 싫으면 장난을 더 친다. 장난에는 늘 물을 쓴다 — 분수에서 튀어나오기, 물 튀기기, 밀물 시간에 맞춘 모래톱 놀이판 (미르카의 카드 · 공 장난과 다르다).",
+        "\"흐르는 물은 못 막아\" · \"막히면 돌아가면 그만\"이 입버릇이다.",
+        "감독을 \"감독\"이라고 부르고, 네리아를 \"언니\"라고 부른다."
+      ]
+    }
+  },
+  "events": [
+    {
+      "id": "out_herta_1",
+      "trigger": "story",
+      "title": "천장 없는 경기장",
+      "story": { "charId": "ch_giant_keeper", "ep": 1 },
+      "scene": "nature",
+      "text": "외출 날, 헤르타가 고른 곳은 마을 뒤 언덕입니다. 꼭대기에 닿자마자 풀밭에 길게 드러눕습니다.\n\"굴에선 천장이 돌이었어. 수정 박힌 돌. 여긴 끝이 없네.\"\n산맥의 수정굴 경기장은 천장과 벽에 박힌 수정 빛으로 경기를 한다고 합니다. 하늘 아래에서 공을 차 보고 싶어서 산을 내려왔다고요.\n헤르타가 하늘에 대고 큰 손바닥을 펴 봅니다. \"...아직 좀 어색해. 너무 넓어서.\"",
+      "choices": [
+        {
+          "label": "옆에 누워 같이 구름을 본다",
+          "effects": [
+            { "type": "playerHint", "skillId": "sk_calm_keeper" }
+          ],
+          "result": "한참 동안 둘 다 말없이 구름만 봤습니다. 먼저 일어난 헤르타가 등에 붙은 풀을 털었습니다. \"됐어. 이제 좀 덜 넓어.\""
+        },
+        {
+          "label": "\"여기선 마음껏 차 봐라.\"",
+          "effects": [
+            { "type": "stat", "target": "player", "stat": "pass", "amount": 15 }
+          ],
+          "result": "헤르타가 찬 공이 하늘 높이 솟아 언덕 너머로 사라졌습니다. 공을 주우러 내려가는 헤르타의 걸음이 올라올 때보다 가벼웠습니다."
+        }
+      ]
+    },
+    {
+      "id": "out_herta_2",
+      "trigger": "story",
+      "title": "한 경기에 한 번",
+      "story": { "charId": "ch_giant_keeper", "ep": 2 },
+      "scene": "town",
+      "text": "연습 경기 다음 날, 헤르타의 목이 완전히 쉬었습니다. 장터 찻집에서 꿀차를 앞에 두고 헤르타가 갈라진 목소리로 말합니다.\n\"굴에선 큰 소리를 못 내. 수정에 금이 가거든. 주장이 한 경기에 딱 한 번 부르면, 그 소리에 경기장 수정이 한꺼번에 밝아져.\"\n한 번에 다 전해야 해서 말이 짧아졌다고 합니다. \"여기선 몇 번을 불러도 아무것도 안 깨져. ...그게 좋아서 너무 불렀어.\"",
+      "choices": [
+        {
+          "label": "\"오늘 하루는 손짓으로만 불러 봐라.\"",
+          "effects": [
+            { "type": "playerHint", "skillId": "sk_earth_guard" },
+            { "type": "stat", "target": "player", "stat": "defense", "amount": 15 }
+          ],
+          "result": "그날 오후 훈련에서 헤르타는 한마디도 하지 않았습니다. 큰 손바닥이 가리키는 쪽으로 선수들이 움직였고, 골문 앞이 이상하리만치 조용하고 단단했습니다."
+        },
+        {
+          "label": "목이 나을 때까지 푹 쉬게 한다",
+          "effects": [
+            { "type": "stamina", "target": "player", "full": true },
+            { "type": "stat", "target": "player", "stat": "physical", "amount": 15 }
+          ],
+          "result": "헤르타가 꿀차를 세 잔 비우고 숙소에서 하루를 꼬박 잤습니다. 다음 날 아침, 훈련장 끝까지 들리는 호령이 돌아왔습니다. \"전원, 앞으로!\""
+        }
+      ]
+    },
+    {
+      "id": "out_herta_3",
+      "trigger": "story",
+      "title": "하늘에 닿는 목소리",
+      "story": { "charId": "ch_giant_keeper", "ep": 3 },
+      "scene": "nature",
+      "text": "해 질 녘, 헤르타가 감독을 마을에서 가장 높은 언덕으로 데려갑니다. 아래로 훈련장과 숙소 지붕이 작게 보입니다.\n\"산에선 온 목소리를 한 번도 못 냈어. 굴이 무너질까 봐. 여긴 하늘이니까... 한 번 해 봐도 돼?\"\n헤르타가 숨을 크게 들이쉽니다. 터져 나온 것은 호령이 아니었습니다. 동료들의 이름이었습니다. 한 사람씩, 숙소 지붕을 넘어 들판 끝까지.\n마지막 이름을 부르고 나서야 헤르타가 돌아봅니다. 작은 수정 뿔이 아직 희미하게 울리고 있습니다. \"...다 불렀어. 한 명도 안 빠뜨렸지?\"",
+      "choices": [
+        {
+          "label": "\"하나 빠졌다. 네 이름.\"",
+          "effects": [
+            { "type": "uniquePlus" },
+            { "type": "teamwork", "amount": 5 }
+          ],
+          "result": "헤르타가 눈을 크게 떴다가 작게 웃었습니다. 그리고 굴 안에서도 괜찮을 만큼 작은 목소리로 자기 이름을 불렀습니다. 내려오는 길 내내 헤르타는 처음 보는 얼굴로 웃고 있었습니다."
+        },
+        {
+          "label": "\"그 목소리, 다음 경계전까지 아껴 두자.\"",
+          "effects": [
+            { "type": "stat", "target": "player", "stat": "defense", "amount": 12 },
+            { "type": "stat", "target": "player", "stat": "physical", "amount": 12 },
+            { "type": "goalCondition", "amount": 1 }
+          ],
+          "result": "\"한 경기에 한 번이면 충분해.\" 헤르타가 쉰 목을 문지르며 고개를 끄덕였습니다. 그날부터 헤르타는 경계전에서 부를 한마디를 아껴 두고 있습니다."
+        }
+      ]
+    },
+    {
+      "id": "out_bronte_1",
+      "trigger": "story",
+      "title": "깃발보다 먼저",
+      "story": { "charId": "ch_spirit_striker", "ep": 1 },
+      "scene": "town",
+      "text": "장터 한쪽에 놀이판이 섰습니다. 떨어지는 막대를 잡는 판에서 브론테는 열 번을 내리 이깁니다. 막대가 손을 떠나기도 전에 이미 잡혀 있습니다.\n그런데 옆 판, 깃발이 내려갈 때까지 기다렸다가 뛰는 달리기에서는 세 번 내리 먼저 뛰어 나가 실격입니다.\n\"깃발이 너무 느려! 번개는 안 기다려.\" 브론테의 머리끝에서 파직, 불꽃이 튑니다. 놀이판 주인이 웃으며 한 판 더 하겠느냐고 묻습니다.",
+      "choices": [
+        {
+          "label": "\"이번엔 깃발만 봐라.\"",
+          "effects": [
+            { "type": "stat", "target": "player", "stat": "shoot", "amount": 15 }
+          ],
+          "result": "네 번째 판도 반 박자 빨랐습니다. 그래도 이번엔 깃발이 움직이기 시작한 뒤였습니다. 브론테가 분하다는 듯 웃습니다. \"다음엔 딱 맞춘다.\""
+        },
+        {
+          "label": "막대 잡기 판의 상품을 쓸어 오게 한다",
+          "effects": [
+            { "type": "teamwork", "amount": 5 }
+          ],
+          "result": "브론테가 막대 잡기 판의 사탕 상자를 통째로 들고 왔습니다. 숙소에 돌아와서는 선수들 손에 하나씩 번쩍번쩍 쥐여 주고 다녔습니다."
+        }
+      ]
+    },
+    {
+      "id": "out_bronte_2",
+      "trigger": "story",
+      "title": "맑은 날 열흘",
+      "story": { "charId": "ch_spirit_striker", "ep": 2 },
+      "scene": "nature",
+      "text": "열흘째 맑은 날입니다. 브론테는 밤에도 잠을 못 자고, 훈련에서는 슛이 자꾸 크로스바를 넘어갑니다.\n자정 무렵, 브론테가 감독을 언덕으로 끌고 올라갑니다. 서쪽 하늘 끝, 아주 먼 구름 속에서 소리 없는 번개가 깜박입니다.\n\"근질거려. 몸 안에서 번개가 빙빙 돌기만 해. 맑은 날이 길면 늘 이래.\"\n브론테가 먼 구름을 가리킵니다. \"저기까지 뛰면 금방이야. 같이 갈래?\"",
+      "choices": [
+        {
+          "label": "\"가 보자.\" 구름을 쫓아 같이 달린다",
+          "effects": [
+            { "type": "random", "chance": 0.6,
+              "then": [
+                { "type": "stat", "target": "player", "stat": "shoot", "amount": 15 },
+                { "type": "stat", "target": "player", "stat": "physical", "amount": 15 }
+              ],
+              "else": [
+                { "type": "stamina", "target": "player", "amount": -20 }
+              ] }
+          ],
+          "result": {
+            "then": "새벽녘, 들판 끝에서 비가 쏟아졌습니다. 번개 아래에서 브론테가 소리 내어 웃었습니다. 다음 날 훈련에서 공은 한 번도 크로스바를 넘지 않았습니다.",
+            "else": "구름은 달려가는 만큼 멀어졌습니다. 해가 뜰 때까지 빗방울 하나 맞지 못한 브론테가 들판에 대자로 뻗었습니다. \"...저거, 일부러 도망가는 거지.\""
+          }
+        },
+        {
+          "label": "\"구름이 올 때까지 여기서 같이 기다리자.\"",
+          "effects": [
+            { "type": "playerHint", "skillId": "sk_focus_finish" },
+            { "type": "stat", "target": "player", "stat": "shoot", "amount": 10 }
+          ],
+          "result": "브론테는 투덜대면서도 언덕에 앉았습니다. 동이 틀 무렵에야 구름이 머리 위까지 와서 첫 빗방울이 떨어졌습니다. 브론테가 하늘을 올려다봅니다. \"...기다리니까 오긴 오네.\""
+        }
+      ]
+    },
+    {
+      "id": "out_bronte_3",
+      "trigger": "story",
+      "title": "벼락 맞은 나무",
+      "story": { "charId": "ch_spirit_striker", "ep": 3 },
+      "scene": "nature",
+      "text": "브론테가 감독을 들판 한가운데의 외딴 떡갈나무로 데려갑니다. 줄기 한쪽이 위에서 아래까지 검게 갈라져 있습니다.\n\"여기야. 내가 친 데. 우린 태어난 날을 친 날이라고 해.\" 브론테가 탄 자국을 손바닥으로 쓸어 봅니다.\n나무 그늘에서 쉬던 늙은 목동이 그날을 기억한다고 합니다. 아침부터 해 질 녘까지 구름이 산처럼 쌓이기만 하다가, 해가 지고 나서야 딱 한 번 번개가 쳤다고.\n브론테가 한참 말이 없습니다. \"...하루 종일 모였다가 한 번 친 거구나. 나.\"",
+      "choices": [
+        {
+          "label": "\"그 한 번이면 충분하다.\"",
+          "effects": [
+            { "type": "uniquePlus" },
+            { "type": "stat", "target": "player", "stat": "shoot", "amount": 10 }
+          ],
+          "result": "브론테가 탄 자국에 이마를 대고 잠깐 눈을 감았습니다. 돌아오는 길, 브론테는 처음으로 감독보다 반 걸음 뒤에서 걸었습니다. \"서두를 거 없어. 칠 때만 확실하면 돼.\""
+        },
+        {
+          "label": "\"다음 경계전 끝까지 모아 뒀다가 쳐라.\"",
+          "effects": [
+            { "type": "stat", "target": "player", "stat": "shoot", "amount": 15 },
+            { "type": "stat", "target": "player", "stat": "dribble", "amount": 15 },
+            { "type": "goalCondition", "amount": 1 }
+          ],
+          "result": "\"끝까지? ...좋아. 대신 칠 땐 크게 친다.\" 브론테가 나무 밑동을 한 번 툭 치고 일어났습니다. 오늘은 머리끝의 불꽃이 조용합니다."
+        }
+      ]
+    },
+    {
+      "id": "out_naelis_1",
+      "trigger": "story",
+      "title": "배 한 척 거리",
+      "story": { "charId": "ch_elf_regista", "ep": 1 },
+      "scene": "town",
+      "text": "항구 길을 걷는 내내 나엘리스는 감독과 꼭 두 걸음 거리를 둡니다. 감독이 멈추면 멈추고, 다가가면 그만큼 물러납니다.\n\"바다 엘프는 물길을 다 읽기 전에는 배 한 척 거리를 둬요. 부딪히지 않게요. 실례가 아니라 예의예요.\"\n나엘리스가 작은 수첩을 펼칩니다. 장마다 동료들의 보폭과 버릇, 자주 뛰는 길이 해도처럼 그려져 있습니다.\n\"감독님은 아직 반쯤이에요. 걸음이 일정하지 않으셔서요.\"",
+      "choices": [
+        {
+          "label": "부두 끝까지 일정한 걸음으로 걸어 준다",
+          "effects": [
+            { "type": "stat", "target": "player", "stat": "pass", "amount": 15 }
+          ],
+          "result": "부두 끝에 닿았을 때, 나엘리스가 수첩에 마지막 선을 그었습니다. \"계산 끝났어요.\" 돌아오는 길, 두 걸음이던 거리가 한 걸음 반이 되어 있었습니다."
+        },
+        {
+          "label": "\"선수들 해도부터 마저 그려라.\"",
+          "effects": [
+            { "type": "cardPick", "op": "upgrade" }
+          ],
+          "result": "나엘리스가 부둣가 찻집에서 해가 질 때까지 수첩을 채웠습니다. 다음 날 훈련표 귀퉁이에 작은 글씨가 늘었습니다. 「이 훈련, 거리를 반 걸음 줄일 것.」"
+        }
+      ]
+    },
+    {
+      "id": "out_naelis_2",
+      "trigger": "story",
+      "title": "해도가 틀린 날",
+      "story": { "charId": "ch_elf_regista", "ep": 2 },
+      "scene": "town",
+      "text": "어제 연습 경기에서 나엘리스의 롱패스가 아무도 없는 자리에 떨어졌습니다. 받기로 한 동료가 지쳐서 한 걸음 늦었던 것입니다.\n밤 부두에서 나엘리스가 수첩을 고치고 있습니다. 같은 장을 몇 번이고 지웠다가 다시 그립니다. \"배가 길을 잃으면 바다 엘프는 바다 탓을 안 해요. 해도 탓을 하죠. 틀린 건 제 계산이에요.\"\n나엘리스가 처음으로 펜을 멈추고 감독을 봅니다. \"...사람은 바다보다 어렵네요. 어떻게 재야 해요?\"",
+      "choices": [
+        {
+          "label": "\"재지 말고 물어봐라. 사람은 대답해 준다.\"",
+          "effects": [
+            { "type": "stat", "target": "player", "stat": "pass", "amount": 10 },
+            { "type": "stat", "target": "player", "stat": "defense", "amount": 10 },
+            { "type": "teamwork", "amount": 5 }
+          ],
+          "result": "다음 날 아침, 나엘리스가 동료들에게 한 사람씩 물었습니다. \"오늘 다리, 몇 걸음쯤 남았어요?\" 다들 웃으며 대답해 주었습니다. 수첩에 처음으로 숫자가 아닌 글이 적혔습니다."
+        },
+        {
+          "label": "고친 계산을 같이 맞춰 본다",
+          "effects": [
+            { "type": "playerHint", "skillId": "sk_water_path" },
+            { "type": "stat", "target": "player", "stat": "pass", "amount": 15 }
+          ],
+          "result": "자정이 넘도록 둘이서 부두 등불 아래에서 숫자를 맞춰 보았습니다. 고친 해도에는 줄이 하나 더 그어져 있었습니다. 「지친 다리」. \"이제 이것도 계산에 넣을 수 있어요.\""
+        }
+      ]
+    },
+    {
+      "id": "out_naelis_3",
+      "trigger": "story",
+      "title": "두 번째 군도",
+      "story": { "charId": "ch_elf_regista", "ep": 3 },
+      "scene": "clubhouse",
+      "text": "나엘리스가 클럽하우스 긴 탁자 위에 커다란 종이를 펼칩니다. 섬이 일곱 개 그려져 있고, 섬과 섬 사이로 물길이 촘촘히 이어져 있습니다.\n섬마다 동료의 이름이 적혀 있고, 물길은 지금까지 주고받은 패스라고 합니다. \"남쪽 군도도 처음엔 이렇게 그렸어요. 섬 하나하나 물어보면서요.\"\n종이 맨 아래 귀퉁이에 이름 없는 작은 섬이 하나 더 있습니다. 나엘리스가 감독 쪽으로 펜을 밀어 줍니다. 두 걸음도, 한 걸음도 아닌 바로 옆자리에서.\n\"제 두 번째 군도예요. 마지막 섬 이름은 직접 적어 주세요.\"",
+      "choices": [
+        {
+          "label": "마지막 섬에 감독의 이름을 적는다",
+          "effects": [
+            { "type": "uniquePlus" },
+            { "type": "stat", "target": "player", "stat": "pass", "amount": 10 }
+          ],
+          "result": "나엘리스가 완성된 해도를 한참 내려다보다가, 조개 땋은 머리 끝에 클럽 유니폼 단추 하나를 새로 땋아 넣었습니다. \"지나온 섬마다 하나씩 넣거든요. 여긴... 오래 머물 섬이라서요.\""
+        },
+        {
+          "label": "\"이 해도를 라커룸에 걸자.\"",
+          "effects": [
+            { "type": "stat", "target": "team", "stat": "pass", "amount": 5 },
+            { "type": "teamwork", "amount": 5 }
+          ],
+          "result": "해도는 라커룸 문 옆에 걸렸습니다. 선수들이 지나가며 자기 섬을 손가락으로 짚고, 물길을 따라 옆 섬으로 손가락을 옮깁니다. 나엘리스는 그 모습을 바로 옆에서 지켜봅니다."
+        }
+      ]
+    },
+    {
+      "id": "out_ondina_1",
+      "trigger": "story",
+      "title": "막히면 돌아가면 그만",
+      "story": { "charId": "ch_spirit_dribbler", "ep": 1 },
+      "scene": "town",
+      "text": "장터에 들어서자마자 온디나가 사라졌습니다. 잠시 뒤 광장 분수에서 물보라와 함께 불쑥 튀어나옵니다. \"찾았다! 아니, 찾은 건 나지.\"\n사람들 다리 사이로, 수레 밑으로, 온디나는 한 번도 똑바로 걷지 않습니다. 앞을 막아서는 게 있으면 물처럼 옆으로 흘러 버립니다.\n\"흐르는 물은 길을 안 정해. 막히면 돌아가면 그만이야.\" 온디나가 물방울 맺힌 머리끝을 털며 깔깔 웃습니다. \"감독, 술래 할래?\"",
+      "choices": [
+        {
+          "label": "술래가 되어 쫓아간다",
+          "effects": [
+            { "type": "stat", "target": "player", "stat": "dribble", "amount": 15 }
+          ],
+          "result": "해가 질 때까지 장터를 세 바퀴 돌았지만 한 번도 잡지 못했습니다. 온디나가 분수 턱에 걸터앉아 발을 찰방거립니다. \"오늘은 내가 이겼네. 다음엔 좀 빨리 와.\""
+        },
+        {
+          "label": "분수 앞에 앉아 기다린다",
+          "effects": [
+            { "type": "teamwork", "amount": 5 }
+          ],
+          "result": "한참 뒤, 온디나가 슬그머니 돌아와 옆에 앉았습니다. 손에는 동료들 몫까지 산 꼬치가 한 아름입니다. \"기다릴 줄 알았어. ...이건 장난 아니야.\""
+        }
+      ]
+    },
+    {
+      "id": "out_ondina_2",
+      "trigger": "story",
+      "title": "마른 머리끝",
+      "story": { "charId": "ch_spirit_dribbler", "ep": 2 },
+      "scene": "nature",
+      "text": "요 며칠 온디나의 장난이 부쩍 늘었습니다. 그런데 오늘 보니, 늘 물빛으로 찰랑이던 머리끝이 바싹 말라 있습니다.\n물가를 오래 떠나 있어서 몸이 무거워진 것입니다. 들키기 싫어서 장난을 더 쳤다고 합니다. \"티 나면 다들 걱정하잖아. 그런 거 질색이야.\"\n감독이 외출 행선지를 바닷가로 바꾸자, 온디나가 걸음을 멈춥니다. \"...들켰네. 그럼 오늘은 장난 안 쳐도 되는 거지?\"",
+      "choices": [
+        {
+          "label": "해 질 녘까지 바닷물에 실컷 있게 한다",
+          "effects": [
+            { "type": "stamina", "target": "player", "full": true },
+            { "type": "stat", "target": "player", "stat": "dribble", "amount": 12 }
+          ],
+          "result": "온디나가 파도 속으로 뛰어들었습니다. 머리끝에 다시 물빛이 돌아오고, 노을이 질 때까지 파도를 타고 들어왔다 나갔다 하며 웃었습니다."
+        },
+        {
+          "label": "\"무거울 땐 무겁다고 말해라.\"",
+          "effects": [
+            { "type": "playerHint", "skillId": "sk_chain_master" },
+            { "type": "stat", "target": "player", "stat": "dribble", "amount": 15 }
+          ],
+          "result": "온디나가 모래 위에 발가락으로 한참 동그라미를 그렸습니다. \"...그럼 다음엔 말할게. 대신 다들 걱정하는 얼굴은 하지 말기.\" 돌아오는 마차에서 온디나는 오랜만에 장난 하나 없이 창밖의 바다를 보고 있었습니다."
+        }
+      ]
+    },
+    {
+      "id": "out_ondina_3",
+      "trigger": "story",
+      "title": "바위가 있어야 급류",
+      "story": { "charId": "ch_spirit_dribbler", "ep": 3 },
+      "scene": "nature",
+      "text": "온디나가 감독을 강 상류의 여울로 데려갑니다. 물이 바위 사이로 몰려들며 하얗게 부서집니다. 고향과 제일 닮은 곳이라고 합니다.\n\"내가 생긴 데도 이랬어. 산호 바위 사이로 물이 몰려서 막 빨라지는 데.\" 온디나가 발끝으로 바위 하나를 톡 찹니다. \"근데 있지, 바위가 없으면 급류도 없어. 그냥 잔잔한 물이야.\"\n막히면 돌아가면 그만이라던 온디나가, 오늘은 물속의 바위를 하나하나 짚어 봅니다.\n\"그러니까... 동료들이 내 바위야. 부딪쳐야 빨라져. 이상한 말인 거 알아. 고맙다는 거야.\"",
+      "choices": [
+        {
+          "label": "\"그 말, 동료들한테 직접 해 줘라.\"",
+          "effects": [
+            { "type": "uniquePlus" },
+            { "type": "teamwork", "amount": 5 }
+          ],
+          "result": "그날 저녁 식당에서 온디나가 의자 위에 올라서서 외쳤습니다. \"너희 다 내 바위야!\" 다들 무슨 소린지 몰라 웃었지만, 온디나는 아주 만족한 얼굴로 내려왔습니다."
+        },
+        {
+          "label": "\"내일 훈련에서 바위가 되어 달라고 하자.\"",
+          "effects": [
+            { "type": "stat", "target": "player", "stat": "dribble", "amount": 15 },
+            { "type": "stat", "target": "player", "stat": "pass", "amount": 15 },
+            { "type": "cardAdd", "cardId": "cd_one_two" }
+          ],
+          "result": "다음 날 훈련장, 온디나가 동료들 사이를 부딪치듯 오가며 원투, 원투를 주고받았습니다. 혼자 흐를 때보다 훨씬 빨랐습니다."
+        }
+      ]
+    },
+    {
+      "id": "ls_herta_huddle",
+      "trigger": "surprise",
+      "title": "다 모였네",
+      "who": { "pick": "char", "charId": "ch_giant_keeper" },
+      "cond": { "char": { "id": "ch_giant_keeper", "zoneCountMin": 3 } },
+      "seasons": [1, 2, 3],
+      "weight": 2,
+      "text": "헤르타의 구역에 선수들이 모여들자, 헤르타가 큰 손바닥을 한 번 칩니다. \"다 모였네. 전원, 내 목소리에 맞춰.\"",
+      "choices": [
+        {
+          "label": "크게 한 번 부르게 한다",
+          "effects": [
+            { "type": "buff", "n": 1 },
+            { "type": "stamina", "target": "player", "amount": -10 }
+          ],
+          "result": "헤르타의 호령이 훈련장 끝까지 울렸습니다. 모여 있던 선수들이 한꺼번에 튀어 나갑니다."
+        },
+        {
+          "label": "낮은 목소리로 하나씩 짚게 한다",
+          "effects": [
+            { "type": "nextNoFail" },
+            { "type": "teamwork", "amount": 3 }
+          ],
+          "result": "헤르타가 허리를 숙여 한 사람씩 낮게 일러 줍니다. 짧은 한마디씩인데 다들 고개를 끄덕입니다."
+        }
+      ]
+    },
+    {
+      "id": "ls_bronte_restless",
+      "trigger": "surprise",
+      "title": "아직이야?",
+      "who": { "pick": "char", "charId": "ch_spirit_striker" },
+      "cond": { "char": { "id": "ch_spirit_striker", "zone": "shoot", "untargetedTurnsMin": 2 } },
+      "seasons": [1, 2, 3],
+      "weight": 2,
+      "text": "슈팅 구역의 브론테가 제자리에서 발을 구릅니다. 머리끝에서 파직, 불꽃이 튑니다. \"아직이야? 나 지금 번쩍할 수 있는데.\"",
+      "choices": [
+        {
+          "label": "\"지금 한 번 차라.\"",
+          "effects": [
+            { "type": "score", "amount": 25 },
+            { "type": "stamina", "target": "player", "amount": -10 }
+          ],
+          "result": "브론테가 빈 골문에 번개 같은 슛을 꽂았습니다. 점수판이 먼저 움직였습니다."
+        },
+        {
+          "label": "\"다음까지 모아 둬라.\"",
+          "effects": [
+            { "type": "nextPct", "pct": 40 }
+          ],
+          "result": "브론테가 입을 삐죽이더니 발끝에 불꽃을 모읍니다. 모아 둔 기운이 다음 훈련에 한꺼번에 실립니다."
+        }
+      ]
+    },
+    {
+      "id": "ls_naelis_next_course",
+      "trigger": "surprise",
+      "title": "다음 물길",
+      "who": { "pick": "char", "charId": "ch_elf_regista" },
+      "cond": { "char": { "id": "ch_elf_regista", "ownCardThisTurn": true } },
+      "seasons": [1, 2, 3],
+      "weight": 2,
+      "text": "나엘리스의 롱패스가 정확히 발끝에 떨어졌습니다. 나엘리스가 나침반 뚜껑을 닫습니다. \"거리, 계산 끝났어요. 다음 물길도 그려 둘까요?\"",
+      "choices": [
+        {
+          "label": "다음 순서를 맡긴다",
+          "effects": [
+            { "type": "drawNext", "n": 1 },
+            { "type": "nextPct", "pct": 20 }
+          ],
+          "result": "나엘리스가 짚어 준 순서대로 훈련이 이어졌습니다. 공이 물길을 따라 미끄러지듯 흘러갑니다."
+        },
+        {
+          "label": "끝나고 계산을 들려 달라고 한다",
+          "effects": [
+            { "type": "playerHint", "skillId": "sk_water_path" }
+          ],
+          "result": "레슨이 끝난 뒤, 나엘리스가 수첩을 펼쳐 숫자를 하나하나 짚어 주었습니다. \"이 거리면, 이 세기예요.\""
+        }
+      ]
+    },
+    {
+      "id": "ls_ondina_slip",
+      "trigger": "surprise",
+      "title": "여기 비었길래",
+      "who": { "pick": "char", "charId": "ch_spirit_dribbler" },
+      "cond": { "char": { "id": "ch_spirit_dribbler", "movedThisTurn": true } },
+      "seasons": [1, 2, 3],
+      "weight": 2,
+      "text": "구역을 훌쩍 옮긴 온디나가 어느새 엉뚱한 자리에서 손을 흔듭니다. \"여기 비었길래! 한 번 더 흘러가 볼까?\"",
+      "choices": [
+        {
+          "label": "그대로 흘러가게 둔다",
+          "effects": [
+            { "type": "nextPct", "pct": 30 },
+            { "type": "stamina", "target": "player", "amount": -10 }
+          ],
+          "result": "온디나가 물살처럼 빈자리를 훑고 지나갔습니다. 뒤따라 들어간 공이 막힘없이 흘러갑니다."
+        },
+        {
+          "label": "그 자리에서 동료와 이어 주게 한다",
+          "effects": [
+            { "type": "drawNext", "n": 1 },
+            { "type": "teamwork", "amount": 2 }
+          ],
+          "result": "온디나가 그 자리에 멈춰 서서 양쪽 동료에게 공을 툭툭 흘려 줍니다. \"봐, 이쪽도 길이 있잖아.\""
+        }
+      ]
+    },
+    {
+      "id": "ev_herta_crystal_lamp",
+      "trigger": "week",
+      "title": "수정 등",
+      "who": { "pick": "char", "charId": "ch_giant_keeper" },
+      "chars": ["ch_giant_keeper"],
+      "weeks": [1, 14],
+      "seasons": [1, 2, 3],
+      "once": "run",
+      "weight": 1,
+      "scene": "ground",
+      "text": "산맥의 수정굴에서 헤르타 앞으로 소포가 왔습니다. 옛 굴 팀이 보낸 수정 등입니다.\n헤르타가 낮게 \"켜져.\" 하자 등이 은은하게 밝아집니다. 목소리를 조금 높이자 빛도 같이 커집니다.\n\"굴에선 이걸 골문 뒤에 걸었어. 내가 부르면 다 보이게.\" 헤르타가 감독을 봅니다. \"오늘 밤, 걸어도 돼?\"",
+      "choices": [
+        {
+          "label": "골문 뒤에 걸고 야간 훈련을 한다",
+          "effects": [
+            { "type": "stat", "target": "team", "stat": "defense", "amount": 6 },
+            { "type": "stamina", "target": "team", "amount": -10 }
+          ],
+          "result": "어두운 훈련장에서 헤르타가 부를 때마다 골문 뒤의 등이 환해졌습니다. 선수들은 그 빛을 보고 자리를 잡는 법을 금방 익혔습니다."
+        },
+        {
+          "label": "숙소 식당에 걸어 둔다",
+          "effects": [
+            { "type": "teamwork", "amount": 5 },
+            { "type": "stamina", "target": "team", "amount": 10 }
+          ],
+          "result": "식당 천장에 걸린 수정 등은 저녁마다 선수들의 수다에 맞춰 은은하게 깜박였습니다. 헤르타가 \"조용히.\" 하면 잠깐 환해졌다가, 다들 웃음을 터뜨리면 더 환해졌습니다."
+        }
+      ]
+    },
+    {
+      "id": "ev_bronte_storm_night",
+      "trigger": "week",
+      "title": "번개 치는 밤",
+      "who": { "pick": "char", "charId": "ch_spirit_striker" },
+      "chars": ["ch_spirit_striker"],
+      "weeks": [1, 14],
+      "seasons": [1, 2, 3],
+      "once": "run",
+      "weight": 1,
+      "scene": "ground",
+      "text": "한밤중, 오랜만에 천둥이 울립니다. 창밖을 보니 빗속의 훈련장 한가운데에 브론테가 서 있습니다. 보랏빛 줄무늬 머리가 번개와 같이 번쩍입니다.\n브론테가 숙소 창문을 향해 손을 흔듭니다. \"감독! 지금이야! 지금 차면 다 들어가!\"\n번개가 칠 때마다 골대가 하얗게 떠올랐다가 사라집니다.",
+      "choices": [
+        {
+          "label": "나가서 공을 올려 준다",
+          "effects": [
+            { "type": "stat", "target": "player", "stat": "shoot", "amount": 20 },
+            { "type": "stamina", "target": "player", "amount": -15 }
+          ],
+          "result": "빗속에서 감독이 올린 공을 브론테가 번개가 칠 때마다 골망에 꽂았습니다. 새벽에 들어온 브론테는 머리끝으로 빗물을 뚝뚝 흘리며 웃고 있었습니다. \"봤지? 번개 칠 땐 안 빗나가.\""
+        },
+        {
+          "label": "\"들어와서 창가에서 같이 보자.\"",
+          "effects": [
+            { "type": "stamina", "target": "player", "amount": 30 },
+            { "type": "stat", "target": "player", "stat": "shoot", "amount": 10 }
+          ],
+          "result": "창가에 나란히 앉아 번개를 셌습니다. 번개가 칠 때마다 브론테의 머리끝도 같이 번쩍였습니다. 다음 날 아침, 브론테는 누구보다 먼저 훈련장에 나와 있었습니다."
+        }
+      ]
+    },
+    {
+      "id": "ev_naelis_fleet_chart",
+      "trigger": "week",
+      "title": "함대에서 온 해도",
+      "who": { "pick": "char", "charId": "ch_elf_regista" },
+      "chars": ["ch_elf_regista"],
+      "weeks": [1, 14],
+      "seasons": [1, 2, 3],
+      "once": "run",
+      "weight": 1,
+      "scene": "clubhouse",
+      "text": "조약 함대에서 나엘리스 앞으로 긴 원통이 도착했습니다. 안에는 새로 찍은 해도 한 장과 짧은 편지가 들어 있습니다.\n해도 한가운데, 섬과 섬 사이의 좁은 물길에 작은 글씨가 있습니다. 「나엘리스 물길」. 항해사 시절 처음 찾아낸 길이라고 합니다.\n\"이제 이 길로 경계전 배가 다닌대요. ...계산한 대로네요.\" 담담한 목소리인데, 해도를 쥔 손끝이 조금 떨립니다.",
+      "choices": [
+        {
+          "label": "해도를 펼쳐 놓고 패스 길 수업을 하게 한다",
+          "effects": [
+            { "type": "stat", "target": "team", "stat": "pass", "amount": 5 }
+          ],
+          "result": "나엘리스가 식당 탁자에 해도를 펼치고, 물길마다 선수들의 이름을 적어 넣었습니다. \"바다든 경기장이든, 길은 비어 있는 곳으로 나요.\" 그날 밤 패스 연습이 유난히 조용하고 정확했습니다."
+        },
+        {
+          "label": "\"답장 쓸 시간을 주겠다.\"",
+          "effects": [
+            { "type": "stat", "target": "player", "stat": "pass", "amount": 15 },
+            { "type": "stat", "target": "player", "stat": "defense", "amount": 10 }
+          ],
+          "result": "나엘리스가 그날 밤 늦게까지 답장을 썼습니다. 다음 날 아침, 편지 끝에 한 줄을 덧붙였다며 보여 줍니다. 「지금은 경기장에서 물길을 냅니다.」"
+        }
+      ]
+    },
+    {
+      "id": "ev_ondina_tide_prank",
+      "trigger": "week",
+      "title": "밀물 장난",
+      "who": { "pick": "char", "charId": "ch_spirit_dribbler" },
+      "chars": ["ch_spirit_dribbler"],
+      "weeks": [1, 14],
+      "seasons": [1, 2, 3],
+      "once": "run",
+      "weight": 1,
+      "scene": "nature",
+      "text": "온디나가 \"비밀 경기장\"을 보여 주겠다며 선수들을 바닷가로 끌고 갑니다. 썰물 때만 드러나는 넓은 모래톱입니다.\n신이 나서 공을 차는 사이 발목까지 물이 차오릅니다. 밀물 시간을 처음부터 알고 있던 건 온디나뿐입니다. \"헤헤, 이제부터가 진짜야. 물 위에서 드리블해 봐!\"\n물이 정강이까지 올라오자 선수들이 일제히 감독을 돌아봅니다.",
+      "choices": [
+        {
+          "label": "물이 무릎에 찰 때까지 계속한다",
+          "effects": [
+            { "type": "stat", "target": "team", "stat": "dribble", "amount": 5 },
+            { "type": "stamina", "target": "team", "amount": -15 }
+          ],
+          "result": "물을 가르며 공을 모는 사이 다들 신발 속까지 물이 찼습니다. 모래톱이 다 잠길 무렵에는 아무도 공을 놓치지 않게 되었습니다. 제일 신난 건 역시 온디나였습니다."
+        },
+        {
+          "label": "물이 더 차기 전에 다 같이 뭍으로 돌아온다",
+          "effects": [
+            { "type": "teamwork", "amount": 5 },
+            { "type": "stamina", "target": "player", "amount": 20 }
+          ],
+          "result": "다들 신발을 손에 들고 물을 건너 돌아왔습니다. 맨 뒤에서 물을 튀기며 따라오는 온디나의 머리끝이 오랜만에 물빛으로 반짝입니다."
+        }
+      ]
+    },
+    {
+      "id": "ev_silluen_bronte_combo",
+      "trigger": "week",
+      "title": "풍뢰일섬",
+      "chars": ["ch_elf_playmaker", "ch_spirit_striker"],
+      "charMode": "all",
+      "weeks": [1, 14],
+      "seasons": [1, 2, 3],
+      "once": "run",
+      "weight": 1,
+      "scene": "ground",
+      "text": "해 질 녘 훈련장. 실루엔의 패스가 아직 아무도 없는 자리로 굴러갑니다. 그 자리에 브론테가 번쩍 닿더니 그대로 골망을 흔듭니다.\n브론테가 머리끝에서 불꽃을 튀기며 돌아봅니다. \"봤지? 근데 이름이 너무 길어. 풍뢰... 뭐더라. 그냥 '번쩍'으로 하자.\"\n실루엔이 다 안다는 듯 웃습니다. \"바람이 먼저 길을 내고, 번개가 따라 치는 거야. 순서가 이름에 다 들어 있잖아.\"",
+      "choices": [
+        {
+          "label": "날이 저물 때까지 둘이 맞춰 보게 둔다",
+          "effects": [
+            { "type": "stat", "target": "char:ch_elf_playmaker", "stat": "pass", "amount": 15 },
+            { "type": "stat", "target": "char:ch_spirit_striker", "stat": "shoot", "amount": 15 },
+            { "type": "stamina", "target": "char:ch_elf_playmaker", "amount": -10 },
+            { "type": "stamina", "target": "char:ch_spirit_striker", "amount": -10 }
+          ],
+          "result": "날이 저물도록 바람과 번개가 몇 번이고 골문을 갈랐습니다. 마지막 한 번은 브론테도 이름을 제대로 외쳤습니다. \"풍뢰일섬!\" 실루엔이 소리 내어 웃었습니다."
+        },
+        {
+          "label": "다른 선수들 앞에서 한 번 보여 주게 한다",
+          "effects": [
+            { "type": "teamwork", "amount": 4 },
+            { "type": "cardAdd", "cardId": "cd_attack_build" }
+          ],
+          "result": "모두가 지켜보는 앞에서 공이 바람처럼 흘러가 번개처럼 꽂혔습니다. 박수가 터졌고, 그날부터 공격 전개 연습마다 누군가 \"번쩍!\"을 외칩니다. 결국 이름은 둘 다 쓰게 되었습니다."
+        }
+      ]
+    },
+    {
+      "id": "ev_neria_ondina_spirits",
+      "trigger": "week",
+      "title": "잔잔한 물과 급류",
+      "chars": ["ch_spirit_keeper", "ch_spirit_dribbler"],
+      "charMode": "all",
+      "weeks": [1, 14],
+      "seasons": [1, 2, 3],
+      "once": "run",
+      "weight": 1,
+      "scene": "ground",
+      "text": "훈련장 연못에서 첨벙 소리가 납니다. 연못 한가운데서 온디나가 머리를 내밀고, 연못가의 네리아에게 물을 튀깁니다. \"언니 물은 너무 조용해! 심심하지 않아?\"\n네리아가 젖은 앞머리를 가만히 쓸어 넘깁니다. \"...급류는 시끄럽네요. 호수 어른들이 놀라시겠어요. 그래도, 반가워요.\"\n둘 다 물가를 오래 떠나 있으면 몸이 무거워지는 물의 정령입니다. 온디나가 손을 번쩍 듭니다. \"감독! 우리 바다 가도 돼? 짠물 맞으면 금방 가벼워져!\"",
+      "choices": [
+        {
+          "label": "둘을 바닷가에 데려간다",
+          "effects": [
+            { "type": "stamina", "target": "char:ch_spirit_keeper", "full": true },
+            { "type": "stamina", "target": "char:ch_spirit_dribbler", "full": true },
+            { "type": "teamwork", "amount": 3 }
+          ],
+          "result": "바닷물에 발을 담근 네리아가 잠깐 굳더니 작게 말했습니다. \"...짜요.\" 온디나가 배를 잡고 웃었고, 해 질 녘에는 둘이 나란히 파도에 발을 맡기고 있었습니다."
+        },
+        {
+          "label": "연못에서 둘이 공을 주고받게 한다",
+          "effects": [
+            { "type": "stat", "target": "char:ch_spirit_keeper", "stat": "defense", "amount": 15 },
+            { "type": "stat", "target": "char:ch_spirit_dribbler", "stat": "dribble", "amount": 15 }
+          ],
+          "result": "온디나가 물살처럼 휘어 들어오면, 네리아가 잔잔한 수면처럼 받아 냈습니다. 해가 질 때까지 연못가에서 물보라와 웃음소리가 그치지 않았습니다."
+        }
+      ]
+    }
+  ]
 }
