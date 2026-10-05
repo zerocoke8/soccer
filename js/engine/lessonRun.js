@@ -12,11 +12,17 @@
  *   - 2차 이벤트 (§24, E2): 이벤트 뷰 · 고르기는 lessonEvents (getEventView · resolveEvent → 여기서 continueFlow), 효과는 lessonEffects.
  *     "보상 카드 3택1" 효과 = phase cardOffer (getCardOfferView · resolveCardOffer). 덱 · 유대 · 수업 도우미는 lessonCommon.
  *   - 이벤트가 뜨는 자리 (§24.2, E3): 아래 queue 의 이벤트 단계가 lessonEvents 의 자격 · 고르기 (eligible · pickWeekEvent ·
- *     pickOutingEvent · pickFixedEvent) 로 0 ~ 1개를 띄운다 (fireEvent → phase event). 코치 연속 · 외출 이야기는 E4.
+ *     pickOutingEvent · pickFixedEvent) 로 0 ~ 1개를 띄운다 (fireEvent → phase event).
+ *   - 코치 연속 이벤트 (§24.6, E4): 주 끝 슬롯이 준비된 코치 단계 (lessonEvents.pickCoachEvent — 2주 연속 금지) 를 주 끝 랜덤보다 먼저 띄운다.
+ *     "레슨에 나왔다" (state.coachSeen) 는 afterLesson 이, 코치 카드 대상 횟수 (state.coachTargets — 주인공 coachTarget) 는 playCard 가 쌓는다.
+ *   - 외출 이야기 (§24.7, E4): 외출 이벤트 단계가 외출 상대의 다음 화 (lessonEvents.pickStoryEvent) 를 일반 외출보다 먼저 띄운다.
+ *     계정 진행은 createRun 의 account 스냅샷으로만 들어오고 (state.account), 이번 런 진행은 고른 순간에 storySeen · storyEps · coachSteps 에
+ *     쌓인다 — 화면이 lessonEvents.accountMerge 로 계정 저장소에 합친다.
  *
  * queue 단계: "beginWeek" · "advanceWeek" · "resumeWeek" (무료 외출 뒤 같은 주로 — phase 만 week, rng 없음) · "seasonEnd" · "routeFriendly" ·
- *   이벤트 단계 (§24.2, E3) "weekSlot" (주 끝 랜덤) · "preMatchEvent" (경계전 전야) · "seasonStartEvent" · "routeEvent:<routeId>" ·
- *   "outingEvent:<playerId>" (일반 외출 — 외출한 주는 이것이 그 주의 슬롯). 옛 저장본의 "supportEventCheck" = "weekSlot" (별칭).
+ *   이벤트 단계 (§24.2, E3 · E4) "weekSlot" (코치 연속 → 없으면 주 끝 랜덤) · "preMatchEvent" (경계전 전야) · "seasonStartEvent" ·
+ *   "routeEvent:<routeId>" · "outingEvent:<playerId>" (이야기 다음 화 → 없으면 일반 외출 — 외출한 주는 이것이 그 주의 슬롯).
+ *   옛 저장본의 "supportEventCheck" = "weekSlot" (별칭).
  *   이벤트 단계는 띄울 것이 없으면 그냥 지나가고 (rng 도 쓰지 않는다), lesson.json events 의 그 스위치가 꺼져 있으면 아무것도 하지 않는다.
  *   queue 모양: createRun ["seasonStartEvent", "beginWeek"] · 주 끝 weekEndQueue = ["weekSlot", (마지막 주) "preMatchEvent", "advanceWeek"] ·
  *   외출 ["outingEvent:<id>", (마지막 주) "preMatchEvent", "advanceWeek"] · 무료 외출 (outing 스위치가 켜졌을 때) ["outingEvent:<id>", "resumeWeek"] ·
@@ -90,6 +96,8 @@ export {
 export { lessonResult } from "./lesson.js";
 export { canTeachSkill } from "./lessonCommon.js";
 export { getEventView } from "./lessonEvents.js";
+// 계정 스냅샷 · 회상 (E4 · §24.7 — 화면이 ctx.run 으로 부른다. 원본은 lessonEvents)
+export { accountMerge, normalizeAccount, storyList } from "./lessonEvents.js";
 
 export const RUN_KIND = "lessonRun";
 export const RUN_VERSION = 5;
@@ -394,8 +402,18 @@ function leftoverTeachToSp(state, data) {
 // 이벤트 단계 (§24.2, E3) — 하나에 이벤트 0 ~ 1개 (띄우면 phase event 로 흐름이 멈춘다). 스위치가 꺼져 있으면 아무것도 하지 않고 rng 도 쓰지 않는다.
 // ---------------------------------------------------------------------------
 
-/** 주 끝 슬롯 (L24): 주 끝 랜덤 1개 (E4 가 준비된 코치 연속 이벤트를 먼저 본다). lastWeekEventId = 이번 주 슬롯의 이벤트 (없으면 null) */
+/**
+ * 주 끝 슬롯 (L24 · §24.6): 준비된 코치 연속 이벤트 (events.coach.enabled — 낮은 단계 · 편성 순, 바로 앞 주 슬롯이 코치였으면 건너뜀) →
+ * 없으면 주 끝 랜덤 1개 (events.week). lastCoachTurnIndex = 코치 이벤트를 띄운 주, lastWeekEventId = 이번 주 슬롯의 주 끝 랜덤 (없으면 null).
+ */
 function weekSlotStep(state, data) {
+  const coach = lessonEvents.switchOn(data, "coach") ? lessonEvents.pickCoachEvent(state, data) : null;
+  if (coach) {
+    state.lastCoachTurnIndex = state.turnIndex;
+    state.lastWeekEventId = null;
+    lessonEvents.fireEvent(state, data, coach.ev, { kind: "coach", supportId: coach.supportId });
+    return;
+  }
   if (!lessonEvents.switchOn(data, "week")) return;
   const ev = lessonEvents.pickWeekEvent(state, data);
   state.lastWeekEventId = ev ? ev.id : null;
@@ -416,10 +434,18 @@ function routeEventStep(state, data, routeId) {
   if (ev) lessonEvents.fireEvent(state, data, ev, { kind: ev.trigger, routeId });
 }
 
-/** 외출 이벤트 (외출 기본 효과 다음): 일반 외출 주머니에서 1개, 주인공 = 외출 상대 (E4 가 이야기 다음 화를 먼저 본다) */
+/**
+ * 외출 이벤트 (외출 기본 효과 다음, §24.7): 외출 상대의 다음 이야기 화가 있으면 그 화 (확정, rng 없음), 아니면 일반 외출 주머니에서 1개.
+ * 주인공 = 외출 상대.
+ */
 function outingEventStep(state, data, playerId) {
   if (!lessonEvents.switchOn(data, "outing")) return;
-  playerById(state, playerId);
+  const p = playerById(state, playerId);
+  const story = lessonEvents.pickStoryEvent(state, data, p.charId);
+  if (story) {
+    lessonEvents.fireEvent(state, data, story, { kind: story.trigger, partnerId: playerId });
+    return;
+  }
   const ev = lessonEvents.pickOutingEvent(state, data);
   if (ev) lessonEvents.fireEvent(state, data, ev, { kind: ev.trigger, partnerId: playerId });
 }
@@ -585,10 +611,11 @@ function migrateV3toV4(s, data) {
 function v5Fields() {
   return {
     storySeen: [], // 이번 런에 본 이야기 id (E4 — 고른 순간에 센다)
+    storyEps: {}, // { charId: 이번 런에 본 가장 큰 화 } (E4 — accountMerge 가 data 없이 합친다)
     outingSeen: [], // 이번 런에 본 일반 외출 id (E3 — 6종을 다 보면 비운다)
     coachTargets: {}, // { supportId: { playerId: 코치 카드 대상 횟수 } } (E4)
     coachSeen: {}, // { supportId: true } — 레슨에 나온 코치 (E4)
-    coachSteps: {}, // { supportId: [이번 런에 본 단계] } (E4)
+    coachSteps: {}, // { supportId: [이번 런에 고른 단계] } (E4 — 1단계 = 계정 첫 만남)
     lastCoachTurnIndex: null, // 마지막 코치 이벤트의 주 (E4 — 2주 연속 금지)
     lastWeekEventId: null, // 지난 주 끝 랜덤 이벤트 (E3 — 반복 이벤트가 바로 다음 주에 다시 뜨지 않게)
     usedEventSeasons: {}, // { eventId: [시즌] } — once "season"
@@ -659,6 +686,8 @@ export function migrateLessonRun(s, data) {
   if (isLessonRunSave(s) && s.version === 4 && data && data.lesson && Array.isArray(data.supports)) migrateV4toV5(s, data);
   if (!isLessonRun(s)) return s;
   if (!Array.isArray(s.pendingTeach)) s.pendingTeach = [];
+  // version 5 안에서 나중에 더한 2차 필드 (E4 storyEps 등) 가 없는 저장본: 빈 값으로 (있는 값은 그대로 · rng 없음 · 멱등)
+  for (const [k, v] of Object.entries(v5Fields())) if (s[k] === undefined) s[k] = v;
   return run.migrateRun(s);
 }
 
@@ -673,11 +702,14 @@ function validateEventsOnce(data) {
 
 /**
  * 새 레슨 런.
+ * account = 계정 스냅샷 (§24.5.2 · §24.7, E4): { stories: { [charId]: 0 ~ 3 }, coachMet: { [supportId]: true } } — 화면이 계정 저장소
+ *   (soccer-lesson.account) 에서 읽어 넘긴다. lessonEvents.normalizeAccount 로 정리해 state.account 에 둔다 (없거나 틀리면 빈 값).
+ *   이야기 다음 화 · 코치 첫 만남 건너뛰기가 이 값을 읽는다 — 같은 seed 라도 계정 진행이 다르면 다른 런이 될 수 있다 [구현 결정 §24.5.4].
  * @param {{ data: object, seed: string|number, squad?: Record<string,string>, formation?: string, supportIds?: string[],
- *           tactics?: object, policy?: string, leagueTier?: number }} params
+ *           tactics?: object, policy?: string, leagueTier?: number, account?: object }} params
  * @returns {object} RunState (kind "lessonRun")
  */
-export function createRun({ data, seed, squad, formation, supportIds, tactics, policy, leagueTier = 1 }) {
+export function createRun({ data, seed, squad, formation, supportIds, tactics, policy, leagueTier = 1, account }) {
   assertData(data);
   cards.validateAttachData(data); // 코치 지원 데이터 (§15.3)
   cards.validateShapeData(data); // 고유 카드 모양 데이터 (L40 · §16.2 ④)
@@ -735,6 +767,7 @@ export function createRun({ data, seed, squad, formation, supportIds, tactics, p
     record: { goalMatches: [], friendlies: [], losses: 0, lessons: [] },
     usedEventIds: [],
     ...v5Fields(), // 2차 (§24.10)
+    account: lessonEvents.normalizeAccount(account), // 계정 스냅샷 (E4 — v5Fields 의 자리 그대로)
     log: [],
     rating: null,
     queue: [],
@@ -789,7 +822,8 @@ export function getWeekView(state, data) {
     actions: kind === "free" && Array.isArray(offer.actions) ? offer.actions.map((type) => ({ type, guaranteed: type === offer.guaranteed })) : [],
     freeOuting: (state.freeOuting || 0) > 0 && state.turn === 1,
     restGain: Math.round(data.config.rest.stamina * (1 + getModifier(state, "restEffect"))),
-    players: state.players.map((p) => playerView(state, data, p)),
+    // story (E4 · §24.7): 외출하면 볼 이야기 화 { next: 1 ~ 3 | null, total: 3 } — 외출 이벤트 스위치가 꺼져 있으면 next null (뜨지 않으니)
+    players: state.players.map((p) => ({ ...playerView(state, data, p), story: storyView(state, data, p) })),
     coaches: coachViews(state, data),
     partyPassives: passives.partyPassivesFor(state, data), // 코치 파티 패시브 (L48)
     shopBuyable: shopBuyableCount(state, data), // 지금 SP 로 살 수 있는 패시브 수 (L48 — 주 화면 [패시브] 버튼 배지)
@@ -801,6 +835,12 @@ export function getWeekView(state, data) {
     lastMatchResult: state.lastMatchResult,
     log: state.log.slice(-20),
   };
+}
+
+/** 주 화면 선수 줄의 이야기 표시 (§24.7 — 외출 모달 "이야기 n/3화", 다 봤거나 없으면 next null = "일반 외출"). 순수 */
+function storyView(state, data, p) {
+  const next = lessonEvents.switchOn(data, "outing") ? lessonEvents.storyNext(state, data, p.charId) : null;
+  return { next, total: lessonEvents.STORY_EPS.length };
 }
 
 /** 외출 효과: 그 선수 +picked, 7명 +team, 컨디션 +condition */
@@ -908,10 +948,41 @@ function afterIfEnded(state, data) {
   return state;
 }
 
-/** 카드 1장 내기 (lesson.playCard). 레슨이 끝나면 보상 단계로. */
+/**
+ * 손패의 그 카드가 코치 카드면 그 코치 id (아니면 null). 읽기만 한다 (검사는 lesson.playCard 가) — 손패에 없는 uid 는 null.
+ */
+function coachCardSupportId(state, data, uid) {
+  const L = state.lesson;
+  if (!L || !Array.isArray(L.hand) || !L.hand.includes(uid)) return null;
+  const def = lesson.lessonCardDef(state, data, uid);
+  return def && def.family === "coach" && def.coach && def.coach.supportId ? def.coach.supportId : null;
+}
+
+/**
+ * 코치 카드를 낸 뒤 (§24.5.2 · E4): 그 카드의 대상 (lesson.targeted 앞뒤 차이) 을 state.coachTargets[supportId][playerId] 에 더하고
+ * (주인공 coachTarget), 이번 레슨에 그 코치 카드를 냈다고 lesson.coachPlayed 에 남긴다 (afterLesson 의 "레슨에 나왔다"). rng 없음.
+ */
+function recordCoachPlay(state, supportId, targetedBefore) {
+  const L = state.lesson;
+  if (!L) return;
+  const after = L.targeted || {};
+  if (!state.coachTargets || typeof state.coachTargets !== "object") state.coachTargets = {};
+  const row = state.coachTargets[supportId] || (state.coachTargets[supportId] = {});
+  for (const p of state.players) {
+    const d = (Number(after[p.id]) || 0) - (Number(targetedBefore[p.id]) || 0);
+    if (d > 0) row[p.id] = (Number(row[p.id]) || 0) + d;
+  }
+  if (!L.coachPlayed || typeof L.coachPlayed !== "object") L.coachPlayed = {};
+  L.coachPlayed[supportId] = true;
+}
+
+/** 카드 1장 내기 (lesson.playCard). 코치 카드면 대상 기록 (E4). 레슨이 끝나면 보상 단계로. */
 export function playCard(state, data, args) {
   assertPhase(state, "lesson");
+  const coachSid = coachCardSupportId(state, data, args && args.uid);
+  const targetedBefore = coachSid ? { ...(state.lesson.targeted || {}) } : null;
   lesson.playCard(state, data, args);
+  if (coachSid) recordCoachPlay(state, coachSid, targetedBefore);
   // 코치 컷인 로그 (§15.5): "코치 하르나 지원 (인터벌 슈팅)"
   const ci = state.lesson && state.lesson.lastFx && state.lesson.lastFx[0];
   if (ci && ci.t === "cutin") {
@@ -951,7 +1022,25 @@ export function dropCandidates(state, data, args) {
 }
 
 /**
+ * "레슨에 나왔다" (§24.6 — 코치 연속 이벤트 1단계 조건, E4): 이번 레슨에서 지원 붙기 · 컷인 (lesson.attach.log — 붙은 카드에 그 코치가
+ * 보였다), 코치 카드 사용 (lesson.coachPlayed — playCard 가 남긴다), 같은 종목 클리어 유대 · 그 밖의 레슨 중 유대 변화 (extra) 가 있던
+ * 편성 코치를 state.coachSeen[supportId] = true 로. rng 없음 · 한 번 true 면 그대로.
+ * @param {object} state
+ * @param {object} L  끝난 레슨 (state.lesson)
+ * @param {string[]} extra  같은 종목 클리어 유대 · 유대가 바뀐 코치 id
+ */
+function recordCoachSeen(state, L, extra) {
+  const ids = new Set(extra);
+  const log = L && L.attach && Array.isArray(L.attach.log) ? L.attach.log : [];
+  for (const x of log) if (x && typeof x.supportId === "string") ids.add(x.supportId);
+  if (L && L.coachPlayed && typeof L.coachPlayed === "object") for (const id of Object.keys(L.coachPlayed)) ids.add(id);
+  if (!state.coachSeen || typeof state.coachSeen !== "object") state.coachSeen = {};
+  for (const st of state.supports) if (ids.has(st.id)) state.coachSeen[st.id] = true;
+}
+
+/**
  * 레슨이 끝난 직후 (§5.4.3 afterLesson): 결과 보상 · 힌트 · 결장 감소 · 기록 · 보상 후보 → phase reward.
+ * 코치가 레슨에 나왔으면 state.coachSeen (E4 — recordCoachSeen).
  */
 function afterLesson(state, data) {
   const L = state.lesson;
@@ -970,6 +1059,7 @@ function afterLesson(state, data) {
   let teamwork = 0;
   let condition = 0;
   let prepBonus = false;
+  const sameTypeBond = []; // 같은 종목 클리어 유대를 받은 코치 (E4 — "레슨에 나왔다")
   if (status === "perfect" || status === "clear") {
     const R = D.rewards[status];
     tp = R.tp;
@@ -986,7 +1076,10 @@ function afterLesson(state, data) {
     teamwork = state.teamwork - twBefore;
     for (const st of state.supports) {
       const cc = coachCardOf(data, st.id);
-      if (cc && cc.coach.type === L.zone) addBond(st, D.bond.sameTypeClear);
+      if (cc && cc.coach.type === L.zone) {
+        addBond(st, D.bond.sameTypeClear);
+        sameTypeBond.push(st.id);
+      }
     }
     if (L.lumiFlag) {
       const before = state.condition;
@@ -1071,6 +1164,7 @@ function afterLesson(state, data) {
       bond.push({ id: st.id, name: sc ? sc.name : st.id, gain: st.bond - before, bond: st.bond });
     }
   }
+  recordCoachSeen(state, L, [...sameTypeBond, ...bond.map((b) => b.id)]);
 
   // 6. phase reward
   state.pendingReward = {

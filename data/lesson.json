@@ -54,7 +54,7 @@
     "noHintSp": 10,
     "teach": { "declineSp": 20 }
   },
-  "bond": { "acquire": 15, "play": 8, "sameTypeClear": 5, "upgradeAt": 80, "eventAt": 60 },
+  "bond": { "acquire": 15, "play": 8, "sameTypeClear": 5, "upgradeAt": 80, "eventAt": 60, "eventSteps": [40, 80] },
   "consult": {
     "stock": 3,
     "price": { "common": 20, "policy": 30, "coach": 30, "upgrade": 30, "delete": 25 },

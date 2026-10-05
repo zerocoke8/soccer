@@ -723,3 +723,121 @@ test("§24.2 E3 감독 AI: 무료 외출 → 외출 이벤트 (추천 선택지)
   assert.equal(JSON.stringify(s.weekOffer), offer);
   assert.notEqual(M.recommendWeek(s, d).free, true, "무료 외출은 한 번");
 });
+
+// ---------------------------------------------------------------------------
+// LESSON_PROTO_PLAN §24.6 · §24.7 — E4 코치 연속 · 외출 이야기: 외출 상대 · 감독 AI 15주 완주 · 계정 carry
+// ---------------------------------------------------------------------------
+
+/** 이야기 본보기 3화 · 코치 연속 본보기 3단계 (rng 를 쓰지 않는 효과) */
+const e4Story = (charId, slug) => [1, 2, 3].map((ep) => ({
+  id: `out_mf_${slug}_${ep}`, trigger: "story", story: { charId, ep }, title: `이야기 ${ep}`, text: "강가를 걷습니다.",
+  choices: [
+    { label: "듣는다", effects: [{ type: "stat", target: "player", stat: "pass", amount: 3 }], result: "물소리가 들립니다." },
+    { label: "돌아간다", effects: [{ type: "tp", amount: 5 }], result: "해가 집니다." },
+  ],
+}));
+const e4Coach = (sid, slug) => [1, 2, 3].map((step) => ({
+  id: `ev_coach_mf_${slug}_${step}`, trigger: "coach", chain: { supportId: sid, step }, bondAtLeast: [0, 40, 80][step - 1],
+  title: `코치 ${step}`, text: "{코치|이/가} {선수|을/를} 부릅니다.",
+  choices: [
+    { label: "배운다", effects: [{ type: "stat", target: "player", stat: "shoot", amount: 5 }], result: "{선수|이/가} 배웠습니다." },
+    { label: "듣는다", effects: [{ type: "bond", target: "coach", amount: 5 }], result: "{코치|이/가} 웃습니다." },
+  ],
+}));
+const E4_MGR = [...e4Story("ch_spirit_keeper", "neria"), ...e4Story("ch_human_runner", "taria"), ...e4Coach("sp_coach_harr", "harr"), ...e4Coach("sp_wind_dancer", "celia"), ...e4Coach("sp_elder_sage", "ornella")];
+/** flowMgrData + coach 스위치 (events.coach.enabled) */
+function e4MgrData(events, on, coach = false) {
+  const d = flowMgrData(events, on);
+  d.lesson.events.coach.enabled = coach;
+  return d;
+}
+
+test("§24.7 E4 감독 AI 외출 상대: 안 본 이야기 화가 남은 선수 중 체력이 가장 낮은 선수 (없으면 지금 규칙) · 무료 외출도 · 외출 이벤트가 꺼져 있으면 지금 규칙 · 외출 여부는 그대로 · 순수", () => {
+  const d = e4MgrData(E4_MGR, ["outing"]);
+  const setup = (dd, account) => {
+    const s = LR.createRun({ data: dd, seed: 4, policy: "team", account });
+    s.weekOffer = { kind: "free", actions: ["outing"], guaranteed: "outing" };
+    for (const p of s.players) p.stamina = 60;
+    P(s, "p3").stamina = 55; // 이야기가 없는 선수 중 가장 낮다
+    P(s, "p5").stamina = 58; // 이야기가 남은 선수 (타리아) 중 가장 낮다
+    P(s, "p1").stamina = 59;
+    return s;
+  };
+  const s = setup(d);
+  const before = JSON.stringify(s);
+  const r = M.recommendWeek(s, d);
+  assert.deepEqual([r.type, r.playerId], ["outing", "p5"]);
+  assert.match(r.reason, /안 본 이야기 \(1화\)/);
+  assert.equal(JSON.stringify(s), before, "추천은 순수");
+  // 계정에서 두 선수 이야기를 다 봤으면 지금 규칙 (7명 중 체력 최저)
+  const done = setup(d, { stories: { ch_spirit_keeper: 3, ch_human_runner: 3 } });
+  assert.deepEqual([M.recommendWeek(done, d).playerId, M.recommendWeek(done, d).reason], ["p3", "체력이 가장 낮은 선수와 외출"]);
+  // 한 명만 남았으면 그 선수 (체력이 더 높아도)
+  const one = setup(d, { stories: { ch_human_runner: 3 } });
+  assert.equal(M.recommendWeek(one, d).playerId, "p1");
+  // 외출 이벤트 스위치가 꺼져 있으면 이야기가 뜨지 않으니 지금 규칙
+  const off = e4MgrData(E4_MGR, []);
+  assert.equal(M.recommendWeek(setup(off), off).playerId, "p3");
+  // 외출을 할지는 그대로 (평균 체력 50 미만이면 휴식)
+  const tired = setup(d);
+  for (const p of tired.players) p.stamina = 40;
+  assert.equal(M.recommendWeek(tired, d).type, "rest");
+  // 무료 외출도 같은 규칙 · autoStep 이 그 선수와 나가 이야기 1화
+  const f = setup(d);
+  f.freeOuting = 1;
+  const rf = M.recommendWeek(f, d);
+  assert.deepEqual([rf.type, rf.free, rf.playerId], ["outing", true, "p5"]);
+  assert.match(rf.reason, /이야기 1화/);
+  M.autoStep(f, d, { playMatch });
+  assert.deepEqual([f.phase, f.currentEvent.eventId, f.currentEvent.playerId], ["event", "out_mf_taria_1", "p5"]);
+  M.autoStep(f, d, { playMatch });
+  assert.deepEqual([f.phase, f.turn, f.storySeen], ["week", 1, ["out_mf_taria_1"]]);
+});
+
+test("§24.6 · §24.7 E4 감독 AI 15주 완주 (코치 연속 · 이야기 본보기 · 스위치 켬): 끝까지 · 결정적 · 코치 이벤트 2주 연속 없음 · 계정 carry 면 다음 런은 1단계를 건너뛰고 이야기를 이어 간다 · 스위치를 끄면 이벤트 없는 데이터와 같은 최종 상태", () => {
+  const events = [...flowEvents(), ...E4_MGR];
+  const d = e4MgrData(events, ["week", "seasonStart", "preMatch", "route", "outing"], true);
+  const runA = (account) => {
+    const s = LR.createRun({ data: d, seed: 21, policy: "team", account });
+    const by = {};
+    const coachWeeks = [];
+    let guard = 0;
+    while (s.phase !== "finished") {
+      if (++guard > 3000) throw new Error(`런이 끝나지 않습니다 (${s.phase})`);
+      if (s.phase === "event") {
+        const t = LE.eventById(d, s.currentEvent.eventId).trigger;
+        by[t] = (by[t] || 0) + 1;
+        if (t === "coach") coachWeeks.push(s.turnIndex);
+      }
+      M.autoStep(s, d, { playMatch });
+    }
+    return { s, by, coachWeeks };
+  };
+  const a = runA();
+  assert.ok(a.by.coach >= 2, JSON.stringify(a.by));
+  for (let i = 1; i < a.coachWeeks.length; i++) assert.ok(a.coachWeeks[i] - a.coachWeeks[i - 1] >= 2, `2주 연속 코치: ${a.coachWeeks}`);
+  assert.ok(Object.values(a.s.coachSteps).every((l) => l.includes(1)), "계정이 비었으면 1단계부터");
+  assert.equal(a.s.storySeen.length, a.by.story || 0, "이야기는 고른 만큼");
+  assert.equal(a.s.currentEvent, null);
+  same(JSON.parse(JSON.stringify(a.s)), a.s);
+  same(runA().s, a.s, "결정적");
+  // 계정 carry: 1단계를 본 코치는 다음 런에서 건너뛴다 · 이야기는 이어서
+  const acc = LE.accountMerge(null, a.s);
+  same(LE.accountMerge(acc, a.s), acc);
+  const b = runA(acc);
+  for (const [sid, steps] of Object.entries(b.s.coachSteps)) if (acc.coachMet[sid]) assert.ok(!steps.includes(1), `${sid} 1단계는 계정에서 봤다`);
+  for (const id of b.s.storySeen) {
+    const ev = LE.eventById(d, id);
+    assert.ok(ev.story.ep > (acc.stories[ev.story.charId] || 0), `${id} 는 계정 다음 화`);
+  }
+  // 스위치를 모두 끄면 (본보기 · 계정이 있어도) 이벤트 없는 데이터와 같은 최종 상태
+  const plain = (() => {
+    const s = LR.createRun({ data, seed: 21, policy: "team" });
+    while (s.phase !== "finished") M.autoStep(s, data, { playMatch });
+    return s;
+  })();
+  const dOff = e4MgrData(events, [], false);
+  const off = LR.createRun({ data: dOff, seed: 21, policy: "team", account: acc });
+  while (off.phase !== "finished") M.autoStep(off, dOff, { playMatch });
+  same({ ...off, account: plain.account }, plain);
+});

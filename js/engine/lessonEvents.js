@@ -10,9 +10,11 @@
  * E2: 주인공 pickProtagonist · 띄우기 fireEvent · 뷰 getEventView · 고르기 resolveEvent · 감독 AI 기대값 choiceScore.
  *   - resolveEvent 는 효과 · 결과 문구 · lastEvent · 기록 갈고리까지 하고 phase 를 "flow" 로 둔다. 흐름 잇기 (continueFlow) 는
  *     lessonRun.resolveEvent 가 한다 (lessonEvents 는 lessonRun 을 import 하지 않는다 — 순환 import 방지).
- * E3 (이 판): 흐름 자격 eligible · 주 끝 랜덤 pickWeekEvent · 일반 외출 pickOutingEvent · 고정 (시즌 시작 · 전야 · 루트) pickFixedEvent ·
+ * E3: 흐름 자격 eligible · 주 끝 랜덤 pickWeekEvent · 일반 외출 pickOutingEvent · 고정 (시즌 시작 · 전야 · 루트) pickFixedEvent ·
  *   기능 스위치 switchOn · 주 끝 조건 weekCondOk · 가중치 eventWeight. queue 단계 (weekSlot …) 는 lessonRun 이 부른다 (§24.2).
- * E4 가 코치 · 이야기를 더한다.
+ * E4 (이 판): 코치 연속 이벤트 (§24.6) coachReady · pickCoachEvent · 주인공 coachTarget (coachTargetCandidates),
+ *   외출 이야기 (§24.7) storyNext · pickStoryEvent · storyList (회상), 계정 스냅샷 normalizeAccount · accountMerge (화면이 저장할 때).
+ *   고른 뒤 기록 (onEventResolved): 이야기 → storySeen · storyEps, 코치 → coachSteps (계정 첫 만남은 coachSteps 의 1단계).
  *
  * 순수 로직: DOM/Date/Math.random/localStorage 를 쓰지 않는다. 상태를 바꾸는 함수 (fireEvent · resolveEvent · setEventSwitches) 말고는
  * 입력을 바꾸지 않는다. rng 는 state.rngState 로만 (fireEvent · resolveEvent 가 한 번 열고 나갈 때 저장), 뷰 · 기대값은 rng 를 쓰지 않는다.
@@ -21,9 +23,10 @@ import { createRngFromState } from "./rng.js";
 import { logLine } from "./run.js";
 import { TRIGGERS, TRIGGER_LABELS, effectErrors, buildRefIndex, describe, applyEffects, effectNeeds, scoreEffects } from "./lessonEffects.js";
 import { scanText, bareJosaErrors, fillText, pickText } from "./lessonText.js";
-import { POSITIONS } from "./training.js";
+import { POSITIONS, STATS } from "./training.js";
 import { ZONE_IDS } from "./zones.js";
-import { POLICY_FAMILIES } from "./cards.js";
+import { POLICY_FAMILIES, mainStatsOf } from "./cards.js";
+import { coachCardOf } from "./lessonCommon.js";
 
 export { TRIGGERS, TRIGGER_LABELS };
 
@@ -88,8 +91,22 @@ export const DEFAULT_SCENES = Object.freeze({
 });
 export const ROUTE_SCENES = Object.freeze({ rt_camp: "ground", rt_expedition: "nature", rt_hotspring: "onsen" });
 
-/** 코치 연속 이벤트 단계별 유대 문턱 (§24.6 — step 1 · 2 · 3) */
+/** 코치 연속 이벤트 단계별 유대 문턱 (§24.6 — step 1 · 2 · 3). lesson.json bond.eventSteps 가 없을 때의 값 */
 export const COACH_STEP_BONDS = Object.freeze([0, 40, 80]);
+
+/** bond.eventSteps 가 맞는 꼴인가: [2단계, 3단계] 정수, 0 < a < b ≤ 100 */
+const okEventSteps = (es) => Array.isArray(es) && es.length === 2 && es.every((n) => Number.isInteger(n)) && es[0] > 0 && es[0] < es[1] && es[1] <= 100;
+
+/**
+ * 코치 연속 이벤트 단계별 유대 문턱 [1단계 0, 2단계, 3단계] — lesson.json bond.eventSteps ([40, 80], E4) 에서, 없거나 꼴이 틀리면
+ * COACH_STEP_BONDS (틀린 꼴은 검사가 오류로 알린다). 이벤트의 bondAtLeast 는 이 값과 같아야 한다 (검사).
+ * @param {object} data
+ * @returns {number[]}
+ */
+export function coachStepBonds(data) {
+  const es = data && data.lesson && data.lesson.bond ? data.lesson.bond.eventSteps : undefined;
+  return okEventSteps(es) ? [0, es[0], es[1]] : COACH_STEP_BONDS.slice();
+}
 /** 외출 이야기 화 (§24.7) */
 export const STORY_EPS = Object.freeze([1, 2, 3]);
 /** 시즌 (1 ~ 3) */
@@ -219,6 +236,7 @@ export function lessonEventErrors(data) {
   const errors = [];
   const ix = buildRefIndex(data);
   const lastWeek = weekCount(data) - 1;
+  const bonds = coachStepBonds(data);
   const seenIds = new Map(); // id → 파일 이름
   const stories = new Map(); // charId → [{ ep, label }]
   const chains = new Map(); // supportId → [{ step, label }]
@@ -241,7 +259,7 @@ export function lessonEventErrors(data) {
     file.events.forEach((ev, i) => {
       const label = `${fname} ${isObj(ev) && typeof ev.id === "string" && ev.id ? ev.id : `events[${i}]`}`;
       const err = (msg) => errors.push(`${label}: ${msg}`);
-      eventErrors(ev, { data, ix, lastWeek, err });
+      eventErrors(ev, { data, ix, lastWeek, bonds, err });
       if (!isObj(ev)) return;
       if (typeof ev.id === "string" && ev.id) {
         if (seenIds.has(ev.id)) err(`id 가 겹친다 (${seenIds.get(ev.id)} 에도 있다) — 파일 7개 전체에서 하나`);
@@ -278,6 +296,9 @@ export function lessonEventErrors(data) {
       }
     }
   }
+  // lesson.json bond.eventSteps (코치 연속 2 · 3단계 유대 문턱 — §24.3.6, E4)
+  const es = data && data.lesson && data.lesson.bond ? data.lesson.bond.eventSteps : undefined;
+  if (es !== undefined && !okEventSteps(es)) errors.push(`lesson.json bond.eventSteps: [2단계, 3단계] 유대 문턱 정수 두 개, 0 < 2단계 < 3단계 ≤ 100 (지금 ${show(es)})`);
   return errors;
 }
 
@@ -346,7 +367,7 @@ export function eventCheckContext(ev) {
 }
 
 /** 이벤트 하나 (§24.3.7 — 모양 · 글 · 선택지 · 참조) */
-function eventErrors(ev, { data, ix, lastWeek, err }) {
+function eventErrors(ev, { data, ix, lastWeek, bonds = COACH_STEP_BONDS, err }) {
   if (!isObj(ev)) {
     err(`이벤트는 객체다 (지금 ${show(ev)})`);
     return;
@@ -440,12 +461,12 @@ function eventErrors(ev, { data, ix, lastWeek, err }) {
       for (const k of Object.keys(ch)) if (k !== "supportId" && k !== "step") err(`chain 에 모르는 키 '${k}' (supportId · step)`);
       if (!ix.supports.has(ch.supportId)) err(`chain.supportId: 없는 코치 ${show(ch.supportId)}`);
       if (![1, 2, 3].includes(ch.step)) err(`chain.step 은 1 · 2 · 3 (지금 ${show(ch.step)})`);
-      else if (ev.bondAtLeast !== undefined && ev.bondAtLeast !== COACH_STEP_BONDS[ch.step - 1]) {
-        err(`bondAtLeast 는 ${ch.step}단계면 ${COACH_STEP_BONDS[ch.step - 1]} (0 · 40 · 80) (지금 ${show(ev.bondAtLeast)})`);
+      else if (ev.bondAtLeast !== undefined && ev.bondAtLeast !== bonds[ch.step - 1]) {
+        err(`bondAtLeast 는 ${ch.step}단계면 ${bonds[ch.step - 1]} (${bonds.join(" · ")} — lesson.json bond.eventSteps) (지금 ${show(ev.bondAtLeast)})`);
       }
     }
   }
-  if (ev.bondAtLeast !== undefined && !COACH_STEP_BONDS.includes(ev.bondAtLeast)) err(`bondAtLeast 는 0 · 40 · 80 (지금 ${show(ev.bondAtLeast)})`);
+  if (ev.bondAtLeast !== undefined && !bonds.includes(ev.bondAtLeast)) err(`bondAtLeast 는 ${bonds.join(" · ")} (지금 ${show(ev.bondAtLeast)})`);
   if (ev.policy !== undefined) {
     const ids = ix.policies.size ? [...ix.policies.keys()] : POLICY_FAMILIES;
     if (!ids.includes(ev.policy)) err(`policy ${show(ev.policy)} — ${ids.join(" · ")} 중 하나`);
@@ -713,7 +734,9 @@ function defaultPick(ev) {
  * 주인공 ({선수}) 을 고른다 (§24.3.4). 결장 선수는 빼고 (외출 상대만 예외), 무작위 · 같은 값 깨기에만 rng 를 쓴다.
  *   none → null · random → 결장 아닌 선수 중 (pos = 배치 포지션으로 좁힌다, 좁혀서 없으면 결장 아닌 선수 전원) ·
  *   char → who.charId 선수 (편성 안 됐으면 random) · lowestStamina / highestStamina → 체력 최저 / 최고 (같으면 무작위, pos 가능) ·
- *   partner → ctx.partnerId (결장이어도) · coachTarget → 지금은 random (E4 가 바꾼다) · 이야기 → 그 캐릭터 선수.
+ *   partner → ctx.partnerId (결장이어도) · 이야기 → 그 캐릭터 선수 ·
+ *   coachTarget (E4) → 이번 런 그 코치 카드 대상 최다 → 같으면 코치 종목이 주 스탯인 선수 → 그래도 같으면 무작위 (결장 제외,
+ *   coachTargetCandidates — 코치 = ctx.supportId · chain.supportId · coach).
  *   ctx.playerId 가 있으면 그 선수 (도구 · 테스트용 — 주입).
  * 깜짝 전용 (turnFailer …) 은 E5.
  * @param {object} state
@@ -752,9 +775,13 @@ export function pickProtagonist(state, data, ev, ctx = {}, rng) {
       pick = "random";
       break;
     }
-    case "coachTarget":
-      pick = "random"; // E4: 이번 런 코치 카드 대상 최다 → 코치 종목 주 스탯 → 무작위
-      break;
+    case "coachTarget": {
+      // E4 (§24.3.4): 대상 최다 → 코치 종목 주 스탯 → 무작위 (rng 는 마지막 무작위에만)
+      const sid = c.supportId || (isObj(ev.chain) ? ev.chain.supportId : null) || (typeof ev.coach === "string" ? ev.coach : null);
+      const tied = coachTargetCandidates(state, data, sid);
+      if (!tied.length) return null;
+      return tied.length === 1 ? tied[0] : rng.pick(tied);
+    }
     default:
       break;
   }
@@ -938,13 +965,29 @@ export function choiceScore(state, data, view, i) {
 }
 
 /**
- * 고른 뒤 기록 갈고리 (E4 가 채운다 — 이야기 storySeen · 코치 단계). 지금은 아무것도 하지 않는다.
- * @param {object} _state
+ * 고른 뒤 기록 (E4 — 띄울 때가 아니라 **고른 순간**에 본 것으로 센다, §24.7). rng 없음 · 같은 이벤트를 두 번 세지 않는다.
+ *   이야기 → state.storySeen (id) · state.storyEps[charId] = 이번 런에 본 가장 큰 화 (accountMerge 가 data 없이 합치게).
+ *   코치 연속 → state.coachSteps[supportId] (이번 런에 본 단계, 오름차순) — 1단계 = 계정 첫 만남 (accountMerge 의 coachMet).
+ * @param {object} state
  * @param {object} _data
- * @param {object} _ev
+ * @param {object} ev
  * @param {{ choice: number, branch: string|null, kind: string, playerId: string|null, supportId: string|null, ctx: object }} _info
  */
-function onEventResolved(_state, _data, _ev, _info) {}
+function onEventResolved(state, _data, ev, _info) {
+  if (ev.trigger === "story" && isObj(ev.story)) {
+    if (!Array.isArray(state.storySeen)) state.storySeen = [];
+    if (!state.storySeen.includes(ev.id)) state.storySeen.push(ev.id);
+    if (!isObj(state.storyEps)) state.storyEps = {};
+    const c = ev.story.charId;
+    state.storyEps[c] = Math.max(Number(state.storyEps[c]) || 0, ev.story.ep);
+  }
+  if (ev.trigger === "coach" && isObj(ev.chain)) {
+    if (!isObj(state.coachSteps)) state.coachSteps = {};
+    const sid = ev.chain.supportId;
+    const list = Array.isArray(state.coachSteps[sid]) ? state.coachSteps[sid] : [];
+    if (!list.includes(ev.chain.step)) state.coachSteps[sid] = [...list, ev.chain.step].sort((a, b) => a - b);
+  }
+}
 
 /**
  * 이벤트 선택지를 고른다 (§24.5.2). 검사를 먼저 끝내고 (선택지 번호 · 고르는 카드 uid · 글) 그 뒤에 바꾼다.
@@ -1001,7 +1044,7 @@ export function resolveEvent(state, data, choiceIndex, { uid } = {}) {
 // E3 — 흐름 자격 · 고르기 (§24.2 · §24.3.2 ~ §24.3.4 · §24.7)
 // ---------------------------------------------------------------------------
 
-/** 흐름이 이 판에서 고르는 트리거 — 이야기 · 코치는 E4 (storyNext · coachReady), 깜짝은 E5 (레슨 안) */
+/** eligible 이 고르는 트리거 — 이야기 · 코치는 순서가 정해져 있어 따로 (storyNext · coachReady, E4), 깜짝은 E5 (레슨 안) */
 const FLOW_TRIGGERS = ["week", "seasonStart", "preMatch", "route", "outing"];
 
 /**
@@ -1105,7 +1148,7 @@ function weekEventOk(state, ev) {
  */
 export function eligible(state, data, trigger, opts = {}) {
   if (!FLOW_TRIGGERS.includes(trigger)) {
-    throw new Error(`eligible: 트리거 '${trigger}' 은(는) 흐름 자격으로 고르지 않습니다 (${FLOW_TRIGGERS.join(" · ")} — 이야기 · 코치는 E4, 깜짝은 레슨 안)`);
+    throw new Error(`eligible: 트리거 '${trigger}' 은(는) 흐름 자격으로 고르지 않습니다 (${FLOW_TRIGGERS.join(" · ")} — 이야기는 storyNext · 코치는 coachReady, 깜짝은 레슨 안)`);
   }
   const o = opts || {};
   const list = allEvents(data).filter((ev) => isObj(ev) && ev.trigger === trigger);
@@ -1157,4 +1200,219 @@ export function pickOutingEvent(state, data) {
 export function pickFixedEvent(state, data, trigger, opts = {}) {
   if (!["seasonStart", "preMatch", "route"].includes(trigger)) throw new Error(`pickFixedEvent: 고정 이벤트 트리거가 아닙니다 ('${trigger}')`);
   return eligible(state, data, trigger, opts)[0] || null;
+}
+
+// ---------------------------------------------------------------------------
+// E4 — 계정 스냅샷 · 코치 연속 이벤트 (§24.6 · L50) · 외출 이야기 (§24.7 · L30)
+// ---------------------------------------------------------------------------
+
+/** 키를 정렬한 새 객체 (계정 모양을 늘 같게 — 여러 번 합쳐도 같은 JSON) */
+function sortedObj(o) {
+  const out = {};
+  for (const k of Object.keys(o).sort()) out[k] = o[k];
+  return out;
+}
+
+/**
+ * 계정 스냅샷 정규화 (§24.5.2 · §24.7): { stories: { [charId]: 1 ~ 3 }, coachMet: { [supportId]: true } } — 새 객체, 키 정렬.
+ * 없거나 모양이 틀리면 빈 값. 칸 하나가 틀리면 그 칸만 버린다 (id 꼴 · 화는 1 이상 정수 — 3 보다 크면 3, 0 은 "안 봄" 이라 뺀다 ·
+ * coachMet 은 true 만). version 같은 다른 키도 버린다. 데이터에 없는 id 는 그대로 둔다 (콘텐츠가 바뀌어도 진행을 잃지 않게).
+ * @param {any} account
+ * @returns {{ stories: Record<string, number>, coachMet: Record<string, true> }}
+ */
+export function normalizeAccount(account) {
+  const stories = {};
+  const coachMet = {};
+  if (isObj(account)) {
+    if (isObj(account.stories)) {
+      for (const [id, ep] of Object.entries(account.stories)) {
+        if (ID_RE.test(id) && Number.isInteger(ep) && ep >= 1) stories[id] = Math.min(STORY_EPS.length, ep);
+      }
+    }
+    if (isObj(account.coachMet)) {
+      for (const [id, v] of Object.entries(account.coachMet)) if (ID_RE.test(id) && v === true) coachMet[id] = true;
+    }
+  }
+  return { stories: sortedObj(stories), coachMet: sortedObj(coachMet) };
+}
+
+/**
+ * 계정 저장소에 이번 런 진행을 합친다 (§24.7 — 화면이 엔진 호출마다 저장한 뒤 부른다). 순수 · 멱등 (여러 번 불러도 같다) · 새 객체.
+ *   stories[charId] = max(계정 값, 이번 런에 본 가장 큰 화 — state.storyEps), coachMet = 계정 ∪ 이번 런에 고른 코치 1단계 (state.coachSteps).
+ * @param {any} account  계정 저장 (soccer-lesson.account — 틀린 모양은 빈 값으로)
+ * @param {object} state  레슨 런 상태
+ * @returns {{ version: 1, stories: Record<string, number>, coachMet: Record<string, true> }}
+ */
+export function accountMerge(account, state) {
+  const acc = normalizeAccount(account);
+  const stories = { ...acc.stories };
+  const coachMet = { ...acc.coachMet };
+  const eps = state && isObj(state.storyEps) ? state.storyEps : {};
+  for (const [id, ep] of Object.entries(eps)) {
+    if (ID_RE.test(id) && Number.isInteger(ep) && ep >= 1) stories[id] = Math.max(stories[id] || 0, Math.min(STORY_EPS.length, ep));
+  }
+  const steps = state && isObj(state.coachSteps) ? state.coachSteps : {};
+  for (const [id, list] of Object.entries(steps)) if (ID_RE.test(id) && Array.isArray(list) && list.includes(1)) coachMet[id] = true;
+  return { version: 1, stories: sortedObj(stories), coachMet: sortedObj(coachMet) };
+}
+
+/** lesson.json events.coach (없으면 빈 값) */
+function coachCfg(data) {
+  const c = data && data.lesson && data.lesson.events && data.lesson.events.coach;
+  return isObj(c) ? c : {};
+}
+
+/**
+ * 그 코치 · 단계의 코치 연속 이벤트 (trigger coach, chain { supportId, step } — 데이터 순서 첫 번째, 없으면 null).
+ * @returns {object|null}
+ */
+export function coachEventOf(data, supportId, step) {
+  return allEvents(data).find((e) => isObj(e) && e.trigger === "coach" && isObj(e.chain) && e.chain.supportId === supportId && e.chain.step === step) || null;
+}
+
+/**
+ * 지금 준비된 코치 연속 이벤트 (§24.6). 순수 · rng 없음. 기능 스위치 · 2주 연속 금지는 보지 않는다 (pickCoachEvent).
+ * 편성 코치마다 다음 단계 하나 (이번 런에 본 단계 = state.coachSteps):
+ *   1 첫 만남 — 레슨에 나왔다 (state.coachSeen) · 이번 런에 안 봤다 · firstMeet "account" (기본) 면 계정에서도 안 만났다.
+ *   2 유대 ≥ 2단계 문턱 (bond.eventSteps[0], 40) — 1단계를 이번 런에 봤다, 또는 firstMeet "account" 이고 계정에서 만났다 (1단계 건너뜀).
+ *   3 유대 ≥ 3단계 문턱 (80) — 2단계를 이번 런에 봤다.
+ * 그 단계의 이벤트가 데이터에 있어야 한다. 순서: 낮은 단계 먼저, 같으면 편성 순 (state.supports)
+ * [구현 결정 — 코치마다 다음 단계는 하나뿐이라 "낮은 단계 먼저" 는 코치 사이의 순서다].
+ * firstMeet "run" 이면 계정과 상관없이 런마다 1단계부터 본다.
+ * @returns {Array<{ supportId: string, step: 1|2|3, ev: object }>}
+ */
+export function coachReady(state, data) {
+  const sups = state && Array.isArray(state.supports) ? state.supports : [];
+  const firstMeet = coachCfg(data).firstMeet === "run" ? "run" : "account";
+  const bonds = coachStepBonds(data);
+  const met = normalizeAccount(state && state.account).coachMet;
+  const seen = state && isObj(state.coachSeen) ? state.coachSeen : {};
+  const steps = state && isObj(state.coachSteps) ? state.coachSteps : {};
+  const out = [];
+  sups.forEach((st, order) => {
+    const id = st && st.id;
+    if (typeof id !== "string") return;
+    const done = Array.isArray(steps[id]) ? steps[id] : [];
+    const skipFirst = firstMeet === "account" && met[id] === true;
+    const step = done.includes(2) ? 3 : done.includes(1) || skipFirst ? 2 : 1;
+    if (done.includes(step)) return;
+    const ok = step === 1 ? seen[id] === true : (Number(st.bond) || 0) >= bonds[step - 1];
+    if (!ok) return;
+    const ev = coachEventOf(data, id, step);
+    if (ev) out.push({ supportId: id, step, ev, order });
+  });
+  out.sort((a, b) => a.step - b.step || a.order - b.order);
+  return out.map(({ supportId, step, ev }) => ({ supportId, step, ev }));
+}
+
+/**
+ * 이번 주 끝 슬롯의 코치 연속 이벤트 (§24.6 — weekSlot 이 주 끝 랜덤보다 먼저 본다): coachReady 의 첫 번째.
+ * events.coach.gapWeeks (기본 1): 마지막 코치 이벤트의 주 (state.lastCoachTurnIndex) 에서 gapWeeks 주 안이면 null
+ * — 바로 앞 주 슬롯이 코치 이벤트였으면 이번 주는 주 끝 랜덤. 순수 · rng 없음. 스위치 (events.coach.enabled) 는 부르는 쪽이 본다.
+ * @returns {{ supportId: string, step: number, ev: object }|null}
+ */
+export function pickCoachEvent(state, data) {
+  const g = coachCfg(data).gapWeeks;
+  const gap = Number.isInteger(g) && g >= 0 ? g : 1;
+  const last = state ? state.lastCoachTurnIndex : null;
+  if (Number.isInteger(last) && (Number(state.turnIndex) || 0) - last <= gap) return null;
+  return coachReady(state, data)[0] || null;
+}
+
+/** 그 코치의 종목: 코치 카드 coach.type (루미 = 피지컬, L28), 코치 카드가 없으면 supports.json type 이 스탯일 때 그것 */
+function coachTypeOf(data, supportId) {
+  const cc = supportId ? coachCardOf(data, supportId) : null;
+  if (cc && cc.coach && STATS.includes(cc.coach.type)) return cc.coach.type;
+  const sc = supportOf(data, supportId);
+  return sc && STATS.includes(sc.type) ? sc.type : null;
+}
+
+/**
+ * 주인공 coachTarget 후보 (§24.3.4 · 초안 5.0) — 마지막 무작위 앞의 같은 순위 선수 id (state.players 순서). 순수 · rng 없음.
+ *   결장 아닌 선수 (모두 결장이면 전원) 중 이번 런 그 코치 카드의 대상이 된 횟수 (state.coachTargets[supportId]) 가 가장 많은 선수 →
+ *   같으면 코치 종목이 지금 포지션의 주 스탯 (cards.mainStatsOf) 인 선수 (그런 선수가 없으면 그대로).
+ *   하나면 그 선수, 여럿이면 pickProtagonist 가 rng 로 고른다.
+ * @param {object} state
+ * @param {object} data
+ * @param {string|null} supportId
+ * @returns {string[]}
+ */
+export function coachTargetCandidates(state, data, supportId) {
+  const players = state && Array.isArray(state.players) ? state.players : [];
+  const healthy = players.filter((p) => !isInjured(p));
+  const base = healthy.length ? healthy : players.slice();
+  if (!base.length) return [];
+  const row = supportId && isObj(state.coachTargets) && isObj(state.coachTargets[supportId]) ? state.coachTargets[supportId] : {};
+  const n = (p) => Number(row[p.id]) || 0;
+  const most = Math.max(...base.map(n));
+  let tied = base.filter((p) => n(p) === most);
+  const type = coachTypeOf(data, supportId);
+  if (type && tied.length > 1) {
+    const typed = tied.filter((p) => mainStatsOf(p.position).includes(type));
+    if (typed.length) tied = typed;
+  }
+  return tied.map((p) => p.id);
+}
+
+/**
+ * 그 캐릭터 · 화의 외출 이야기 (trigger story, story { charId, ep } — 데이터 순서 첫 번째, 없으면 null).
+ * @returns {object|null}
+ */
+export function storyEventOf(data, charId, ep) {
+  return allEvents(data).find((e) => isObj(e) && e.trigger === "story" && isObj(e.story) && e.story.charId === charId && e.story.ep === ep) || null;
+}
+
+/**
+ * 그 캐릭터의 다음 이야기 화 (§24.7): min(3, 계정에서 본 화 + 이번 런에 본 화) + 1 — 3 이하이고 그 화가 데이터에 있으면 그 화, 아니면 null.
+ * 이번 런에 본 화 = state.storyEps (고른 순간에 센다). 이야기는 1 · 2 · 3화 차례로만 뜨므로 "계정 + 이번 런 수" = max(계정, 이번 런 가장 큰 화).
+ * 순수. 기능 스위치는 보지 않는다 (외출 이벤트 단계 · 주 화면이 본다).
+ * @param {object} state
+ * @param {object} data
+ * @param {string} charId
+ * @returns {1|2|3|null}
+ */
+export function storyNext(state, data, charId) {
+  const acc = normalizeAccount(state && state.account).stories[charId] || 0;
+  const runEp = state && isObj(state.storyEps) ? Number(state.storyEps[charId]) || 0 : 0;
+  const next = Math.min(STORY_EPS.length, Math.max(acc, runEp)) + 1;
+  if (next > STORY_EPS.length) return null;
+  return storyEventOf(data, charId, next) ? next : null;
+}
+
+/**
+ * 외출 이벤트 단계의 이야기 (§24.7): 외출 상대의 다음 화가 있으면 그 이벤트 (확정 — rng 없음), 없으면 null (일반 외출 주머니).
+ * @returns {object|null}
+ */
+export function pickStoryEvent(state, data, charId) {
+  const ep = storyNext(state, data, charId);
+  return ep ? storyEventOf(data, charId, ep) : null;
+}
+
+/**
+ * 회상 목록 (§24.7 — 시작 화면 [회상] 이 쓴다, 엔진 상태와 상관없다): 데이터의 외출 이야기
+ * [{ charId, name, ep, id, title }] — 캐릭터 순 (data.characters, 없는 캐릭터는 뒤에 id 순), 화 순. 순수.
+ * title 의 {선수} 는 그 캐릭터 이름으로 채운다 (채울 수 없는 자리표시가 있으면 그대로).
+ * @param {object} data
+ * @returns {Array<{ charId: string, name: string, ep: number, id: string, title: string }>}
+ */
+export function storyList(data) {
+  const chars = data && Array.isArray(data.characters) ? data.characters : [];
+  const rank = (id) => {
+    const i = chars.findIndex((c) => c && c.id === id);
+    return i < 0 ? chars.length : i;
+  };
+  return allEvents(data)
+    .filter((e) => isObj(e) && e.trigger === "story" && isObj(e.story) && typeof e.story.charId === "string")
+    .map((e) => {
+      const ch = chars.find((c) => c && c.id === e.story.charId);
+      const name = ch && ch.name ? ch.name : e.story.charId;
+      let title = typeof e.title === "string" ? e.title : "";
+      try {
+        title = fillText(title, { player: name });
+      } catch (_) {
+        // 채울 수 없는 자리표시 — 글 그대로
+      }
+      return { charId: e.story.charId, name, ep: e.story.ep, id: e.id, title };
+    })
+    .sort((a, b) => rank(a.charId) - rank(b.charId) || (a.charId < b.charId ? -1 : a.charId > b.charId ? 1 : 0) || a.ep - b.ep);
 }

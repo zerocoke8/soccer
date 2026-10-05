@@ -1310,8 +1310,8 @@ test("E3 pickWeekEvent · pickOutingEvent (가중치 뽑기 — 같은 rngState 
   assert.equal(LE.pickFixedEvent(s, d, "route", { routeId: "rt_expedition" }), null);
   assert.equal(LE.pickFixedEvent(s, d, "route", {}), null);
   assert.equal(JSON.stringify(s), before, "고정 고르기는 순수");
-  // 이야기 · 코치 · 깜짝은 흐름 자격이 아니다 (E4 · E5)
-  assert.throws(() => LE.eligible(s, d, "story"), /이야기 · 코치는 E4/);
+  // 이야기 · 코치 · 깜짝은 흐름 자격이 아니다 (E4 storyNext · coachReady · E5)
+  assert.throws(() => LE.eligible(s, d, "story"), /이야기는 storyNext · 코치는 coachReady/);
   assert.throws(() => LE.eligible(s, d, "surprise"), /흐름 자격으로 고르지 않습니다/);
   assert.throws(() => LE.pickFixedEvent(s, d, "week"), /고정 이벤트 트리거가 아닙니다/);
   // 기능 스위치 (§24.3.6)
@@ -1351,4 +1351,281 @@ test("E3 일반 외출 주머니 (§24.7): 이번 런에 안 본 것 중 가중�
   assert.deepEqual(s.outingSeen, [ev.id]);
   // 외출 이벤트는 런 1회 규칙 없이 주머니로만 고른다 (usedEventIds 에는 남는다)
   assert.ok(s.usedEventIds.includes(ev.id));
+});
+
+// ---------------------------------------------------------------------------
+// LESSON_PROTO_PLAN §24.6 · §24.7 — E4 코치 연속 이벤트 · 외출 이야기 · 계정 스냅샷 (테스트 안의 고정 이벤트)
+// ---------------------------------------------------------------------------
+
+/** 코치 연속 본보기 3단계 (코치 id · slug) — 효과는 rng 를 쓰지 않는다 */
+const coachFx = (sid, slug) => [1, 2, 3].map((step) => ({
+  id: `ev_coach_fx_${slug}_${step}`, trigger: "coach", chain: { supportId: sid, step }, bondAtLeast: LE.COACH_STEP_BONDS[step - 1],
+  title: `${slug} ${step}단계`, text: "{코치|이/가} 손짓합니다.\n{선수|이/가} 다가갑니다.",
+  choices: [
+    { label: "배운다", effects: [{ type: "stat", target: "player", stat: "pass", amount: 5 }], result: "{선수|이/가} 고개를 끄덕입니다." },
+    { label: "듣는다", effects: [{ type: "bond", target: "coach", amount: 5 }], result: "{코치|이/가} 웃습니다." },
+  ],
+}));
+/** 이야기 본보기 3화 (타리아 — 제목에 {선수|과/와}) */
+const STORY_RUNNER = [1, 2, 3].map((ep) => ({
+  id: `out_fixture_runner_${ep}`, trigger: "story", story: { charId: "ch_human_runner", ep },
+  title: `{선수|과/와} 달리기 ${ep}화`, text: "타리아가 강둑을 달립니다.\n\"감독님, 한 바퀴만 더요.\"", scene: "nature",
+  choices: [
+    { label: "같이 뛴다", effects: [{ type: "stat", target: "player", stat: "physical", amount: 5 }], result: "타리아가 웃었습니다." },
+    { label: "기다린다", effects: [{ type: "tp", amount: 5 }], result: "해가 집니다." },
+  ],
+}));
+/** 코치 (하르나 · 셀리아) 연속 + 이야기 (네리아 · 타리아) 를 넣은 데이터 사본 (스위치 꺼짐) */
+function e4Data({ coach = [...coachFx("sp_coach_harr", "harr"), ...coachFx("sp_wind_dancer", "celia")], stories = [...STORY_OK, ...STORY_RUNNER], mut } = {}) {
+  const d = withEvents(coach, "lesson_ev_coach");
+  d.lesson_ev_story = { version: 1, notes: {}, events: clone(stories) };
+  if (mut) mut(d);
+  return d;
+}
+const E4D = e4Data();
+const readyIds = (s, d = E4D) => LE.coachReady(s, d).map((r) => `${r.supportId}:${r.step}`);
+const supOf = (s, id) => s.supports.find((x) => x.id === id);
+
+test("E4 계정 스냅샷: normalizeAccount (없음 · 틀린 꼴 → 빈 값, 칸마다 거르기 · 3 위는 3 · 키 정렬) · accountMerge (이야기 = 큰 화 · 코치 = 1단계 합집합 · 멱등 · 입력 그대로)", () => {
+  const empty = { stories: {}, coachMet: {} };
+  for (const bad of [undefined, null, 3, "x", [], { stories: 3, coachMet: [] }]) assert.deepEqual(LE.normalizeAccount(bad), empty, JSON.stringify(bad));
+  const raw = {
+    version: 1,
+    stories: { ch_spirit_keeper: 2, ch_dwarf_wall: 9, ch_human_captain: 0, ch_elf_playmaker: 1.5, "Bad Id": 1, ch_wolf_winger: "2" },
+    coachMet: { sp_wind_dancer: true, sp_coach_harr: true, sp_elder_sage: 1 },
+    extra: 1,
+  };
+  const n = LE.normalizeAccount(raw);
+  same(n, { stories: { ch_dwarf_wall: 3, ch_spirit_keeper: 2 }, coachMet: { sp_coach_harr: true, sp_wind_dancer: true } });
+  same(LE.normalizeAccount(n), n);
+  // 합치기: 이번 런 storyEps (가장 큰 화) · coachSteps 의 1단계 (2단계만 있으면 계정에서 이미 만난 코치)
+  const state = { storyEps: { ch_spirit_keeper: 1, ch_wolf_winger: 2 }, coachSteps: { sp_elder_sage: [1, 2], sp_iron_captain: [2] } };
+  const before = JSON.stringify([raw, state]);
+  const m = LE.accountMerge(raw, state);
+  same(m, {
+    version: 1,
+    stories: { ch_dwarf_wall: 3, ch_spirit_keeper: 2, ch_wolf_winger: 2 },
+    coachMet: { sp_coach_harr: true, sp_elder_sage: true, sp_wind_dancer: true },
+  });
+  assert.equal(JSON.stringify([raw, state]), before, "입력을 바꾸지 않는다");
+  same(LE.accountMerge(m, state), m);
+  same(LE.accountMerge(LE.accountMerge(m, state), state), m);
+  same(LE.accountMerge(null, {}), { version: 1, stories: {}, coachMet: {} });
+  same(LE.accountMerge(undefined, LR.createRun({ data, seed: 7 })), { version: 1, stories: {}, coachMet: {} });
+  // createRun: state.account = 정규화한 스냅샷 (없으면 빈 값 — v5 기본과 같은 모양 · 같은 자리)
+  same(LR.createRun({ data, seed: 7, account: raw }).account, n);
+  const plain = LR.createRun({ data, seed: 7 });
+  same(plain.account, empty);
+  assert.deepEqual(Object.keys(LR.createRun({ data, seed: 7, account: raw })), Object.keys(plain), "키 순서 그대로");
+  same({ ...LR.createRun({ data, seed: 7, account: raw }), account: empty }, plain, "스위치가 꺼져 있으면 계정은 다른 것을 바꾸지 않는다");
+  // lessonRun 도 다시 내보낸다 (화면 ctx.run)
+  assert.equal(LR.accountMerge, LE.accountMerge);
+  assert.equal(LR.storyList, LE.storyList);
+  assert.equal(LR.normalizeAccount, LE.normalizeAccount);
+});
+
+test("E4 coachReady (§24.6): 1단계 = 레슨에 나옴 (coachSeen) · 2단계 = 1단계 + 유대 40 · 3단계 = 2단계 + 유대 80 · 낮은 단계 먼저 → 편성 순 · 이벤트가 있어야 · 편성 코치만 · 순수", () => {
+  const s = LR.createRun({ data: E4D, seed: 7 });
+  assert.deepEqual(readyIds(s), [], "레슨에 나온 코치가 없다");
+  // 1단계: 레슨에 나온 코치 — 편성 순, 이벤트가 없는 코치 (오르넬라) 는 빠진다
+  s.coachSeen = { sp_wind_dancer: true, sp_elder_sage: true, sp_coach_harr: true };
+  const before = JSON.stringify(s);
+  assert.deepEqual(readyIds(s), ["sp_coach_harr:1", "sp_wind_dancer:1"]);
+  assert.equal(JSON.stringify(s), before, "순수");
+  assert.equal(LE.coachReady(s, E4D)[0].ev.id, "ev_coach_fx_harr_1");
+  // 2단계: 1단계를 봤고 유대 ≥ 40 — 낮은 단계 먼저 (셀리아 1단계 → 하르나 2단계)
+  s.coachSteps = { sp_coach_harr: [1] };
+  supOf(s, "sp_coach_harr").bond = 39;
+  assert.deepEqual(readyIds(s), ["sp_wind_dancer:1"]);
+  supOf(s, "sp_coach_harr").bond = 40;
+  assert.deepEqual(readyIds(s), ["sp_wind_dancer:1", "sp_coach_harr:2"]);
+  // 3단계: 2단계를 이번 런에 봤고 유대 ≥ 80
+  s.coachSteps = { sp_coach_harr: [1, 2], sp_wind_dancer: [1] };
+  supOf(s, "sp_coach_harr").bond = 79;
+  assert.deepEqual(readyIds(s), []);
+  supOf(s, "sp_coach_harr").bond = 80;
+  supOf(s, "sp_wind_dancer").bond = 100;
+  assert.deepEqual(readyIds(s), ["sp_wind_dancer:2", "sp_coach_harr:3"], "단계가 낮은 쪽 먼저 (편성은 하르나가 앞)");
+  s.coachSteps = { sp_coach_harr: [1, 2, 3], sp_wind_dancer: [1, 2, 3] };
+  assert.deepEqual(readyIds(s), [], "3단계 뒤에는 없다");
+  // 유대가 높아도 1단계를 보지 않았으면 (계정에서도) 2단계는 없다
+  const t = LR.createRun({ data: E4D, seed: 7 });
+  supOf(t, "sp_coach_harr").bond = 100;
+  assert.deepEqual(readyIds(t), []);
+  // 편성에 없는 코치는 보지 않는다 · 데이터에 그 단계가 없으면 그 코치는 건너뛴다
+  const u = LR.createRun({ data: E4D, seed: 7 });
+  u.coachSeen = { sp_street_striker: true };
+  assert.deepEqual(readyIds(u), []);
+  const harrOnly = e4Data({ coach: coachFx("sp_coach_harr", "harr") });
+  u.coachSeen = { sp_wind_dancer: true };
+  assert.deepEqual(readyIds(u, harrOnly), []);
+  assert.equal(LE.coachEventOf(harrOnly, "sp_coach_harr", 2).id, "ev_coach_fx_harr_2");
+  assert.equal(LE.coachEventOf(harrOnly, "sp_wind_dancer", 1), null);
+});
+
+test("E4 첫 만남은 계정 1회 (firstMeet account): 계정에서 만난 코치는 1단계를 건너뛰고 유대 40부터 (레슨에 나오지 않아도) · firstMeet run 이면 런마다 1단계 (레슨에 나와야)", () => {
+  const s = LR.createRun({ data: E4D, seed: 7, account: { coachMet: { sp_coach_harr: true } } });
+  same(s.account, { stories: {}, coachMet: { sp_coach_harr: true } });
+  s.coachSeen = { sp_coach_harr: true, sp_wind_dancer: true };
+  assert.deepEqual(readyIds(s), ["sp_wind_dancer:1"], "하르나 1단계는 건너뜀 · 유대 25 < 40");
+  supOf(s, "sp_coach_harr").bond = 40;
+  assert.deepEqual(readyIds(s), ["sp_wind_dancer:1", "sp_coach_harr:2"]);
+  s.coachSeen = {};
+  assert.deepEqual(readyIds(s), ["sp_coach_harr:2"], "2단계는 유대 · 1단계 (계정) 만 본다");
+  s.coachSteps = { sp_coach_harr: [2] };
+  supOf(s, "sp_coach_harr").bond = 80;
+  assert.deepEqual(readyIds(s), ["sp_coach_harr:3"]);
+  // firstMeet run: 계정과 상관없이 1단계부터 — 1단계는 레슨에 나와야
+  const dr = e4Data({ mut: (d) => (d.lesson.events.coach.firstMeet = "run") });
+  const r = LR.createRun({ data: dr, seed: 7, account: { coachMet: { sp_coach_harr: true } } });
+  supOf(r, "sp_coach_harr").bond = 40;
+  assert.deepEqual(readyIds(r, dr), []);
+  r.coachSeen = { sp_coach_harr: true };
+  assert.deepEqual(readyIds(r, dr), ["sp_coach_harr:1"]);
+});
+
+test("E4 유대 문턱 = lesson.json bond.eventSteps ([40, 80]) · bondAtLeast 는 그 값과 같아야 (검사) · 틀린 eventSteps 는 검사 오류 + 기본값", () => {
+  assert.deepEqual(data.lesson.bond.eventSteps, [40, 80]);
+  assert.equal(data.lesson.bond.eventAt, 60, "eventAt 은 그대로 (lesson_sim 표시용)");
+  assert.deepEqual(LE.coachStepBonds(data), [0, 40, 80]);
+  const d = e4Data({
+    coach: coachFx("sp_coach_harr", "harr").map((e, i) => ({ ...e, bondAtLeast: [0, 30, 70][i] })),
+    mut: (x) => (x.lesson.bond.eventSteps = [30, 70]),
+  });
+  assert.equal(LE.validateLessonEvents(d), true);
+  assert.deepEqual(LE.coachStepBonds(d), [0, 30, 70]);
+  const s = LR.createRun({ data: d, seed: 7 });
+  s.coachSteps = { sp_coach_harr: [1] };
+  supOf(s, "sp_coach_harr").bond = 30;
+  assert.deepEqual(readyIds(s, d), ["sp_coach_harr:2"]);
+  // 문턱만 바꾸고 이벤트를 그대로 두면 검사 오류
+  const bad = e4Data({ mut: (x) => (x.lesson.bond.eventSteps = [30, 70]) });
+  assert.throws(() => LE.validateLessonEvents(bad), /bondAtLeast 는 2단계면 30 \(0 · 30 · 70/);
+  for (const es of [[80, 40], [40], "40", [0, 80], [40, 101], [40.5, 80]]) {
+    const b = clone(data);
+    b.lesson.bond.eventSteps = es;
+    assert.throws(() => LE.validateLessonEvents(b), /lesson\.json bond\.eventSteps: \[2단계, 3단계\]/, JSON.stringify(es));
+    assert.deepEqual(LE.coachStepBonds(b), [0, 40, 80], "틀린 꼴이면 기본값");
+  }
+});
+
+test("E4 pickCoachEvent: 2주 연속 금지 (gapWeeks 1 — lastCoachTurnIndex) · gapWeeks 0 · 2 · 준비된 것이 없으면 null · 순수", () => {
+  const s = LR.createRun({ data: E4D, seed: 7 });
+  assert.equal(LE.pickCoachEvent(s, E4D), null);
+  s.coachSeen = { sp_coach_harr: true };
+  s.turnIndex = 5;
+  const before = JSON.stringify(s);
+  assert.equal(LE.pickCoachEvent(s, E4D).ev.id, "ev_coach_fx_harr_1");
+  assert.equal(JSON.stringify(s), before);
+  s.lastCoachTurnIndex = 4;
+  assert.equal(LE.pickCoachEvent(s, E4D), null, "바로 앞 주 슬롯이 코치 이벤트");
+  s.lastCoachTurnIndex = 3;
+  assert.equal(LE.pickCoachEvent(s, E4D).supportId, "sp_coach_harr", "한 주 쉬었으면 다시");
+  const g0 = e4Data({ mut: (d) => (d.lesson.events.coach.gapWeeks = 0) });
+  s.lastCoachTurnIndex = 4;
+  assert.ok(LE.pickCoachEvent(s, g0), "gapWeeks 0 = 연속도 된다");
+  const g2 = e4Data({ mut: (d) => (d.lesson.events.coach.gapWeeks = 2) });
+  s.lastCoachTurnIndex = 3;
+  assert.equal(LE.pickCoachEvent(s, g2), null);
+  s.lastCoachTurnIndex = 2;
+  assert.ok(LE.pickCoachEvent(s, g2));
+});
+
+test("E4 주인공 coachTarget (§24.3.4): 이번 런 그 코치 카드 대상 최다 → 같으면 코치 종목이 주 스탯 → 그래도 같으면 무작위 (결장 제외) · 하나면 rng 를 쓰지 않는다 · 같은 rngState = 같은 선수", () => {
+  const s = LR.createRun({ data: E4D, seed: 7 });
+  const cand = (t, sid = "sp_coach_harr") => LE.coachTargetCandidates(t, E4D, sid);
+  // 대상 기록이 없으면 모두 0 → 코치 종목이 주 스탯인 선수
+  assert.deepEqual(cand(s), ["p6", "p7"], "하르나 = 슈팅 → FW");
+  assert.deepEqual(cand(s, "sp_elder_sage"), ["p4", "p5"], "오르넬라 = 패스 → MF");
+  assert.deepEqual(cand(s, "sp_bard_lumi"), ["p1", "p2", "p3"], "루미 = 코치 카드 종목 피지컬 (L28) → GK · DF");
+  // 대상 최다 → 동률이면 주 스탯 → 주 스탯인 선수가 없으면 동률 그대로
+  s.coachTargets = { sp_coach_harr: { p2: 3, p4: 3, p6: 1 } };
+  assert.deepEqual(cand(s), ["p2", "p4"]);
+  s.coachTargets.sp_coach_harr.p7 = 3;
+  assert.deepEqual(cand(s), ["p7"]);
+  s.coachTargets.sp_coach_harr.p6 = 4;
+  assert.deepEqual(cand(s), ["p6"], "최다가 먼저");
+  P(s, "p6").injuredTurns = 1;
+  assert.deepEqual(cand(s), ["p7"], "결장 제외");
+  for (const p of s.players) p.injuredTurns = 1;
+  assert.deepEqual(cand(s), ["p6"], "모두 결장이면 전원 중");
+  // fireEvent (코치 연속): 후보가 하나면 rng 를 쓰지 않는다
+  const one = LR.createRun({ data: E4D, seed: 7 });
+  one.coachTargets = { sp_coach_harr: { p3: 2 } };
+  const r0 = one.rngState;
+  LE.fireEvent(one, E4D, LE.eventById(E4D, "ev_coach_fx_harr_2"), { kind: "coach", supportId: "sp_coach_harr" });
+  assert.deepEqual([one.currentEvent.playerId, one.currentEvent.supportId, one.currentEvent.kind, one.rngState], ["p3", "sp_coach_harr", "coach", r0]);
+  // 동률이면 rng — 같은 rngState 면 같은 선수, seed 에 따라 둘 다 나온다
+  const picks = new Set();
+  for (let seed = 1; seed <= 16; seed++) {
+    const t = LR.createRun({ data: E4D, seed });
+    const c = clone(t);
+    LE.fireEvent(t, E4D, LE.eventById(E4D, "ev_coach_fx_harr_1"), {});
+    LE.fireEvent(c, E4D, LE.eventById(E4D, "ev_coach_fx_harr_1"), {});
+    assert.equal(t.currentEvent.playerId, c.currentEvent.playerId);
+    assert.equal(t.currentEvent.supportId, "sp_coach_harr", "chain.supportId");
+    picks.add(t.currentEvent.playerId);
+  }
+  assert.deepEqual([...picks].sort(), ["p6", "p7"]);
+});
+
+test("E4 이야기 다음 화 (§24.7): min(3, 계정 + 이번 런) + 1 · 그 화가 데이터에 있어야 · pickStoryEvent · storyList (회상 — 캐릭터 순 · 화 순 · {선수} 채움) · 순수", () => {
+  const nk = "ch_spirit_keeper";
+  const s = LR.createRun({ data: E4D, seed: 7 });
+  const before = JSON.stringify(s);
+  assert.equal(LE.storyNext(s, E4D, nk), 1);
+  assert.equal(LE.pickStoryEvent(s, E4D, nk).id, "out_fixture_1");
+  assert.equal(LE.storyNext(s, E4D, "ch_dwarf_wall"), null, "이야기가 없는 캐릭터");
+  assert.equal(LE.pickStoryEvent(s, E4D, "ch_dwarf_wall"), null);
+  assert.equal(JSON.stringify(s), before, "순수");
+  s.storyEps = { [nk]: 1 };
+  assert.equal(LE.storyNext(s, E4D, nk), 2, "이번 런에 1화");
+  // 계정 스냅샷에서 이어 간다
+  const a = LR.createRun({ data: E4D, seed: 7, account: { stories: { [nk]: 2, ch_human_runner: 1 } } });
+  assert.equal(LE.storyNext(a, E4D, nk), 3);
+  assert.equal(LE.storyNext(a, E4D, "ch_human_runner"), 2);
+  a.storyEps = { [nk]: 3 };
+  assert.equal(LE.storyNext(a, E4D, nk), null, "3화까지 봤다");
+  assert.equal(LE.storyNext(LR.createRun({ data: E4D, seed: 7, account: { stories: { [nk]: 3 } } }), E4D, nk), null);
+  // 그 화가 데이터에 없으면 null (콘텐츠가 들어오는 중)
+  const d2 = clone(E4D);
+  d2.lesson_ev_story.events = d2.lesson_ev_story.events.filter((e) => !(e.story.charId === nk && e.story.ep === 2));
+  assert.equal(LE.storyNext(s, d2, nk), null);
+  // 회상 목록: 캐릭터 순 (characters.json — 네리아 → 타리아) · 화 순 · 제목의 {선수} 는 그 이름
+  const list = LE.storyList(E4D);
+  assert.deepEqual(list.map((x) => `${x.charId}:${x.ep}`), [1, 2, 3].map((n) => `${nk}:${n}`).concat([1, 2, 3].map((n) => `ch_human_runner:${n}`)));
+  assert.deepEqual(list[0], { charId: nk, name: "네리아", ep: 1, id: "out_fixture_1", title: "호수 1화" });
+  assert.deepEqual(list[3], { charId: "ch_human_runner", name: "타리아", ep: 1, id: "out_fixture_runner_1", title: "타리아와 달리기 1화" });
+  const noStory = clone(data);
+  noStory.lesson_ev_story = EMPTY();
+  assert.deepEqual(LE.storyList(noStory), [], "이야기가 없으면 빈 목록");
+});
+
+test("E4 고른 순간에 센다 (§24.7): 이야기 storySeen · storyEps (띄울 때는 아직) · 코치 coachSteps (1단계 = 계정 첫 만남) · 두 번 세지 않는다 · accountMerge · JSON 왕복", () => {
+  const s = LR.createRun({ data: E4D, seed: 7 });
+  LE.fireEvent(s, E4D, LE.eventById(E4D, "out_fixture_1"), { kind: "story", partnerId: "p1" });
+  s.queue = ["advanceWeek"];
+  same([s.storySeen, s.storyEps], [[], {}]);
+  assert.equal(LR.getEventView(s, E4D).badge, "이야기 1/3화");
+  const c = clone(s);
+  LR.resolveEvent(s, E4D, 1);
+  assert.deepEqual(s.storySeen, ["out_fixture_1"]);
+  assert.deepEqual(s.storyEps, { ch_spirit_keeper: 1 });
+  LR.resolveEvent(c, E4D, 1);
+  same(c, s, "JSON 왕복 뒤에 골라도 같다");
+  // 코치 연속: 고를 때 coachSteps
+  LE.fireEvent(s, E4D, LE.eventById(E4D, "ev_coach_fx_harr_1"), { kind: "coach", supportId: "sp_coach_harr" });
+  s.queue = ["advanceWeek"];
+  same(s.coachSteps, {});
+  assert.equal(LR.getEventView(s, E4D).badge, "코치 · 첫 만남");
+  LR.resolveEvent(s, E4D, 1);
+  assert.deepEqual(s.coachSteps, { sp_coach_harr: [1] });
+  // 같은 이벤트를 다시 골라도 (주입) 두 번 세지 않는다
+  LE.fireEvent(s, E4D, LE.eventById(E4D, "out_fixture_1"), { partnerId: "p1" });
+  s.queue = ["advanceWeek"];
+  LR.resolveEvent(s, E4D, 0);
+  assert.deepEqual(s.storySeen, ["out_fixture_1"]);
+  same(LE.accountMerge({ version: 1, stories: { ch_human_runner: 3 }, coachMet: {} }, s), {
+    version: 1, stories: { ch_human_runner: 3, ch_spirit_keeper: 1 }, coachMet: { sp_coach_harr: true },
+  });
 });

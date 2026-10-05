@@ -356,6 +356,18 @@ function lexLess(a, b) {
 }
 
 /**
+ * 외출 상대 (§24.7 [구현 결정], E4): 안 본 이야기 화가 남은 선수 (주 뷰 players[].story.next — 외출 이벤트가 꺼져 있으면 없음) 중
+ * 체력이 가장 낮은 선수, 없으면 지금 규칙 (7명 중 체력 최저 · 같으면 슬롯 순서). 외출을 할지는 이 함수가 정하지 않는다.
+ * @returns {{ player: object, story: number|null }}
+ */
+function outingPartner(state, view) {
+  const withStory = view.players.filter((v) => v.story && v.story.next !== null).map((v) => playerById(state, v.id)).filter(Boolean);
+  const p = lowestStamina(state, withStory.length ? withStory : state.players);
+  const row = withStory.length ? view.players.find((v) => v.id === p.id) : null;
+  return { player: p, story: row ? row.story.next : null };
+}
+
+/**
  * 주 행동 추천 (§5.5). 순수.
  * @returns {{ type: string, zone?: string, playerId?: string, free?: boolean, reason: string }}
  */
@@ -363,8 +375,8 @@ export function recommendWeek(state, data) {
   if (!state || state.phase !== "week") throw new Error("phase 'week' 에서만 추천합니다");
   const view = LR.getWeekView(state, data);
   if (view.freeOuting) {
-    const p = lowestStamina(state, state.players);
-    return { type: "outing", playerId: p.id, free: true, reason: "무료 외출 (주를 쓰지 않음)" };
+    const { player: p, story } = outingPartner(state, view);
+    return { type: "outing", playerId: p.id, free: true, reason: `무료 외출 (주를 쓰지 않음)${story ? ` — 이야기 ${story}화` : ""}` };
   }
   const avg = avgStamina(weekActive(state));
   if (view.kind === "lesson" || view.kind === "prep") {
@@ -389,8 +401,8 @@ export function recommendWeek(state, data) {
   if (open.has("meeting") && state.teamwork < 100) return { type: "meeting", reason: "팀워크 +10" };
   if (open.has("friendly") && avg >= 70) return { type: "friendly", reason: "체력 여유 — 친선전" };
   if (open.has("outing")) {
-    const p = lowestStamina(state, state.players);
-    return { type: "outing", playerId: p.id, reason: "체력이 가장 낮은 선수와 외출" };
+    const { player: p, story } = outingPartner(state, view);
+    return { type: "outing", playerId: p.id, reason: story ? `안 본 이야기 (${story}화) 가 남은 선수 중 체력이 가장 낮은 선수와 외출` : "체력이 가장 낮은 선수와 외출" };
   }
   return { type: "rest", reason: "할 일이 없어 휴식" };
 }
@@ -558,7 +570,7 @@ export function recommendCardOffer(state, data) {
 
 /**
  * 감독 AI 로 한 단계 진행한다 (상태를 바꾼다). 유물은 첫 번째, 루트는 (season − 1) % 루트 수 번째,
- * 이벤트는 recommendEventChoice (고르는 카드 포함), 카드 3택1 은 recommendCardOffer.
+ * 이벤트는 recommendEventChoice (고르는 카드 포함), 카드 3택1 은 recommendCardOffer, 외출 상대는 안 본 이야기가 남은 선수 먼저 (recommendWeek).
  * @param {object} state
  * @param {object} data
  * @param {{ playMatch?: (setup: object) => object }} [opts] match phase 에서 playMatch(getMatchSetup 결과) → 경기 결과

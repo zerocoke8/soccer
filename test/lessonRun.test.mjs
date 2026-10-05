@@ -163,8 +163,8 @@ test("createRun: 초기 상태 · 시작 덱 · 시즌 계획 · 1주 offer", ()
   assert.deepEqual(s.pendingTeach, []);
   // 2차 필드 (§24.10) — 빈 값으로 시작
   same(
-    Object.fromEntries(["storySeen", "outingSeen", "coachTargets", "coachSeen", "coachSteps", "lastCoachTurnIndex", "lastWeekEventId", "usedEventSeasons", "account", "legends", "pendingCardOffer", "lastEvent", "eventSeq"].map((k) => [k, s[k]])),
-    { storySeen: [], outingSeen: [], coachTargets: {}, coachSeen: {}, coachSteps: {}, lastCoachTurnIndex: null, lastWeekEventId: null, usedEventSeasons: {}, account: { stories: {}, coachMet: {} }, legends: [], pendingCardOffer: null, lastEvent: null, eventSeq: 0 },
+    Object.fromEntries(["storySeen", "storyEps", "outingSeen", "coachTargets", "coachSeen", "coachSteps", "lastCoachTurnIndex", "lastWeekEventId", "usedEventSeasons", "account", "legends", "pendingCardOffer", "lastEvent", "eventSeq"].map((k) => [k, s[k]])),
+    { storySeen: [], storyEps: {}, outingSeen: [], coachTargets: {}, coachSeen: {}, coachSteps: {}, lastCoachTurnIndex: null, lastWeekEventId: null, usedEventSeasons: {}, account: { stories: {}, coachMet: {} }, legends: [], pendingCardOffer: null, lastEvent: null, eventSeq: 0 },
   );
   assert.equal(s.phase, "week");
   assert.equal(s.policy, data.lesson.defaultPolicy);
@@ -1753,7 +1753,7 @@ test("§19.13 저장 v3 → v4 (→ v5): 옛 고유 스킬 → 캐릭터의 새 
 
 /** 2차 런 필드 (§24.10) 와 빈 값 */
 const V5_DEFAULTS = {
-  storySeen: [], outingSeen: [], coachTargets: {}, coachSeen: {}, coachSteps: {}, lastCoachTurnIndex: null, lastWeekEventId: null,
+  storySeen: [], storyEps: {}, outingSeen: [], coachTargets: {}, coachSeen: {}, coachSteps: {}, lastCoachTurnIndex: null, lastWeekEventId: null,
   usedEventSeasons: {}, account: { stories: {}, coachMet: {} }, legends: [], pendingCardOffer: null, lastEvent: null, eventSeq: 0,
 };
 /** 지금 저장본을 옛 v4 모양으로 (버전 4 · 2차 필드 없음) */
@@ -1911,13 +1911,19 @@ function flowData(events = FLOW_EVENTS, on = E3_SWITCHES) {
   return d;
 }
 
-/** walk 와 같은 단순 진행 (휴식 위주) + 이벤트 (선택지 0) · 3택1 (건너뛰기). 띄운 이벤트 id 를 seen 에 쌓는다 */
-function flowWalk(state, d, until, { route = "rt_camp", match: mres = WIN, seen = [] } = {}) {
+/**
+ * walk 와 같은 단순 진행 (휴식 위주) + 이벤트 (선택지 0) · 3택1 (건너뛰기). 띄운 이벤트 id 를 seen 에 쌓는다.
+ * lessons = true 면 레슨 · 대비 주에 패스 레슨 ([턴 끝] 만 — 코치 지원 붙기가 있어 "레슨에 나온 코치" 가 생긴다, E4)
+ */
+function flowWalk(state, d, until, { route = "rt_camp", match: mres = WIN, seen = [], lessons = false } = {}) {
   let guard = 0;
   while (!until(state)) {
     if (++guard > 800) throw new Error(`flowWalk 가 끝나지 않습니다 (${state.phase})`);
     switch (state.phase) {
-      case "week": LR.applyWeekAction(state, d, { type: "rest" }); break;
+      case "week":
+        if (lessons && state.weekOffer && ["lesson", "prep"].includes(state.weekOffer.kind)) LR.applyWeekAction(state, d, { type: "lesson", zone: "pass" });
+        else LR.applyWeekAction(state, d, { type: "rest" });
+        break;
       case "lesson": LR.endLessonTurn(state, d); break;
       case "reward":
         while (state.pendingReward.teach.some((t) => t.result === null)) LR.resolveTeach(state, d, { playerId: null });
@@ -2167,4 +2173,277 @@ test("§24.15 E3 스위치를 모두 끄면 1차와 같은 흐름 · 같은 rng:
   assert.equal(a.s.eventSeq, a.seen.length);
   assert.equal(a.s.currentEvent, null);
   checkInvariants(a.s);
+});
+
+// ---------------------------------------------------------------------------
+// §24.6 · §24.7 E4 — 코치 연속 (주 끝 슬롯) · 레슨에 나온 코치 · 코치 카드 대상 · 외출 이야기 · 계정 스냅샷 (고정 본보기)
+// ---------------------------------------------------------------------------
+
+/** 코치 연속 본보기 3단계 (rng 를 쓰지 않는 효과) */
+const coachChainFx = (sid, slug) => [1, 2, 3].map((step) => ({
+  id: `ev_coach_fx_${slug}_${step}`, trigger: "coach", chain: { supportId: sid, step }, bondAtLeast: [0, 40, 80][step - 1],
+  title: `코치 ${step}`, text: "{코치|이/가} {선수|을/를} 부릅니다.",
+  choices: [
+    { label: "배운다", effects: [{ type: "tp", amount: 5 }], result: "{선수|이/가} 배웠습니다." },
+    { label: "듣는다", effects: [{ type: "teamwork", amount: 3 }], result: "{코치|이/가} 웃습니다." },
+  ],
+}));
+/** 이야기 본보기 3화 */
+const storyFx = (charId, slug) => [1, 2, 3].map((ep) => ({
+  id: `out_fx_${slug}_${ep}`, trigger: "story", story: { charId, ep }, title: `이야기 ${ep}`, text: "강가를 걷습니다.",
+  choices: [
+    { label: "듣는다", effects: [{ type: "tp", amount: 5 }], result: "물소리가 들립니다." },
+    { label: "돌아간다", effects: [{ type: "teamwork", amount: 3 }], result: "해가 집니다." },
+  ],
+}));
+const E4_WEEK = [flowEv("ev_f_rain", "week", { once: false }), outingEv("ev_f_out1"), outingEv("ev_f_out2"), ...FLOW_EVENTS.filter((e) => ["seasonStart", "preMatch", "route"].includes(e.trigger))];
+const E4_COACH = [...coachChainFx("sp_coach_harr", "harr"), ...coachChainFx("sp_wind_dancer", "celia")];
+const E4_STORY = [...storyFx("ch_spirit_keeper", "neria"), ...storyFx("ch_human_runner", "taria")];
+/** E4 본보기 데이터: on = 켤 스위치 (coach = events.coach.enabled) */
+function e4FlowData({ on = ["week", "outing", "coach"], mut } = {}) {
+  const d = withLessonEvents(E4_WEEK);
+  d.lesson_ev_coach = { version: 1, notes: {}, events: clone(E4_COACH) };
+  d.lesson_ev_story = { version: 1, notes: {}, events: clone(E4_STORY) };
+  for (const k of on) {
+    if (k === "coach") d.lesson.events.coach.enabled = true;
+    else d.lesson.events[k] = true;
+  }
+  if (mut) mut(d);
+  return d;
+}
+
+test("§24.6 E4 주 끝 슬롯: 레슨에 나온 코치의 1단계가 주 끝 랜덤보다 먼저 (편성 순) · 바로 다음 주는 주 끝 랜덤 (2주 연속 안 됨) · 유대 40 → 2단계 · 코치 뷰 · coachSteps 는 고를 때 · 스위치", () => {
+  const d = e4FlowData();
+  const s = LR.createRun({ data: d, seed: 11 });
+  assert.equal(s.phase, "week");
+  // 1주: 레슨에 나온 코치가 없다 → 주 끝 랜덤
+  LR.applyWeekAction(s, d, { type: "rest" });
+  assert.equal(s.currentEvent.eventId, "ev_f_rain");
+  LR.resolveEvent(s, d, 0);
+  // 2주: 하르나 · 셀리아가 레슨에 나왔다 → 하르나 1단계 (편성 순)
+  s.coachSeen = { sp_wind_dancer: true, sp_coach_harr: true };
+  LR.applyWeekAction(s, d, { type: "rest" });
+  assert.deepEqual([s.phase, s.currentEvent.eventId, s.currentEvent.kind, s.currentEvent.supportId, s.turn], ["event", "ev_coach_fx_harr_1", "coach", "sp_coach_harr", 2]);
+  assert.deepEqual([s.lastCoachTurnIndex, s.lastWeekEventId], [1, null]);
+  assert.ok(["p6", "p7"].includes(s.currentEvent.playerId), "coachTarget — 대상 기록이 없으면 슈팅이 주 스탯인 FW");
+  const v = LR.getEventView(s, d);
+  assert.deepEqual([v.badge, v.kind, v.scene, v.support.id, v.support.bond], ["코치 · 첫 만남", "coach", "ground", "sp_coach_harr", sup(s, "sp_coach_harr").bond]);
+  assert.match(v.text, /^코치 하르나가 (울리카|그레타)를 부릅니다\.$/);
+  same(s.coachSteps, {});
+  LR.resolveEvent(s, d, 1);
+  assert.deepEqual(s.coachSteps, { sp_coach_harr: [1] });
+  assert.equal(s.turn, 3);
+  // 3주: 바로 앞 주 슬롯이 코치 → 주 끝 랜덤 (지난 주 슬롯이 주 끝 랜덤이 아니라 반복 이벤트도 뜬다)
+  LR.applyWeekAction(s, d, { type: "rest" });
+  assert.equal(s.currentEvent.eventId, "ev_f_rain");
+  LR.resolveEvent(s, d, 0);
+  // 4주: 셀리아 1단계 (하르나 2단계는 유대 25 < 40)
+  LR.applyWeekAction(s, d, { type: "rest" });
+  assert.deepEqual([s.currentEvent.eventId, s.lastCoachTurnIndex], ["ev_coach_fx_celia_1", 3]);
+  LR.resolveEvent(s, d, 0);
+  // 5주: 하르나 유대 40 이어도 2주 연속은 안 된다 → 주 끝 랜덤 → (전야 스위치 꺼짐) 경기 전 준비
+  sup(s, "sp_coach_harr").bond = 40;
+  LR.applyWeekAction(s, d, { type: "rest" });
+  assert.equal(s.currentEvent.eventId, "ev_f_rain");
+  LR.resolveEvent(s, d, 0);
+  assert.equal(s.phase, "prep");
+  LR.confirmPrep(s, d, {});
+  LR.finishMatch(s, d, WIN);
+  if (s.phase === "relic") LR.chooseRelic(s, d, s.pendingRelicChoices[0]);
+  LR.chooseRoute(s, d, "rt_camp");
+  assert.deepEqual([s.phase, s.season, s.turn], ["week", 2, 1]);
+  // 시즌 2 · 1주: 하르나 2단계 (유대 40)
+  LR.applyWeekAction(s, d, { type: "rest" });
+  assert.deepEqual([s.currentEvent.eventId, s.turnIndex, s.lastCoachTurnIndex], ["ev_coach_fx_harr_2", 5, 5]);
+  assert.equal(LR.getEventView(s, d).badge, "코치 · 유대 40");
+  LR.resolveEvent(s, d, 0);
+  assert.deepEqual(s.coachSteps, { sp_coach_harr: [1, 2], sp_wind_dancer: [1] });
+  checkInvariants(s);
+  // coach 스위치만 끄면 같은 자리에서 주 끝 랜덤
+  const off = e4FlowData({ on: ["week", "outing"] });
+  const t = LR.createRun({ data: off, seed: 11 });
+  t.coachSeen = { sp_coach_harr: true };
+  LR.applyWeekAction(t, off, { type: "rest" });
+  assert.equal(t.currentEvent.eventId, "ev_f_rain");
+  // week 스위치가 꺼져도 코치 연속은 뜬다 (주 끝 랜덤만 없다) · 준비된 코치가 없으면 rng 없이 지나간다
+  const cOnly = e4FlowData({ on: ["coach"] });
+  const u = LR.createRun({ data: cOnly, seed: 11 });
+  const ref = LR.createRun({ data, seed: 11 });
+  LR.applyWeekAction(u, cOnly, { type: "rest" });
+  LR.applyWeekAction(ref, data, { type: "rest" });
+  assert.deepEqual([u.phase, u.turn, u.rngState], ["week", 2, ref.rngState]);
+  u.coachSeen = { sp_wind_dancer: true };
+  LR.applyWeekAction(u, cOnly, { type: "rest" });
+  assert.equal(u.currentEvent.eventId, "ev_coach_fx_celia_1");
+});
+
+test("§24.6 E4 레슨에 나온 코치 (coachSeen — 레슨이 끝날 때): 지원 붙기 · 코치 카드 사용 (유대 100 이어도) · 같은 종목 클리어 유대 · 코치 카드 대상 (coachTargets — 낼 때, 코치 카드만) · 스위치와 상관없이", () => {
+  // 1) 지원 붙기 (lesson.attach.log 의 코치) — 카드를 내지 않고 끝나도
+  const a = newRun();
+  startLessonWeek(a, "pass");
+  same(a.coachSeen, {});
+  endToEnd(a);
+  const attached = [...new Set(a.lesson.attach.log.map((x) => x.supportId))].sort();
+  assert.ok(attached.length >= 1, "붙기가 있었다");
+  assert.deepEqual(Object.keys(a.coachSeen).sort(), attached);
+  same(a.coachTargets, {}, "코치 카드를 내지 않았다");
+  // 2) 코치 카드 사용: 대상은 낼 때 coachTargets, 레슨이 끝나면 coachSeen — 유대 100 (변화 없음) 이어도
+  const b = newRun();
+  const huid = `k${b.nextUid}`;
+  b.deck.push({ uid: huid, cardId: "cd_c_harr", plus: false });
+  b.nextUid += 1;
+  sup(b, "sp_coach_harr").bond = 100;
+  startLessonWeek(b, "defense");
+  Object.assign(b.lesson.attach, { turns: [], log: [], cur: null }); // 붙기 없이
+  forceHand(b, [huid]);
+  const c0 = LR.dropCandidates(b, data, { uid: huid })[0];
+  LR.playCard(b, data, { uid: huid, at: c0.at || undefined, playerId: c0.playerId ?? undefined });
+  assert.ok(Object.keys(b.lesson.targeted).length >= 1);
+  assert.deepEqual(b.coachTargets, { sp_coach_harr: b.lesson.targeted }, "그 카드의 대상마다 +1");
+  assert.deepEqual(b.lesson.coachPlayed, { sp_coach_harr: true });
+  same(b.coachSeen, {}, "레슨 중에는 아직");
+  // 코치 카드가 아닌 카드는 대상을 기록하지 않는다
+  if (b.phase === "lesson") {
+    const basic = uidOf(b, "cd_basic");
+    const rec = clone(b.coachTargets);
+    forceHand(b, [basic]);
+    LR.playCard(b, data, { uid: basic, at: { x: 50, y: 50 } });
+    same(b.coachTargets, rec);
+  }
+  endToEnd(b);
+  assert.deepEqual(b.coachSeen, { sp_coach_harr: true });
+  checkInvariants(b);
+  // 3) 같은 종목 클리어 유대: 슈팅 레슨 클리어 → 하르나 (코치 카드 종목 슈팅) — 유대 100 이어도
+  const c = newRun();
+  sup(c, "sp_coach_harr").bond = 100;
+  startLessonWeek(c, "shoot");
+  Object.assign(c.lesson.attach, { turns: [], log: [], cur: null });
+  clearLesson(c);
+  assert.equal(c.phase, "reward");
+  assert.deepEqual(c.coachSeen, { sp_coach_harr: true });
+  // 이미 본 코치는 그대로 · 레슨에 나오지 않은 코치는 더하지 않는다
+  finishReward(c, { pick: null });
+  startLessonWeek(c, "defense");
+  Object.assign(c.lesson.attach, { turns: [], log: [], cur: null });
+  endToEnd(c);
+  assert.deepEqual(c.coachSeen, { sp_coach_harr: true });
+});
+
+test("§24.7 E4 외출 이야기: 외출 상대의 다음 화가 확정 (일반 외출보다 먼저 · rng 없음) → 고를 때 storySeen → 다음 외출은 다음 화 → 3화 뒤에는 일반 외출 · 계정 스냅샷에서 이어 · 무료 외출도 · 주 뷰 story · outing 스위치", () => {
+  const d = e4FlowData({ on: ["outing"] });
+  const s = LR.createRun({ data: d, seed: 11 });
+  const story = (t, id, dd = d) => LR.getWeekView(t, dd).players.find((p) => p.id === id).story;
+  assert.deepEqual([story(s, "p1"), story(s, "p5"), story(s, "p2")], [{ next: 1, total: 3 }, { next: 1, total: 3 }, { next: null, total: 3 }]);
+  const outing = (t, pid, dd = d) => {
+    forceFree(t, ["outing", "consult", "meeting"]);
+    LR.applyWeekAction(t, dd, { type: "outing", playerId: pid });
+  };
+  for (const ep of [1, 2, 3]) {
+    const r0 = s.rngState;
+    outing(s, "p1");
+    assert.deepEqual([s.phase, s.currentEvent.eventId, s.currentEvent.kind, s.currentEvent.playerId], ["event", `out_fx_neria_${ep}`, "story", "p1"]);
+    assert.equal(s.rngState, r0, "이야기는 확정 — rng 를 쓰지 않는다");
+    assert.deepEqual(s.queue, ["advanceWeek"], "외출 이벤트가 그 주의 슬롯");
+    assert.equal(LR.getEventView(s, d).badge, `이야기 ${ep}/3화`);
+    assert.equal(s.storySeen.length, ep - 1, "띄울 때는 세지 않는다");
+    LR.resolveEvent(s, d, 0);
+    assert.equal(s.storySeen.length, ep);
+    assert.deepEqual(story(s, "p1"), { next: ep < 3 ? ep + 1 : null, total: 3 });
+  }
+  // 3화까지 보면 일반 외출 주머니
+  outing(s, "p1");
+  assert.ok(["ev_f_out1", "ev_f_out2"].includes(s.currentEvent.eventId));
+  assert.equal(s.currentEvent.kind, "outing");
+  LR.resolveEvent(s, d, 1);
+  assert.deepEqual(s.storySeen, ["out_fx_neria_1", "out_fx_neria_2", "out_fx_neria_3"]);
+  assert.deepEqual(s.storyEps, { ch_spirit_keeper: 3 });
+  same(LR.accountMerge(null, s), { version: 1, stories: { ch_spirit_keeper: 3 }, coachMet: {} });
+  checkInvariants(s);
+  // 계정 스냅샷에서 이어 간다: 네리아 2화까지 봤으면 첫 외출이 3화, 타리아는 3화까지 봤으면 일반 외출
+  const a = LR.createRun({ data: d, seed: 11, account: { stories: { ch_spirit_keeper: 2, ch_human_runner: 3 } } });
+  assert.deepEqual([story(a, "p1"), story(a, "p5")], [{ next: 3, total: 3 }, { next: null, total: 3 }]);
+  outing(a, "p5");
+  assert.equal(a.currentEvent.kind, "outing");
+  LR.resolveEvent(a, d, 1);
+  outing(a, "p1");
+  assert.equal(a.currentEvent.eventId, "out_fx_neria_3");
+  // 무료 외출 (온천 다음 시즌 1주) 도 이야기 → 같은 주로
+  const f = LR.createRun({ data: d, seed: 11 });
+  f.freeOuting = 1;
+  const offer = JSON.stringify(f.weekOffer);
+  LR.applyWeekAction(f, d, { type: "outing", playerId: "p5", free: true });
+  assert.deepEqual([f.currentEvent.eventId, f.queue], ["out_fx_taria_1", ["resumeWeek"]]);
+  LR.resolveEvent(f, d, 0);
+  assert.deepEqual([f.phase, f.turn, JSON.stringify(f.weekOffer), f.storySeen], ["week", 1, offer, ["out_fx_taria_1"]]);
+  // 결장 중인 외출 상대도 이야기를 본다
+  const inj = LR.createRun({ data: d, seed: 11 });
+  P(inj, "p1").injuredTurns = 1;
+  outing(inj, "p1");
+  assert.deepEqual([inj.currentEvent.eventId, inj.currentEvent.playerId], ["out_fx_neria_1", "p1"]);
+  // outing 스위치를 끄면 이야기도 없다 (주 뷰 next null)
+  const off = e4FlowData({ on: ["week"] });
+  const o = LR.createRun({ data: off, seed: 11 });
+  assert.equal(story(o, "p1", off).next, null);
+  outing(o, "p1", off);
+  assert.deepEqual([o.phase, o.turn, o.storySeen, o.currentEvent], ["week", 2, [], null]);
+});
+
+test("§24.15 E4 스위치를 끄면 코치 · 이야기 본보기와 계정이 있어도 이벤트 없는 데이터와 같은 15주 · 켜면 결정적 (코치 1단계 · 2주 연속 없음) · 계정 carry 면 다음 런은 1단계를 건너뛴다", () => {
+  const plain = flowWalk(LR.createRun({ data, seed: 5 }), data, (x) => x.phase === "finished", { route: "rt_expedition", lessons: true });
+  assert.ok(Object.keys(plain.coachSeen).length >= 1, "코치 기록은 스위치와 상관없이 쌓인다");
+  const off = e4FlowData({ on: [] });
+  const seen0 = [];
+  const acc = { stories: { ch_spirit_keeper: 1 }, coachMet: { sp_coach_harr: true } };
+  const s = flowWalk(LR.createRun({ data: off, seed: 5, account: acc }), off, (x) => x.phase === "finished", { route: "rt_expedition", seen: seen0, lessons: true });
+  assert.deepEqual(seen0, []);
+  same({ ...s, account: plain.account }, plain);
+  // 켜면 결정적으로 끝까지 — 코치 연속 1단계 (하르나 · 셀리아) 가 주 끝 슬롯에 뜨고 2주 연속은 없다
+  const on = e4FlowData({ on: ["week", "outing", "coach", "seasonStart", "preMatch", "route"] });
+  const go = (account) => {
+    const st = LR.createRun({ data: on, seed: 5, account });
+    const seen = [];
+    const coachWeeks = [];
+    let guard = 0;
+    while (st.phase !== "finished") {
+      if (++guard > 200) throw new Error("끝나지 않습니다");
+      // 이벤트가 뜰 때까지 flowWalk 로 진행하고, 이벤트는 여기서 고른다 (코치 이벤트의 주를 적는다)
+      flowWalk(st, on, (x) => x.phase === "finished" || x.phase === "event", { route: "rt_expedition", seen, lessons: true });
+      if (st.phase === "event") {
+        if (st.currentEvent.kind === "coach") coachWeeks.push(st.turnIndex);
+        seen.push(st.currentEvent.eventId);
+        LR.resolveEvent(st, on, 0);
+      }
+    }
+    return { st, seen, coachWeeks };
+  };
+  const a = go();
+  const b = go();
+  same(a.st, b.st);
+  assert.deepEqual(a.seen, b.seen);
+  assert.ok(a.seen.includes("ev_coach_fx_harr_1") && a.seen.includes("ev_coach_fx_celia_1"), a.seen.join(","));
+  assert.deepEqual(a.st.coachSteps, { sp_coach_harr: [1], sp_wind_dancer: [1] }, "유대가 40 에 닿지 않는 진행 (휴식만)");
+  for (let i = 1; i < a.coachWeeks.length; i++) assert.ok(a.coachWeeks[i] - a.coachWeeks[i - 1] >= 2, `2주 연속 코치: ${a.coachWeeks}`);
+  checkInvariants(a.st);
+  // 계정 carry: 첫 만남을 본 코치는 다음 런에서 1단계를 건너뛴다 (유대 < 40 이라 코치 이벤트가 없다)
+  const carried = LR.accountMerge(null, a.st);
+  same(carried.coachMet, { sp_coach_harr: true, sp_wind_dancer: true });
+  same(LR.accountMerge(carried, a.st), carried, "멱등");
+  const c = go(carried);
+  assert.ok(!c.seen.some((id) => id.startsWith("ev_coach_fx_")), c.seen.join(","));
+  same(c.st.coachSteps, {});
+});
+
+test("§24.10 E4 v5 저장본에 나중에 더한 2차 필드 (storyEps) 가 없으면 이행이 빈 값으로 더한다 (있는 값 그대로 · 멱등 · rng 없음)", () => {
+  const s = newRun();
+  s.storyEps = { ch_spirit_keeper: 2 };
+  const kept = clone(s);
+  LR.migrateLessonRun(kept, data);
+  same(kept.storyEps, { ch_spirit_keeper: 2 });
+  delete s.storyEps;
+  const r0 = s.rngState;
+  LR.migrateLessonRun(s, data);
+  same(s.storyEps, {});
+  assert.equal(s.rngState, r0);
+  same(LR.migrateLessonRun(clone(s), data), s);
+  checkInvariants(s);
 });

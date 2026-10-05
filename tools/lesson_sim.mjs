@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 // tools/lesson_sim.mjs — 카드 레슨 런 헤드리스 시뮬 (LESSON_PROTO_PLAN §10.1)
 //   node tools/lesson_sim.mjs --runs 200 --seed 1 [--policy all|ace|team|counter|press|poss] [--formation 2-2-2] [--no-match] [--json]
-//                             [--special-rate r] [--slot SLOT=charId]... [--unique-report] [--events on|off]
+//                             [--special-rate r] [--slot SLOT=charId]... [--unique-report] [--events on|off] [--account fresh|carry]
 //   --events on|off: lesson.json events 의 기능 스위치를 모두 켜거나 끈다 (기본 = 데이터 그대로, §24.11). 이벤트가 하나라도 켜져 있으면
-//                    표 끝에 [이벤트] 줄 (런당 이벤트 — 트리거별 · 시간 어림 이벤트 하나 12초, §24.16) 을 더한다 (꺼져 있으면 표는 그대로).
+//                    표 끝에 [이벤트] 줄 (런당 이벤트 — 트리거별 · 시간 어림 이벤트 하나 12초, 코치 단계 도달 · 이야기 화, §24.16) 을 더한다
+//                    (꺼져 있으면 표는 그대로).
+//   --account fresh|carry: 계정 스냅샷 (§24.7 — 이야기 진행 · 코치 첫 만남). fresh (기본) = 런마다 빈 계정, carry = 방침마다 빈 계정에서
+//                    시작해 끝난 런을 lessonEvents.accountMerge 로 합쳐 다음 런의 createRun 에 넘긴다 (방침 칸끼리는 섞지 않는다).
 //   --slot SLOT=charId: 편성의 그 자리를 다른 캐릭터로 (여러 번 가능 — 미르카 측정은 --slot FW2=ch_cat_trickster, §16.11).
 //   --unique-report: 고유 카드 (L40 모양) 표 — 카드 · 모양별 낸 수 / 런 · 손에 든 턴 / 런 · 직접 상승 / 장 · 실패 % · 비용 / 장 ·
 //                    감독 AI EV / 장 · 강화 % + 낼 수 없는 턴 비율 + 자리 옮기기 · 가로지르기 구역 분포 + 이어 주기 · 연결 · 크로스
@@ -29,7 +32,7 @@ import { formationSlots } from "../js/engine/run.js";
 import { mainStatsOf, deadReason, getCard, shapeOf } from "../js/engine/cards.js";
 import { lessonCardDef } from "../js/engine/lesson.js";
 import { createRng } from "../js/engine/rng.js";
-import { setEventSwitches, switchOn, eventById, TRIGGERS, KIND_BADGES } from "../js/engine/lessonEvents.js";
+import { setEventSwitches, switchOn, eventById, accountMerge, normalizeAccount, TRIGGERS, KIND_BADGES } from "../js/engine/lessonEvents.js";
 
 const DATA_FILES = ["config", "characters", "supports", "events", "skills", "relics", "opponents", "routes", "traits", "combos", "cards", "lesson", "policies"];
 /** 레슨 런 이벤트 7개 (LESSON_PROTO_PLAN §24.3.1 — lessonEvents.EVENT_FILES 와 같은 목록). 없으면 건너뛴다. 기능 스위치는 데이터 그대로 */
@@ -69,7 +72,7 @@ export function loadData() {
 }
 
 export function parseArgs(argv) {
-  const out = { runs: 200, seed: "1", policy: "all", formation: null, match: true, json: false, specialRate: 1, slots: {}, uniqueReport: false, events: null };
+  const out = { runs: 200, seed: "1", policy: "all", formation: null, match: true, json: false, specialRate: 1, slots: {}, uniqueReport: false, events: null, account: "fresh" };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--runs") out.runs = Math.max(1, parseInt(argv[++i], 10) || 200);
@@ -88,8 +91,12 @@ export function parseArgs(argv) {
       out.events = String(argv[++i] || "");
       if (out.events !== "on" && out.events !== "off") throw new Error(`--events 는 on 또는 off 입니다: ${argv[i]}`);
     }
+    else if (a === "--account") {
+      out.account = String(argv[++i] || "");
+      if (out.account !== "fresh" && out.account !== "carry") throw new Error(`--account 는 fresh 또는 carry 입니다: ${argv[i]}`);
+    }
     else if (a === "--help" || a === "-h") {
-      console.log("usage: node tools/lesson_sim.mjs --runs N --seed S [--policy all|ace|team|counter|press|poss] [--formation 2-2-2] [--no-match] [--json] [--special-rate r] [--slot SLOT=charId]... [--unique-report] [--events on|off]");
+      console.log("usage: node tools/lesson_sim.mjs --runs N --seed S [--policy all|ace|team|counter|press|poss] [--formation 2-2-2] [--no-match] [--json] [--special-rate r] [--slot SLOT=charId]... [--unique-report] [--events on|off] [--account fresh|carry]");
       process.exit(0);
     }
   }
@@ -134,7 +141,7 @@ function specialRateAction(state, data, seed, rate) {
   return alt.type === "lesson" ? { type: "lesson", zone: alt.zone } : null;
 }
 
-export function simulateOne(data, { seed, policy, formation, slots = {}, playMatches, specialRate = 1 }) {
+export function simulateOne(data, { seed, policy, formation, slots = {}, playMatches, specialRate = 1, account }) {
   const playMatch = playMatches
     ? (setup) => {
         const ms = match.createMatch({ data, seed: setup.seed, home: setup.home, away: setup.away, possessions: setup.possessions, kind: setup.kind });
@@ -143,7 +150,7 @@ export function simulateOne(data, { seed, policy, formation, slots = {}, playMat
       }
     : () => ({ ...NO_MATCH_RESULT });
   const squad = squadFor(data, formation, slots);
-  const state = LR.createRun({ data, seed, policy, ...(formation ? { formation } : {}), ...(squad ? { squad } : {}) });
+  const state = LR.createRun({ data, seed, policy, ...(formation ? { formation } : {}), ...(squad ? { squad } : {}), ...(account ? { account } : {}) });
   const startStats = Object.fromEntries(state.players.map((p) => [p.id, { ...p.stats }]));
   const m = {
     weekRests: 0, benches: 0, benchTurns: 0, lessonTurns: 0, hints: 0,
@@ -288,6 +295,11 @@ export function simulateOne(data, { seed, policy, formation, slots = {}, playMat
     tpEnd: state.trainingPoints,
     mainGrowth, totalGrowth,
     supportIds: state.supports.map((x) => x.id),
+    // §24.16 E4: 코치 단계 도달 (이번 런에 고른 단계 — 1 · 2 · 3 단계마다 코치 수) · 계정에서 만나 1단계를 건너뛴 편성 코치 수 · 이야기 화
+    coachStepCount: [1, 2, 3].map((k) => Object.values(state.coachSteps || {}).filter((l) => Array.isArray(l) && l.includes(k)).length),
+    coachMetSkip: ((data.lesson.events || {}).coach || {}).firstMeet === "run" ? 0
+      : state.supports.filter((x) => state.account && state.account.coachMet && state.account.coachMet[x.id] === true).length,
+    storyEps: (state.storySeen || []).length,
     players: state.players.map((p) => ({ id: p.id, name: p.name, position: p.position })),
     spEnd: state.skillPoints,
     // 런 끝 선수당 습득 액티브 · 패시브 (§18.9)
@@ -404,8 +416,13 @@ const pctl = (a, q) => {
 export function summarize(data, args, policy) {
   const t0 = performance.now();
   const rs = [];
+  // --account carry: 방침마다 빈 계정에서 시작해 끝난 런을 합쳐 다음 런에 넘긴다 (fresh = 런마다 빈 계정 — createRun 에 넘기지 않는다)
+  const carry = args.account === "carry";
+  let account = carry ? normalizeAccount(null) : undefined;
   for (let i = 0; i < args.runs; i++) {
-    rs.push(simulateOne(data, { seed: `${args.seed}-${i}`, policy, formation: args.formation, slots: args.slots || {}, playMatches: args.match, specialRate: args.specialRate ?? 1 }));
+    const r = simulateOne(data, { seed: `${args.seed}-${i}`, policy, formation: args.formation, slots: args.slots || {}, playMatches: args.match, specialRate: args.specialRate ?? 1, account });
+    if (carry) account = accountMerge(account, r.state);
+    rs.push(r);
   }
   const N = rs.length;
   const lessons = rs.flatMap((r) => r.lessons);
@@ -552,6 +569,11 @@ export function summarize(data, args, policy) {
     eventsBy: Object.fromEntries(TRIGGERS.map((t) => [t, mean(rs.map((r) => r.events[t] || 0))])),
     eventsPerRun: mean(rs.map((r) => Object.values(r.events).reduce((a, b) => a + b, 0))),
     eventMinutes: (mean(rs.map((r) => Object.values(r.events).reduce((a, b) => a + b, 0))) * SEC_PER_EVENT) / 60,
+    // §24.16 E4: 코치 단계 도달 (런당 그 단계를 고른 코치 수) · 계정 첫 만남으로 1단계를 건너뛴 코치 수 · 이야기 화 / 런 · 마지막 계정의 이야기 진행
+    coachSteps: [0, 1, 2].map((k) => mean(rs.map((r) => r.coachStepCount[k]))),
+    coachMetSkip: mean(rs.map((r) => r.coachMetSkip)),
+    storyPerRun: mean(rs.map((r) => r.storyEps)),
+    accountStories: account ? Object.values(account.stories).reduce((a, b) => a + b, 0) : null,
   };
 }
 
@@ -633,6 +655,8 @@ function printTable(sums, args) {
     ...(args.eventsOn ? [
       [`[이벤트] 런당 이벤트 합 · 시간 어림 (하나 ${SEC_PER_EVENT}초)`, (s) => `${f1(s.eventsPerRun)} · ${f1(s.eventMinutes)}분`],
       ...TRIGGERS.map((t) => [`[이벤트] 런당 ${KIND_BADGES[t]} (${t})`, (s) => f2(s.eventsBy[t])]),
+      [`[이벤트] 코치 단계 도달 / 런 1 · 2 · 3 (계정 ${args.account || "fresh"} — 첫 만남 건너뜀)`, (s) => `${s.coachSteps.map(f2).join(" · ")} (${f2(s.coachMetSkip)})`],
+      [`[이벤트] 이야기 화 / 런 (계정 ${args.account || "fresh"}${args.account === "carry" ? " — 끝 계정 화 합" : ""})`, (s) => `${f2(s.storyPerRun)}${s.accountStories !== null ? ` (${s.accountStories})` : ""}`],
     ] : []),
   ];
   const head = ["지표", ...sums.map((s) => s.policy)];
@@ -643,7 +667,7 @@ function printTable(sums, args) {
     const sp = " ".repeat(Math.max(0, w - width(str)));
     return right ? sp + str : str + sp;
   };
-  console.log(`lesson_sim: ${args.runs} runs/방침, seed ${args.seed}, formation ${args.formation || "기본"}, 경기 ${args.match ? "match.simulateAuto" : "없음 (1:0 승)"}, 특별 선택 ${args.specialRate < 1 ? `${args.specialRate} (시뮬 옵션)` : "감독 AI (늘)"}${args.eventsOn ? `, 이벤트 켬 (${EVENT_SWITCH_NAMES.filter((k) => switchOn(args.data, k)).join(" · ")}${args.events ? ` — --events ${args.events}` : " — 데이터"})` : ""}`);
+  console.log(`lesson_sim: ${args.runs} runs/방침, seed ${args.seed}, formation ${args.formation || "기본"}, 경기 ${args.match ? "match.simulateAuto" : "없음 (1:0 승)"}, 특별 선택 ${args.specialRate < 1 ? `${args.specialRate} (시뮬 옵션)` : "감독 AI (늘)"}${args.eventsOn ? `, 이벤트 켬 (${EVENT_SWITCH_NAMES.filter((k) => switchOn(args.data, k)).join(" · ")}${args.events ? ` — --events ${args.events}` : " — 데이터"}), 계정 ${args.account || "fresh"}` : ""}`);
   for (const r of table) console.log(r.map((x, c) => pad(String(x), cols[c], c > 0)).join("  "));
   const names = sums[0].mains.map((x) => `${x.name}(${x.position})`).join(", ");
   console.log(`\n선수별 주 스탯 상승 순서: ${names}`);
