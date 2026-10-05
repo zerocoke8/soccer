@@ -549,6 +549,29 @@ test("§18.8 recommendTeach: 빈 슬롯 후보 중 지금 포지션 주 스탯 2
   assert.equal(s.phase, "week");
 });
 
+test("L54 recommendTeach: 라인 브레이커 → FW · MF 중에서만, 스루 패스 → DF · MF 중에서만 (포지션 밖 선수는 회색 · 받은 선수가 실제로 배운다)", () => {
+  const harr2 = clone(data);
+  harr2.supports.find((x) => x.id === "sp_coach_harr").teachSkillIds = ["sk_power_shot"];
+  for (const [skillId, positions] of [["sk_line_breaker", ["FW", "MF"]], ["sk_through_pass", ["DF", "MF"]]]) {
+    const s = LR.createRun({ data, seed: 11 });
+    s.weekOffer = { kind: "lesson", specials: [] };
+    LR.applyWeekAction(s, data, { type: "lesson", zone: "pass" });
+    s.lesson.attach.hints = ["sp_coach_harr"];
+    while (s.phase === "lesson") LR.endLessonTurn(s, harr2);
+    s.pendingReward.teach[0].skillId = skillId; // 수업 스킬만 바꾼다 (코치는 그대로 — 받을 선수 규칙만 본다)
+    const cur = LR.getRewardView(s, data).teach.cur;
+    for (const c of cur.players) {
+      const pos = P(s, c.id).position;
+      assert.equal(c.ok, positions.includes(pos), `${skillId} ${c.id} ${pos}`);
+      if (!c.ok) assert.equal(c.reason, `${positions.join(" · ")}만`);
+    }
+    const r = M.recommendTeach(s, data);
+    assert.ok(positions.includes(P(s, r.playerId).position), `${skillId} 추천 ${r.playerId}`);
+    M.autoStep(s, data);
+    assert.ok(P(s, r.playerId).learnedSkillIds.includes(skillId), "감독 AI 가 가르친다");
+  }
+});
+
 // ---------------------------------------------------------------------------
 // LESSON_PROTO_PLAN §24.11 — 이벤트 · 카드 3택1 (E2)
 // ---------------------------------------------------------------------------

@@ -132,7 +132,8 @@ export function withJosa(word, pair) {
  * 화면에 그릴 미리보기(receiverPreview · receivers · outcomes)를 고른 view 사본 (GDD §9.6: 미리보기 = 실제). view 는 바꾸지 않는다.
  * - deciding = true (사람이 고르는 중): 토글한 스킬(skillId) 또는 필살기(ultimate = true → 사람 측 ultimateOptions 의 필살기 skillId)가
  *   엔진 view.receiverPreviewBySkill / receiversBySkill / outcomesBySkill 에 있으면 그 변형
- *   (라인 브레이커 같은 extraLine 은 수신 후보·도착 구역이, 필살 패스는 기본 받는 선수(합체기)가, 소매치기는 역습 구역이 바뀐다).
+ *   (스루 패스 같은 extraLine 은 수신 후보·도착 구역이, 필살 패스는 기본 받는 선수(합체기)가, 소매치기는 역습 구역이,
+ *   라인 브레이커는 결과 문구 · 득점 기대만 바뀐다 — L54).
  *   둘 다 변형이 있으면 스킬 쪽 (엔진은 한 변형씩만 준다).
  * - deciding = false (자동 진행 중): 사람 측 AI 가 step() 안에서 스킬·필살기를 고르므로, 변형 중 기본 받는 선수가 다른 것이 있으면
  *   receiverPreview 를, 수신 후보·도착 단계가 다른 것이 있으면 receivers 까지 지운다 — 확정할 수 없는 후보는 그리지 않는다.

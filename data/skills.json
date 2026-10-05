@@ -74,10 +74,10 @@
     "learnable": true,
     "cost": 140,
     "tension": 35,
-    "positions": null,
-    "description": "이번 공격 성공 시 한 구역 추가 전진 (박스 도착이면 원터치)",
+    "positions": ["FW", "MF"],
+    "description": "③ 파이널 서드에서만: 이번 돌파(드리블·패스·크로스)가 성공하면 박스 원터치 + 다음 슛 위력 ×1.5",
     "passive": null,
-    "active": { "effect": "extraLine", "params": {}, "phase": "attack", "ai": { "useWhen": "attackDuel", "minTension": 35 } },
+    "active": { "effect": "lineBreak", "params": { "shootMult": 1.5 }, "phase": "attack", "ai": { "useWhen": "attackDuel", "minTension": 35 } },
     "ultimate": null
   },
   {
@@ -400,10 +400,10 @@
     "learnable": true,
     "cost": 100,
     "tension": 25,
-    "positions": ["MF"],
-    "description": "이번 패스·크로스는 상대 짝 맞힘 무효 + 받은 선수의 다음 듀얼 +25%",
+    "positions": ["DF", "MF"],
+    "description": "패스 전용 · ①·②에서만: 성공하면 수비 한 줄을 건너뛰어 두 구역 앞으로 (② → 박스 원터치)",
     "passive": null,
-    "active": { "effect": "negateRead", "params": { "actions": ["pass", "cross"], "nextDuelBonus": 0.25 }, "phase": "attack", "ai": { "useWhen": "attackDuel", "minTension": 25 } },
+    "active": { "effect": "extraLine", "params": { "actions": ["pass"], "maxLine": 1 }, "phase": "attack", "ai": { "useWhen": "attackDuel", "minTension": 25 } },
     "ultimate": null
   },
   {

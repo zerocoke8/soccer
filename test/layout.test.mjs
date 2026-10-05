@@ -992,13 +992,13 @@ test("resolvePreview: 토글한 스킬의 변형으로 바꾸고, 자동 진행 
   v.receiverPreview = { ...v.receiverPreview, step: 1, zone: 3 };
   v.outcomes = { pass: { success: { zone: 3, label: "실루엔에게 연결 — 중원 진입" }, fail: { zone: 2, label: "x" } } };
   const fw = v.players.home.find((p) => p.id === "h_FW1");
-  v.receiverPreviewBySkill = { sk_line_breaker: { id: fw.id, name: fw.name, side: "home", step: 2, zone: 4 } };
-  v.outcomesBySkill = { sk_line_breaker: { pass: { success: { zone: 4, label: `${fw.name}에게 연결 — 상대 진영 진입` }, fail: { zone: 2, label: "x" } } } };
+  v.receiverPreviewBySkill = { sk_through_pass: { id: fw.id, name: fw.name, side: "home", step: 2, zone: 4 } };
+  v.outcomesBySkill = { sk_through_pass: { pass: { success: { zone: 4, label: `${fw.name}에게 연결 — 상대 진영 진입` }, fail: { zone: 2, label: "x" } } } };
   const before = JSON.stringify(v);
   // 결정 대기 + 스킬 없음 → 그대로
   assert.equal(resolvePreview(v, { deciding: true }), v);
-  // 결정 대기 + 라인 브레이커 토글 → 변형
-  const t = resolvePreview(v, { skillId: "sk_line_breaker", deciding: true });
+  // 결정 대기 + 스루 패스 토글 → 변형 (L54 — 도착 구역을 바꾸는 변형)
+  const t = resolvePreview(v, { skillId: "sk_through_pass", deciding: true });
   assert.equal(t.receiverPreview.id, "h_FW1");
   assert.equal(t.outcomes.pass.success.zone, 4);
   const Lt = computeLayout(t);
@@ -1011,7 +1011,7 @@ test("resolvePreview: 토글한 스킬의 변형으로 바꾸고, 자동 진행 
   assert.equal(a.receiverPreview, null);
   assert.equal(computeLayout(a).receiverId, null);
   // 변형 수신자가 같으면(line 1 이상) 그대로
-  const same = { ...v, receiverPreviewBySkill: { sk_line_breaker: { ...v.receiverPreview } } };
+  const same = { ...v, receiverPreviewBySkill: { sk_through_pass: { ...v.receiverPreview } } };
   assert.equal(resolvePreview(same, { deciding: false }), same);
   // 상대 공격(AI 가 이미 커밋)은 그대로
   const away = { ...v, attackingSide: "away" };
@@ -1025,7 +1025,7 @@ test("resolvePreview: 토글한 스킬의 변형으로 바꾸고, 자동 진행 
     ...v,
     receivers: { pass: { candidates: mf, defaultId: "h_MF1", arrival: 1, zone: 3 } },
     receiversBySkill: {
-      sk_line_breaker: { pass: { candidates: fws, defaultId: "h_FW1", arrival: 2, zone: 4 } },
+      sk_through_pass: { pass: { candidates: fws, defaultId: "h_FW1", arrival: 2, zone: 4 } },
       sk_wind_thread: { pass: { candidates: mf, defaultId: "h_MF2", arrival: 1, zone: 3 } },
     },
     receiverPreviewBySkill: { ...v.receiverPreviewBySkill, sk_wind_thread: { id: "h_MF2", name: "타리아", side: "home", step: 1, zone: 3 } },
@@ -1035,8 +1035,8 @@ test("resolvePreview: 토글한 스킬의 변형으로 바꾸고, 자동 진행 
   const Lw = computeLayout(w);
   assert.deepEqual(Lw.receiverIds, mf, "후보 전원 receiver");
   for (const id of mf) assert.equal(zoneAtY(Lw.tokens.find((t) => t.id === id).y), 3);
-  const sk = resolvePreview(w, { skillId: "sk_line_breaker", deciding: true });
-  assert.deepEqual(sk.receivers, w.receiversBySkill.sk_line_breaker, "스킬 토글 → 변형 후보");
+  const sk = resolvePreview(w, { skillId: "sk_through_pass", deciding: true });
+  assert.deepEqual(sk.receivers, w.receiversBySkill.sk_through_pass, "스킬 토글 → 변형 후보");
   const Ls = computeLayout(sk);
   assert.deepEqual(Ls.receiverIds, fws);
   for (const id of fws) assert.equal(zoneAtY(Ls.tokens.find((t) => t.id === id).y), 4, "extraLine 후보 = 상대 진영");
@@ -1046,7 +1046,7 @@ test("resolvePreview: 토글한 스킬의 변형으로 바꾸고, 자동 진행 
   assert.equal(resolvePreview(w, { ultimate: false, deciding: true }), w, "토글 없음 → 그대로");
   const wx = { ...w, ultimateOptions: [{ ...w.ultimateOptions[0], usable: false }] };
   assert.equal(resolvePreview(wx, { ultimate: true, deciding: true }), wx, "쓸 수 없는 필살기 토글은 무시");
-  // 자동 진행: 도착 단계가 다른 변형(라인 브레이커)이 있으면 후보 전체를 숨긴다
+  // 자동 진행: 도착 단계가 다른 변형(스루 패스)이 있으면 후보 전체를 숨긴다
   const au = resolvePreview(w, { deciding: false });
   assert.deepEqual(au.receivers, {});
   assert.equal(au.receiverPreview, null);
@@ -1059,13 +1059,13 @@ test("resolvePreview: 토글한 스킬의 변형으로 바꾸고, 자동 진행 
   assert.equal(JSON.stringify(w), wBefore, "view 불변 (v0.3)");
 });
 
-test("자동 진행: 화면에 그린 패스 후보 = 실제 수신자 (사람 측 AI 가 라인 브레이커·필살 패스를 쓰는 1-3-2, 6팀 × 20 seed)", () => {
-  // A안: 자동은 성향 1위 액션 → 패스형 DF(아델린: 패스 200 > 드리블 150)에게 라인 브레이커를 쥐여 줘야 DF 의 패스에 extraLine 변형이 생긴다.
-  // (울리카 DF 는 드리블형이라 패스를 하지 않는다.) 실루엔(MF, 바람의 실)은 필살 패스 변형(합체기 기본값)을 만든다.
+test("자동 진행: 화면에 그린 패스 후보 = 실제 수신자 (사람 측 AI 가 스루 패스·필살 패스를 쓰는 1-3-2, 6팀 × 20 seed)", () => {
+  // A안: 자동은 성향 1위 액션 → 패스형 DF(아델린: 패스 200 > 드리블 150)에게 스루 패스를 쥐여 줘야 DF 의 패스에 extraLine 변형이 생긴다
+  // (L54 — 스루 패스 = 두 구역 패스, DF 도 배운다. 전에는 라인 브레이커). 실루엔(MF, 바람의 실)은 필살 패스 변형(합체기 기본값)을 만든다.
   const squad = { GK: "ch_spirit_keeper", DF1: "ch_human_captain", MF1: "ch_elf_playmaker", MF2: "ch_human_runner", MF3: "ch_cat_trickster", FW1: "ch_giant_striker", FW2: "ch_wolf_winger" };
   const home = run.buildTeamSnapshot(run.createRun({ data, seed: "lb", formation: "1-3-2", squad }), data);
   const df = home.players.find((p) => p.slot === "DF1");
-  df.skillIds = [...(df.skillIds || []), "sk_line_breaker"];
+  df.skillIds = [...(df.skillIds || []), "sk_through_pass"];
   home.tension = 60;
   let passes = 0;
   let hidden = 0;
@@ -1106,8 +1106,10 @@ test("자동 진행: 화면에 그린 패스 후보 = 실제 수신자 (사람 �
 test("받는 선수 후보 전원 = 도착 구역 (실제 엔진 view): 크로스 후보 MF 도 박스, 결정 중 스킬·필살기 변형도 같은 규칙", () => {
   const squad = { GK: "ch_spirit_keeper", DF1: "ch_dwarf_wall", DF2: "ch_human_captain", MF1: "ch_elf_playmaker", MF2: "ch_human_runner", FW1: "ch_wolf_winger", FW2: "ch_giant_striker" };
   const home = run.buildTeamSnapshot(run.createRun({ data, seed: "cands", formation: "2-2-2", squad }), data);
-  // §19.12: 라인 브레이커는 이제 코치 수업 액티브 — 울리카(FW1)에게 넣어 스킬 변형을 만든다
+  // §19.12: 라인 브레이커는 이제 코치 수업 액티브 — 울리카(FW1)에게 넣어 스킬 변형(③ — 후보 그대로)을 만든다.
+  // L54: 도착 구역을 바꾸는 변형은 스루 패스 — 아델린(DF2, 패스형)에게 넣는다 (① → ③ FW 후보)
   home.players.find((p) => p.charId === "ch_wolf_winger").skillIds.push("sk_line_breaker");
+  home.players.find((p) => p.charId === "ch_human_captain").skillIds.push("sk_through_pass");
   home.tension = 80;
   const seen = { cross: 0, multi: 0, variant: 0, ult: 0 };
   for (const opp of data.opponents) {

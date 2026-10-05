@@ -834,10 +834,11 @@ test("jsdom: 레슨 화면 (구역) — 골격 · 조준 · 키보드 · 벤치 
   assert.ok(teachWalk, "수업 2개가 남은 보상 상태");
   const teach0 = teachWalk.state;
   const tList = teach0.pendingReward.teach;
-  // 두 수업을 모두 받을 수 있는 선수 하나를 가득 (액티브 3 — 포지션 제한 없는 액티브, 두 수업 스킬 말고) + 패시브 1 로 만들어 바꾸기 줄을 본다.
+  // 두 수업을 모두 받을 수 있는 선수 하나를 가득 (액티브 3 — 그 선수 포지션에 맞는 액티브, 두 수업 스킬 말고) + 패시브 1 로 만들어 바꾸기 줄을 본다.
   // L48: 스킬 칸 3 = 액티브 몫 — 패시브는 칸을 쓰지 않고 바꾸기 줄에도 없다 (엔진 resolveTeach 가 패시브 바꾸기를 거절)
-  const freeActs = data.skills.filter((k) => k.kind === "active" && k.learnable && !(k.positions || []).length && k.id !== tList[0].skillId && k.id !== tList[1].skillId).map((k) => k.id);
+  // (L54: 라인 브레이커가 FW · MF 전용이 되어 포지션 제한 없는 액티브는 2개뿐 → 그 선수 포지션 기준으로 고른다)
   const fullP = teach0.players.find((p) => lessonRun.canTeachSkill(teach0, data, tList[1].skillId, p.id).ok && lessonRun.canTeachSkill(teach0, data, tList[0].skillId, p.id).ok);
+  const freeActs = data.skills.filter((k) => k.kind === "active" && k.learnable && (!(k.positions || []).length || (fullP && k.positions.includes(fullP.position))) && k.id !== tList[0].skillId && k.id !== tList[1].skillId).map((k) => k.id);
   assert.ok(fullP && freeActs.length >= 3);
   const fullPas = lessonRun.getPassiveShopView(teach0, data).players.find((x) => x.id === fullP.id).rows.find((r) => r.ok).skillId;
   fullP.learnedSkillIds = [...freeActs.slice(0, 3), fullPas];

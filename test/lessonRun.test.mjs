@@ -1220,11 +1220,11 @@ test("§15.5 컷인 힌트: 레슨 끝에 그 코치의 힌트 1개 (실패한 �
   assert.equal(cut[0].supportId, "sp_elder_sage");
   assert.deepEqual(v.teach.list.map((h) => h.src), ["clear", "cutin"], "clear 가 cutin 보다 먼저");
 
-  // 그 코치 패시브는 레벨 3 · 액티브는 받을 선수가 없다 (MF · DF 가 이미 보유) → SP
+  // 그 코치 패시브는 레벨 3 · 액티브는 받을 선수가 없다 (MF · DF 가 이미 보유 — L54: 스루 패스는 DF 도 배운다) → SP
   s = newRun();
   for (const p of s.players) {
     if (p.position === "MF") p.learnedSkillIds.push("sk_through_pass", "sk_eagle_eye", "sk_pickpocket");
-    if (p.position === "DF") p.learnedSkillIds.push("sk_eagle_eye");
+    if (p.position === "DF") p.learnedSkillIds.push("sk_eagle_eye", "sk_through_pass");
   }
   const sp0 = s.skillPoints;
   startLessonWeek(s, "pass");
@@ -1458,6 +1458,13 @@ test("§18.4 받지 않기 SP +20 · 같은 액티브 두 번 → 두 번째는 
   assert.equal(LR.canTeachSkill(t, data, "sk_power_shot", "zz").reason, "선수 없음");
   assert.equal(LR.canTeachSkill(t, data, "sk_eagle_eye", "p6").reason, "DF · MF만");
   assert.equal(LR.canTeachSkill(t, data, "sk_rally_cry", "p1").ok, true); // positions null = 전원
+  // L54 (§25): 스루 패스 = DF · MF (GK · FW 불가), 라인 브레이커 = FW · MF (GK · DF 불가)
+  const pos = (id) => t.players.filter((p) => LR.canTeachSkill(t, data, id, p.id).ok).map((p) => p.position);
+  assert.deepEqual(pos("sk_through_pass"), ["DF", "DF", "MF", "MF"]);
+  assert.deepEqual(pos("sk_line_breaker"), ["MF", "MF", "FW", "FW"]);
+  assert.equal(LR.canTeachSkill(t, data, "sk_through_pass", "p6").reason, "DF · MF만");
+  assert.equal(LR.canTeachSkill(t, data, "sk_line_breaker", "p2").reason, "FW · MF만");
+  assert.equal(LR.canTeachSkill(t, data, "sk_line_breaker", "p1").reason, "FW · MF만");
   // 힌트 검사가 없다 (canLearnSkill 과 다른 점)
   assert.deepEqual(t.hints, {});
   assert.equal(LR.canTeachSkill(t, data, "sk_power_shot", "p7").ok, true);

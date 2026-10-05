@@ -735,6 +735,38 @@ export const SCENARIOS = [
         : `우리 SSR 컷인 이벤트 없음 (${fresh.map((e) => e.type).join(",") || "-"})`;
     },
   },
+  {
+    // L54 (LESSON_PROTO_PLAN §25) 스루 패스 = 두 구역 패스: 우리 DF · MF 에게 주입, ① (없으면 ②) 공 · 스루 패스 토글 → 패스 hover —
+    // 받는 선수 후보가 두 구역 앞(③ FW · ② 에서는 ④ 박스)에 서고, 화살표 끝 글자 "→ 상대 진영 · 두 구역 전진", 카드 약점 줄 "두 구역 전진"
+    name: "36_through_pass",
+    title: "스루 패스 (L54) — 우리 DF · MF ① 공, '⚡ 스루 패스' 토글 + 패스 hover: FW 에게 두 구역 패스 (화살표 '두 구역 전진')",
+    matchKind: "friendly",
+    auto: false,
+    adjustSetup: (setup) => {
+      for (const p of setup.home.players) if (p.position === "DF" || p.position === "MF") p.skillIds = [...new Set([...(p.skillIds || []), "sk_through_pass"])];
+    },
+    require: (s, { data }) => isDuel(s) && s.attackingSide === "home" && s.ball.lineIndex <= 1 && needs(s, "attack") && actionEnabled(s, data, "pass") &&
+      (carrierOf(s)?.skillIds || []).includes("sk_through_pass") &&
+      viewOf(s, data).skills?.find((x) => x.skillId === "sk_through_pass")?.enabled === true &&
+      (viewOf(s, data).receiverPreviewBySkill?.sk_through_pass?.step ?? 0) === s.ball.lineIndex + 2,
+    prefer: (s) => s.ball.lineIndex === 0,
+    interact: { type: "steps", steps: [{ click: '.skill-row .sk-btn[data-skill="sk_through_pass"]:not(:disabled)' }, { wait: 150 }, { hover: ["pass"] }] },
+  },
+  {
+    // L54 라인 브레이커 = FW 마무리 스킬: 우리 FW 에게 주입, ③ 공 · 라인 브레이커 토글 → 드리블 hover — 켜져 있고, 돌파 카드 성공 줄
+    // "성공 박스 원터치 ×1.5" · 기대 % 오름 · 중거리 슛 약점 줄 "라인 브레이커 효과 없음 · …"
+    name: "37_line_breaker",
+    title: "라인 브레이커 (L54) — 우리 FW ③ 공, '⚡ 라인 브레이커' 토글 + 드리블 hover: 돌파 성공 = 박스 원터치 · 슛 ×1.5",
+    matchKind: "friendly",
+    auto: false,
+    adjustSetup: (setup) => {
+      for (const p of setup.home.players) if (p.position === "FW") p.skillIds = [...new Set([...(p.skillIds || []), "sk_line_breaker"])];
+    },
+    require: (s, { data }) => atk(s, "home", 2) && needs(s, "attack") && carrierOf(s)?.position === "FW" && actionEnabled(s, data, "dribble") &&
+      viewOf(s, data).skills?.find((x) => x.skillId === "sk_line_breaker")?.enabled === true,
+    prefer: (s, { data }) => actionEnabled(s, data, "pass") && !s.events.some((e) => e.type === "cutin"),
+    interact: { type: "steps", steps: [{ click: '.skill-row .sk-btn[data-skill="sk_line_breaker"]:not(:disabled)' }, { wait: 150 }, { hover: ["dribble"] }] },
+  },
 ];
 
 /**

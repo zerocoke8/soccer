@@ -1276,6 +1276,34 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
     S.actions.resetToStart();
   }
 
+  // L54 (LESSON_PROTO_PLAN §25): 36 스루 패스 토글 → 패스 받는 선수 = 두 구역 앞 FW, 화살표 끝 글자 "두 구역 전진", 패스 카드 약점 줄 "두 구역 전진"
+  // 37 라인 브레이커 (③ FW) 토글 → 켜져 있고, 드리블 카드 성공 줄 "성공 박스 원터치 ×1.5" · % 가 엔진 변형 값
+  {
+    const { scr: s36, view: v36 } = inject("36_through_pass");
+    const tpBtn = s36.querySelector('.skill-row .sk-btn[data-skill="sk_through_pass"]');
+    assert.ok(tpBtn && !tpBtn.disabled, "스루 패스 버튼 켜짐");
+    const pb = () => s36.querySelector('button[data-action="pass"]');
+    assert.ok(!/두 구역/.test(pb().textContent), "토글 전 패스 카드 = 보통");
+    tpBtn.click();
+    assert.equal(pb().dataset.receiver, v36.receiverPreviewBySkill.sk_through_pass.id, "패스 카드 받는 선수 = 변형 (FW)");
+    assert.match(pb().querySelector(".act-hint").textContent, /두 구역 전진/);
+    pb().dispatchEvent(new window.Event("pointerdown", { bubbles: true }));
+    assert.match(s36.querySelector(".g-tip text")?.textContent ?? "", /두 구역 전진/, "패스 화살표 끝 글자");
+    pb().dispatchEvent(new window.Event("pointerleave"));
+    S.actions.resetToStart();
+
+    const { scr: s37, view: v37 } = inject("37_line_breaker");
+    const lbBtn = s37.querySelector('.skill-row .sk-btn[data-skill="sk_line_breaker"]');
+    assert.ok(lbBtn && !lbBtn.disabled, "③ FW 라인 브레이커 켜짐");
+    lbBtn.click();
+    const db = s37.querySelector('button[data-action="dribble"]');
+    assert.equal(db.querySelector(".act-out.ok .txt.short").textContent, "성공 박스 원터치 ×1.5");
+    const lbV = v37.skills.find((x) => x.skillId === "sk_line_breaker");
+    assert.equal(db.querySelector(".act-pct").textContent, `${lbV.expectedPct.dribble}%`, "카드 % = 엔진 변형 득점 기대");
+    assert.match(s37.querySelector('button[data-action="shoot"] .act-hint').textContent, /^라인 브레이커 효과 없음/);
+    S.actions.resetToStart();
+  }
+
   // §13.2-14: 이전 버전(v2) 저장 경기는 새로 만든다
   {
     const prep = buildScenarioState(sdata, SCENARIOS.find((s) => s.name === "01_home_buildup"), { runSeed: 1 });

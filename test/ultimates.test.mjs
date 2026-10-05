@@ -825,7 +825,7 @@ test("K2 데이터: 옛 고유 6개 = 배울 수 있는 스킬 (id · 효과 그
     sk_tireless: ["passive", 120, null, "sp_mountain_monk", "ch_human_runner"],
     sk_feint: ["passive", 120, ["FW", "MF"], "sp_street_striker", "ch_cat_trickster"],
     sk_iron_tackle: ["active", 130, null, "sp_iron_captain", "sp_iron_captain"],
-    sk_line_breaker: ["active", 140, null, "sp_wind_dancer", "sp_wind_dancer"],
+    sk_line_breaker: ["active", 140, ["FW", "MF"], "sp_wind_dancer", "sp_wind_dancer"], // L54: FW 마무리 스킬 (FW · MF)
   };
   for (const [id, [kind, cost, positions, coach, home]] of Object.entries(OLD)) {
     const s = S[id];
@@ -840,7 +840,9 @@ test("K2 데이터: 옛 고유 6개 = 배울 수 있는 스킬 (id · 효과 그
     } else assert.ok(real.supports.find((x) => x.id === home).teachSkillIds.includes(id), `${id} 수업 코치`);
   }
   assert.deepEqual(S.sk_iron_tackle.active.params, { defense: 1.4, noMissPenalty: true });
-  assert.equal(S.sk_line_breaker.active.effect, "extraLine");
+  // L54 (§25): 라인 브레이커 = ③ 돌파 → 박스 원터치 + 다음 슛 ×1.5 (lineBreak), 두 구역 전진은 스루 패스 (extraLine 패스 전용 · ①·②)
+  assert.deepEqual(S.sk_line_breaker.active, { effect: "lineBreak", params: { shootMult: 1.5 }, phase: "attack", ai: { useWhen: "attackDuel", minTension: 35 } });
+  assert.deepEqual([S.sk_through_pass.positions, S.sk_through_pass.active.effect, S.sk_through_pass.active.params], [["DF", "MF"], "extraLine", { actions: ["pass"], maxLine: 1 }]);
   // 코치 힌트 목록의 스킬은 모두 배울 수 있다
   for (const sp of real.supports) for (const id of sp.hintSkillIds) assert.equal(S[id].learnable, true, `${sp.name} ${id}`);
 });

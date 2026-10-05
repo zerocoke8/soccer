@@ -367,7 +367,7 @@ test("크로스: 크로서만 파이널 서드에서, 후보 = FW 전원 + 피�
   near(h.def / hp.def, M.oneTouchGk, "원터치 GK ×0.85");
 });
 
-test("원터치: 패스로 박스 도착 = 원터치(헤더 아님), 드리블 도착 = 아님, 라인 브레이커로 박스 도착 = 원터치 + 슛 +20%", () => {
+test("원터치: 패스로 박스 도착 = 원터치(헤더 아님), 드리블 도착 = 아님, 한 구역 더(extraLine — 필살 패스 · 드리블)로 박스 도착 = 원터치 + 슛 +20%", () => {
   const ms = mk();
   place(ms, { line: 2, carrier: "h_FW1" });
   const p = forced(ms, { action: "pass" }, true).ms;
@@ -868,12 +868,12 @@ test("액티브: 철의 태클 · 바위 방벽 · 라인 브레이커 · 파워
   // 다음 포제션엔 없다
   const nx = forced(rc, { action: "hold" }, false).ms;
   assert.equal(nx.possessionFx.home.teamMult, 1);
-  // 라인 브레이커: line 0 드리블 성공 → line 2
-  const lb = mk({ DF1: { skillIds: ["sk_line_breaker"] } });
-  place(lb, { line: 0, carrier: "h_DF1" });
+  // 라인 브레이커 (L54): ③ 드리블 성공 → 박스 원터치 + 다음 슛 ×1.5 (한 구역 더 전진은 없다)
+  const lb = mk({ FW1: { skillIds: ["sk_line_breaker"] } });
+  place(lb, { line: 2, carrier: "h_FW1" });
   lb.home.tension = 100;
   const lbr = forced(lb, { action: "dribble", skillId: "sk_line_breaker" }, true);
-  assert.equal(lbr.ms.ball.lineIndex, 2);
+  assert.deepEqual({ l: lbr.ms.ball.lineIndex, ot: lbr.ms.ball.oneTouch, m: lbr.ms.ball.lineBreakMult, x: lbr.ms.ball.extraLine }, { l: 3, ot: true, m: 1.5, x: false });
   assert.equal(lbr.ms.home.tension, 100 - S.sk_line_breaker.tension + M.tension.duelWin);
   // 파워 슛: 중거리 계수 1.0, ×1.5, 체력 +8
   const ps = mk({ FW1: { skillIds: ["sk_power_shot"] } });
@@ -903,16 +903,15 @@ test("액티브: 철의 태클 · 바위 방벽 · 라인 브레이커 · 파워
   near(odds(bd, "pass", "hold").att / odds(bd, "pass", "hold", { fxA: none }).att, 1, "패스엔 무효");
   const bdr = forced(bd, { action: "dribble" }, true).ms;
   assert.equal(bdr.home.live.h_FW1.stamina, M.staminaMax, "성공 시 체력 소모 0");
-  // 스루 패스: 패스 짝 무효 + 받은 선수 다음 듀얼 +25%, 드리블엔 무효
+  // 스루 패스 (L54): 두 구역 패스 — ② 패스 성공 → ④ 박스 원터치. 짝 무효 · 받은 선수 +25% 는 없다
   const tp = mk({ MF1: { skillIds: ["sk_through_pass"] } });
   place(tp, { line: 1, carrier: "h_MF1" });
   tp.home.tension = 100;
   const tpFx = { ...skills.emptyDuelEffects() };
   skills.addSkillFx(tpFx, S.sk_through_pass);
-  assert.equal(odds(tp, "pass", "intercept", { fxA: tpFx }).pairMult, 1);
-  assert.equal(odds(tp, "dribble", "tackle", { fxA: tpFx }).pairMult, M.readBonus);
+  assert.equal(odds(tp, "pass", "intercept", { fxA: tpFx }).pairMult, M.readBonus, "짝 무효 없음");
   const tpr = forced(tp, { action: "pass", skillId: "sk_through_pass", receiverId: "h_FW1" }, true).ms;
-  near(tpr.ball.pending.nextBonus, 0.25, "스루 패스 다음 듀얼 +25%");
+  assert.deepEqual({ l: tpr.ball.lineIndex, c: tpr.ball.carrierId, ot: tpr.ball.oneTouch, nb: tpr.ball.pending.nextBonus }, { l: 3, c: "h_FW1", ot: true, nb: 0 });
   assert.equal(skills.isGaanpaSkill(S.sk_through_pass), false);
 });
 
@@ -1213,7 +1212,7 @@ test("짝 표 (2026-09-29): 드리블↔태클 · 패스↔인터셉트 · 크�
   d2.config.match.holdVsCross = 2.5;
   near(match.computeOdds(ms, d2, { action: "cross", defAction: "hold" }).def, H * 2.5, "holdVsCross 2.5");
   near(match.computeOdds(ms, d2, { action: "pass", defAction: "intercept" }).def, I * M.readBonus, "다른 짝은 그대로");
-  // 간파: readBoost → 버티기↔크로스도 ×readMult (다른 짝과 같음), 짝 무효(간파 negateRead · 필살 패스 · 스루 패스) → ×1.0
+  // 간파: readBoost → 버티기↔크로스도 ×readMult (다른 짝과 같음), 짝 무효(간파 negateRead · 필살 패스) → ×1.0
   const rb = { ...skills.emptyDuelEffects(), readMult: 2.0 };
   near(odds(ms, "cross", "hold", { fxD: rb }).def, H * Math.max(2.0, M.holdVsCross), "readBoost 버티기 vs 크로스");
   near(odds(ms, "cross", "intercept", { fxD: rb }).def, I * M.missMult, "readBoost 는 빗나감엔 무관");
@@ -1224,7 +1223,7 @@ test("짝 표 (2026-09-29): 드리블↔태클 · 패스↔인터셉트 · 크�
   near(odds(ms, "cross", "hold", { fxA: { ...skills.emptyDuelEffects(), ult: { skillId: "sk_wind_thread", ...wt } } }).def, H, "필살 패스 짝 무효");
   const tp = { ...skills.emptyDuelEffects() };
   skills.addSkillFx(tp, data.skills.find((s) => s.id === "sk_through_pass"));
-  near(odds(ms, "cross", "hold", { fxA: tp }).def, H, "스루 패스(패스·크로스 짝 무효)");
+  near(odds(ms, "cross", "hold", { fxA: tp }).def, H * M.holdVsCross, "스루 패스는 짝 무효가 아니다 (L54 — 두 구역 패스)");
   // 최선 대응 (간파한 AI · 도구): 스탯이 같으면 크로스 → 버티기, 패스 → 인터셉트, 드리블 → 태클 / 인터셉트 상대 → 크로스(빗나감 + 크로서)
   const eq = mk({ FW1: { trait: "crosser" } });
   place(eq, { line: 2, carrier: "h_FW1" });
@@ -1689,32 +1688,24 @@ test("박스 연결 미리보기 = 실제: expectedPct = 연결 성공 × 받은
   assert.equal(JSON.stringify(match.getMatchView(ms, data)), JSON.stringify(v), "뷰는 결정적");
 });
 
-test("④ 스킬: 라인 브레이커·꿰뚫어보기 = 박스에서는 효과 없음(비활성) · 스루 패스는 받은 선수 보너스만 (연결 1회) · 공격 boost(패스·크로스)는 박스 연결 판정에 붙고 AI 도 쓴다", () => {
+test("④ 스킬: 라인 브레이커 = ③ 에서만 · 스루 패스 = ①·② 에서만 · 꿰뚫어보기 = 박스에서는 간파 불가 (비활성) · 공격 boost(패스·크로스)는 박스 연결 판정에 붙고 AI 도 쓴다", () => {
   const ms = mk({ MF1: { skillIds: ["sk_line_breaker", "sk_through_pass", "sk_see_through", "sk_rally_cry"] } });
   place(ms, { line: 3, carrier: "h_MF1" });
   ms.home.tension = 100;
   const sk = Object.fromEntries(match.getMatchView(ms, data).skills.map((s) => [s.skillId, s]));
-  assert.deepEqual({ e: sk.sk_line_breaker.enabled, r: sk.sk_line_breaker.reason }, { e: false, r: "박스에서는 효과 없음" });
+  // L54: 단계 사유가 박스 사유보다 먼저 (옛 스루 패스의 박스 연결 +25% 는 없어졌다)
+  assert.deepEqual({ e: sk.sk_line_breaker.enabled, r: sk.sk_line_breaker.reason }, { e: false, r: "③ 파이널 서드에서만" });
+  assert.deepEqual({ e: sk.sk_through_pass.enabled, r: sk.sk_through_pass.reason }, { e: false, r: "①·②에서만 (두 구역 앞)" });
   assert.deepEqual({ e: sk.sk_see_through.enabled, r: sk.sk_see_through.reason }, { e: false, r: "박스에서는 간파 불가" });
-  // 스루 패스: 짝 무효는 GK 상대라 의미 없지만 받은 선수 다음 듀얼 +25% 는 원터치 슛·헤더에 붙는다 (필살 패스와 같은 규칙)
-  assert.equal(sk.sk_through_pass.enabled, true, "스루 패스는 박스 연결에 쓸 수 있다");
-  const { ms: tpAfter } = forced(ms, { action: "pass", skillId: "sk_through_pass" }, true);
-  near(tpAfter.ball.pending.nextBonus, 0.25, "받은 선수 다음 듀얼(원터치 슛) +25%");
-  const tpShot = odds(tpAfter, "shoot", "save");
-  const tpNo = clone(tpAfter);
-  tpNo.ball.pending.nextBonus = 0;
-  assert.ok(tpShot.att > odds(tpNo, "shoot", "save").att * 1.2, "원터치 슛 공격값에 +25% (다른 가산과 합산)");
-  const usedTp = clone(ms);
-  usedTp.ball.boxLinkUsed = true;
-  const sk2 = Object.fromEntries(match.getMatchView(usedTp, data).skills.map((s) => [s.skillId, s]));
-  assert.deepEqual({ e: sk2.sk_through_pass.enabled, r: sk2.sk_through_pass.reason }, { e: false, r: "박스 연결은 포제션당 1회" });
   assert.equal(sk.sk_rally_cry.enabled, true, "함성은 박스에서도");
-  assert.throws(() => match.step(clone(ms), data, { action: "pass", skillId: "sk_line_breaker" }), /박스에서는 효과 없음/);
-  // 박스 밖에서는 그대로
-  const l2 = mk({ MF1: { skillIds: ["sk_line_breaker"] } });
+  assert.throws(() => match.step(clone(ms), data, { action: "pass", skillId: "sk_line_breaker" }), /③ 파이널 서드에서만/);
+  assert.throws(() => match.step(clone(ms), data, { action: "pass", skillId: "sk_through_pass" }), /①·②에서만/);
+  // 박스 밖: ③ = 라인 브레이커만
+  const l2 = mk({ MF1: { skillIds: ["sk_line_breaker", "sk_through_pass"] } });
   place(l2, { line: 2, carrier: "h_MF1" });
   l2.home.tension = 100;
-  assert.equal(match.getMatchView(l2, data).skills[0].enabled, true);
+  const sk2 = Object.fromEntries(match.getMatchView(l2, data).skills.map((s) => [s.skillId, s]));
+  assert.deepEqual({ lb: sk2.sk_line_breaker.enabled, tp: sk2.sk_through_pass.enabled, r: sk2.sk_through_pass.reason }, { lb: true, tp: false, r: "①·②에서만 (두 구역 앞)" });
   // 합성 boost 스킬(패스·크로스 ×1.5)을 가진 상대 FW: ④ 에서 연결을 고르면 AI 가 함께 쓴다
   const d2 = clone(data);
   d2.skills.push({
@@ -2726,4 +2717,232 @@ test("GK 배급 추천 = '상황 따라' 규칙 (확률 ≥ longPassAutoMin, 자
   cl.possession = 1;
   const vc = match.getMatchView(cl, dataWithMin(mid)).distribution;
   assert.deepEqual({ r: vc.recommended, rs: vc.recommendedSkillId, a: vc.auto.action }, { r: "short", rs: null, a: "short" });
+});
+
+/* ------------------------------------------------------------------ */
+/* L54 (LESSON_PROTO_PLAN §25): 스루 패스 = 두 구역 패스 · 라인 브레이커 = FW 마무리 스킬     */
+/* ------------------------------------------------------------------ */
+
+const L54 = Object.fromEntries(data.skills.map((s) => [s.id, s]));
+const factorOf = (o, side, id) => (o.factors || []).find((f) => f.side === side && f.id === id) || null;
+const skillView = (ms, id) => match.getMatchView(ms, data).skills.find((s) => s.skillId === id);
+
+test("L54 스루 패스: ① 패스 성공 → ③ FW · ② 패스 성공 → ④ 박스 원터치 · 짝 무효 / 받은 선수 +25% 없음 · 드리블과 함께면 보통 한 구역 · 미리보기 = 실제", () => {
+  const tp = L54.sk_through_pass;
+  assert.deepEqual({ pos: tp.positions, e: tp.active.effect, p: tp.active.params, c: tp.cost, t: tp.tension }, { pos: ["DF", "MF"], e: "extraLine", p: { actions: ["pass"], maxLine: 1 }, c: 100, t: 25 });
+  // 효과 객체: 패스에만 (fx.extraLineActions), 짝 무효 · 다음 듀얼 보너스 없음
+  const fx = skills.emptyDuelEffects();
+  const text = skills.addSkillFx(fx, tp);
+  assert.deepEqual({ x: fx.extraLine, xa: fx.extraLineActions, n: fx.negateRead, nb: fx.nextDuelBonus }, { x: false, xa: ["pass"], n: false, nb: undefined });
+  assert.equal(text, "패스 성공 시 수비 한 줄을 건너뛰어 두 구역 앞으로");
+  assert.deepEqual(["dribble", "pass", "cross", "shoot"].map((a) => skills.extraLineFor(fx, a)), [false, true, false, false]);
+  // 필살 패스 · 드리블의 extraLine (fx.extraLine — 모든 액션)은 스루 패스와 겹쳐도 그대로
+  assert.equal(skills.extraLineFor({ ...fx, extraLine: true }, "dribble"), true);
+
+  // ① DF 패스 + 스루 패스: 받는 선수 = FW (③), 미리보기 = 실제
+  const a = mk({ DF1: { skillIds: ["sk_through_pass"] } });
+  place(a, { line: 0, carrier: "h_DF1" });
+  a.home.tension = 100;
+  const v = match.getMatchView(a, data);
+  const sv = v.skills.find((s) => s.skillId === "sk_through_pass");
+  assert.deepEqual({ e: sv.enabled, c: sv.cost }, { e: true, c: 25 }, "DF 도 쓴다");
+  assert.equal(v.receiverPreview.step, 1, "기본 패스 = ② (MF)");
+  const rp = v.receiverPreviewBySkill.sk_through_pass;
+  assert.ok(rp.id.startsWith("h_FW") && rp.step === 2, "스루 패스 = ③ FW");
+  assert.deepEqual(v.receiversBySkill.sk_through_pass.pass.arrival, 2);
+  assert.equal(v.outcomesBySkill.sk_through_pass.pass.success.step, 2);
+  assert.deepEqual(v.outcomesBySkill.sk_through_pass.dribble, v.outcomes.dribble, "드리블 미리보기는 그대로");
+  assert.match(sv.actions.pass.hint, /두 구역 전진/, "패스 카드 약점 줄 = 두 구역 전진");
+  assert.ok(!/두 구역/.test(sv.actions.dribble.hint), "드리블 카드는 그대로");
+  const { ms: a1, ev: e1, fresh: f1 } = forced(a, { action: "pass", skillId: "sk_through_pass" }, true);
+  assert.deepEqual({ l: a1.ball.lineIndex, c: a1.ball.carrierId, ot: a1.ball.oneTouch, nb: a1.ball.pending.nextBonus, x: a1.ball.extraLine }, { l: 2, c: rp.id, ot: false, nb: 0, x: false });
+  assert.equal(e1.toStep, 2);
+  assert.equal(f1.find((e) => e.type === "skill").text, "hDF1, [스루 패스] 발동! 패스 성공 시 수비 한 줄을 건너뛰어 두 구역 앞으로");
+  assert.match(e1.text, /한 구역 추가 전진!/);
+  // 짝 무효 없음: 상대 인터셉트 짝은 그대로 ×readBonus
+  assert.equal(odds(a, "pass", "intercept", { fxA: fx }).pairMult, M.readBonus);
+  // ① 드리블 + 스루 패스 = 보통 한 구역 (스킬은 쓰이지만 효과 없음)
+  const { ms: a2, ev: e2 } = forced(a, { action: "dribble", skillId: "sk_through_pass" }, true);
+  assert.equal(a2.ball.lineIndex, 1);
+  assert.equal(a2.home.tension, 100 - tp.tension + M.tension.duelWin, "텐션은 쓴다");
+  assert.ok(!/추가 전진/.test(e2.text));
+
+  // ② MF 패스 + 스루 패스 → ④ 박스 원터치 (FW) — 슛 +20%(extraLine)는 없다 (② 에서 두 구역 = 박스, ③ 에서 한 구역 더가 아님)
+  const b = mk({ MF1: { skillIds: ["sk_through_pass"] } });
+  place(b, { line: 1, carrier: "h_MF1" });
+  b.home.tension = 100;
+  const vb = match.getMatchView(b, data);
+  const ob = vb.outcomesBySkill.sk_through_pass.pass.success;
+  assert.deepEqual({ st: ob.step, ot: ob.oneTouch }, { st: 3, ot: true });
+  const { ms: b1 } = forced(b, { action: "pass", skillId: "sk_through_pass" }, true);
+  assert.deepEqual({ l: b1.ball.lineIndex, ot: b1.ball.oneTouch, via: b1.ball.receivedVia, x: b1.ball.extraLine, nb: b1.ball.pending.nextBonus }, { l: 3, ot: true, via: "pass", x: false, nb: 0 });
+  assert.equal(b1.ball.carrierId, vb.receiverPreviewBySkill.sk_through_pass.id, "받는 선수 = 변형 미리보기");
+  // 카드 % (② = 돌파 확률 — 득점 기대는 ③ 에서만, 기존 규칙): 짝 무효 없이 보통 패스와 같은 확률
+  const pPass = odds(b, "pass", b.duel.awayChoice.action, { fxA: fx }).p;
+  assert.equal(vb.skills.find((s) => s.skillId === "sk_through_pass").expectedPct.pass, Math.round(pPass * 100));
+  assert.equal(vb.skills.find((s) => s.skillId === "sk_through_pass").expectedPct.pass, vb.actions.find((x) => x.action === "pass").expectedPct, "확률은 보통 패스와 같다");
+});
+
+test("L54 스루 패스 사용 조건: ③ · ④ 비활성 (사유) · DF · MF 만 (FW 불가) · 두 구역 앞 받을 FW 가 없으면 비활성", () => {
+  const reason = (ms, pid) => {
+    const r = skills.checkSkillUsable(ms, data, "home", pid, L54.sk_through_pass, "attack");
+    return r.ok ? null : r.reason;
+  };
+  for (const [line, carrier, exp] of [[0, "h_DF1", null], [1, "h_MF1", null], [2, "h_MF1", "①·②에서만 (두 구역 앞)"], [3, "h_MF1", "①·②에서만 (두 구역 앞)"]]) {
+    const ms = mk({ DF1: { skillIds: ["sk_through_pass"] }, MF1: { skillIds: ["sk_through_pass"] } });
+    place(ms, { line, carrier });
+    ms.home.tension = 100;
+    assert.equal(reason(ms, carrier), exp, `line ${line}`);
+    assert.equal(skillView(ms, "sk_through_pass").reason, exp, `뷰 사유 line ${line}`);
+  }
+  const fw = mk({ FW1: { skillIds: ["sk_through_pass"] } });
+  place(fw, { line: 1, carrier: "h_FW1" });
+  fw.home.tension = 100;
+  assert.equal(reason(fw, "h_FW1"), "포지션 조건 불충족", "FW 는 못 쓴다");
+  // 받을 FW 가 없는 팀 (합성 — 지금 대형 4개는 모두 FW ≥ 1): 한 구역 패스로 줄어 헛도니 막는다
+  const nf = mk({ DF1: { skillIds: ["sk_through_pass"] } });
+  for (const p of nf.home.players) if (p.position === "FW") p.position = "MF";
+  place(nf, { line: 0, carrier: "h_DF1" });
+  nf.home.tension = 100;
+  assert.equal(reason(nf, "h_DF1"), "두 구역 앞 받을 FW 없음");
+});
+
+test("L54 라인 브레이커: ③ 드리블 · 패스 · 크로스 성공 → 박스 원터치 + 다음 슛 ×1.5 (결정타 칩 · 문구 · 미리보기 = 실제) · 중거리 슛 그대로 · ③ 에서만 · FW · MF 만", () => {
+  const lbSk = L54.sk_line_breaker;
+  assert.deepEqual({ pos: lbSk.positions, e: lbSk.active.effect, p: lbSk.active.params, c: lbSk.cost, t: lbSk.tension }, { pos: ["FW", "MF"], e: "lineBreak", p: { shootMult: 1.5 }, c: 140, t: 35 });
+  const fx = skills.emptyDuelEffects();
+  assert.equal(skills.addSkillFx(fx, lbSk), "③ 돌파 성공 시 박스 원터치 · 다음 슛 위력 ×1.5");
+  assert.deepEqual({ s: fx.lineBreakShot, x: fx.extraLine, xa: fx.extraLineActions }, { s: 1.5, x: false, xa: null });
+  const mkLb = () => {
+    const ms = mk({ FW1: { skillIds: ["sk_line_breaker"], trait: "crosser" } });
+    place(ms, { line: 2, carrier: "h_FW1" });
+    ms.home.tension = 100;
+    return ms;
+  };
+  const ms = mkLb();
+  const v = match.getMatchView(ms, data);
+  const sv = v.skills.find((s) => s.skillId === "sk_line_breaker");
+  assert.equal(sv.enabled, true);
+  // 미리보기: 받는 선수 그대로 · 돌파 결과 문구에 ×1.5 · 중거리 슛 결과 · 기대 % 그대로
+  assert.deepEqual(v.receiversBySkill.sk_line_breaker, v.receivers);
+  assert.deepEqual(v.receiverPreviewBySkill.sk_line_breaker, v.receiverPreview);
+  const ov = v.outcomesBySkill.sk_line_breaker;
+  assert.deepEqual(ov.shoot, v.outcomes.shoot, "중거리 슛 미리보기 그대로");
+  assert.deepEqual({ st: ov.dribble.success.step, ot: ov.dribble.success.oneTouch, lb: ov.dribble.success.lineBreak, sh: ov.dribble.success.short }, { st: 3, ot: true, lb: 1.5, sh: "성공 박스 원터치 ×1.5" });
+  assert.equal(ov.dribble.success.label, "상대 박스 진입 — 슈팅 찬스 (원터치 · 라인 브레이커 슛 ×1.5)");
+  assert.match(ov.pass.success.label, /\(원터치 · 라인 브레이커 슛 ×1\.5\)$/);
+  assert.match(ov.cross.success.short, /헤더 ×1\.5$/);
+  assert.equal(sv.expectedPct.shoot, v.actions.find((a) => a.action === "shoot").expectedPct, "중거리 슛 % 그대로");
+  for (const a of ["dribble", "pass", "cross"]) assert.ok(sv.expectedPct[a] > v.actions.find((x) => x.action === a).expectedPct, `${a} 득점 기대가 오른다`);
+  assert.equal(sv.actions.dribble.hint, v.actions.find((x) => x.action === "dribble").hint, "돌파 약점 줄 그대로 (×1.5 는 결과 줄)");
+  assert.match(sv.actions.shoot.hint, /^라인 브레이커 효과 없음 · /);
+  const dAct = ms.duel.awayChoice.action;
+  for (const action of ["dribble", "pass", "cross"]) {
+    const { ms: e, ev, fresh } = forced(ms, { action, skillId: "sk_line_breaker" }, true);
+    assert.deepEqual({ l: e.ball.lineIndex, ot: e.ball.oneTouch, m: e.ball.lineBreakMult, x: e.ball.extraLine }, { l: 3, ot: true, m: 1.5, x: false }, action);
+    assert.ok(ev.text.includes(" 라인 브레이커 — 박스 슛 ×1.5!"), ev.text);
+    assert.ok(!/추가 전진/.test(ev.text), "한 구역 더 전진은 없다");
+    assert.equal(fresh.find((x) => x.type === "skill").text, "hFW1, [라인 브레이커] 발동! ③ 돌파 성공 시 박스 원터치 · 다음 슛 위력 ×1.5");
+    // 다음 박스 슛 ×1.5 (공격값 비) + 결정타 칩 이름 = 스킬 이름
+    const base = clone(e);
+    base.ball.lineBreakMult = 1;
+    near(odds(e, "shoot", "save").att / odds(base, "shoot", "save").att, 1.5, `${action} 슛 ×1.5`);
+    const f = factorOf(odds(e, "shoot", "save", { explain: true }), "atk", "lineBreak");
+    assert.deepEqual({ m: f.mult, l: f.label }, { m: 1.5, l: "라인 브레이커" });
+    // 뷰: 공에 실린 배율 · ④ 슛 카드 약점 줄
+    const ve = match.getMatchView(e, data);
+    assert.equal(ve.lineBreakMult, 1.5);
+    assert.match(match.getAttackActions(e, "home", data).find((x) => x.action === "shoot").hint, /원터치 · 라인 브레이커 ×1\.5/);
+    // 미리보기 = 실제: 득점 기대 = 돌파 성공 × 박스 슛 (×1.5 · 원터치)
+    const p0 = odds(ms, action, dAct, { fxA: fx }).p;
+    assert.equal(sv.expectedPct[action], Math.round(p0 * odds(e, "shoot", "save").p * 100), `${action} 득점 기대 = 실제`);
+  }
+  // 박스 연결로 받은 선수에게도 이어진다 (extraLine 과 같은 수명), 포제션이 끝나면 1
+  const { ms: d1 } = forced(ms, { action: "dribble", skillId: "sk_line_breaker" }, true);
+  if (match.getMatchView(d1, data).actions.find((a) => a.action === "pass")?.enabled) {
+    const { ms: d2 } = forced(d1, { action: "pass" }, true);
+    assert.deepEqual({ l: d2.ball.lineIndex, m: d2.ball.lineBreakMult }, { l: 3, m: 1.5 }, "컷백으로 받은 선수의 슛도 ×1.5");
+  }
+  const { ms: d3 } = forced(d1, { action: "shoot" }, false);
+  assert.equal(d3.ball.lineBreakMult, 1, "포제션이 끝나면 없어진다");
+  // 중거리 슛: 라인 브레이커를 함께 써도 그대로
+  near(odds(ms, "shoot", "hold", { fxA: fx }).att, odds(ms, "shoot", "hold", { fxA: skills.emptyDuelEffects() }).att, "중거리 슛 그대로");
+  // ③ 에서만 · FW · MF 만
+  for (const line of [0, 1, 3]) {
+    const o = mk({ MF1: { skillIds: ["sk_line_breaker"] } });
+    place(o, { line, carrier: "h_MF1" });
+    o.home.tension = 100;
+    assert.equal(skillView(o, "sk_line_breaker").reason, "③ 파이널 서드에서만", `line ${line}`);
+  }
+  const df = mk({ DF1: { skillIds: ["sk_line_breaker"] } });
+  place(df, { line: 2, carrier: "h_DF1" });
+  df.home.tension = 100;
+  assert.equal(skillView(df, "sk_line_breaker").reason, "포지션 조건 불충족", "DF 는 못 쓴다");
+});
+
+test("L54 AI: 스루 패스는 ①·② 패스에서만 · 라인 브레이커는 ③ 돌파(슛 아님)에서만 (chooseSkill + 자동 경기 전체)", () => {
+  const ms = mk({}, { DF1: { skillIds: ["sk_through_pass"] }, MF1: { skillIds: ["sk_through_pass", "sk_line_breaker"] }, FW1: { skillIds: ["sk_line_breaker"] } });
+  const pick = (line, carrier, action) => {
+    const c = clone(ms);
+    c.away.tension = 0; // place 의 AI 커밋이 스킬을 먼저 쓰지 않게
+    place(c, { atk: "away", line, carrier });
+    c.away.tension = 100;
+    return ai.chooseSkill(c, data, "away", c.away.players.find((p) => p.id === carrier), "attack", action);
+  };
+  assert.equal(pick(0, "a_DF1", "pass"), "sk_through_pass");
+  assert.equal(pick(0, "a_DF1", "dribble"), null, "드리블엔 안 쓴다");
+  assert.equal(pick(1, "a_MF1", "pass"), "sk_through_pass");
+  assert.equal(pick(1, "a_MF1", "dribble"), null);
+  assert.equal(pick(2, "a_MF1", "pass"), "sk_line_breaker", "③ = 라인 브레이커 (스루 패스는 비활성)");
+  for (const a of ["dribble", "pass", "cross"]) assert.equal(pick(2, "a_FW1", a), "sk_line_breaker", a);
+  assert.equal(pick(2, "a_FW1", "shoot"), null, "중거리 슛엔 안 쓴다");
+  assert.equal(pick(1, "a_FW1", "dribble"), null, "③ 밖엔 안 쓴다");
+  assert.equal(pick(3, "a_FW1", "shoot"), null, "박스엔 안 쓴다");
+  // 자동 경기 전체 (양 팀 모두 보유): 스킬 이벤트 바로 뒤 판정 = 규칙 안
+  const home = run.buildTeamSnapshot(run.createRun({ data, seed: "l54ai" }), data);
+  for (const p of home.players) {
+    if (p.position === "DF" || p.position === "MF") p.skillIds = [...new Set([...p.skillIds, "sk_through_pass"])];
+    if (p.position === "FW" || p.position === "MF") p.skillIds = [...new Set([...p.skillIds, "sk_line_breaker"])];
+  }
+  const used = { tp: 0, lb: 0, lbOk: 0 };
+  for (let s = 1; s <= 12; s++) {
+    const away = run.buildOpponentSnapshot(data.opponents[s % data.opponents.length], data);
+    const g = match.createMatch({ data, seed: `l54ai${s}`, home, away: { ...away, players: away.players.map((p) => ({ ...p, skillIds: [...p.skillIds, ...(p.position === "FW" ? ["sk_line_breaker"] : p.position === "DF" ? ["sk_through_pass"] : [])] })) }, possessions: 10, kind: "goal" });
+    match.simulateAuto(g, data);
+    for (let i = 0; i < g.events.length; i++) {
+      const e = g.events[i];
+      if (e.type !== "skill" || (e.skillId !== "sk_through_pass" && e.skillId !== "sk_line_breaker")) continue;
+      const d = g.events.slice(i + 1).find((x) => RESOLVE.includes(x.type));
+      assert.equal(d.playerId, e.playerId);
+      if (e.skillId === "sk_through_pass") {
+        used.tp++;
+        assert.ok(d.action === "pass" && d.step <= 1, `스루 패스 ${d.action} ${d.step}`);
+        if (d.success) assert.equal(d.toStep, d.step + 2, "두 구역 앞");
+      } else {
+        used.lb++;
+        assert.ok(d.action !== "shoot" && d.step === 2, `라인 브레이커 ${d.action} ${d.step}`);
+        if (d.success) { used.lbOk++; assert.equal(d.toStep, 3); }
+      }
+    }
+  }
+  assert.ok(used.tp > 3 && used.lb > 3 && used.lbOk > 1, JSON.stringify(used));
+});
+
+test("L54 액티브 데이터 검사 (activeErrors · validateActives): extraLine actions · maxLine, lineBreak shootMult ≥ 1, 모르는 effect · createMatch 가 막는다", () => {
+  const e = (active) => skills.activeErrors({ id: "x", active });
+  for (const s of data.skills) assert.deepEqual(skills.activeErrors(s), [], s.id);
+  assert.deepEqual(e(null), []);
+  assert.deepEqual(e({ effect: "warp" }), ["액티브 x: 알 수 없는 effect warp"]);
+  assert.deepEqual(e({ effect: "extraLine", params: {} }), []);
+  assert.deepEqual(e({ effect: "extraLine", params: { actions: ["dribble", "pass"], maxLine: 2 } }), []);
+  assert.ok(e({ effect: "extraLine", params: { actions: ["cross"] } })[0].includes("actions"));
+  assert.ok(e({ effect: "extraLine", params: { actions: [] } })[0].includes("actions"));
+  assert.ok(e({ effect: "extraLine", params: { actions: ["pass", "pass"] } })[0].includes("actions"));
+  assert.ok(e({ effect: "extraLine", params: { maxLine: 3 } })[0].includes("maxLine"));
+  assert.ok(e({ effect: "lineBreak", params: { shootMult: 0.9 } })[0].includes("shootMult"));
+  assert.ok(e({ effect: "lineBreak", params: {} })[0].includes("shootMult"));
+  assert.deepEqual(e({ effect: "lineBreak", params: { shootMult: 1 } }), []);
+  const bad = clone(data);
+  bad.skills.find((s) => s.id === "sk_line_breaker").active.params.shootMult = 0.5;
+  assert.throws(() => match.createMatch({ data: bad, seed: 1, home: team("h"), away: team("a"), possessions: 8 }), /액티브 데이터 오류[\s\S]*sk_line_breaker: lineBreak shootMult/);
 });

@@ -311,10 +311,10 @@ test("판정 공식 (v0.3): 짝 ×readBonus · 빗나감 ×missMult · 버티기
   assert.ok(Math.abs(p7.att / p6.att - (1 + M.teamworkPassBonusPer100)) < 1e-9);
 });
 
-test("액티브 effect 7종 전부 발동 경로 (수동 결정)", () => {
+test("액티브 effect 8종 전부 발동 경로 (수동 결정 — L54 lineBreak 포함)", () => {
   const skillsByEffect = {};
   for (const sk of data.skills) if (sk.active) skillsByEffect[sk.active.effect] = skillsByEffect[sk.active.effect] || sk;
-  const effects = ["boost", "extraLine", "powerShot", "readBoost", "negateRead", "steal", "rally"];
+  const effects = ["boost", "extraLine", "lineBreak", "powerShot", "readBoost", "negateRead", "steal", "rally"];
   for (const e of effects) assert.ok(skillsByEffect[e], `데이터에 effect ${e} 스킬 존재`);
   for (const sk of data.skills) if (sk.kind === "unique") assert.ok(!sk.active && sk.ultimate, `${sk.id}: 필살기는 active 없이 ultimate`);
 
@@ -357,7 +357,7 @@ test("액티브 effect 7종 전부 발동 경로 (수동 결정)", () => {
       ms.home.tension = M.tension.max;
       const lineOk = effect === "powerShot" ? (l) => l >= 2
         : effect === "steal" || effect === "readBoost" || effect === "negateRead" ? (l) => l <= 2
-        : effect === "extraLine" ? (l) => l <= 1 : () => true;
+        : effect === "extraLine" ? (l) => l <= 1 : effect === "lineBreak" ? (l) => l === 2 : () => true;
       const v = reach(ms, role, sk.id, lineOk);
       if (!v) continue;
       ms.home.tension = M.tension.max;
@@ -446,11 +446,11 @@ test("무효 입력은 throw: 비활성 액션, 텐션 부족, 미보유 스킬"
   assert.throws(() => match.step(clone(ms), data, { action: "shoot" }), /사용할 수 없는 액션/);
   assert.throws(() => match.step(clone(ms), data, { action: "tackle" }), /사용할 수 없는 액션/);
   assert.throws(() => match.step(clone(ms), data, { action: "dribble", skillId: "sk_nope" }), /sk_nope/);
-  // 울리카(line_breaker 40) 텐션 20 → 부족
+  // 울리카(line_breaker 35) 텐션 10 → 부족 (L54: 라인 브레이커는 ③ 에서만 — ③ 에 둔다)
   const wolf = ms.home.players.find((p) => p.skillIds.includes("sk_line_breaker"));
   const ms2 = clone(ms);
   ms2.ball.carrierId = wolf.id;
-  ms2.ball.lineIndex = 0;
+  ms2.ball.lineIndex = 2;
   ms2.home.tension = 10;
   assert.throws(() => match.step(clone(ms2), data, { action: "dribble", skillId: "sk_line_breaker" }), /텐션 부족/);
   const other = ms.home.players.find((p) => !p.skillIds.includes("sk_line_breaker") && p.position === "FW");
@@ -1140,18 +1140,22 @@ test("v0.2 getMatchView: 매 상태에서 상태 불변(JSON 동일, 난수 미�
   assert.equal(sawFinished, 30);
 });
 
-test("v0.2 스킬 변형 미리보기: 라인 브레이커(extraLine)·소매치기(steal)를 액션과 함께 쓰면 실제 결과 = outcomesBySkill / receiverPreviewBySkill (1-3-2, 울리카 DF1)", () => {
+test("v0.2 스킬 변형 미리보기: 스루 패스(extraLine)·라인 브레이커(lineBreak)·소매치기(steal)를 액션과 함께 쓰면 실제 결과 = outcomesBySkill / receiverPreviewBySkill (1-3-2, 울리카 DF1 · L54)", () => {
   const data = DATA_KICK0; // 울리카(DF)가 킥오프 carrier 가 되도록 빌드업 킥오프
-  // 회귀: 울리카(sk_line_breaker)가 유일한 DF → line 0 carrier. 라인 브레이커 + 패스면 공은 MF 가 아니라 FW(line 2)에게 간다.
-  // 소매치기는 MF 전원에게 붙여 수비 성공 시 역습 시작 구역이 한 칸 깊어지는 경로를 검증한다.
+  // 회귀: 울리카(스루 패스 — L54 부터 DF 도 배운다)가 유일한 DF → line 0 carrier. 스루 패스 + 패스면 공은 MF 가 아니라 FW(line 2)에게 간다.
+  // MF 전원 = 스루 패스(② → ④ 박스 원터치) + 소매치기(수비 성공 시 역습 시작 구역이 한 칸 깊어진다), FW 전원 = 라인 브레이커(③ 돌파 → 박스 슛 ×1.5).
   const squad = { GK: "ch_spirit_keeper", DF1: "ch_wolf_winger", MF1: "ch_elf_playmaker", MF2: "ch_human_runner", MF3: "ch_cat_trickster", FW1: "ch_giant_striker", FW2: "ch_human_captain" };
   const st = run.createRun({ data, seed: "lb", formation: "1-3-2", squad });
-  st.players.find((p) => p.charId === "ch_wolf_winger").learnedSkillIds.push("sk_line_breaker"); // §19.12: 배운 스킬로 넣는다
+  st.players.find((p) => p.charId === "ch_wolf_winger").learnedSkillIds.push("sk_through_pass"); // §19.12: 배운 스킬로 넣는다
   const home = run.buildTeamSnapshot(st, data);
   const ulrika = home.players.find((p) => p.slot === "DF1");
-  assert.ok(ulrika.skillIds.includes("sk_line_breaker"), "울리카 = 라인 브레이커 보유");
-  for (const p of home.players) if (p.position === "MF" && !p.skillIds.includes("sk_pickpocket")) p.skillIds.push("sk_pickpocket");
-  const seen = { lbPass: 0, lbPassOk: 0, lbDribble: 0, steal: 0, stealWon: 0 };
+  assert.ok(ulrika.skillIds.includes("sk_through_pass"), "울리카 = 스루 패스 보유");
+  for (const p of home.players) {
+    if (p.position === "MF") p.skillIds = [...new Set([...p.skillIds, "sk_pickpocket", "sk_through_pass"])];
+    if (p.position === "FW") p.skillIds = [...new Set([...p.skillIds, "sk_line_breaker"])];
+  }
+  const lbMult = data.skills.find((s) => s.id === "sk_line_breaker").active.params.shootMult;
+  const seen = { tpPass: 0, tpPassOk: 0, tpBox: 0, tpOther: 0, lb: 0, lbOk: 0, lbShoot: 0, steal: 0, stealWon: 0 };
   for (let seed = 1; seed <= 90; seed++) {
     const away = oppSnapshot(OPP_POOL[seed % OPP_POOL.length]);
     const ms = match.createMatch({ data, seed: `var${seed}`, home, away, possessions: 8, kind: "goal" });
@@ -1162,17 +1166,22 @@ test("v0.2 스킬 변형 미리보기: 라인 브레이커(extraLine)·소매치
       const v = match.getMatchView(ms, data);
       let decision = null;
       let variant = null;
+      let effect = null;
       if (v.needsDecision && v.needsDecision !== "distribution") { // GK 배급은 자동 (전술)
         const en = v.actions.filter((a) => a.enabled);
-        const sk = v.skills.find((s) => s.enabled && (s.effect === "extraLine" || s.effect === "steal"));
+        const sk = v.skills.find((s) => s.enabled && ["extraLine", "lineBreak", "steal"].includes(s.effect));
         decision = { action: pick.pick(en).action };
         if (v.needsDecision === "attack" && sk && sk.effect === "extraLine" && en.some((a) => a.action === "pass") && pick.next() < 0.7) {
+          // 스루 패스는 패스 전용 — 다른 액션과 함께면 보통 한 구역 (스킬만 쓰인다)
           decision = { action: pick.next() < 0.75 ? "pass" : en.find((a) => a.action !== "pass").action, skillId: sk.skillId };
+        } else if (v.needsDecision === "attack" && sk && sk.effect === "lineBreak" && pick.next() < 0.7) {
+          decision = { action: decision.action, skillId: sk.skillId };
         } else if (v.needsDecision === "defense" && sk && sk.effect === "steal") {
           decision = { action: decision.action, skillId: sk.skillId };
         }
         if (decision.skillId) {
-          // 위치를 바꾸는 사람 측 스킬마다 변형이 있다 (기본 outcomes 와 같은 키)
+          effect = sk.effect;
+          // 변형을 만드는 사람 측 스킬마다 변형이 있다 (기본 outcomes 와 같은 키)
           assert.ok(v.outcomesBySkill && v.outcomesBySkill[decision.skillId], `${decision.skillId} outcomesBySkill`);
           variant = v.outcomesBySkill[decision.skillId];
           assert.deepEqual(Object.keys(variant).sort(), Object.keys(v.outcomes).sort());
@@ -1183,6 +1192,14 @@ test("v0.2 스킬 변형 미리보기: 라인 브레이커(extraLine)·소매치
               assert.equal(rp.id, variant.pass.success.receiver.id, "변형 수신자 = 변형 outcomes 수신자");
               assert.equal(rp.zone, variant.pass.success.zone);
               assert.ok(variant.pass.success.label.includes(rp.name));
+            }
+            if (effect === "lineBreak") {
+              // 라인 브레이커: 받는 선수 · 도착은 그대로, 중거리 슛 결과도 그대로, 돌파 성공 짧은 줄 끝에 "×1.5"
+              assert.deepEqual(v.receiversBySkill[decision.skillId], v.receivers, "라인 브레이커는 받는 선수 후보를 바꾸지 않는다");
+              if (variant.shoot) assert.deepEqual(variant.shoot, v.outcomes.shoot, "중거리 슛 결과 그대로");
+              for (const a of ["dribble", "pass", "cross"]) if (variant[a]) assert.ok(variant[a].success.short.endsWith(`×${lbMult}`), `${a} 짧은 줄: ${variant[a].success.short}`);
+            } else if (variant.dribble) {
+              assert.deepEqual(variant.dribble, v.outcomes.dribble, "스루 패스 + 드리블 = 보통 한 구역 (미리보기 그대로)");
             }
           }
         } else {
@@ -1206,15 +1223,34 @@ test("v0.2 스킬 변형 미리보기: 라인 브레이커(extraLine)·소매치
       assert.equal(ev.toZone, exp.zone, `seed ${seed} ${role} ${decision.action}+${decision.skillId} ${humanWon ? "성공" : "실패"}: 판정 후 구역 = 변형 미리보기`);
       assert.equal(ev.toAttackingSide, exp.attackingSide);
       assert.equal(ev.toStep, exp.step);
-      if (role === "attack" && decision.action === "pass") {
-        seen.lbPass++;
+      if (effect === "extraLine" && decision.action === "pass") {
+        seen.tpPass++;
         if (ev.success) {
           assert.equal(ev.receiverId, v.receiverPreviewBySkill[decision.skillId].id, `seed ${seed}: 실제 수신자 = 변형 미리보기`);
-          if (ev.step === 0) assert.notEqual(ev.receiverId, v.receiverPreview.id, "line 0 라인 브레이커: 기본 미리보기(MF)와 다른 선수(FW)");
-          seen.lbPassOk++;
+          assert.equal(ev.toStep, ev.step + 2, "스루 패스 = 두 구역 앞 (① → ③ · ② → ④)");
+          if (ev.step === 0) assert.notEqual(ev.receiverId, v.receiverPreview.id, "line 0 스루 패스: 기본 미리보기(MF)와 다른 선수(FW)");
+          if (ev.toStep === 3) {
+            seen.tpBox++;
+            assert.equal(ms.ball.oneTouch, true, "② → ④ = 박스 원터치");
+          }
+          seen.tpPassOk++;
         }
-      } else if (role === "attack") seen.lbDribble++;
-      else { seen.steal++; if (humanWon) seen.stealWon++; }
+      } else if (effect === "extraLine") {
+        seen.tpOther++;
+        if (ev.success && ev.type === "duel") assert.equal(ev.toStep, ev.step + 1, "스루 패스 + 다른 액션 = 보통 한 구역");
+      } else if (effect === "lineBreak") {
+        seen.lb++;
+        if (decision.action === "shoot") seen.lbShoot++;
+        else if (ev.success) {
+          seen.lbOk++;
+          assert.equal(ev.toStep, 3, "라인 브레이커 ③ 돌파 = 박스");
+          assert.deepEqual({ ot: ms.ball.oneTouch, m: ms.ball.lineBreakMult }, { ot: true, m: lbMult }, `seed ${seed}: 박스 원터치 + 슛 ×${lbMult}`);
+          assert.ok(ev.text.includes(`라인 브레이커 — 박스 슛 ×${lbMult}!`), ev.text);
+        }
+      } else {
+        seen.steal++;
+        if (humanWon) seen.stealWon++;
+      }
     }
   }
   for (const [k, n] of Object.entries(seen)) assert.ok(n > 5, `${k} ${n} (${JSON.stringify(seen)})`);

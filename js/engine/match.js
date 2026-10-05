@@ -77,6 +77,9 @@ import {
   isGaanpaSkill,
   skillCost,
   validateUltimates,
+  validateActives,
+  extraLineFor,
+  LINE_BREAK_LINE,
   ultMatchesAction,
   ultPassActions,
 } from "./skills.js";
@@ -130,8 +133,12 @@ export const ULT_TYPE_TEXT = {
 export const REVERSE_CUTIN_TEXT = { save: "기적의 세이브!", block: "철벽 블록!", passCut: "필살 패스 차단!" };
 /** 포제션이 끝나면 경기가 끝나는 경우의 문구 (endForecast "end" · "penalties" — 미리보기 · 이벤트 공용, 2026-09-30) */
 const END_TEXT = { end: "경기 종료", penalties: "승부차기" };
-/** 공 위치(도착 구역 · 역습 시작 구역)를 바꾸는 액티브 스킬 effect — 역할별. getMatchView.outcomesBySkill 대상 */
-const POSITION_EFFECT = { attack: "extraLine", defense: "steal" };
+/**
+ * 미리보기 변형(getMatchView.outcomesBySkill · receiverPreviewBySkill · receiversBySkill)을 만드는 액티브 스킬 effect — 역할별.
+ * 공 위치(도착 구역 · 역습 시작 구역)를 바꾸는 extraLine(스루 패스) · steal(소매치기) + 다음 박스 슛을 바꾸는 lineBreak(라인 브레이커, L54 —
+ * 받는 선수는 그대로, 결과 문구 · 득점 기대가 바뀐다)
+ */
+const VARIANT_EFFECTS = { attack: ["extraLine", "lineBreak"], defense: ["steal"] };
 
 /** traits.json 이 데이터 번들에 없을 때 쓰는 기본값 (data/traits.json 과 같은 내용) */
 export const DEFAULT_TRAITS = [
@@ -551,6 +558,7 @@ export function createMatch({ data, seed, home, away, possessions, kind = "frien
     result: null,
   };
   validateUltimates(data); // §19.2 — 팀 선수 스킬 참조 검증(initTeam) 바로 뒤, 잘못된 필살기 데이터면 throw
+  validateActives(data); // L54 (§25) — 일반 액티브 인자 (extraLine actions · maxLine, lineBreak shootMult)
   pushEvent(state, {
     type: "info",
     side: null,
@@ -567,7 +575,9 @@ function kickoffLine(data) {
 
 /**
  * 공 상태.
- *  chain: 패스·크로스 연계 스택, extraLine: DF 라인 뒤 추가 전진(슛 +20%), oneTouch: 패스·크로스(또는 라인 브레이커)로 박스 도착,
+ *  chain: 패스·크로스 연계 스택, extraLine: ③ 에서 한 구역 더(필살 패스 · 드리블 extraLine)로 박스 도착 → 박스 슛 +20%,
+ *  lineBreakMult: 라인 브레이커(③ 돌파 성공)로 박스 도착 → 박스 슛 배율 (1 = 없음 — L54, extraLine 과 같은 수명: 포제션 끝까지,
+ *  박스 연결로 받은 선수에게도 이어진다), oneTouch: 패스·크로스(또는 한 구역 더 · 라인 브레이커)로 박스 도착,
  *  receivedVia: "pass"|"cross"|null (받은 방법), lastPasserId: 킬패스·필살 패스 판정, receivedFresh: 받은 뒤 첫 듀얼 전,
  *  comboReadyId / comboFrom: 필살 패스를 받아 다음 듀얼에서 합체기를 쓸 수 있는 선수,
  *  pending: 다음 듀얼 한 번만 쓰는 공격 보너스 { beaten, interceptFail, nextBonus },
@@ -577,7 +587,7 @@ function newBall(carrierId, lineIndex, nextBonus) {
   const pending = emptyPending();
   pending.nextBonus = num(nextBonus, 0);
   return {
-    carrierId, lineIndex, chain: 0, extraLine: false, oneTouch: false, receivedVia: null, lastPasserId: null,
+    carrierId, lineIndex, chain: 0, extraLine: false, lineBreakMult: 1, oneTouch: false, receivedVia: null, lastPasserId: null,
     receivedFresh: false, comboReadyId: null, comboFrom: null, pending, boxLinkUsed: false,
   };
 }
@@ -717,6 +727,7 @@ export function fxOf(state, side) {
 function cloneFx(fx) {
   const f = Object.assign(emptyDuelEffects(), fx || {});
   if (f.attackActions) f.attackActions = f.attackActions.slice();
+  if (f.extraLineActions) f.extraLineActions = f.extraLineActions.slice();
   if (f.negateActions) f.negateActions = f.negateActions.slice();
   if (f.steal) f.steal = Object.assign({}, f.steal);
   if (f.ult) f.ult = Object.assign({}, f.ult);
@@ -736,7 +747,8 @@ function fxPlusSkill(fx, skill) {
 /**
  * E0 (§19.3-2): 필살기 효과를 효과 객체 fx 에 적는다 — 미리보기(fxPlusUlt)와 실제 발동(commitUltimate)이 같은 함수.
  * fx.ult = { skillId, ...ultimate }, fx.combo. 위치를 바꾸는 인자는 fx 플래그로 접는다: pass · dribble 의 extraLine → fx.extraLine
- * (라인 브레이커와 같은 길 — passPlan · successTransition · outcomesBySkill). 판정 배율은 computeOdds 가 fx.ult 에서 읽는다.
+ * (모든 액션 — 필살기는 맞는 액션과만 쓰이므로 제한이 필요 없다. 스루 패스는 fx.extraLineActions 로 패스에만, 읽기는 둘 다
+ * extraLineFor — passPlan · successTransition · outcomesBySkill). 판정 배율은 computeOdds 가 fx.ult 에서 읽는다.
  */
 function applyUlt(fx, ultSkill, combo) {
   fx.ult = Object.assign({ skillId: ultSkill.id }, ultSkill.ultimate);
@@ -804,7 +816,7 @@ function boostApplies(fx, action) {
   return !fx.attackActions || fx.attackActions.includes(action);
 }
 
-/** 공격 측 "상대 짝 맞힘 무효"가 이 액션에 붙는가 (간파·스루 패스·필살 패스) */
+/** 공격 측 "상대 짝 맞힘 무효"가 이 액션에 붙는가 (간파·필살 패스·필살 드리블 — L54 부터 스루 패스는 짝 무효가 아니다) */
 function negateApplies(fx, action) {
   if (fx.negateRead && (!fx.negateActions || fx.negateActions.includes(action))) return true;
   // 필살 패스(actions 안) · 필살 드리블(E4, 드리블)의 짝 무효
@@ -821,7 +833,10 @@ function passCands(team, carrier, arrival) {
   return team.players.filter((p) => p.position === pos && p.id !== carrier.id);
 }
 
-/** 패스 계획 { arrival, candidates }. extraLine 도착 라인에 후보가 없으면 기본 도착으로 */
+/**
+ * 패스 계획 { arrival, candidates }. extraLine 도착 라인에 후보가 없으면 기본 도착으로 (필살 패스 — 스루 패스는 그런 경우
+ * skills.checkSkillUsable 이 "두 구역 앞 받을 FW 없음" 으로 막는다, L54)
+ */
 function passPlan(team, carrier, line, extraLine) {
   let arrival = advanceLine(line, !!extraLine);
   let candidates = passCands(team, carrier, arrival);
@@ -859,7 +874,7 @@ function boxLinkCands(team, carrier, action) {
 function planFor(team, carrier, action, line, fx) {
   if (line >= 3) return { arrival: 3, candidates: boxLinkCands(team, carrier, action), box: true };
   if (action === "cross") return crossPlan(team, carrier);
-  return passPlan(team, carrier, line, fx && fx.extraLine);
+  return passPlan(team, carrier, line, extraLineFor(fx, action));
 }
 
 function canCross(data, player) {
@@ -882,7 +897,7 @@ function attackOptionsFor(state, data, side, player, line, fx) {
     return out;
   }
   out.dribble = true;
-  out.pass = passPlan(team, player, line, fx && fx.extraLine).candidates.length > 0;
+  out.pass = passPlan(team, player, line, extraLineFor(fx, "pass")).candidates.length > 0;
   out.cross = line === 2 && canCross(data, player) && crossCands(team, player).length > 0;
   out.shoot = line === 2;
   return out;
@@ -1687,8 +1702,10 @@ function receiverNameFor(state, data, side, action) {
 /**
  * side(공격 팀)의 현재 라인에서 가능한 공격 액션 (dribble, pass, cross, shoot). data 를 주면 힌트 배율을 config 에서 계산.
  * fx = 가정한 공격 측 효과(미리보기 — 스킬·필살기·간파 토글). 없으면 이번 듀얼에 커밋된 효과. 약점 문구가 효과를 따른다:
- * 짝 무효(간파·스루 패스·필살 패스) → "짝 무효 (이름)", 필살 슛(boxShot) → 제목 "필살 슛" · "박스 슛 취급 · GK ×gkMult",
- * 파워 슛(중거리 계수 덮어쓰기) → 중거리 위력 배율.
+ * 짝 무효(간파·필살 패스) → "짝 무효 (이름)", 필살 슛(boxShot) → 제목 "필살 슛" · "박스 슛 취급 · GK ×gkMult",
+ * 파워 슛(중거리 계수 덮어쓰기) → 중거리 위력 배율. L54: 두 구역 앞(스루 패스 · 필살 패스 · 드리블 extraLine) → "두 구역 전진 · …",
+ * 라인 브레이커(③) → 중거리 슛 "라인 브레이커 효과 없음 · …" (돌파의 ×1.5 는 결과 줄), 박스 슛 = 공에 실린 배율
+ * ("추가 전진 +20%" · "라인 브레이커 ×1.5").
  */
 export function getAttackActions(state, side, data = null, fx = null) {
   const line = state.ball ? state.ball.lineIndex : 0;
@@ -1701,6 +1718,11 @@ export function getAttackActions(state, side, data = null, fx = null) {
   const header = !!(state.ball && state.ball.receivedVia === "cross");
   const crosserOk = isAtk && canCross(data, carrier);
   const weak = (action, text) => (negateApplies(fxA, action) ? `짝 무효 (${negateSourceName(data, fxA, action)})` : text);
+  // L54: 켠 효과가 바꾸는 것을 약점 문구 앞에 — 두 구역 전진 (스루 패스 · 필살 패스 · 필살 드리블 extraLine, ①·② 에서 실제로 두 구역일 때).
+  // 라인 브레이커 (③ 돌파 → 박스 슛 ×shootMult)는 돌파 카드 성공 줄(엔진 outcome "… ×1.5")이 말하므로 약점 줄에는 중거리 슛 "효과 없음"만
+  const lbOn = line === LINE_BREAK_LINE && num(fxA.lineBreakShot, 1) > 1;
+  const twoZone = (a) => isAtk && line < 2 && extraLineFor(fxA, a) && (a !== "pass" || passPlan(team, carrier, line, true).arrival > line + 1);
+  const lead = (a, text) => (twoZone(a) ? `두 구역 전진 · ${text}` : text);
   const ultShot = !!(fxA.ult && fxA.ult.type === "shot");
   const gk = ultShot && num(fxA.ult.gkMult, 1) !== 1 ? ` · GK ×${fmtMult(num(fxA.ult.gkMult, 1))}` : "";
   let shootLabel = line === 2 ? "중거리 슛" : header && line >= 3 ? "헤더" : "슛";
@@ -1709,9 +1731,12 @@ export function getAttackActions(state, side, data = null, fx = null) {
     shootLabel = "필살 슛";
     shootHint = `박스 슛 취급${gk}`;
   } else if (line === 2) {
-    shootHint = midrangeHint(data, fxA, weak("shoot", "vs 버티기에 약함"));
+    shootHint = `${lbOn ? `${lineBreakName(data)} 효과 없음 · ` : ""}${midrangeHint(data, fxA, weak("shoot", "vs 버티기에 약함"))}`;
   } else {
-    shootHint = `GK와 1:1${header ? " · 헤더" : ""}${oneTouch ? " · 원터치" : ""}${ultShot ? ` · 필살${gk}` : ""}`;
+    // 공에 실린 박스 슛 배율 (한 구역 더로 박스 도착 +20% · 라인 브레이커 ×lineBreakMult — L54 에서 화면에 처음 보인다)
+    const lbBall = num(state.ball && state.ball.lineBreakMult, 1);
+    const carried = `${state.ball && state.ball.extraLine ? " · 추가 전진 +20%" : ""}${lbBall > 1 ? ` · ${lineBreakName(data)} ×${fmtMult(lbBall)}` : ""}`;
+    shootHint = `GK와 1:1${header ? " · 헤더" : ""}${oneTouch ? " · 원터치" : ""}${carried}${ultShot ? ` · 필살${gk}` : ""}`;
   }
   // ④ 박스 연결: 컷백 패스(→ 원터치 슛) · 센터링(크로서만 → 헤더), GK 와 경합, 포제션당 1회
   const box = line >= 3;
@@ -1721,14 +1746,14 @@ export function getAttackActions(state, side, data = null, fx = null) {
   return [
     {
       action: "dribble", enabled: opts.dribble, label: "드리블",
-      hint: opts.dribble ? weak("dribble", "vs 태클에 약함") : box ? (opts.pass || opts.cross ? "박스 안 — 슛·연결만" : "슛만 가능") : "불가",
+      hint: opts.dribble ? lead("dribble", weak("dribble", "vs 태클에 약함")) : box ? (opts.pass || opts.cross ? "박스 안 — 슛·연결만" : "슛만 가능") : "불가",
     },
     {
       action: "pass", enabled: opts.pass, label: box ? "컷백 패스" : "패스",
       hint: opts.pass
         ? box
           ? `→ ${receiverNameFor(state, data, side, "pass")} 원터치 슛 · GK와 경합 (${boxFail})`
-          : `→ ${receiverNameFor(state, data, side, "pass")} · ${weak("pass", "vs 인터셉트에 약함")}`
+          : `→ ${receiverNameFor(state, data, side, "pass")} · ${lead("pass", weak("pass", "vs 인터셉트에 약함"))}`
         : box ? boxOff : line === 2 ? "같은 라인 FW 동료 없음" : "패스 상대 없음",
     },
     {
@@ -1736,7 +1761,7 @@ export function getAttackActions(state, side, data = null, fx = null) {
       hint: opts.cross
         ? box
           ? `→ ${receiverNameFor(state, data, side, "cross")} 헤더 · GK와 경합 (${boxFail})`
-          : `→ ${receiverNameFor(state, data, side, "cross")} 헤더 · ${weak("cross", "vs 버티기에 약함")}`
+          : `→ ${receiverNameFor(state, data, side, "cross")} 헤더 · ${lead("cross", weak("cross", "vs 버티기에 약함"))}`
         : box ? (crosserOk ? boxOff : "크로서 특성 선수만") : line < 2 ? "파이널 서드에서만" : crosserOk ? "받을 동료 없음" : "크로서 특성 선수만",
     },
     {
@@ -1772,7 +1797,8 @@ export function getDefenseActions(state, side, data = null, fx = null) {
 /* ------------------------------------------------------------------ */
 
 /**
- * 공격 보너스 합 Σ (§13.2-5): 연계 특성(증폭) + 연계 스택(슛) + 제쳐짐 + 인터셉트 뚫림 + 스킬 nextDuelBonus(+소매치기 상한 보너스).
+ * 공격 보너스 합 Σ (§13.2-5): 연계 특성(증폭) + 연계 스택(슛) + 제쳐짐 + 인터셉트 뚫림 + 다음 듀얼 보너스 pending.nextBonus
+ * (필살 패스 nextDuelBonus · 캐논 킥 · 소매치기 상한 보너스).
  * @returns {{ total: number, capped: number, parts: Object<string, number>, links: string[] }}
  */
 function attackBonus(state, data, side, carrier, action, { midrange, header, boxShoot }) {
@@ -1876,7 +1902,9 @@ export function computeOdds(state, data, { action, defAction = null, useEffects 
   const condA = num(atkTeam.conditionMult, 1) || 1;
   const stamA = staminaMultFor(m, stA);
   let skillA = modsA.attack * (boostApplies(fxA, action) ? num(fxA.attackMult, 1) : 1);
-  if (action === "shoot") skillA *= modsA.shootPower * num(fxA.shootMult, 1) * (ball.extraLine ? 1.2 : 1);
+  // 박스 슛 배율 (공에 실린 것): 한 구역 더로 박스 도착 +20% (extraLine) · 라인 브레이커로 박스 도착 ×lineBreakMult (L54).
+  // 둘 다 박스(④)에 들어올 때만 공에 실리므로 ③ 중거리 슛에는 붙지 않는다
+  if (action === "shoot") skillA *= modsA.shootPower * num(fxA.shootMult, 1) * (ball.extraLine ? 1.2 : 1) * num(ball.lineBreakMult, 1);
   // 필살 배율 (§19.3-5): 슛 ×shoot (헤더면 ×headerMult 더) · 패스 ×attack (actions 안) · 드리블 ×attack (E4) · 팀 ×teamMult (E3, 이번 듀얼)
   const ultMultA = ultShot
     ? num(ultA.shoot, 1) * (header ? num(ultA.headerMult, 1) : 1)
@@ -1971,6 +1999,7 @@ export function computeOdds(state, data, { action, defAction = null, useEffects 
     F("atk", "passive", modsA.attack * (isShoot ? modsA.shootPower : 1), srcA.map((s) => s.name).join("·") || "패시브");
     F("atk", "skill", boostA * (isShoot ? num(fxA.shootMult, 1) : 1) * coefSkillA, skillName(data, fxA.usedSkillId));
     F("atk", "extraLine", isShoot && ball.extraLine ? 1.2 : 1, "추가 전진 슛");
+    F("atk", "lineBreak", isShoot ? num(ball.lineBreakMult, 1) : 1, lineBreakName(data));
     if (bonus.capped) {
       const scale = bonus.total > 0 && bonus.capped < bonus.total ? bonus.capped / bonus.total : 1;
       const parts = Object.entries(bonus.parts).map(([id, add]) => ({ id, label: bonusLabel(data, state, id), add, eff: add * scale }));
@@ -2041,6 +2070,12 @@ function bonusLabel(data, state, id) {
   if (id === "interceptFail") return "인터셉트 뚫림";
   if (id === "next") return "첫 듀얼 보너스";
   return traitName(data, id);
+}
+
+/** 라인 브레이커(lineBreak) 스킬 이름 — 공에 실린 박스 슛 배율(ball.lineBreakMult)의 출처 (결정타 칩 · 문구, L54) */
+function lineBreakName(data) {
+  const sk = data && Array.isArray(data.skills) ? data.skills.find((s) => s && s.active && s.active.effect === "lineBreak") : null;
+  return sk ? sk.name : "라인 브레이커";
 }
 
 /** 함성(rally) 스킬 이름 — 이번 포제션 팀 판정 배율의 출처 */
@@ -2195,12 +2230,15 @@ function counterPlan(data, line, defAction, fxD, defender, isGK) {
 
 /**
  * 공격 성공 뒤 공 (§13.2-10·11): 새 line, 받는 선수(receiverId 없으면 기본), 원터치, extraLine 슛 보너스.
- * @returns {{ newLine, receiver, oneTouch, extraLineShot, via }}
+ * L54: 한 구역 더는 extraLineFor(fx, action) (스루 패스 = 패스에만). 라인 브레이커(fx.lineBreakShot > 1)는 ③ 돌파(슛 아님)가 성공하면
+ * 박스 원터치 + lineBreakShot = 다음 박스 슛 배율 (공 ball.lineBreakMult 에 싣는다 — extraLine 과 같은 길). 그 밖에서는 1.
+ * @returns {{ newLine, receiver, oneTouch, extraLineShot, lineBreakShot, via }}
  */
 function successTransition(state, data, side, carrier, action, fx, receiverId = null) {
   const team = state[side];
   const line = num(state.ball.lineIndex, 0);
-  const extra = !!(fx && fx.extraLine) && line < 3; // 박스 연결(④)에는 추가 전진 없음
+  const extra = extraLineFor(fx, action) && line < 3; // 박스 연결(④)에는 추가 전진 없음
+  const lineBreak = line === LINE_BREAK_LINE && action !== "shoot" && num(fx && fx.lineBreakShot, 1) > 1;
   let newLine;
   let receiver = carrier;
   if (action === "dribble") {
@@ -2213,8 +2251,9 @@ function successTransition(state, data, side, carrier, action, fx, receiverId = 
   return {
     newLine,
     receiver,
-    oneTouch: newLine >= 3 && (action !== "dribble" || extra),
+    oneTouch: newLine >= 3 && (action !== "dribble" || extra || lineBreak),
     extraLineShot: extra && line + 1 >= 3,
+    lineBreakShot: lineBreak && newLine >= 3 ? num(fx.lineBreakShot, 1) : 1,
     via: action === "pass" || action === "cross" ? action : null,
   };
 }
@@ -2226,9 +2265,9 @@ function pendingAfterSuccess(action, defAction, fxA, fxD) {
     if (defAction === "tackle") pend.beaten = true;
     else if (defAction === "intercept") pend.interceptFail = true;
   }
-  if (action === "pass" || action === "cross") {
-    if (num(fxA.nextDuelBonus, 0) > 0 && (!fxA.negateActions || fxA.negateActions.includes(action))) pend.nextBonus += num(fxA.nextDuelBonus, 0);
-    if (fxA.ult && fxA.ult.type === "pass" && ultMatchesAction(fxA.ult, action)) pend.nextBonus += num(fxA.ult.nextDuelBonus, 0);
+  // 필살 패스의 받은 선수 다음 듀얼 보너스 (바람의 실 · 뇌전 화살). 일반 액티브의 받은 선수 보너스는 없다 (L54 — 옛 스루 패스 +25% 삭제)
+  if ((action === "pass" || action === "cross") && fxA.ult && fxA.ult.type === "pass" && ultMatchesAction(fxA.ult, action)) {
+    pend.nextBonus += num(fxA.ult.nextDuelBonus, 0);
   }
   pend.nextBonus = round6(pend.nextBonus);
   return pend;
@@ -2462,6 +2501,10 @@ function resolveDuel(state, data) {
     const tr = successTransition(state, data, atkSide, carrier, action, fxA, receiverId);
     const pend = pendingAfterSuccess(action, defAction, fxA, fxD);
     const failTag = pend.beaten ? ` — ${defender.name} 제쳐짐 (다음 듀얼 +${pct(num(m.beatenBonus, 0.25))}%)` : "";
+    // 한 구역 더 · 라인 브레이커 문구 (박스 연결 성공에는 없다 — 둘 다 ④ 에서는 쓰이지 않는다)
+    const extra = (extraLineFor(fxA, action) ? (tr.extraLineShot ? " 슛 위력 +20%!" : " 한 구역 추가 전진!") : "")
+      + (tr.lineBreakShot > 1 ? ` ${lineBreakName(data)} — 박스 슛 ×${fmtMult(tr.lineBreakShot)}!` : "");
+    if (tr.lineBreakShot > 1) state.ball.lineBreakMult = Math.max(num(state.ball.lineBreakMult, 1), tr.lineBreakShot);
     if (action === "dribble") {
       state.ball.lineIndex = tr.newLine;
       if (tr.extraLineShot) state.ball.extraLine = true;
@@ -2473,7 +2516,6 @@ function resolveDuel(state, data) {
         const lv = atkTeam.live[carrier.id];
         if (lv) lv.stamina = round1(clamp(lv.stamina + 5, 0, num(m.staminaMax, 100)));
       }
-      const extra = fxA.extraLine ? (tr.extraLineShot ? " 슛 위력 +20%!" : " 한 구역 추가 전진!") : "";
       pushEvent(state, {
         type: "duel", side: atkSide, success: true, ...common,
         text: `${carrier.name}, 드리블 돌파 성공! ${defender.name}의 ${dLabel} 제침 (${pc}%)${tag}${readTag}${linkText(odds.links)}${extra}${failTag}`,
@@ -2497,7 +2539,6 @@ function resolveDuel(state, data) {
         state.ball.comboReadyId = receiver.id;
         state.ball.comboFrom = { playerId: carrier.id, skillId: fxA.ult.skillId };
       }
-      const extra = fxA.extraLine && !boxLink ? (tr.extraLineShot ? " 슛 위력 +20%!" : " 한 구역 추가 전진!") : "";
       const verb = action === "cross" ? "크로스" : "패스";
       pushEvent(state, {
         type: "duel", side: atkSide, success: true, ...common, receiverId: receiver.id, via: action,
@@ -3250,6 +3291,7 @@ function nextShotP(state, data, side, carrier, tr, action, defAction, fxA, fxD) 
     lineIndex: tr.newLine,
     chain: num(state.ball.chain) + (tr.via ? 1 : 0),
     extraLine: !!state.ball.extraLine || tr.extraLineShot,
+    lineBreakMult: Math.max(num(state.ball.lineBreakMult, 1), num(tr.lineBreakShot, 1)),
     oneTouch: tr.oneTouch,
     receivedVia: tr.via,
     lastPasserId: tr.via ? carrier.id : null,
@@ -3356,21 +3398,26 @@ function attackOutcome(state, data, human, action, { fx = null, receiverId = nul
   }
   const adv = advanceText(tr.newLine);
   const success = { zone: zoneOf(human, tr.newLine), attackingSide: human, step: tr.newLine, label: "", short: "" };
+  // 라인 브레이커 (L54): ③ 돌파 성공 → 박스 원터치 + 다음 슛 ×lineBreakShot — 결과 문구 끝에 (짧은 줄은 " ×1.5")
+  const lb = tr.lineBreakShot > 1 ? fmtMult(tr.lineBreakShot) : null;
+  const touch = tr.oneTouch ? ` (원터치${lb ? ` · ${lineBreakName(data)} 슛 ×${lb}` : ""})` : "";
+  const lbShort = lb ? ` ×${lb}` : "";
   if (action === "pass" || action === "cross") {
     const r = tr.receiver;
     success.receiver = { id: r.id, name: r.name, side: human };
     if (action === "cross") {
-      success.label = `${r.name} 헤더 찬스 — ${adv.place}${tr.oneTouch ? " (원터치)" : ""}`;
-      success.short = `성공 ${r.name} 헤더`;
+      success.label = `${r.name} 헤더 찬스 — ${adv.place}${touch}`;
+      success.short = `성공 ${r.name} 헤더${lbShort}`;
     } else {
-      success.label = `${r.name}에게 연결 — ${adv.place}${adv.tail ? ", " + adv.tail : ""}${tr.oneTouch ? " (원터치)" : ""}`;
-      success.short = tr.newLine >= 3 ? `성공 ${r.name} 원터치` : `성공 ${r.name}에게`;
+      success.label = `${r.name}에게 연결 — ${adv.place}${adv.tail ? ", " + adv.tail : ""}${touch}`;
+      success.short = tr.newLine >= 3 ? `성공 ${r.name} 원터치${lbShort}` : `성공 ${r.name}에게`;
     }
   } else {
-    success.label = adv.tail ? `${adv.place} — ${adv.tail}` : adv.place;
-    success.short = tr.newLine >= 3 ? "성공 박스 진입" : tr.newLine === 2 ? "성공 상대 진영" : "성공 중원";
+    success.label = `${adv.tail ? `${adv.place} — ${adv.tail}` : adv.place}${lb ? touch : ""}`;
+    success.short = tr.newLine >= 3 ? (lb ? `성공 박스 원터치${lbShort}` : "성공 박스 진입") : tr.newLine === 2 ? "성공 상대 진영" : "성공 중원";
   }
   if (tr.oneTouch) success.oneTouch = true;
+  if (lb) success.lineBreak = tr.lineBreakShot;
   return { success, fail: failEnd ? endLost("뺏기면") : lost };
 }
 
@@ -3438,7 +3485,7 @@ function defenseOutcome(state, data, human, dAction, { fx = null } = {}) {
   if (ev.response === "shoot") {
     fail = goalOutcome(state, data, opp, human);
   } else {
-    const oppNext = advanceLine(line, !!fxO.extraLine);
+    const oppNext = advanceLine(line, extraLineFor(fxO, ev.response));
     const breach = oppNext >= 3
       ? "뚫리면 — 우리 박스 슈팅 위기"
       : oppNext === 2 ? "뚫리면 — 우리 진영 위험, 중거리 슛 가능" : "뚫리면 — 상대 중원 진입";
@@ -4021,7 +4068,8 @@ export function getMatchView(state, data, humanSide = undefined) {
     }
   }
 
-  // 위치를 바꾸는 스킬(공격 extraLine / 수비 steal)을 이번 결정과 함께 쓸 때의 미리보기 (§12.1-2 보강).
+  // 위치를 바꾸는 스킬(공격 extraLine / 수비 steal) · 다음 박스 슛을 바꾸는 라인 브레이커(lineBreak, L54)를 이번 결정과 함께 쓸 때의
+  // 미리보기 (§12.1-2 보강 — VARIANT_EFFECTS).
   // 필살 패스도 받는 선수 기본값을 바꿀 수 있어(합체기 가치) 같은 맵에 필살기 skillId 로 넣는다 — 자동 진행 중 layout.resolvePreview 가
   // 수신자를 확정할 수 없음을 알 수 있게.
   let outcomesBySkill = null;
@@ -4030,7 +4078,7 @@ export function getMatchView(state, data, humanSide = undefined) {
   if (outcomes) {
     const variants = [];
     for (const s of skills) {
-      if (!s.enabled || s.effect !== POSITION_EFFECT[role]) continue;
+      if (!s.enabled || !VARIANT_EFFECTS[role].includes(s.effect)) continue;
       variants.push([s.skillId, fxPlusSkill(fxH, getSkill(data, s.skillId))]);
     }
     for (const u of ultimateOptions) {
@@ -4081,6 +4129,8 @@ export function getMatchView(state, data, humanSide = undefined) {
     lineLabel,
     chain: num(ball.chain),
     extraLine: !!ball.extraLine,
+    // 라인 브레이커로 박스에 들어와 공에 실린 박스 슛 배율 (1 = 없음, L54 — extraLine 과 같은 수명)
+    lineBreakMult: num(ball.lineBreakMult, 1),
     ballState: {
       oneTouch: !!ball.oneTouch, receivedVia: ball.receivedVia || null, receivedFresh: !!ball.receivedFresh,
       comboReadyId: ball.comboReadyId || null, pending: Object.assign(emptyPending(), ball.pending || {}),

@@ -262,8 +262,14 @@ function walkRewardOrThrow(name, data, opts) {
 /** 코치 수업이 남은 보상 (§18.6) — minPending 개 이상, status 가 주어지면 그 결과 */
 const teachPending = (minPending = 1, status = null) => (s) => s.phase === "reward"
   && (s.pendingReward?.teach || []).filter((t) => t.result === null).length >= minPending && (!status || s.pendingReward.result?.status === status);
-/** 포지션 제한 없는 액티브 3개 (가득 장면 주입 — L48: 스킬 칸 3 = 액티브 몫, 패시브는 칸을 쓰지 않는다) */
-const freeActives = (data) => data.skills.filter((k) => k.kind === "active" && k.learnable && !(k.positions || []).length).map((k) => k.id);
+/**
+ * 그 포지션이 가질 수 있는 액티브 (가득 장면 주입 — L48: 스킬 칸 3 = 액티브 몫, 패시브는 칸을 쓰지 않는다). 포지션 제한 없는 것 먼저.
+ * L54: 라인 브레이커가 FW · MF 전용이 되어 포지션 제한 없는 액티브가 2개뿐 → 포지션에 맞는 것을 뒤에 더한다
+ */
+const freeActives = (data, position) => {
+  const ok = data.skills.filter((k) => k.kind === "active" && k.learnable && (!(k.positions || []).length || k.positions.includes(position)));
+  return [...ok.filter((k) => !(k.positions || []).length), ...ok.filter((k) => (k.positions || []).length)].map((k) => k.id);
+};
 
 /**
  * 패시브 상점 장면 (L48): SP · 힌트 레벨 · 보유를 섞어 주입 — 칩 상태 4가지 (보유 ✓ · 살 수 있음 · SP 부족 · 포지션 밖) 와 힌트 할인 (취소선) 이 한 화면에.
@@ -1502,8 +1508,8 @@ export const LESSON_OG_SCENARIOS = [
       const st = b.runState;
       lessonRun.resolveTeach(st, data, manager.recommendTeach(st, data));
       const cur = lessonRun.getRewardView(st, data).teach.cur;
-      const acts = freeActives(data).filter((id) => id !== cur.skillId).slice(0, 3);
       const p = st.players.find((x) => cur.players.find((c) => c.id === x.id)?.ok);
+      const acts = freeActives(data, p.position).filter((id) => id !== cur.skillId).slice(0, 3);
       const pas = lessonRun.getPassiveShopView(st, data).players.find((x) => x.id === p.id).rows.find((r) => r.ok)?.skillId;
       p.learnedSkillIds = [...acts.slice(0, 3), ...(pas ? [pas] : [])];
       return { ...b, info: { pid: p.id, rep: p.learnedSkillIds[1] }, summary: `${b.summary} (첫 수업 처리 · ${p.name} 액티브 3 + 패시브 1 주입)` };

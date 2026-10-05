@@ -150,6 +150,7 @@ rng.getState()             // number
               "ai": { "useWhen": "attackDuel", "minTension": 40 } }
 }
 ```
+(v0.1 형식 예시 — 값은 옛것. 지금 라인 브레이커 = `lineBreak` (③ 돌파 → 박스 슛 ×1.5), 두 구역 전진 `extraLine` = 스루 패스 (패스 전용 · ①·②) — 아래 v0.3 effect 표 · LESSON_PROTO_PLAN §25, L54)
 
 **passive.when** (전부 구현): `"always"`, `"lastPossessions:N"` (남은 포제션 ≤ N), `"trailing"`, `"leading"`, `"tied"`, `"chain>=N"` (연계 스택), `"lowStamina"` (본인 20% 이하), `"goalMatch"`, `"vsStyle:power|speed|technique"` (상대 듀얼 선수 스타일), `"element:fire..."` 는 쓰지 않음(공명이 대신).
 **passive.target**: `"self"` (이 선수가 듀얼 당사자일 때) | `"team"` (팀 전원의 듀얼).
@@ -162,7 +163,7 @@ rng.getState()             // number
 | effect | params | 의미 |
 |---|---|---|
 | `boost` | `{ "attack": 1.3 }` 또는 `{ "defense": 1.3 }` | 이번 듀얼 배율 |
-| `extraLine` | — | 이번 듀얼 성공 시 한 라인 추가 전진 (DF 라인 돌파 후면 슛 위력 +20%) |
+| `extraLine` | — | 이번 듀얼 성공 시 한 라인 추가 전진 (DF 라인 돌파 후면 슛 위력 +20%) — v0.1 표. L54 뜻은 v0.3 표 (`actions` · `maxLine`) |
 | `reveal` | — | 이번 듀얼 상대 의도 완전 공개 (AI는 사용 시 상대 선택에 맞춰 카운터) |
 | `steal` | — | 수비 성공 시 역습 시작 라인 한 칸 전진 |
 | `recover` | `{ "amount": 20 }` | 팀 전원 경기 체력 회복 |
@@ -708,7 +709,7 @@ export function decideDefense(state, data, side)  // → { action, skillId|null 
    outcomesBySkill,        // (수정 라운드) null | { [skillId]: outcomes } — 결정 대기 중 사람 측이 쓸 수 있는(enabled) 위치 스킬
                            //   (공격 extraLine / 수비 steal)을 액션과 함께 쓸 때의 outcomes. 키 = 기본 outcomes 와 같다
    receiverPreviewBySkill, // (수정 라운드) null | { [skillId]: receiverPreview|null } — 공격 extraLine 스킬을 쓸 때의 수신자
-                           //   (line 0 + 라인 브레이커 + 패스 → MF 가 아니라 FW, 상대 진영). UI 는 스킬을 토글하면 이 값으로 그린다
+                           //   (line 0 + 스루 패스 + 패스 → MF 가 아니라 FW, 상대 진영 — L54 전에는 라인 브레이커). UI 는 스킬을 토글하면 이 값으로 그린다
    lastBeat,        // null | 가장 최근의 "비트 이벤트" (아래 3번) 사본. UI 연출 트리거
    ```
 3. **이벤트에 위치 필드** — type 이 `kickoff | counter | duel | turnover | save | goal | penalty` 인 이벤트에 추가:
@@ -735,7 +736,7 @@ export function resolvePreview(view, { skillId = null, deciding = true } = {})
 // (수정 라운드) 화면에 그릴 receiverPreview · outcomes 를 고른 view 사본 (view 불변, 바꿀 것이 없으면 view 그대로).
 //  deciding=true (사람이 고르는 중): skillId 가 receiverPreviewBySkill / outcomesBySkill 에 있으면 그 변형.
 //  deciding=false (자동 진행 중): 사람 측 공격이고 스킬 변형 중 수신자가 기본과 다른 것이 있으면 receiverPreview = null
-//   (사람 측 AI 가 step() 안에서 라인 브레이커를 쓸 수 있어 확정할 수 없다). 상대 공격은 AI 가 먼저 커밋해 정확 → 그대로.
+//   (사람 측 AI 가 step() 안에서 스루 패스(L54 전에는 라인 브레이커)를 쓸 수 있어 확정할 수 없다). 상대 공격은 AI 가 먼저 커밋해 정확 → 그대로.
 export function computeLayout(view, opts = {})
 // view = match.getMatchView(...) 반환값. opts: { aspect = 0.8 (필드 폭/높이), tokenSize = 0.075 (필드 폭 대비 지름) }
 // → {
@@ -780,7 +781,7 @@ export function computeLayout(view, opts = {})
 - (수정 라운드) 비트 연출 중 컨트롤(자동·배속·개입) 클릭은 컨트롤과 정보 줄만 다시 그린다 (스코어·로그는 연출 단계가 갱신). 연출 중 resize 는 미뤘다가 비트가 끝날 때 새 크기로 다시 배치. 비트가 끝날 때(finishBeat) 항상 현재 view 로 다시 배치(자동/개입 전환·resize 반영).
 - (수정 라운드) 자동 토글은 켜든 끄든 개입(intervene)을 해제한다. 개입 버튼 강조·문구는 자동 ON 이고 개입 중일 때만.
 - **위기·찬스**: `highlight` 구역 색 (danger 주황 / crisis 빨강 점멸 / chance 금색 / shotChance 금색 점멸), 필드 위 상황 배너(`banner`, 구역이 바뀔 때만 갱신), 필드 왼쪽 공격 진행 트랙 4칸, 남은 수비 텍스트.
-- **결정 대기(수동)** 에서만: 액션 버튼마다 `outcomes` 두 줄(성공/실패 label). (수정 라운드) 위치 스킬(라인 브레이커·소매치기)을 토글하면 `resolvePreview(view, { skillId, deciding: true })` 의 변형으로 버튼 문구·화살표·패스 후보 토큰을 바꾼다. 자동 진행 중에는 `resolvePreview(view, { deciding: false })` 로 확정할 수 없는 패스 후보를 그리지 않는다. 버튼 누르고 있기(pointerdown) / hover → 필드 위 SVG 화살표(드리블 = 다음 구역으로, 패스 = receiverPreview 토큰으로 점선, 슛 = 골문으로, 수비 액션 = 상대 carrier 앞 차단 표시). 자동 진행 중에는 미리보기·화살표를 그리지 않는다.
+- **결정 대기(수동)** 에서만: 액션 버튼마다 `outcomes` 두 줄(성공/실패 label). (수정 라운드) 위치 스킬(스루 패스·소매치기 — L54 전에는 라인 브레이커, 지금 라인 브레이커는 결과 문구 · % 변형만)을 토글하면 `resolvePreview(view, { skillId, deciding: true })` 의 변형으로 버튼 문구·화살표·패스 후보 토큰을 바꾼다. 자동 진행 중에는 `resolvePreview(view, { deciding: false })` 로 확정할 수 없는 패스 후보를 그리지 않는다. 버튼 누르고 있기(pointerdown) / hover → 필드 위 SVG 화살표(드리블 = 다음 구역으로, 패스 = receiverPreview 토큰으로 점선, 슛 = 골문으로, 수비 액션 = 상대 carrier 앞 차단 표시). 자동 진행 중에는 미리보기·화살표를 그리지 않는다.
 - **의도 표시**: 상대 듀얼 토큰 위 말풍선(아이콘) + 정보 줄 텍스트(기존 문구 유지: 확정 / 2지선다 / 비공개 / countered).
 - **유지할 기존 기능**: 자동 토글(기본 ON), 배속 1x/2x/4x, 개입(다음 결정 비트에서 재배치까지 보여준 뒤 멈춤), 결과 스킵, 스킬 버튼(reveal 은 `{skillId}` 단독 즉시 전송), 컷인 배너, 연장·승부차기 표시, 결과 모달, `finishMatch` 정확히 1회, localStorage 저장/이어하기.
 
@@ -839,10 +840,11 @@ export function computeLayout(view, opts = {})
 | effect | params | 의미 |
 |---|---|---|
 | `boost` | `{ attack?, defense?, actions?, noMissPenalty?, noFailPenalty?, noStamina? }` | 이번 듀얼 배율. noMissPenalty = 빗나감 ×0.8 무시, noFailPenalty = 뚫려도 제쳐짐·+10% 없음, noStamina = 성공 시 체력 소모 0 |
-| `extraLine` | — | 성공 시 한 구역 추가 전진 (박스 도착이면 원터치) |
+| `extraLine` | `{ actions?, maxLine? }` (L54) | 성공 시 한 구역 더 = 두 구역 앞 (박스 도착이면 원터치). actions = 그 액션에만 (`fx.extraLineActions` — 스루 패스 = 패스), maxLine = 그 단계까지만 쓴다 (스루 패스 1 = ①·②). 읽기는 `skills.extraLineFor(fx, action)` |
+| `lineBreak` (L54) | `{ shootMult }` | 라인 브레이커: ③ 에서만. 이번 돌파(드리블 · 패스 · 크로스)가 성공하면 박스 원터치 + 다음 박스 슛 ×shootMult (`ball.lineBreakMult` — extraLine 슛 +20% 와 같은 수명). ③ 중거리 슛에는 효과 없음 |
 | `powerShot` | `{ shoot, midrangeCoef?, stamina? }` | 슛 배율, 중거리 계수 덮어쓰기 |
 | `readBoost` | `{ readMult: 2.0 }` | 수비 간파 (13.2-8) |
-| `negateRead` | `{ actions?, nextDuelBonus? }` | 공격 간파·스루 패스: 이번 듀얼 상대 짝 맞힘 ×1.0 |
+| `negateRead` | `{ actions? }` | 공격 간파: 이번 듀얼 상대 짝 맞힘 ×1.0 (actions 가 있으면 간파가 아닌 행동 스킬 — 지금 데이터엔 없다. L54 에서 스루 패스와 `nextDuelBonus` 인자는 빠졌다) |
 | `steal` | `{ plus: 1, tension: 10, cappedNextBonus: 0.15 }` | 막으면 역습 +1, 텐션 +10, 이미 상한이면 역습 첫 듀얼 +15% |
 | `rally` | `{ stamina: 30, clearBeaten: true, teamMult: 1.1 }` | 전원 체력 +30, 제쳐짐 해제, 이번 포제션 팀 판정 ×1.1 |
 
@@ -851,7 +853,7 @@ export function computeLayout(view, opts = {})
 | id | 이름 | kind | 텐션 | positions | effect / params |
 |---|---|---|---|---|---|
 | sk_iron_tackle | 철의 태클 | active (도르비나 고유) | 30 | null | boost `{defense:1.4, noMissPenalty:true}` phase defense |
-| sk_line_breaker | 라인 브레이커 | active (울리카 고유) | 35 | null | extraLine, phase attack |
+| sk_line_breaker | 라인 브레이커 | active (울리카 고유 → §19.12 코치 수업) | 35 | FW,MF (L54) | lineBreak `{shootMult:1.5}` phase attack (L54 — 전: extraLine) |
 | sk_power_shot | 파워 슛 | active 학습 | 30 | FW | powerShot `{shoot:1.5, midrangeCoef:1.0, stamina:8}` |
 | sk_eagle_eye | 매의 눈 | active 학습 | 40 | DF,MF | readBoost `{readMult:2.0}` phase defense |
 | sk_see_through | 꿰뚫어보기 (신규) | active 학습, cost 140 | 40 | FW,MF | negateRead `{}` phase attack |
@@ -859,7 +861,7 @@ export function computeLayout(view, opts = {})
 | sk_rally_cry | 함성 | active 학습 | 35 | null | rally `{stamina:30, clearBeaten:true, teamMult:1.1}` phase any |
 | sk_stone_shield | 바위 방벽 | active 학습 | 35 | DF | boost `{defense:1.4, noFailPenalty:true}` phase defense |
 | sk_burst_dribble | 폭발 드리블 | active 학습 | 30 | FW,MF | boost `{attack:1.5, actions:["dribble"], noStamina:true}` phase attack |
-| sk_through_pass | 스루 패스 | active 학습 | 25 | MF | negateRead `{actions:["pass","cross"], nextDuelBonus:0.25}` phase attack |
+| sk_through_pass | 스루 패스 | active 학습 | 25 | DF,MF (L54) | extraLine `{actions:["pass"], maxLine:1}` phase attack (L54 — 전: negateRead 짝 무효 + 받은 선수 +25%) |
 | sk_wind_thread | 바람의 실 | unique (실루엔) | 0 | null | ultimate `{ type:"pass", attack:1.5, negateRead:true, nextDuelBonus:0.5, receiverGauge:50 }` |
 | sk_meteor_shot | 메테오 슛 | unique (그레타) | 0 | null | ultimate `{ type:"shot", shoot:2.0, gkMult:0.7, boxShot:true, stamina:10 }` |
 | sk_boss_strike | 업화의 일격 (신규) | unique (상대 전용) | 0 | FW | ultimate type shot (메테오와 같은 값) |
@@ -895,7 +897,7 @@ export function computeLayout(view, opts = {})
 2. **가능 액션**: line 0·1 = dribble, pass(수신 후보 ≥ 1). line 2 = dribble, pass(같은 라인 다른 FW ≥ 1), cross(carrier trait crosser 이고 크로스 후보 ≥ 1), shoot(중거리). line 3 = shoot (v0.4.2: + 박스 연결 pass·cross, 포제션당 1회 — §15.2). 수비 line 0~2 = tackle, intercept, hold 전부. line 3 = save (자동).
 3. **판정 스탯**: tackle = (수비+피지컬)/2, intercept = (수비+패스)/2, hold = 수비 × holdMult (wall ×1.15, 드워프 종족 +10% 는 기존 종족 패시브 규칙대로), cross = (패스+드리블)/2 × actionCoef.cross, 헤더 슛 = (슈팅+피지컬)/2 × actionCoef.header, 중거리 = 슈팅 × midrangeShoot.
 4. **수비 배율**: 짝 맞음 ×readBonus (readBoost 스킬이면 ×readMult), tackle·intercept 가 짝이 아니면 ×missMult (noMissPenalty 무시), hold ×1.0 (단 공격이 중거리 슛이면 ×holdVsMidrange, v0.4.2: 크로스면 ×holdVsCross — §15.1). 공격이 negateRead 면 "짝 맞음"을 ×1.0 으로.
-5. **공격 보너스 합**: Σ = 연계 특성(증폭 적용) + passChainBonus × chain + 제쳐짐 beatenBonus + 인터셉트 뚫림 interceptFailBonus + 스킬 nextDuelBonus(스루 패스·필살 패스) + 소매치기 cappedNextBonus. `att × (1 + min(Σ, bonusCap))`. 곱연산으로 따로: 스킬 boost·powerShot·필살기 배율, 합체기 comboBonus, extraLine 슛 +20%, 스타일·컨디션·체력·적성, 함성 teamMult.
+5. **공격 보너스 합**: Σ = 연계 특성(증폭 적용) + passChainBonus × chain + 제쳐짐 beatenBonus + 인터셉트 뚫림 interceptFailBonus + 필살 패스 nextDuelBonus (L54 전에는 스루 패스도) + 소매치기 cappedNextBonus. `att × (1 + min(Σ, bonusCap))`. 곱연산으로 따로: 스킬 boost·powerShot·필살기 배율, 합체기 comboBonus, extraLine 슛 +20%, 라인 브레이커 슛 ×1.5 (L54), 스타일·컨디션·체력·적성, 함성 teamMult.
 6. **뚫림 결과**: 수비가 tackle 로 졌으면 `ball.pending.beaten = true` → 다음 듀얼 공격 보너스 +beatenBonus, 그 듀얼 coverCount 0 (다음이 GK 면 보너스만). intercept 로 졌으면 +interceptFailBonus. hold 는 없음. noFailPenalty 스킬이면 없음. 함성 clearBeaten 이면 해제. 한 번 쓰고 지운다.
 7. **역습 시작**: 기본 (line 0 → 2, 1 → 1, 2 → 0, GK 세이브·골 → 0) + intercept 성공 +1 + steal +1, 상한 counterCap(2). intercept 의 +1 이 상한에 걸려 무의미하면 막은 팀 텐션 +counterCapTension. steal 이 상한에 걸리면 cappedNextBonus. **hold 로 막으면 항상 0** (steal 무시). distributor GK 의 세이브 → 1.
 8. **간파**: line 0~2 에서만. 한 듀얼에 먼저 커밋한 쪽만 (AI 는 setupDuel 에서 먼저 커밋 → AI 가 썼으면 사람 간파 비활성).
@@ -1007,7 +1009,7 @@ GDD 9.6·9.7·9.16·9.17 대로:
 - 편성 화면 서포트 그리드 가로 넘침(390px 에서 429px) 수정 — 이번 라운드 전부터 있던 문제.
 
 **도구 · 테스트**
-- test/layout.test "자동 진행: 그린 패스 후보 = 실제 수신자": 픽스처를 DF1 아델린(패스형) + `sk_line_breaker` 주입 + 텐션 60 으로 바꿈(A안에서 드리블형 DF 울리카는 패스를 안 해서 변형이 쓰이지 않았다). 숨김 상한 passes/4 → passes/3. **이 비율은 `tension.start` 에 민감**하다 — 35 이상이면 라인 브레이커가 킥오프 듀얼에 바로 발동해 0.35 로 실패.
+- test/layout.test "자동 진행: 그린 패스 후보 = 실제 수신자": 픽스처를 DF1 아델린(패스형) + `sk_line_breaker` (L54 부터 `sk_through_pass`) 주입 + 텐션 60 으로 바꿈(A안에서 드리블형 DF 울리카는 패스를 안 해서 변형이 쓰이지 않았다). 숨김 상한 passes/4 → passes/3. **이 비율은 `tension.start` 에 민감**하다 — 35 이상이면 라인 브레이커가 킥오프 듀얼에 바로 발동해 0.35 로 실패.
 - tools/sim.mjs: `--manualOracle` 삭제(view.intent 사용) → tools/choice.mjs 가 대체. 경기 표를 전체 / S1~S3 목표 경기로 나눠 출력. `--oppScale` 에 `cap=`.
 - tools/choice.mjs 정책: auto / expected(AI 규칙으로 붙을 스킬·필살기·간파 토글의 기대 % 까지 보고 최고) / rec("추천"만, 스킬·필살기는 AI 규칙) / random / pair / hold / expD·expA. 변형: 필살기·액티브·둘 다 끔(`--strip both` 면 상대도).
 - tools/scenarios.mjs 시나리오 08~15, `adjustSetup` 훅, shot.mjs `steps` 상호작용.
@@ -1068,7 +1070,7 @@ GDD 9.6·9.7·9.16·9.17 대로:
 3. 볼 운반 `buildupDribbleBonus` 조건: line 0 → **line ≤ `buildupMaxLine`(1)** (traits.json · DEFAULT_TRAITS 에 `buildupMaxLine: 1`, 설명 "빌드업·중원 드리블 +10%"). 판정(attackBonus)과 성향값 모두. 13.8.5-11.
 4. (데이터) 상대 연계 특성이 자동에서 발동하도록 재배정 — 13.8.3 표. 테스트 "상대 연계 특성은 자동(A안) 경기에서 발동한다"(v05)가 모든 상대 특성의 발동 > 0 을 확인한다(철벽은 "발동 또는 수비 시 버티기 선택").
 5. `config.match.tendency.midrangeTactic`(3.0): 슛 타이밍 "기회 보이면 중거리"의 중거리 성향 배율 (없으면 tacticBonus). 13.8.5-12.
-6. `getAttackActions(state, side, data, fx?)` · `getDefenseActions(state, side, data, fx?)`: 힌트가 효과를 따른다 (fx 없으면 이번 듀얼에 커밋된 효과 — 간파 부분 커밋 포함). 짝 무효(간파·스루 패스·필살 패스) → "짝 무효 (이름)", 파이널 서드 필살 슛(boxShot) → 제목 **"필살 슛"** · "박스 슛 취급 · GK ×0.7", 박스 필살 슛 → "… · 필살 · GK ×0.7", 파워 슛 → 중거리 위력 배율, 수비 간파 → "짝 ×2", 빗나감 무시 → "빗나감 없음". view 추가: `skills[].actions` · `ultimateOptions[].actions` · `gaanpa.actions` = `{ [action]: { label, hint } }` (그 토글을 켰을 때의 제목·약점 문구).
+6. `getAttackActions(state, side, data, fx?)` · `getDefenseActions(state, side, data, fx?)`: 힌트가 효과를 따른다 (fx 없으면 이번 듀얼에 커밋된 효과 — 간파 부분 커밋 포함). 짝 무효(간파·필살 패스 — L54 전에는 스루 패스도) → "짝 무효 (이름)", 파이널 서드 필살 슛(boxShot) → 제목 **"필살 슛"** · "박스 슛 취급 · GK ×0.7", 박스 필살 슛 → "… · 필살 · GK ×0.7", 파워 슛 → 중거리 위력 배율, 수비 간파 → "짝 ×2", 빗나감 무시 → "빗나감 없음". view 추가: `skills[].actions` · `ultimateOptions[].actions` · `gaanpa.actions` = `{ [action]: { label, hint } }` (그 토글을 켰을 때의 제목·약점 문구).
 7. 판정 이벤트(duel · turnover)에 패스·크로스면 `receiverId` (판정 전에 정한 받는 선수 — 턴오버에도).
 
 **화면 (screens/match.js · setup.js · css)**
@@ -1076,7 +1078,7 @@ GDD 9.6·9.7·9.16·9.17 대로:
 9. 한 줄 버튼(rows-1, 2열 이하) 성공 긴 문구 3줄까지. 수비 3열: 짝·추천 칩과 판정 스탯이 한 줄에 안 들어가면 판정 스탯을 다음 줄로(잘리지 않음).
 10. 연계 문구(`linkPop`) 자리: 위 → 위 좌우 → 좌우 → 아래(필드 위쪽 끝이면 아래부터) 중 토큰·이름표·말풍선·공을 피한 자리 (`pickSpot`). 수비 미리보기 ✕: 길 위(수비수 뒤 1.6 → 1.25 → 1.0 → 2.4 → 3.0 토큰) → 레인 옆 ±0.8 토큰 중 다른 토큰과 안 겹치는 첫 자리.
 11. 자동 진행 중 성향값 보기의 힌트: 한국어 단어 중간 줄바꿈 금지(keep-all).
-12. 라인 브레이커 등 **도착 구역을 바꾸는 변형** + 기본 아닌 받는 선수: `outcomesByReceiver`(스킬 없이 계산)를 쓰지 않고 변형 결과에 받는 선수 이름만 바꾼다(≈). 전에는 "상대 진영 진입, 중거리 슛"(스킬 없는 도착)을 보였는데 실제는 박스 원터치였다.
+12. 스루 패스(L54 전에는 라인 브레이커) 등 **도착 구역을 바꾸는 변형** + 기본 아닌 받는 선수: `outcomesByReceiver`(스킬 없이 계산)를 쓰지 않고 변형 결과에 받는 선수 이름만 바꾼다(≈). 전에는 "상대 진영 진입, 중거리 슛"(스킬 없는 도착)을 보였는데 실제는 박스 원터치였다.
 13. 실패한 패스·크로스 연출의 받는 선수 = 이벤트 `receiverId` → 이번 비트의 사람 결정 → 기본값. 화면 내부 `lastDecision` 은 자동 비트에서 지운다 (전에는 개입 뒤 자동 패스가 끊기면 옛 받는 선수 쪽으로 길이 0 궤적). `store.matchUi.lastDecision`(도구용)은 그대로.
 14. 스킬 줄 4개 이상 = 압축 모드(`.skill-row.many`: 필살기 "필살기/합체기" 꼬리표·텐션 ✦ 숨김, 게이지 16px, 간격·글자 축소 — 제목에 전부 있음), 간파 버튼은 줄지 않는다. 편성 서포트 카드: 이름은 단어 단위 줄바꿈(희귀도는 보조 줄 맨 앞), 보조 줄은 항목 단위 줄바꿈.
 
@@ -1281,7 +1283,7 @@ GDD 9.6·9.7·9.16·9.17 대로:
 ### 15.1 짝 표 (§13.2-1 · 13.2-4 대체)
 
 - `COUNTER = { dribble: "tackle", pass: "intercept", cross: "hold", shoot: "hold" }`, `COUNTERED = { tackle: ["dribble"], intercept: ["pass"], hold: ["cross", "shoot"] }` (match.js export). shoot ↔ hold 는 파이널 서드 중거리만 — 박스 슛은 GK 와 1:1 이라 짝이 없다.
-- `computeOdds` 수비 배율: hold vs cross = 짝(`pair "read"`) ×`match.holdVsCross`(없으면 readBonus). 수비 간파면 `max(readMult, holdVsCross)`, 공격 negateRead(꿰뚫어보기 · 스루 패스 · 필살 패스 · 간파 사용권)면 ×1.0 — 중거리 짝과 같은 처리. tackle · intercept vs cross = 빗나감 ×missMult (noMissPenalty 면 무시). hold vs dribble · pass = ×1.0 그대로.
+- `computeOdds` 수비 배율: hold vs cross = 짝(`pair "read"`) ×`match.holdVsCross`(없으면 readBonus). 수비 간파면 `max(readMult, holdVsCross)`, 공격 negateRead(꿰뚫어보기 · 필살 패스 · 간파 사용권 — L54 전에는 스루 패스도)면 ×1.0 — 중거리 짝과 같은 처리. tackle · intercept vs cross = 빗나감 ×missMult (noMissPenalty 면 무시). hold vs dribble · pass = ×1.0 그대로.
 - 짝을 쓰는 곳은 모두 `COUNTER` 를 읽으므로 따라 바뀐다: `bestDefenseResponse / bestAttackResponse`(AI 간파의 교체), `tools/choice.mjs` 정책(pair 등), 기대 % · 추천.
 - 힌트 (`getAttackActions / getDefenseActions`): 크로스 "→ ○○ 헤더 · vs 버티기에 약함", 인터셉트 "(수비+패스)/2 · 패스 짝 ×1.7 · 빗나감 ×0.8 · 빠른 역습", 버티기 "수비 · 크로스 ×1.7 · 중거리 슛 ×1.5 · 역습 이점 없음(…)" (간파 readMult 면 그 이상으로 표시).
 - `view.counter` = COUNTER 사본. 경기 화면의 "짝" 칩은 이것을 먼저 쓰고, 없을 때만 `labels.js COUNTER`(같은 값으로 고침 — ui.smoke 가 두 표가 같은지 본다).
@@ -1292,12 +1294,12 @@ GDD 9.6·9.7·9.16·9.17 대로:
 2. **후보** (`boxLinkCands`, carrier 제외, players 순서): pass(컷백) = FW 전원 + MF 중 **shoot** 최고 1명, cross(센터링) = `crossCands` 와 같다(FW 전원 + MF 중 **physical** 최고 1명). 동률은 슬롯 순서. `planFor(line ≥ 3)` → `{ arrival: 3, candidates, box: true }`.
 3. **기본 받는 선수** (`defaultFromPlan` → `boxReceiverValue`): 마무리 값 최고. 마무리 값 = `receiverValue(arrival 3)`(pass = shoot × actionCoef.shoot × (1 + finisher), cross = 헤더 스탯 × actionCoef.header × (1 + targetman + finisher), 필살 패스면 합체기 ×shoot×comboBonus) × 받는 선수 자기 필살 슛(받은 뒤 게이지 = 지금 + onReceive · 필살 패스면 receiverGauge ≥ gaugeMax 면 ×ultimate.shoot). 결정 `{ action, receiverId? }` — 후보가 아니면 throw (§13.2-10 과 같다).
 4. **판정** (`computeOdds`, `boxLink = line ≥ 3 && action ∈ {pass, cross}`): 공격 = 보통 pass / cross 공격값(cross = (패스+드리블)/2 × crosser +10%) × actionCoef, 보너스 합·필살기·boost 등 기존 규칙 그대로. 수비 = GK save 값 × `boxLink.gkMult` — 짝 · 빗나감 없음, **oneTouchGk 는 붙지 않는다**(연결 자체는 원터치 슛이 아님), 이번 듀얼에 커밋된 GK 필살 세이브(saveMult)는 붙는다. odds 에 `boxLink: true`.
-5. **성공** (`successTransition`, `resolveDuel`): 공 line 3 그대로, carrier = 받은 선수, `oneTouch = true`, `receivedVia = "pass" | "cross"`(cross → 다음 슛 = 헤더), `receivedFresh = true`, `lastPasserId`, chain +1, 받은 선수 게이지 +onReceive(필살 패스면 receiverGauge, 받은 선수가 unique 보유자면 `comboReadyId`), 연계 특성(킬패스 nextDuelBonus 등)은 §13.2 그대로. extraLine(라인 브레이커)은 line 3 에서 추가 전진이 없다. 공격 팀 텐션 duelWin.
+5. **성공** (`successTransition`, `resolveDuel`): 공 line 3 그대로, carrier = 받은 선수, `oneTouch = true`, `receivedVia = "pass" | "cross"`(cross → 다음 슛 = 헤더), `receivedFresh = true`, `lastPasserId`, chain +1, 받은 선수 게이지 +onReceive(필살 패스면 receiverGauge, 받은 선수가 unique 보유자면 `comboReadyId`), 연계 특성(킬패스 nextDuelBonus 등)은 §13.2 그대로. extraLine(필살 패스 · 드리블, L54 부터 스루 패스)은 line 3 에서 추가 전진이 없다. 공격 팀 텐션 duelWin.
 6. **실패**: GK 가 잡음 = 세이브와 같다 — ~~`counterPlan` GK 규칙(시작 0, distributor GK 면 1)~~ → v0.4.4 `counterPlan` GK = `distribution: true` → 그 GK 의 배급 대기(`from: "boxLink"`, §17.1), 수비 팀 텐션 save, 공격권 교대. 슛 수 · 슛 이벤트로 세지 않는다.
 7. **포제션당 1회**: 판정 때(성공 · 실패 무관) `ball.boxLinkUsed = true`. `newBall` 이 false 로 시작 → 새 포제션마다 초기화. 그 뒤 line 3 = shoot 만.
 8. **체력**: `staminaCost.pass / cross` 그대로.
 9. **필살기** (`ultimateUsable`): pass 타입이 line 3 에서도 가능 — 연결(pass 또는 cross)이 켜져 있을 때만, 아니면 사유 "박스 연결은 포제션당 1회" / "연결할 동료 없음". 받은 선수가 필살 슛 보유자면 합체기(`comboReadyId`) → 다음 슛에서 comboBonus · combo 이벤트 (§13.2-12). shot · save 타입은 전과 같다.
-10. **스킬** (`checkSkillUsable`): line ≥ 3 에서 간파가 아닌 `extraLine`(라인 브레이커)과 받은 선수 보너스가 없는 `negateRead` = 사유 "박스에서는 효과 없음". 간파(꿰뚫어보기 · 매의 눈)는 전처럼 "박스에서는 간파 불가". **스루 패스**(negateRead + `nextDuelBonus`, `skills.hasLinkBonus`)는 연결에 쓸 수 있다 — 짝 무효는 GK 상대라 의미 없지만 받은 선수 다음 듀얼 +25%가 원터치 슛·헤더에 붙는다(필살 패스 바람의 실과 같은 규칙, 리뷰 수정 2026-09-29). 연결을 이미 했으면 "박스 연결은 포제션당 1회". 다른 액티브(boost · rally 등)는 연결 판정에 붙는다. ai.js `effectSensible`: extraLine 은 line < 3 에서만, negateRead 는 line 3 이면 nextDuelBonus 가 있고 액션이 pass · cross 일 때만.
+10. **스킬** (`checkSkillUsable`, L54 로 바뀜): 단계 조건 먼저 — `lineBreak`(라인 브레이커) = ③ 에서만 ("③ 파이널 서드에서만"), `maxLine` 이 있는 `extraLine`(스루 패스 1) = ①·② 에서만 ("①·②에서만 (두 구역 앞)"), 패스 전용 extraLine 은 받을 FW 동료가 없으면 "두 구역 앞 받을 FW 없음". 그다음 line ≥ 3 에서 간파가 아닌 `extraLine` · `negateRead` = "박스에서는 효과 없음". 간파(꿰뚫어보기 · 매의 눈)는 전처럼 "박스에서는 간파 불가". 옛 스루 패스의 박스 연결 예외(`skills.hasLinkBonus` · "박스 연결은 포제션당 1회")는 지웠다. 다른 액티브(boost · rally 등)는 연결 판정에 붙는다. ai.js `effectSensible`: extraLine 은 line < 3 · actions 안 · maxLine 이하, lineBreak 는 line 2 · 슛 아님, negateRead 는 line < 3.
 
 ### 15.3 자동 규칙 — `boxLinkEval(state, data, side)` (A안 예외, §13.2-9 · §13.3 보완)
 
@@ -1409,7 +1411,7 @@ counter: { dribble, pass, cross, shoot }   // = COUNTER (§15.1)
 - **test/v05** (+10): 짝 표 · holdVsCross(간파 · 읽는 AI 가 버티기를 고름 포함) / 박스 연결 가능 · 후보 · 기본값 · receiverId · 포제션당 1회 / 연결 판정 = GK × gkMult / 성공 → 원터치 슛 · 헤더 · 연계 · 게이지 · 체력 · 이벤트 / 실패 = save(distributor 포함) / 필살 패스 박스 합체기 · 연결 뒤 필살 패스 불가 / 자동 규칙(비율 문턱 · 원터치 기준 · forced · carrier 필살 슛 · 합체기 · autoRatio 조정, 양 팀) / 미리보기 = 실제(expectedPct · outcomes · outcomesByReceiver) / ④ 스킬 / 자동 경기 불변식 · 결정성. 기존 cross↔intercept 단언 갱신.
 - **test/match**: 1-FW line 3, receiverPreview 규칙, 이벤트 "toStep > step"(박스 연결 3 → 3 예외), away line 3 미리보기, line 3 outcomes(pass + shoot, 연결 뒤 shoot 만), 미리보기 = 실제 하네스(박스 연결 결정 20회 이상 포함).
 - **test/layout** (+2): line 3 후보는 박스 안(이전 "공보다 앞" 대신), 박스 연결 후보 — 4 포메이션² × 양 팀 × carrier 전원 × 스테이지 비율: 박스 안 · 겹침 없음 · 레인 비키기, 연결 직후 배너(양 팀).
-- **리뷰 수정 (2026-09-29)**: v05 +1 "박스 연결 뷰"(AI 가 먼저 커밋한 필살 슛이 view.boxLink 에 그대로 · 엔진 힌트 = GK 배급 기준), 자동 규칙 테스트에 강제 연결 × tieAttack 순서, ④ 스킬 테스트 = 스루 패스 가능(받은 선수 +25%, 연결 뒤 불가) · 꿰뚫어보기 불가. layout 박스 테스트에 화살표–다른 후보 거리 ≥ 반지름(스테이지 비율 포함) · 같은 레인 후보 둘은 가장자리/깊은 줄. lineup `slotSpot` spread, outgame 3-1-2 DF 15/50/85 · 화면 읽기(aria-pressed · aria-description · 알림) · 끄는 중 Esc.
+- **리뷰 수정 (2026-09-29)**: v05 +1 "박스 연결 뷰"(AI 가 먼저 커밋한 필살 슛이 view.boxLink 에 그대로 · 엔진 힌트 = GK 배급 기준), 자동 규칙 테스트에 강제 연결 × tieAttack 순서, ④ 스킬 테스트 = 스루 패스 가능(받은 선수 +25%, 연결 뒤 불가 — L54 에서 바뀜: 스루 패스는 ①·② 에서만) · 꿰뚫어보기 불가. layout 박스 테스트에 화살표–다른 후보 거리 ≥ 반지름(스테이지 비율 포함) · 같은 레인 후보 둘은 가장자리/깊은 줄. lineup `slotSpot` spread, outgame 3-1-2 DF 15/50/85 · 화면 읽기(aria-pressed · aria-description · 알림) · 끄는 중 Esc.
 - **test/ui.smoke**: 시나리오 18(카드 · 이름 · % · outcomes · 힌트 · 추천 · 정보 줄 · 박스 안 후보 · 두 미리보기 · 후보 탭 → `{ action: "pass", receiverId }` 결정과 결과), 19(연결 성공 뒤 "컷백!" 문구 · 결과 줄 · 슛만 · 배너), 11 의 "짝" 확인이 `view.counter` 를 쓴다, `view.counter` = `labels.COUNTER`.
 - **test/lineup** (신규 9): 배치 규칙 = 엔진 validateSquad(무작위 400 · GK A/B), resolveTarget · checkMove(밀려난 선수도 맞아야) · applyMove(원본 불변), 무작위 드래그 1500번 → 늘 규칙에 맞고 createRun 통과, reseat, meetingSwaps → resolveMeeting 결과 = 보드(600 무작위 · 포메이션 4 · 이미 바뀐 배치 · run.applyAction).
 - **test/outgame** (확장): 서포트 칩(6/6 이면 나머지 비활성), 선수 풀, jsdom 포인터 이벤트 드래그(초록/빨강 클래스 · 안내 글 · 고스트 · 놓기 · 거절 + 토스트 · 교체 · 맞바꾸기 · 벤치로), 탭 고르기 · Esc · 탭 놓기, 선수 목록 모달, 미팅 보드(빨강 · 초록 드래그, 모달 밖 놓기, 탭 맞바꾸기, "미팅 진행" = resolveMeeting 결과).
@@ -1446,7 +1448,7 @@ counter: { dribble, pass, cross, shoot }   // = COUNTER (§15.1)
 ### 15.12 남은 문제 (GDD 16-25~28)
 
 1. ~~**자동 연결 조건**이 득점 기대를 낮춘다(위). 시나리오 18: "추천" = 슛 39%, 자동 = 센터링 → 그레타 31%.~~ → v0.4.4 기대 골 규칙 · GK ×0.6 (§17.5). 시나리오 18: 추천 = 자동 = 센터링 → 그레타 41%.
-2. **라인 브레이커 모멘텀**: 라인 브레이커로 박스에 들어온 슛 +20%(extraLine)가 연결 뒤 받은 선수의 슛에도 이어진다 (규칙 그대로 둠 — 지울지 결정 필요).
+2. **라인 브레이커 모멘텀**: 라인 브레이커로 박스에 들어온 슛 +20%(extraLine)가 연결 뒤 받은 선수의 슛에도 이어진다 (규칙 그대로 둠 — 지울지 결정 필요). → L54: 라인 브레이커는 ③ 돌파 → 박스 슛 ×1.5 (`ball.lineBreakMult`) 로 바뀌었고 같은 수명(연결 뒤 받은 선수에게도)을 기획자가 정했다. extraLine +20% 는 필살 패스 · 드리블 몫으로 남는다.
 3. **GK 필살 세이브**는 슛인지 연결인지 모른 채 먼저 커밋되어, 연결이 오면 연결 듀얼에서 쓰인다.
 4. ~~엔진 힌트 문구~~ → 리뷰 수정: GK 배급 기준 (§15.4).
 5. **화면**: ~~뚫린 수비수 · 다른 후보 위를 지나는 연결 화살표~~ → 리뷰 수정 `boxDepths` · `gkLane` (§15.7). 연결 뒤 재배치에서 받은 선수가 박스 자리 → 공 자리로 한 번 움직인다(그대로).
@@ -1465,7 +1467,7 @@ counter: { dribble, pass, cross, shoot }   // = COUNTER (§15.1)
 
 ```text
 대상: state.phase "decision" · duel 있음 · 끝나지 않음. side = attackingSide (양 팀 공격 모두), carrier = ball.carrierId
-fx = 이번 듀얼 공격 효과 (fxOf) — 라인 브레이커 등으로 도착이 바뀌면 그 기준
+fx = 이번 듀얼 공격 효과 (fxOf) — 스루 패스 · 필살 패스 extraLine 으로 도착이 바뀌면 그 기준
 액션: attackOptionsFor(...) 의 pass · cross 중 켜진 것 (④ 면 박스 연결 — boxLinkUsed 면 없음)
 필살 패스: fx.ult 가 pass 면 그 skillId(AI 가 먼저 커밋 — 게이지 0), 아니면 carrier 의 pass 필살기
   passReady(액션) = 커밋했거나 ultimateUsable(carrier, "attack", 액션).ok
@@ -2224,7 +2226,7 @@ node tools/lesson_play.mjs <출력폴더> --until run --legends --outings 3     
 | 공통 | `tier` (R · SR · SSR) · `cutinLine` (1 ~ 24자) | E5 — 컷인 이벤트 `line` · `tier`, `getMatchView().ultimateOptions[].tier · cutinLine` |
 
 - 등급 상한 (데이터 테스트, 런타임 아님): 주 배율 (shot `shoot ÷ gkMult` · pass / dribble `attack` · save `saveMult` · defense `defense` · team `teamMult`) R 1.15 ~ 1.45 (team 1.05 ~ 1.1) · 추가 ≤ 1, SR 1.45 ~ 1.7 · 추가 ≤ 1, SSR ≥ 1.9 (또는 pass + 추가 ≥ 2 — 바람의 실). SSR 필드 선수는 합체기 짝에 1번 이상 (헤르타 GK 예외).
-- **엔진 공통 (E0)**: `ultTypeUsableAt(ult, line)` · `applyUlt(fx, skill, combo)` (미리보기 `fxPlusUlt` 와 실제 `commitUltimate` 가 같은 함수 — `extraLine` 은 `fx.extraLine` 으로 접혀 라인 브레이커와 같은 길) · `ultimateUsable` 종류별 사유 · `computeOdds` 의 공격 `ultMultA` · 수비 `ultMultD` 칩 "필살 ×1.6" · `skills.ultMatchesAction` (종류 ↔ 액션 — 엔진과 화면 `ultCompatible` 공용).
+- **엔진 공통 (E0)**: `ultTypeUsableAt(ult, line)` · `applyUlt(fx, skill, combo)` (미리보기 `fxPlusUlt` 와 실제 `commitUltimate` 가 같은 함수 — `extraLine` 은 `fx.extraLine` 으로 접혀 스루 패스(L54 — `fx.extraLineActions`)와 같은 길 `extraLineFor`) · `ultimateUsable` 종류별 사유 · `computeOdds` 의 공격 `ultMultA` · 수비 `ultMultD` 칩 "필살 ×1.6" · `skills.ultMatchesAction` (종류 ↔ 액션 — 엔진과 화면 `ultCompatible` 공용).
 - **E1 합체기는 등록된 짝만**: `match.comboSkillFor(data, passSkillId, receiver)` — 필살 패스를 받은 선수의 필살기가 `combos.json` 에 짝으로 있을 때만 합체기 대기. 등록 안 된 짝은 보통 수신 (게이지 +`receiverGauge`). AI 필살 패스 = 등록 짝 · 박스로 들어가는 패스 · 한 구역 더 가는 패스. 화면 `boxComboName` 폴백 "합체기" 제거.
 - **L46 주장**: `match.teamworkAmp` 가 주장 `teamworkPlus` 를 합이 아니라 **가장 큰 값 하나**만 더한다. 레슨의 주장 모양 (구역 전원 · 팀워크 +2) 은 카드를 낼 때의 효과라 그대로 [구현 결정 — 기획자 질문 §19.18 Q3].
 - 결정성 · 순수 그대로: 새 규칙은 상태 · 데이터만 읽고, 미리보기 · 뷰 · AI 는 rng 를 쓰지 않는다.

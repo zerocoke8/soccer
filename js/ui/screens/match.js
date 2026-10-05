@@ -71,6 +71,10 @@
 //    SR = 흉상 180×225 창 (띠 위로 약 50px), R = 지금 64 원에 얼굴. 역방향 컷인 = 막은 선수 흉상 (+4° 기울기), 합체기 이름 카드 = 두 선수 흉상 양쪽.
 //    그림은 뒤집지 않는다 (object-position). 화면이 열릴 때 필살기 보유자의 반신 · 흉상 · 얼굴 + 다른 선수 흉상 (역방향)을 미리 불러 둔다.
 //
+// 2026-10-05 L54 (LESSON_PROTO_PLAN §25): 스루 패스 = 두 구역 패스 → 패스 미리보기 끝 글자 "→ 상대 진영 · 두 구역 전진" (엔진 outcome
+//  success.step 이 한 구역 너머일 때). 라인 브레이커 = ③ 돌파 → 박스 슛 ×1.5 — 카드 문구 · % 는 엔진 변형(outcomesBySkill · skills[].expectedPct)
+//  그대로, 화면 코드는 바뀌지 않는다.
+//
 // 가로 전용 (고정 스테이지 1280×720 — js/ui/stage.js, css/match.css). 세로 경기 화면·방향 전환은 없다 (?orient · 저장값은 무시).
 //  - 필드 좌표(layout.js)는 그대로, 픽셀 변환만 가로 (layout.js fieldToScreen 'land' — home 골 왼쪽, away 골 오른쪽, 필드 x 0 = 위).
 //    화면에 그리는 좌표는 전부 toPx(x, y) 를 거친다.
@@ -1268,7 +1272,7 @@ export function renderMatch(root, ctx) {
     const sk = ui.selectedSkillId ? (view.skills || []).find((s) => s.skillId === ui.selectedSkillId) || null : null;
     const ultOk = !u || ultCompatible(u, a.action);
     const nonDefault = !!(ri && ri.id !== ri.defaultId);
-    // 받는 선수별 결과(outcomesByReceiver)는 스킬·필살기 없이 계산된다 → 변형이 도착 구역을 바꾸면(라인 브레이커: 중원 → 박스)
+    // 받는 선수별 결과(outcomesByReceiver)는 스킬·필살기 없이 계산된다 → 변형이 도착 구역을 바꾸면(스루 패스: 중원 → 상대 진영)
     // 쓰지 않는다 (구역 문구·화살표가 틀린다). 그때는 아래에서 변형 결과의 받는 선수 이름만 바꾼다 (≈)
     const sameArrival = !variant || view.receivers?.[a.action]?.arrival === sv?.receivers?.[a.action]?.arrival;
     const byR = ri && sameArrival ? view.outcomesByReceiver?.[a.action]?.[ri.id] ?? null : null;
@@ -1278,7 +1282,7 @@ export function renderMatch(root, ctx) {
       out = byR;
       if (variant) approx = true; // 스킬·필살기 + 기본 아닌 받는 선수: 엔진 조합 미리보기가 없어 기본 규칙 결과
     }
-    // 변형(예: 라인 브레이커로 후보가 FW 로 바뀜)에서 기본이 아닌 선수를 골랐는데 받는 선수별 결과가 없으면:
+    // 변형(예: 스루 패스로 후보가 FW 로 바뀜)에서 기본이 아닌 선수를 골랐는데 받는 선수별 결과가 없으면:
     // 도착 구역은 같으므로 변형 결과의 받는 선수 이름만 바꿔 보여주고 근사로 표시한다
     if (ri && out?.success?.receiver && out.success.receiver.id !== ri.id) {
       const from = out.success.receiver.name;
@@ -1728,7 +1732,7 @@ export function renderMatch(root, ctx) {
         onclick: () => {
           if (!guard()) return;
           ui.selectedSkillId = on ? null : s.skillId;
-          // 라인 브레이커 등: 받는 선수 후보·도착 구역이 바뀌므로 필드도 다시 그린다 (미리보기 = 실제)
+          // 스루 패스 등: 받는 선수 후보·도착 구역이 바뀌므로 필드도 다시 그린다 (미리보기 = 실제)
           relayout();
           drawPanels(curView);
         },
@@ -1880,7 +1884,7 @@ export function renderMatch(root, ctx) {
       if (action === 'dribble' && Lay.nextBall) {
         to = Lay.nextBall;
         tip = zoneName(out?.success?.zone);
-        // 한 구역 더 (필살 드리블 extraLine · 라인 브레이커 — 엔진 outcome success.step): 화살표를 도착 단계까지 늘리고 "두 구역 전진"
+        // 한 구역 더 (필살 드리블 extraLine — 엔진 outcome success.step): 화살표를 도착 단계까지 늘리고 "두 구역 전진"
         const st = Number(out?.success?.step);
         const from = Number(Lay.attackStep);
         if (Number.isFinite(st) && Number.isFinite(from) && st > from + 1 && st <= 3 && SHAPE.ball?.[st] != null) {
@@ -1913,7 +1917,10 @@ export function renderMatch(root, ctx) {
             return;
           }
           const z = zoneName(out?.success?.zone);
-          if (z) arrowTip(at(0.5), `→ ${z}`, c, t2, obs, [at(0.7), at(0.3)]);
+          // 두 구역 패스 (스루 패스 · 필살 패스 extraLine, L54 — 엔진 outcome success.step 이 한 구역 너머): 끝 글자에 "두 구역 전진"
+          const st = Number(out?.success?.step);
+          const two = action === 'pass' && Number.isFinite(st) && st > Number(Lay.attackStep) + 1;
+          if (z) arrowTip(at(0.5), `→ ${z}${two ? ' · 두 구역 전진' : ''}`, c, t2, obs, [at(0.7), at(0.3)]);
         }
         return;
       } else if (action === 'shoot') {

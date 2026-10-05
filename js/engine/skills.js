@@ -2,12 +2,15 @@
  * skills.js — 경기 스킬 효과 (ARCHITECTURE.md §4.3, §7.7, v0.3 §13.1·13.2-12·13)
  *
  * - collectMods(team, playerId, ctx): 패시브 스킬 배율 수집 (self/team, when, actions, positions) — v0.2 그대로
- * - 일반 액티브 (kind "active", `active.effect`): boost / extraLine / powerShot / readBoost / negateRead / steal / rally
+ * - 일반 액티브 (kind "active", `active.effect`): boost / extraLine / lineBreak / powerShot / readBoost / negateRead / steal / rally
  *   applyActive(state, side, playerId, skill, ctx) 가 팀 텐션을 쓰고 이번 듀얼 효과(state.duel.effects[side])에 기록한다.
+ *   L54 (LESSON_PROTO_PLAN §25): extraLine 은 params { actions?, maxLine? } — 스루 패스 = 패스 전용 · ①·② 에서만 두 구역 앞으로
+ *   (fx.extraLineActions — 그 액션에만, extraLineFor). lineBreak (라인 브레이커) = ③ 에서만, 돌파(드리블 · 패스 · 크로스) 성공 → 박스
+ *   원터치 + 다음 박스 슛 ×params.shootMult (fx.lineBreakShot → 공 state.ball.lineBreakMult). activeErrors 가 두 effect 의 인자를 검사한다.
  * - 필살기 (kind "unique", `ultimate` 객체, 텐션 0): 개인 필살 게이지를 쓴다 — 게이지·발동은 match.js 가 관리.
  *   getPlayerUltimate(data, player) 로 조회.
- * - 간파 = readBoost(수비) 또는 행동 제한 없는 negateRead(공격) 일반 액티브 (isGaanpaSkill). 스루 패스처럼 actions 가 있는
- *   negateRead 는 간파가 아니다 (상대 선택을 읽지 않는 패스 스킬).
+ * - 간파 = readBoost(수비) 또는 행동 제한 없는 negateRead(공격) 일반 액티브 (isGaanpaSkill). actions 가 있는 negateRead 는
+ *   간파가 아니다 (상대 선택을 읽지 않는 행동 스킬 — 지금 데이터에는 없다, L54 전 스루 패스가 그랬다).
  * - 2026-09-29 GK 배급: longPassBoost (캐논 킥, phase "distribution") — 듀얼이 아니라 GK 롱패스 배급에서만 쓴다
  *   (isDistributionSkill · checkDistributionSkill). 텐션 소모·이벤트는 match.js 의 배급 판정이 한다 (applyActive 는 듀얼 전용).
  *
@@ -23,8 +26,17 @@ export const MOD_KEYS = ["attack", "defense", "staminaCost", "tensionGain", "sav
 /**
  * v0.3 일반 액티브 effect 어휘 (§13.1). 이전 reveal / recover / chainBoost / shield 는 폐지.
  * longPassBoost (2026-09-29): GK 롱패스 배급 ×params.longPass, 성공하면 공격 첫 듀얼 +params.nextDuelBonus — 배급 전용
+ * lineBreak (L54): ③ 파이널 서드 돌파 성공 → 박스 원터치 + 다음 박스 슛 ×params.shootMult
  */
-export const ACTIVE_EFFECTS = ["boost", "extraLine", "powerShot", "readBoost", "negateRead", "steal", "rally", "longPassBoost"];
+export const ACTIVE_EFFECTS = ["boost", "extraLine", "lineBreak", "powerShot", "readBoost", "negateRead", "steal", "rally", "longPassBoost"];
+/** 공격 단계 표시 (①②③④ = lineIndex 0..3) — 사용 조건 사유 문구 */
+const STEP_MARKS = ["①", "②", "③", "④"];
+/** 공격 액션 표시 이름 (발동 문구) */
+const ACT_NAMES = { dribble: "드리블", pass: "패스", cross: "크로스", shoot: "슛" };
+/** extraLine 액티브 params.actions 에 쓸 수 있는 액션 (크로스는 늘 박스 도착이라 한 구역 더가 없다) */
+const EXTRA_LINE_ACTIONS = ["dribble", "pass"];
+/** lineBreak 가 쓰이는 공격 단계 (③ 파이널 서드 — 돌파하면 박스) */
+export const LINE_BREAK_LINE = 2;
 /** 듀얼이 아니라 GK 배급(match phase "distribution")에서 쓰는 effect */
 export const DISTRIBUTION_EFFECTS = ["longPassBoost"];
 /**
@@ -153,6 +165,55 @@ export function validateUltimates(data) {
   validatedSkills.add(list);
 }
 
+/**
+ * 일반 액티브 데이터 검증 (L54, 순수) → 오류 문구 배열 (없으면 []). 일반 액티브가 아닌 스킬(active 없음)은 [].
+ * effect ∈ ACTIVE_EFFECTS · extraLine: actions ⊂ {dribble, pass} 비지 않음 (중복 없음) · maxLine ∈ {0, 1, 2} (둘 다 있을 때만) ·
+ * lineBreak: shootMult ≥ 1 (꼭 있어야 한다).
+ */
+export function activeErrors(skill) {
+  const a = skill && skill.active;
+  if (!a) return [];
+  const id = (skill && skill.id) || "?";
+  if (!ACTIVE_EFFECTS.includes(a.effect)) return [`액티브 ${id}: 알 수 없는 effect ${a.effect}`];
+  const p = a.params || {};
+  const errs = [];
+  if (a.effect === "extraLine") {
+    if ("actions" in p) {
+      const acts = p.actions;
+      if (!Array.isArray(acts) || !acts.length || acts.some((x) => !EXTRA_LINE_ACTIONS.includes(x)) || new Set(acts).size !== acts.length) {
+        errs.push(`액티브 ${id}: extraLine actions 는 dribble · pass 중 하나 이상 (중복 없음)`);
+      }
+    }
+    if ("maxLine" in p && ![0, 1, 2].includes(p.maxLine)) errs.push(`액티브 ${id}: extraLine maxLine 은 0 · 1 · 2`);
+  }
+  if (a.effect === "lineBreak" && !(typeof p.shootMult === "number" && Number.isFinite(p.shootMult) && p.shootMult >= 1)) {
+    errs.push(`액티브 ${id}: lineBreak shootMult 는 1 이상이어야 합니다`);
+  }
+  return errs;
+}
+
+const validatedActives = new WeakSet();
+
+/** data.skills 의 모든 일반 액티브를 검사하고 오류가 있으면 모아서 throw (같은 skills 배열은 한 번만 — 캐시) */
+export function validateActives(data) {
+  const list = data && Array.isArray(data.skills) ? data.skills : null;
+  if (!list || validatedActives.has(list)) return;
+  const errs = [];
+  for (const sk of list) errs.push(...activeErrors(sk));
+  if (errs.length) throw new Error(`skills: 액티브 데이터 오류\n${errs.join("\n")}`);
+  validatedActives.add(list);
+}
+
+/**
+ * 이번 액션에 "두 구역 앞"(extraLine — 성공하면 한 구역 더)이 붙는가 (L54). fx.extraLine = 모든 액션 (필살 패스 · 드리블의 접기,
+ * actions 없는 extraLine 액티브), fx.extraLineActions = 그 액션에만 (스루 패스 = 패스). match.js · 미리보기 공용.
+ */
+export function extraLineFor(fx, action) {
+  if (!fx) return false;
+  if (fx.extraLine) return true;
+  return Array.isArray(fx.extraLineActions) && fx.extraLineActions.includes(action);
+}
+
 /** 패스 필살기가 쓸 수 있는 액션 (actions 없으면 패스 · 크로스) */
 export function ultPassActions(ult) {
   return ult && Array.isArray(ult.actions) && ult.actions.length ? ult.actions : ["pass", "cross"];
@@ -173,12 +234,6 @@ export function ultMatchesAction(ult, action) {
     case "team": return true;
     default: return false;
   }
-}
-
-/** 패스·크로스 negateRead 에 받은 선수 다음 듀얼 보너스(nextDuelBonus)가 붙은 액티브 (스루 패스) — ④ 박스 연결에서도 의미가 있다 */
-export function hasLinkBonus(skill) {
-  const a = skill && skill.active;
-  return !!(a && a.effect === "negateRead" && Number(a.params && a.params.nextDuelBonus) > 0);
 }
 
 /** GK 배급 스킬 (캐논 킥 — effect longPassBoost): 듀얼에서는 쓸 수 없고 롱패스 배급에서만 */
@@ -331,11 +386,12 @@ function forEachActivePassive(team, playerId, ctx, fn) {
  * 이번 듀얼에 적용되는 효과 누적 객체 (state.duel.effects[side]).
  *  attackMult / attackActions : boost 공격 배율과 적용 액션 (null = 전부)
  *  defenseMult, noMissPenalty, noFailPenalty, noStamina : boost 옵션
- *  extraLine                  : 성공 시 한 구역 추가 전진
+ *  extraLine                  : 성공 시 한 구역 더 (두 구역 앞) — 모든 액션 (필살 패스 · 드리블 접기, actions 없는 extraLine 액티브)
+ *  extraLineActions           : 성공 시 한 구역 더 — 이 액션에만 (스루 패스 = ["pass"]) | null. 읽기는 extraLineFor(fx, action)
+ *  lineBreakShot              : 라인 브레이커 (lineBreak) — ③ 돌파 성공 시 박스 원터치 + 다음 박스 슛 배율 (1 = 없음)
  *  shootMult / midrangeCoef / extraStamina : powerShot
  *  readMult                   : readBoost (0 = 없음) — 짝 맞힘 배율 대체
  *  negateRead / negateActions : 상대 짝 맞힘 ×1.0 (negateActions null = 전 액션)
- *  nextDuelBonus              : 패스·크로스 성공 시 받은 선수 다음 듀얼 보너스 (스루 패스)
  *  steal                      : { plus, tension, cappedNextBonus } | null
  *  usedSkillId                : 이번 듀얼에 쓴 일반 액티브 (팀당 1개)
  *  gaanpa                     : "skill" | "ticket" | null — 이 팀이 이번 듀얼에 간파를 썼다
@@ -351,13 +407,14 @@ export function emptyDuelEffects() {
     noFailPenalty: false,
     noStamina: false,
     extraLine: false,
+    extraLineActions: null,
+    lineBreakShot: 1,
     shootMult: 1,
     midrangeCoef: null,
     extraStamina: 0,
     readMult: 0,
     negateRead: false,
     negateActions: null,
-    nextDuelBonus: 0,
     steal: null,
     usedSkillId: null,
     gaanpa: null,
@@ -396,9 +453,18 @@ export function addSkillFx(fx, skill) {
       if (p.noStamina) { fx.noStamina = true; parts.push("성공 시 체력 소모 없음"); }
       return parts.join(", ");
     }
-    case "extraLine":
-      fx.extraLine = true;
-      return "성공 시 한 구역 추가 전진";
+    case "extraLine": {
+      // L54: actions 가 있으면 그 액션에만 (스루 패스 = 패스 — fx.extraLineActions), 없으면 모든 액션 (fx.extraLine). 읽기는 extraLineFor
+      const acts = Array.isArray(p.actions) && p.actions.length ? p.actions : null;
+      if (acts) fx.extraLineActions = [...new Set([...(fx.extraLineActions || []), ...acts])];
+      else fx.extraLine = true;
+      return `${acts ? `${acts.map((a) => ACT_NAMES[a] || a).join("·")} ` : ""}성공 시 수비 한 줄을 건너뛰어 두 구역 앞으로`;
+    }
+    case "lineBreak": {
+      const s = numOr(p.shootMult, 1.5);
+      fx.lineBreakShot = Math.max(numOr(fx.lineBreakShot, 1), s);
+      return `③ 돌파 성공 시 박스 원터치 · 다음 슛 위력 ×${s}`;
+    }
     case "powerShot": {
       const s = numOr(p.shoot, 1.5);
       fx.shootMult *= s;
@@ -414,9 +480,8 @@ export function addSkillFx(fx, skill) {
     case "negateRead": {
       fx.negateRead = true;
       fx.negateActions = Array.isArray(p.actions) && p.actions.length ? p.actions.slice() : null;
-      if (p.nextDuelBonus != null) fx.nextDuelBonus = Math.max(fx.nextDuelBonus || 0, numOr(p.nextDuelBonus, 0));
-      const who = fx.negateActions ? "이번 패스" : "간파 — 이번 듀얼";
-      return `${who} 상대 짝 맞힘 무효${p.nextDuelBonus ? ` · 받은 선수 다음 듀얼 +${Math.round(numOr(p.nextDuelBonus, 0) * 100)}%` : ""}`;
+      const who = fx.negateActions ? `이번 ${fx.negateActions.map((a) => ACT_NAMES[a] || a).join("·")}` : "간파 — 이번 듀얼";
+      return `${who} 상대 짝 맞힘 무효`;
     }
     case "steal":
       fx.steal = { plus: numOr(p.plus, 1), tension: numOr(p.tension, 0), cappedNextBonus: numOr(p.cappedNextBonus, 0) };
@@ -471,14 +536,21 @@ export function checkSkillUsable(state, data, side, playerId, skill, role) {
   const duel = state.duel;
   const fx = duel && duel.effects && duel.effects[side];
   const line = state.ball ? Number(state.ball.lineIndex) || 0 : 0;
-  // 박스(④, GK 1:1 · 박스 연결)에서 의미 없는 효과: 추가 전진(extraLine), 짝 없는 GK 상대 짝 무효(negateRead).
-  // 단 받은 선수 보너스(nextDuelBonus)가 붙은 negateRead(스루 패스)는 박스 연결에서 그 보너스가 받은 선수의 원터치 슛·헤더에 붙는다
-  // (필살 패스 바람의 실과 같은 규칙) → 연결이 남아 있으면 쓸 수 있다.
-  if (line >= 3 && !isGaanpaSkill(skill)) {
-    const e = skill.active.effect;
-    if (e === "extraLine" || (e === "negateRead" && !hasLinkBonus(skill))) return { ok: false, reason: "박스에서는 효과 없음" };
-    if (hasLinkBonus(skill) && state.ball && state.ball.boxLinkUsed) return { ok: false, reason: "박스 연결은 포제션당 1회" };
+  const e = skill.active.effect;
+  const p = skill.active.params || {};
+  // L54 (§25): 쓰는 단계가 정해진 효과 — 라인 브레이커(lineBreak) = ③ 에서만, maxLine 이 있는 extraLine(스루 패스 1) = ①·② 에서만
+  if (e === "lineBreak" && line !== LINE_BREAK_LINE) return { ok: false, reason: "③ 파이널 서드에서만" };
+  if (e === "extraLine" && Number.isInteger(p.maxLine) && line > p.maxLine) {
+    return { ok: false, reason: `${STEP_MARKS.slice(0, p.maxLine + 1).join("·")}에서만 (두 구역 앞)` };
   }
+  // 패스 전용 extraLine (스루 패스): 두 구역 앞(③ · ④)은 FW 가 받는다 (match.passCands) — 받을 FW 동료가 없으면 한 구역 패스로 줄어
+  // 스킬이 헛돌므로 막는다. 지금 대형 4개는 모두 FW ≥ 1 이고 스루 패스는 DF · MF 만 들어서 실제 경기에서는 생기지 않는다 (§25 [구현 결정])
+  const xActs = e === "extraLine" && Array.isArray(p.actions) && p.actions.length ? p.actions : null;
+  if (xActs && xActs.every((a) => a === "pass") && !(team.players || []).some((q) => q.position === "FW" && q.id !== playerId)) {
+    return { ok: false, reason: "두 구역 앞 받을 FW 없음" };
+  }
+  // 박스(④, GK 1:1 · 박스 연결)에서 의미 없는 효과: 한 구역 더(extraLine — 더 갈 곳이 없다), 짝 없는 GK 상대 짝 무효(negateRead)
+  if (line >= 3 && !isGaanpaSkill(skill) && (e === "extraLine" || e === "negateRead")) return { ok: false, reason: "박스에서는 효과 없음" };
   if (isGaanpaSkill(skill)) {
     if (line >= 3) return { ok: false, reason: "박스에서는 간파 불가" };
     const opp = side === "home" ? "away" : "home";

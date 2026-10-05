@@ -78,7 +78,7 @@ export const DECISIVE_KINDS = {
   wall: 'link', distributor: 'link', oneTouch: 'link', teamwork: 'link',
   ultimate: 'ult', combo: 'ult', saveUlt: 'ult', ultShotGk: 'ult',
   beaten: 'edge', interceptFail: 'edge', next: 'edge',
-  skill: 'skill',
+  skill: 'skill', lineBreak: 'skill', // lineBreak = 라인 브레이커로 박스에 실린 슛 ×1.5 (L54 — 액티브 스킬 몫)
 };
 
 // 연계 특성 (GDD v0.5 §9.10, data/traits.json). 이름·설명은 data.traits 가 있으면 그것을 쓰고(traitInfo), 아이콘은 여기만.

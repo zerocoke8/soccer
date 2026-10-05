@@ -18,7 +18,8 @@
  *   duelPicker   : best / matchup                     → 수비 선수 선택 (match.js setupDuel)
  *   distribution : short / long / auto                → GK 배급 (auto = 롱패스 확률 ≥ config.match.longPassAutoMin 이면 길게)
  *
- * 스킬 (§13.3): 효과 없는 사용 금지(버티기 + 소매치기, 박스에서 간파 등). 간파(스킬·사용권)는 레버리지 비트
+ * 스킬 (§13.3): 효과 없는 사용 금지(버티기 + 소매치기, 박스에서 간파, L54 스루 패스는 ①·② 패스만 · 라인 브레이커는 ③ 돌파만 등).
+ *  간파(스킬·사용권)는 레버리지 비트
  *  (line 2 공격·수비, 또는 동점·열세이고 남은 포제션 ≤ 3)에서만. 필살기는 match.aiWantsUltimate 규칙.
  *
  * 순수 로직. state 를 바꾸지 않고 난수를 쓰지 않는다 (§13.2-9: rng 는 판정 주사위만).
@@ -49,6 +50,7 @@ import {
   getSkill,
   addSkillFx,
   emptyDuelEffects,
+  LINE_BREAK_LINE,
 } from "./skills.js";
 // GK 배급 전술 목록은 run.js 한 곳 (옛 저장 이행과 같은 목록)
 import { DISTRIBUTION_TACTICS } from "./run.js";
@@ -109,18 +111,23 @@ function effectSensible(sk, role, action, state, side, m) {
       if (p.defense != null && p.attack == null) return role === "defense";
       return true;
     }
-    case "extraLine":
-      // 박스 연결(④ 컷백·센터링)은 더 전진할 곳이 없다
-      return role === "attack" && action !== "shoot" && line < 3;
+    case "extraLine": {
+      // 박스 연결(④ 컷백·센터링)은 더 전진할 곳이 없다. L54: actions(스루 패스 = 패스) 밖 액션 · maxLine(①·②) 밖이면 헛돈다
+      const acts = Array.isArray(p.actions) && p.actions.length ? p.actions : null;
+      if (Number.isInteger(p.maxLine) && line > p.maxLine) return false;
+      return role === "attack" && action !== "shoot" && line < 3 && (!acts || acts.includes(action));
+    }
+    case "lineBreak":
+      // L54 라인 브레이커: ③ 에서 돌파(드리블 · 패스 · 크로스)할 때만 — ③ 중거리 슛에는 효과 없음
+      return role === "attack" && line === LINE_BREAK_LINE && action !== "shoot";
     case "powerShot":
       return role === "attack" && action === "shoot";
     case "readBoost":
       return role === "defense" && line < 3;
     case "negateRead": {
       const acts = Array.isArray(p.actions) && p.actions.length ? p.actions : null;
-      // ④ 는 짝이 없는 GK 상대라 짝 무효는 의미 없다 — 받은 선수 보너스(nextDuelBonus)가 있으면 박스 연결에 쓴다
-      if (line >= 3) return role === "attack" && num(p.nextDuelBonus, 0) > 0 && (action === "pass" || action === "cross") && (!acts || acts.includes(action));
-      return role === "attack" && (!acts || acts.includes(action));
+      // ④ 는 짝이 없는 GK 상대라 짝 무효는 의미 없다
+      return role === "attack" && line < 3 && (!acts || acts.includes(action));
     }
     case "steal":
       // 버티기로 막으면 역습 이점이 없어 소매치기 무의미
