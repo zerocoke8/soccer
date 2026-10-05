@@ -64,6 +64,13 @@
 //  - 확정 배급 (필살 세이브 sureDistribution): 롱패스 카드 % 칸 "확정", 실패 줄 "실패 없음 (확정)", 힌트 = 필살기 이름, 정보 줄 · 화살표도 확정.
 //  - 팀 필살기 로그 줄 (.ev-teamUlt), 결과 한 줄 "필살 태클!" (필살 수비) · "확정 롱패스".
 //
+// 2026-10-05 일러스트 (LESSON_PROTO_PLAN §24.12.3 · 24.12.4, U2 — 이 슬라이스만 경기 화면을 고친다, layout.js 그대로):
+//  - 얼굴: 토큰 .tok-face (44) · 미니 카드 얼굴 = 스냅샷 charId 의 얼굴 그림 (store.match[side].players — 우리 팀 늘, 상대는 도전 모드처럼 charId 가
+//    있고 목록에 그림이 있을 때만). 그림 없는 상대는 지금 글자 칸 (원정 = 둥근 네모). 글자는 DOM 에 남는다 (dom.setFaceArt · avatar art).
+//  - 컷인 (art.cutArt — .cut-face 가 그림 칸): SSR (등급 없는 합체기 두 장 포함) = 반신 260×390 이 자기 편 쪽에서 미끄러져 들어와 띠 위에 선다,
+//    SR = 흉상 180×225 창 (띠 위로 약 50px), R = 지금 64 원에 얼굴. 역방향 컷인 = 막은 선수 흉상 (+4° 기울기), 합체기 이름 카드 = 두 선수 흉상 양쪽.
+//    그림은 뒤집지 않는다 (object-position). 화면이 열릴 때 필살기 보유자의 반신 · 흉상 · 얼굴 + 다른 선수 흉상 (역방향)을 미리 불러 둔다.
+//
 // 가로 전용 (고정 스테이지 1280×720 — js/ui/stage.js, css/match.css). 세로 경기 화면·방향 전환은 없다 (?orient · 저장값은 무시).
 //  - 필드 좌표(layout.js)는 그대로, 픽셀 변환만 가로 (layout.js fieldToScreen 'land' — home 골 왼쪽, away 골 오른쪽, 필드 x 0 = 위).
 //    화면에 그리는 좌표는 전부 toPx(x, y) 를 거친다.
@@ -74,7 +81,8 @@
 //      로그(.m-logbox) = 로그 버튼으로 여는 반투명 서랍 (기본 닫힘, 안쪽 스크롤, 공 · 공격 방향의 반대쪽 절반 — placeLogBox)
 //  - 규칙 영역(.m-field: 구역·선·박스·골문·토큰·공·화살표)은 위 HUD(헤더+트랙)와 아래 HUD(카드 줄) 사이로 줄인다 → HUD 가 토큰·이름표·말풍선·
 //    미리보기를 가리지 않는다. 구역·선과 토큰이 같은 사각형을 쓴다 (화면 위치 = 규칙 위치). 크기는 논리 px 로 잰다 (스테이지 배율과 무관).
-import { h, avatar, openModal, closeOverlays, bar, statBadge, toast } from '../dom.js';
+import { h, avatar, openModal, closeOverlays, bar, statBadge, toast, setFaceArt } from '../dom.js';
+import { portraitUrl, portraitUrls, preloadArt, cutArt } from '../art.js';
 import { saveMatch } from '../store.js';
 import { computeLayout, resolvePreview, withJosa, ZONES, SHAPE, fieldToScreen, screenToField } from '../layout.js';
 import * as L from '../labels.js';
@@ -426,7 +434,8 @@ export function renderMatch(root, ctx) {
     const key = `${t.side}:${t.id}`;
     let el = tokEls.get(key);
     if (el) return el;
-    const face = h('span', { class: 'tok-face', style: { background: t.portraitColor || '#4b5563' } }, initialOf(t.name));
+    // 얼굴 그림 (§24.12.3): 스냅샷 charId 가 있고 목록에 그림이 있을 때만 (그림 없는 상대 = 글자). 그림은 탭 · 길게 누르기를 가로채지 않는다 (.pt)
+    const face = setFaceArt(h('span', { class: 'tok-face', style: { background: t.portraitColor || '#4b5563' } }, initialOf(t.name)), snapArt(t.side, t.id));
     const barI = h('i');
     const nameEl = h('span', { class: 'tok-name' }, t.name);
     const bubble = h('span', { class: 'tok-bubble' });
@@ -2284,7 +2293,8 @@ export function renderMatch(root, ctx) {
       const role = rc.kind === 'save' ? 'GK' : g.position ?? rc.position ?? '';
       return h('div', { class: ['cut', 'cut-save', 'cut-rev', `rev-${rc.kind}`, `side-${defSide}`], dataset: { kind: rc.kind } },
         h('div', { class: 'cut-band' },
-          h('span', { class: 'cut-face', style: { background: g.portraitColor || '#4b5563' } }, initialOf(g.name)),
+          // 막은 선수 흉상 창 (§24.12.4 — 띠와 같은 +4° 기울기로 자른다), 그림이 없으면 지금 글자 원
+          cutArt(h('span', { class: 'cut-face', style: { background: g.portraitColor || '#4b5563' } }, initialOf(g.name)), snapArt(defSide, rc.playerId ?? ev.defenderId, 'bust'), 'bust'),
           h('div', { class: 'cut-txt' },
             h('small', {}, `${usDef ? '' : '상대 '}${role ? `${role} ` : ''}${g.name ?? ''} · ${what} ${rc.kind === 'passCut' ? '차단' : '봉쇄'}`),
             h('b', {}, rc.text || REVERSE_TEXT[rc.kind] || '막아냈다!'))));
@@ -2293,12 +2303,20 @@ export function renderMatch(root, ctx) {
     const us = side === humanOf(curView);
     if (c.kind === 'name') {
       const [pa, pb] = Array.isArray(ev.playerIds) ? ev.playerIds : [];
-      return h('div', { class: ['cut', 'cut-name', `side-${side}`] },
+      // 두 선수 흉상 (§24.12.4): 패스한 선수 왼쪽 · 받은 선수 오른쪽 (아래 글 "A → B" 와 같은 순서). 둘 다 그림이 없으면 지금처럼 이름 띠만
+      const duo = [pa, pb].map((id) => {
+        const q = playerSnap(side, id) || {};
+        return cutArt(h('span', { class: ['cut-face', 'cut-duo'], style: { background: q.portraitColor || '#4b5563' } }, initialOf(q.name)), snapArt(side, id, 'bust'), 'bust');
+      });
+      const withArt = duo.some((el) => el.classList.contains('has-art'));
+      return h('div', { class: ['cut', 'cut-name', `side-${side}`, withArt ? 'has-duo' : ''] },
         h('div', { class: 'cut-band' },
+          withArt ? duo[0] : null,
           h('div', { class: 'cut-txt' },
             h('small', {}, `${us ? '' : '상대 '}합체기`),
             h('b', {}, ev.name ?? '합체기'),
-            h('span', { class: 'cut-sub' }, [playerSnap(side, pa)?.name, playerSnap(side, pb)?.name].filter(Boolean).join(' → ')))));
+            h('span', { class: 'cut-sub' }, [playerSnap(side, pa)?.name, playerSnap(side, pb)?.name].filter(Boolean).join(' → '))),
+          withArt ? duo[1] : null));
     }
     const p = playerSnap(side, ev.playerId) || {};
     const sk = skillById(ev.skillId);
@@ -2307,10 +2325,12 @@ export function renderMatch(root, ctx) {
     // 합체기 두 장) 클래스 없음 = SSR 판. 종류 칩 .cut-type.ut-<type> (색 = 종류), 대사 한 줄 .cut-line (이벤트 line 이 있을 때만)
     const tier = c.part ? null : tierOf(ev);
     const typeLabel = L.ULT_TYPE_LABELS[type] ?? '필살기';
+    // 그림 (§24.12.4): SSR (등급 없는 판 · 합체기 두 장) = 반신, SR = 흉상 창, R = 얼굴 원. 그림이 없으면 (상대 · 유스) 지금 글자 칸
+    const preset = tier === 'R' ? 'face' : tier === 'SR' ? 'bust' : 'half';
     return h('div', { class: ['cut', `side-${side}`, `el-${p.element ?? 'none'}`, type ? `ut-${type}` : '', tier ? `tier-${tier}` : '', c.part ? `part-${c.part}` : ''],
       dataset: { type: type ?? '', tier: tier ?? '' } },
       h('div', { class: 'cut-band' },
-        h('span', { class: 'cut-face', style: { background: p.portraitColor || '#4b5563' } }, initialOf(p.name)),
+        cutArt(h('span', { class: 'cut-face', style: { background: p.portraitColor || '#4b5563' } }, initialOf(p.name)), snapArt(side, ev.playerId, preset), preset),
         h('div', { class: 'cut-txt' },
           h('small', {}, `${us ? '' : '상대 '}${p.name ?? ''} · `, h('span', { class: ['cut-type', type ? `ut-${type}` : ''] }, typeLabel),
             c.part ? ` (${c.part}/2)` : ''),
@@ -2320,6 +2340,23 @@ export function renderMatch(root, ctx) {
   /** 필살기 컷인 대사 (스킬 데이터 ultimate.cutinLine — 합체기 패스한 선수의 컷인용) */
   const ultLineOf = (id) => skillById(id)?.ultimate?.cutinLine || null;
   const playerSnap = (side, id) => store.match?.[side]?.players?.find?.((p) => p.id === id) || null;
+  /** 경기 선수 그림 주소 (§24.12.3): 스냅샷 charId → 목록에 있을 때만 (런 상대 · 유스 = null → 글자 칸) */
+  const snapArt = (side, id, preset = 'face') => portraitUrl(data, playerSnap(side, id)?.charId, preset);
+  /**
+   * 컷인 그림 미리 불러오기 목록 (§24.12.4): 필살기 보유자 = 반신 · 흉상 · 얼굴, 그 밖의 선수 = 흉상 (역방향 컷인 — 막은 선수).
+   * 컷인은 0.6 ~ 1.0초라 그때 불러오면 빈 띠가 보인다
+   */
+  function cutArtUrls() {
+    const urls = [];
+    for (const side of ['home', 'away']) {
+      for (const p of store.match?.[side]?.players || []) {
+        if (!p?.charId) continue;
+        const hasUlt = (Array.isArray(p.skillIds) ? p.skillIds : []).some((sid) => skillById(sid)?.ultimate);
+        urls.push(...portraitUrls(data, [p.charId], hasUlt ? ['half', 'bust', 'face'] : ['bust']));
+      }
+    }
+    return urls;
+  }
 
   /**
    * 연출 시작: 결정 UI 를 즉시 잠근다. 사람이 방금 고른 결정이면 버튼을 그대로 두고(고른 액션 표시) 비활성만,
@@ -2945,7 +2982,7 @@ export function renderMatch(root, ctx) {
       ? RECV_ACTIONS.filter((a) => recvInfo(view, a)?.candidates.includes(id)) : [];
     const content = h('div', { class: 'mini-card' },
       h('div', { class: 'row' },
-        avatar(p.portraitColor, p.name, 'md', side === 'home' ? 'ring-home' : 'ring-away'),
+        avatar(p.portraitColor, p.name, 'md', side === 'home' ? 'ring-home' : 'ring-away', { art: snapArt(side, id) }),
         h('div', { class: 'col grow' },
           h('b', {}, p.name ?? ''),
           h('span', { class: 'small muted' }, meta)),
@@ -2979,6 +3016,7 @@ export function renderMatch(root, ctx) {
   logBox.classList.toggle('open', !!ui.logOpen);
   logBox.setAttribute('aria-hidden', ui.logOpen ? 'false' : 'true');
   setDurations(fx());
+  preloadArt(cutArtUrls()); // 컷인 그림 (§24.12.4) — 기다리지 않는다
   const v0 = getView();
   const L0 = layoutFor(v0);
   applyLayout(L0, v0, { anim: false });

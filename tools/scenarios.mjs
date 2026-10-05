@@ -714,6 +714,27 @@ export const SCENARIOS = [
         : `상대 급류 컷인 이벤트 없음 (${fresh.map((e) => e.type).join(",") || "-"})`;
     },
   },
+  {
+    // §24.12.4 (U2) SSR 컷인 일러스트: 혼자 쓰는 필살 슛 (메테오 — 22 와 같은 장면) → 경기의 첫 필살기 = 차지 0.4 + 컷인 1.0초,
+    // 900ms 뒤 = 컷인 한가운데 (반신 그림이 왼쪽에서 들어와 띠 위에 선 뒤)
+    name: "35_cutin_ssr",
+    title: "SSR 컷인 일러스트 — 메테오 슛 토글 + 슛 900ms 뒤 (1x): 반신 그림 (띠 위로 머리) · 종류 칩 · 대사",
+    matchKind: "friendly",
+    auto: false,
+    require: (s, { data }) => isDuel(s) && s.attackingSide === "home" && needs(s, "attack") && (() => {
+      const u = ultOption(viewOf(s, data));
+      return !!u && u.type === "shot" && !u.comboName;
+    })(),
+    prefer: (s) => !s.events.some((e) => e.type === "cutin") && s.ball.lineIndex >= 3,
+    interact: { type: "steps", steps: [{ click: ".skill-row .ult-btn:not(:disabled)" }, { wait: 120 }, { press: "shoot", waitMs: 900 }] },
+    verify: (prev, live) => {
+      if (!live) return "캡처 시점 경기 상태를 읽지 못함";
+      const fresh = (live.events || []).slice((prev.events || []).length);
+      return fresh.some((e) => e.type === "cutin" && e.side === "home" && e.tier === "SSR")
+        ? true
+        : `우리 SSR 컷인 이벤트 없음 (${fresh.map((e) => e.type).join(",") || "-"})`;
+    },
+  },
 ];
 
 /**

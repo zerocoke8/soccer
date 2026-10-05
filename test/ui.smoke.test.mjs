@@ -284,6 +284,21 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
   assert.equal(fieldEl.querySelectorAll(".tok").length, 14, "토큰은 규칙 영역 안");
   assert.equal(fieldEl.querySelectorAll(".zone").length, 5, "구역도 같은 규칙 영역 (화면 위치 = 규칙 위치)");
   assert.ok(fieldEl.querySelector(".m-ball") && fieldEl.querySelector(".pitch-svg"), "공 · 화살표 층도 규칙 영역");
+  // 얼굴 일러스트 (LESSON_PROTO_PLAN §24.12.3 · U2): 우리 토큰 = 스냅샷 charId 의 얼굴 그림 (글자는 남는다), 런 상대 (charId 없음) = 글자 칸만
+  const PT = S.store.data.portraits;
+  assert.ok(PT && PT.chars, "그림 목록 data.portraits");
+  const artUrl = (cid, preset = "face") => `./img/portraits/${cid}.${preset}.webp?v=${PT.chars[cid].v}`;
+  for (const p of S.store.match.home.players) {
+    const face = fieldEl.querySelector(`.tok[data-side="home"][data-id="${p.id}"] .tok-face`);
+    assert.equal(face.querySelector("img.pt")?.getAttribute("src"), artUrl(p.charId), `${p.name}: 토큰 얼굴 그림 = 스냅샷 charId`);
+    assert.equal(face.querySelector("img.pt").getAttribute("draggable"), "false", `${p.name}: 그림 draggable false`);
+    assert.equal(face.textContent, Array.from(p.name)[0], `${p.name}: 글자는 남는다`);
+  }
+  for (const p of S.store.match.away.players) {
+    assert.ok(!p.charId, `런 상대 ${p.name}: 스냅샷에 charId 없음`);
+    const face = fieldEl.querySelector(`.tok[data-side="away"][data-id="${p.id}"] .tok-face`);
+    assert.ok(face && !face.querySelector("img") && !face.classList.contains("has-art"), `상대 ${p.name}: 그림 없음 (글자 칸)`);
+  }
   for (const sel of [".mh", ".m-banner", ".m-track", ".m-dock", ".m-ctl", ".skill-row", ".m-logbox", ".m-cutin"]) {
     const el = scr.querySelector(`:scope > ${sel}`);
     assert.ok(el, `HUD ${sel} (화면 바로 아래)`);
@@ -356,11 +371,13 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
     // 후보가 아닌 토큰 탭 = 미니 카드 (연계 특성 표시)
     scr.querySelector(`.tok[data-side="away"][data-id="${oppExp.playerId}"]`).click();
     assert.equal(doc.querySelectorAll("#modal-root .mini-card").length, 1, "미니 카드");
+    assert.ok(!doc.querySelector("#modal-root .mini-card .avatar img"), "상대 미니 카드 얼굴 = 글자 (그림 없음)");
     [...doc.querySelectorAll("#modal-root button")].find((b) => b.textContent === "닫기").click();
     const ownTrait = mv.players.home.find((p) => p.id === picked).trait;
     scr.querySelector(`.tok[data-side="home"][data-id="${picked}"]`).dispatchEvent(new window.MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
     const card = doc.querySelector("#modal-root .mini-card");
     assert.ok(card, "후보도 길게 누르기(우클릭) = 미니 카드");
+    assert.equal(card.querySelector(".avatar.ring-home > img.pt")?.getAttribute("src"), artUrl(S.store.match.home.players.find((p) => p.id === picked).charId), "우리 미니 카드 얼굴 그림");
     if (ownTrait) assert.ok(card.querySelector(".mc-trait"), "미니 카드에 연계 특성");
     [...doc.querySelectorAll("#modal-root button")].find((b) => b.textContent === "닫기").click();
   }
@@ -541,10 +558,21 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
     assert.equal(ui.lastDecision.ultimate, true, "결정에 ultimate: true");
     const fresh = S.store.match.events.slice(e0);
     assert.ok(fresh.some((e) => e.type === "combo"), "합체기 이벤트");
+    const comboEv = fresh.find((e) => e.type === "combo");
+    const cidOf9 = (id) => S.store.match.home.players.find((p) => p.id === id).charId;
     assert.ok(await until(() => s9.querySelector(".m-cutin.show .cut"), 1500), "전체 화면 컷인");
+    // 컷인 일러스트 (§24.12.4 · U2): 합체기 두 장 = SSR 판 → 반신 그림 (우리 팀), 글자는 DOM 에 남는다 · 이름 카드 = 두 선수 흉상 양쪽
+    const c9 = s9.querySelector(".m-cutin.show .cut");
+    assert.ok(c9.classList.contains("part-1"), "첫 장 = 패스한 선수");
+    assert.ok(c9.querySelector(".cut-face").classList.contains("has-art") && c9.querySelector(".cut-face").classList.contains("art-half"), "SSR 컷인 = 반신 칸");
+    assert.equal(c9.querySelector(".cut-face > img.cut-art")?.getAttribute("src"), artUrl(cidOf9(comboEv.playerIds[0]), "half"), "우리 SSR 컷인 = 패스한 선수 반신 그림");
+    assert.equal(c9.querySelector(".cut-face").textContent, Array.from(S.store.match.home.players.find((p) => p.id === comboEv.playerIds[0]).name)[0], "컷인 글자는 남는다");
     assert.ok(await until(() => s9.querySelector(".m-cutin.show .cut.part-2"), 2500), "합체기: 두 번째 컷인");
+    assert.equal(s9.querySelector(".m-cutin.show .cut.part-2 .cut-face > img.cut-art")?.getAttribute("src"), artUrl(cidOf9(comboEv.playerIds[1]), "half"), "두 번째 컷인 = 받은 선수 반신");
     assert.ok(await until(() => s9.querySelector(".m-cutin.show .cut-name"), 2500), "합체기 이름");
     assert.match(s9.querySelector(".m-cutin .cut-name").textContent, /바람의 유성/);
+    assert.deepEqual([...s9.querySelectorAll(".m-cutin .cut-name .cut-duo > img.cut-art")].map((i) => i.getAttribute("src")),
+      comboEv.playerIds.map((id) => artUrl(cidOf9(id), "bust")), "이름 카드 = 패스한 선수 · 받은 선수 흉상 양쪽");
     assert.ok(await until(() => !ui.busy, 8000), "연출 끝");
     assert.ok(!s9.querySelector(".m-cutin.show"), "컷인 닫힘");
     S.actions.resetToStart();
@@ -791,10 +819,15 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
     const foe = s22.querySelector(".m-field.charging .tok.charge-foe");
     assert.ok(foe && foe.dataset.id === v22.defender.id, "듀얼 상대(GK)만 색");
     assert.ok(await until(() => s22.querySelector(".m-cutin.show .cut:not(.cut-save)"), 1500), "② 컷인");
+    const c22 = s22.querySelector(".m-cutin.show .cut:not(.cut-save)");
+    assert.equal(c22.querySelector(".cut-face.art-half > img.cut-art")?.getAttribute("src"),
+      artUrl(S.store.match.home.players.find((p) => p.id === v22.carrier.id).charId, "half"), "우리 SSR 컷인 (메테오 슛) = 반신 그림");
     assert.ok(!s22.querySelector(".m-field.charging"), "컷인이 뜨면 차지 끝");
     const gk = await until(() => s22.querySelector(".m-cutin.show .cut.cut-save"), 3000);
     assert.ok(gk && /기적의 세이브!/.test(gk.textContent), "③ GK 역방향 컷인");
     assert.ok(gk.classList.contains("cut-rev") && gk.classList.contains("rev-save"), "역방향 컷인 종류 = save (이벤트 reverseCutin)");
+    assert.ok(!gk.querySelector("img") && !gk.querySelector(".cut-face").classList.contains("has-art"), "상대 GK (charId 없음) 역방향 컷인 = 그림 없음");
+    assert.equal(gk.querySelector(".cut-face").textContent, Array.from(S.store.match.away.players.find((p) => p.id === v22.defender.id).name)[0], "상대 GK = 글자 칸");
     assert.ok(await until(() => !ui.busy, 8000), "연출 끝");
     assert.ok(!s22.querySelector(".m-cutin.show") && !s22.querySelector(".m-field.charging"), "컷인 · 차지 닫힘");
     S.actions.resetToStart();
@@ -1072,6 +1105,7 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
     assert.ok(rc.classList.contains(`side-${ev.reverseCutin.side}`) && rc.classList.contains("cut-save"), "막은 팀 쪽 · 역방향 스타일");
     const blocker = S.store.match[ev.reverseCutin.side].players.find((p) => p.id === ev.reverseCutin.playerId);
     assert.ok(rc.textContent.includes(blocker.name), "막은 선수 이름");
+    assert.ok(!blocker.charId && !rc.querySelector("img"), "charId 없는 상대가 막은 역방향 컷인 = 그림 없음 (글자 칸)");
     assert.ok(await until(() => !ui.busy, 8000), "연출 끝");
     S.actions.resetToStart();
 
@@ -1156,6 +1190,8 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
     assert.ok(cut30 && cut30.classList.contains("ut-team"), "R 컷인 (.tier-R · .ut-team)");
     assert.equal(cut30.querySelector(".cut-type").textContent, "필살 호령");
     assert.equal(cut30.querySelector(".cut-line").textContent, "“다들, 아직 안 끝났어!”", "컷인 대사");
+    const user30 = S.store.match.home.players.find((p) => p.skillIds.includes(u30.skillId));
+    assert.equal(cut30.querySelector(".cut-face.art-face > img.cut-art")?.getAttribute("src"), artUrl(user30.charId, "face"), "R 컷인 = 64 원에 얼굴 그림");
     assert.ok(await until(() => !ui.busy, 8000), "연출 끝");
     assert.ok(s30.querySelector(".match-log .log-line.ev-teamUlt")?.textContent.includes("팀 판정 ×1.08"), "팀 필살기 로그 줄");
     S.actions.resetToStart();
@@ -1206,6 +1242,7 @@ test("jsdom: app.js 부트 → start 화면 → 편성 → 기본 편성으로 �
     const cut34 = await until(() => s34.querySelector(".m-cutin.show .cut.tier-SR"), 2000);
     assert.ok(cut34 && cut34.classList.contains("ut-dribble") && cut34.classList.contains("side-home"), "SR 컷인 (우리 쪽)");
     assert.equal(cut34.querySelector(".cut-line").textContent, "“흐르는 물은 못 막아.”");
+    assert.equal(cut34.querySelector(".cut-face.art-bust > img.cut-art")?.getAttribute("src"), artUrl("ch_spirit_dribbler", "bust"), "SR 컷인 = 흉상 창 (온디나)");
     assert.ok(await until(() => !ui.busy, 8000));
     S.actions.resetToStart();
 

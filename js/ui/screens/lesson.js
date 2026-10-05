@@ -46,7 +46,7 @@ import { cardFace, miniCard, attachTitle, shapeIconKey, shapeHow, multShort } fr
 import { tokenSpot, pointerToField, circlePx, fxPlan, scoreAfterPlay, handStep, playerStatInfo, labelPlan, labelWidth, FIELD_PX, TOKEN_PX } from '../lesson_layout.js';
 import { stamCls } from '../hud.js';
 import { uniqueNote } from './reward.js';
-import { playerArt, portraitUrl } from '../art.js';
+import { playerArt, portraitUrl, portraitUrls, preloadArt, cutArt } from '../art.js';
 
 /** 연출 시간 (ms): 훈련 동작 · +N 머무르기 · 턴 끝 기본 훈련 · 흩어지기 · 턴 배너 · 레슨 끝 배너 · 자동 진행 간격 · 자동 진행 조준 보여 주기 */
 export const LESSON_T = { act: 280, hold: 560, tick: 650, scatter: 450, turn: 260, end: 1000, auto: 600, aimShow: 320, move: 450, pass: 300 };
@@ -262,6 +262,9 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
   }
   const setBusy = (b) => { ui.busy = b; screen.classList.toggle('busy', b); };
   const CUT_MS = { ...CUTIN_MS, ...(data.lesson?.attach?.cutinMs || {}) };
+  // 컷인 그림 미리 불러오기 (§24.12.4): 편성 코치의 반신 (첫 컷인) · 흉상 (짧은 판) — 컷인이 0.6 ~ 0.9초라 그때 불러오면 빈 칸이 보인다.
+  // 보상 모달 배경 (inert) · 움직임 줄이기 (컷인을 건너뛴다) 에서는 부르지 않는다
+  if (!inert && !reduced) preloadArt(portraitUrls(data, (st()?.supports || []).map((x) => x?.id), ['half', 'bust']));
   /** 화면의 코치 색 (co-<타입> · --coach-face): 조준 말풍선 · 연출 고리 · 팝 · 능력 알약이 쓴다. 지원이 없으면 지운다 */
   function setCoach(type, color) {
     for (const z of ZONE_KEY_ORDER) screen.classList.remove(`co-${z}`);
@@ -1853,6 +1856,7 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
     if (reduced || dur <= 0) { next(); return; }
     const typeLabel = cut.coachType ? (L.STAT_LABELS[cut.coachType] ?? '') : '';
     const card = cut.card;
+    const artPreset = short ? 'bust' : 'half';
     cutLayer.className = ['ls-cutin', 'on', short ? 'short' : 'first', cut.coachType ? `co-${cut.coachType}` : ''].filter(Boolean).join(' ');
     cutLayer.style.setProperty('--t-cut', `${dur}ms`);
     cutLayer.style.setProperty('--coach-face', cut.color);
@@ -1861,7 +1865,8 @@ export function renderLesson(root, ctx, { inert = false } = {}) {
       h('div', { class: 'lc-flash', 'aria-hidden': 'true' }),
       h('div', { class: ['lc', short ? 'short' : ''] },
         h('div', { class: 'lc-band' },
-          h('span', { class: 'lc-face', 'aria-hidden': 'true' }, initialOf(cut.short || cut.coach)),
+          // 코치 그림 (§24.12.4): 첫 컷인 = 반신 · 짧은 판 = 흉상, 띠 왼쪽에서 위로 솟는다 (css .lc-face.has-art). 그림이 없으면 지금 원 + 글자
+          cutArt(h('span', { class: 'lc-face', 'aria-hidden': 'true' }, initialOf(cut.short || cut.coach)), portraitUrl(data, cut.supportId, artPreset), artPreset),
           h('div', { class: 'lc-txt' },
             h('small', {}, `코치 지원${typeLabel ? ` · ${typeLabel}` : ''}`),
             h('b', {}, cut.coach),

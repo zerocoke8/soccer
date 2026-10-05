@@ -706,6 +706,13 @@ test("jsdom: 레슨 화면 (구역) — 골격 · 조준 · 키보드 · 벤치 
     assert.equal($(".ls-cutin .lc-line").textContent, `“${data.lesson.attach.abilities[harr.id].line}”`, "코치 대사 (lesson.json line)");
     assert.match($(".ls-cutin .lc-sub").textContent, /골문을 보는 눈\s*슈팅 구역 대상 \+50%/, "능력 이름 · 문구");
     assert.equal($(".ls-cutin .lc-face").textContent, "하");
+    // 코치 그림 (§24.12.4 · U2): 첫 컷인 = 반신 — .lc-face 가 그림 칸 (글자는 DOM 에 남는다), 그림은 끌기 · 누르기를 가로채지 않는다
+    const lcFace = $(".ls-cutin .lc-face");
+    assert.ok(lcFace.classList.contains("has-art") && lcFace.classList.contains("art-half"), "첫 컷인 = 반신 칸");
+    const lcImg = lcFace.querySelector("img.cut-art");
+    const halfUrl = (sid, preset) => `./img/portraits/${sid}.${preset}.webp?v=${PT.coaches[sid].v}`;
+    assert.equal(lcImg?.getAttribute("src"), halfUrl(harr.id, "half"), "코치 컷인 = 하르나 반신 그림");
+    assert.equal(lcImg.getAttribute("draggable"), "false");
     assert.match($(".ls-cutin .lc-card").textContent, /기초 훈련/, "낸 카드");
     assert.ok($(".ls-cutin .lc-skip") && !$(".ls-cutin .lc.short"), "첫 컷인: 긴 판 + \"탭하여 넘기기\"");
     assert.equal($(".ls-cutin").style.getPropertyValue("--t-cut"), `${data.lesson.attach.cutinMs.first}ms`, "길이 = cutinMs.first");
@@ -735,6 +742,8 @@ test("jsdom: 레슨 화면 (구역) — 골격 · 조준 · 키보드 · 벤치 
     assert.equal($$(".ls-cutin .lc-skip").length, 0, "짧은 판: 안내 문구 없음");
     assert.equal($(".ls-cutin").style.getPropertyValue("--t-cut"), `${data.lesson.attach.cutinMs.repeat}ms`, "길이 = cutinMs.repeat");
     assert.equal($(".ls-cutin .lc-txt b").textContent, "현자 오르넬라");
+    assert.equal($(".ls-cutin .lc.short .lc-face.has-art.art-bust > img.cut-art")?.getAttribute("src"), halfUrl(sage.id, "bust"), "짧은 판 = 오르넬라 흉상 그림");
+    assert.equal($(".ls-cutin .lc-face").textContent, "오", "짧은 판도 글자는 남는다");
     await until(() => !$(".ls-cutin.on"), 2000);
     assert.equal($$(".ls-cutin.on").length, 0, "저절로 닫힘");
     await until(() => !ui.busy, 5000);

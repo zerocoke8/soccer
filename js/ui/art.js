@@ -9,6 +9,8 @@
 //   charIdOf(ctx, playerId)        → 런 선수 id → 캐릭터 id (charId 가 없는 뷰 — 레슨 · 이벤트 · 미팅 · 보상)
 //   playerArt(ctx, p, preset)      → 선수 뷰 p (charId 가 있으면 그것, 없으면 p.id 로 charIdOf) 의 그림 주소 | null
 //   preloadArt(urls)               → 그림을 미리 불러 decode (그리기를 기다리지 않는다 — jsdom 은 그림을 불러오지 않는다)
+//   portraitUrls(data, ids, presets) → 여러 id × 프리셋의 그림 주소 (목록에 있는 것만 — 미리 불러오기 목록)
+//   cutArt(holder, url, preset)    → 컷인 얼굴 칸 (글자 원)에 그림을 얹는다 (§24.12.4 — 실패하면 글자 원으로 돌아간다)
 
 /** 초상 프리셋 (data/portraits.json presets 가 없을 때) */
 export const PORTRAIT_PRESETS = ['face', 'bust', 'half'];
@@ -109,4 +111,49 @@ export function preloadArt(urls) {
     } catch (_) { /* 그림 없이도 화면은 그려진다 */ }
   }
   return n;
+}
+
+/**
+ * 여러 id × 프리셋의 그림 주소 (목록에 없는 것 · 겹치는 것은 뺀다) — preloadArt 에 넘길 목록.
+ * @param {object} data
+ * @param {Iterable<string|null|undefined>} ids charId 또는 supportId
+ * @param {Array<'face'|'bust'|'half'>} presets
+ * @returns {string[]}
+ */
+export function portraitUrls(data, ids, presets) {
+  const out = new Set();
+  for (const id of ids || []) {
+    for (const preset of presets || []) {
+      const url = portraitUrl(data, id, preset);
+      if (url) out.add(url);
+    }
+  }
+  return [...out];
+}
+
+/**
+ * 컷인 얼굴 칸 (§24.12.4 — 레슨 .lc-face · 경기 .cut-face): 글자 원 위에 <img class="pt cut-art"> 를 얹고 has-art · art-<preset> 클래스를 단다.
+ * 글자는 DOM 에 남는다 (textContent 를 읽는 테스트 · 그림이 늦을 때). 그림을 못 불러오면 그림과 두 클래스를 떼어 지금 글자 원으로 돌아간다.
+ * 그림은 좌우로 뒤집지 않는다 (CSS 는 object-position 으로만 맞춘다). url 이 없으면 (상대 팀 · 그림 없는 선수) 아무것도 하지 않는다.
+ * @param {HTMLElement} holder
+ * @param {string|null} url portraitUrl 결과
+ * @param {'face'|'bust'|'half'} preset
+ * @returns {HTMLElement} holder
+ */
+export function cutArt(holder, url, preset) {
+  if (!holder || typeof url !== 'string' || !url) return holder;
+  const cls = `art-${preset}`;
+  const img = document.createElement('img');
+  img.className = 'pt cut-art';
+  img.alt = '';
+  img.setAttribute('draggable', 'false');
+  img.setAttribute('decoding', 'async');
+  img.addEventListener('error', () => {
+    img.remove();
+    holder.classList.remove('has-art', cls);
+  });
+  img.src = url;
+  holder.classList.add('has-art', cls);
+  holder.append(img);
+  return holder;
 }

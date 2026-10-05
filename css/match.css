@@ -573,6 +573,49 @@
 .cut.cut-rev.rev-passCut .cut-band { --ec: #e4dbff; }
 .cut.cut-rev.rev-passCut .cut-txt b { color: #2a1460; }
 .cut.cut-rev.rev-passCut .cut-txt small { color: #3d2a73; }
+/* 컷인 일러스트 (LESSON_PROTO_PLAN §24.12.4 — U2, screens/match.js cutCard · art.cutArt): .cut-face 가 그림 칸 (.has-art.art-half | art-bust | art-face).
+   SSR (등급 없는 판 · 합체기 두 장) = 반신 260×390 — 자기 편 쪽에서 미끄러져 들어와 띠 위에 선다 (아래 끝 = 띠 아래 끝, 머리가 띠 위로).
+   SR = 흉상 180×225 창 (띠 위로 약 50px), R = 지금 64 원에 얼굴. 역방향 (.cut-save) = 막은 선수 흉상 창 (+4° 기울기), 합체기 이름 카드 = 두 흉상 양쪽.
+   창 칸은 띠 높이만 차지하고 (글 자리 · 띠 높이 그대로) 그림이 위 · 아래로 넘친다. 칸은 띠의 기울기를 되돌려 (skewY) 그림이 비틀리지 않고,
+   창의 위 · 아래 끝만 clip-path 로 띠와 나란히 자른다 (--sl = 창 폭 × tan 4°). 그림은 좌우로 뒤집지 않는다 (object-position 만).
+   글자는 DOM 에 남는다 (투명 — 그림을 못 불러오면 cutArt 가 클래스를 떼어 글자 칸으로). 움직임 줄이기 = 아래 media 의 .cut-face 로 멈춘다 */
+.cut-band { --bp: 24px; }
+.cut.tier-SR .cut-band { --bp: 20px; }
+.cut.tier-R .cut-band { --bp: 14px; }
+.m-cutin .cut-face.has-art { color: transparent; text-shadow: none; }
+.m-cutin .cut-face.has-art.art-face { overflow: hidden; }
+.m-cutin .cut-face.has-art.art-half, .m-cutin .cut-face.has-art.art-bust {
+  align-self: stretch; width: var(--aw); height: auto; border-radius: 0; background: none; box-shadow: none;
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, .45));
+}
+.m-cutin .cut-face.has-art.art-half { --aw: 260px; --ah: 390px; --sl: 18px; animation-name: cut-art-in; }
+.m-cutin .cut-face.has-art.art-bust { --aw: 180px; --ah: 225px; --sl: 12.5px; animation-name: cut-art-rise; }
+.m-cutin .cut-face.art-half::before, .m-cutin .cut-face.art-bust::before, .m-cutin .cut-face.art-half > .cut-art, .m-cutin .cut-face.art-bust > .cut-art {
+  position: absolute; inset: auto; left: 0; width: var(--aw); height: var(--ah); border-radius: 0;
+  clip-path: polygon(0 var(--sl), 100% 0, 100% calc(100% - var(--sl)), 0 100%);
+}
+/* 흰 테: 창보다 좌우 · 위 4px 크게 */
+.m-cutin .cut-face.art-half::before, .m-cutin .cut-face.art-bust::before { content: ""; left: -4px; width: calc(var(--aw) + 8px); background: #fff; }
+.m-cutin .cut-face.art-half > .cut-art, .m-cutin .cut-face.art-bust > .cut-art { object-fit: cover; object-position: 50% 0; }
+/* SSR 반신: 창 아래 끝 = 띠 아래 끝 (칸 아래 + 띠 안쪽 여백, 칸 가운데에서 맞춘다) */
+.m-cutin .cut-face.art-half > .cut-art { bottom: calc(var(--bp) * -1 - var(--sl) / 2); }
+.m-cutin .cut-face.art-half::before { bottom: calc(var(--bp) * -1 - var(--sl) / 2); height: calc(var(--ah) + 4px); }
+/* 흉상 창: 위 끝이 띠 위 끝보다 약 50px 위 (아래는 띠 밖으로 조금 넘친다) */
+.m-cutin .cut-face.art-bust > .cut-art { top: calc(var(--bp) * -1 - 56px); }
+.m-cutin .cut-face.art-bust::before { top: calc(var(--bp) * -1 - 60px); height: calc(var(--ah) + 8px); }
+/* SSR 은 띠 바깥쪽 (자기 편 쪽)에 붙인다: home 왼쪽 · away 오른쪽 (.side-away 는 row-reverse) */
+.cut-band:has(> .cut-face.art-half) { justify-content: flex-start; padding-left: 170px; }
+.cut.side-away .cut-band:has(> .cut-face.art-half) { padding-left: 40px; padding-right: 170px; }
+.m-cutin .cut.side-away .cut-face.has-art.art-half { animation-name: cut-art-in-away; }
+/* 역방향 (+4° 띠): 창도 반대로 기울게 자른다 */
+.m-cutin .cut.cut-save .cut-face.has-art.art-bust { animation-name: cut-art-rise-save; }
+.m-cutin .cut.cut-save .cut-face.art-bust::before, .m-cutin .cut.cut-save .cut-face.art-bust > .cut-art { clip-path: polygon(0 0, 100% var(--sl), 100% 100%, 0 calc(100% - var(--sl))); }
+/* 합체기 이름 카드: 패스한 선수 왼쪽 · 받은 선수 오른쪽 (원정도 같은 순서 — 아래 글 "A → B") */
+.cut.cut-name.has-duo .cut-band { flex-direction: row; gap: 56px; }
+@keyframes cut-art-in { 0% { opacity: 0; transform: skewY(4deg) translateX(-150px); } 16% { opacity: 1; transform: skewY(4deg) translateX(6px); } 26%, 100% { opacity: 1; transform: skewY(4deg); } }
+@keyframes cut-art-in-away { 0% { opacity: 0; transform: skewY(4deg) translateX(150px); } 16% { opacity: 1; transform: skewY(4deg) translateX(-6px); } 26%, 100% { opacity: 1; transform: skewY(4deg); } }
+@keyframes cut-art-rise { 0% { opacity: 0; transform: skewY(4deg) translateY(30px); } 20%, 100% { opacity: 1; transform: skewY(4deg); } }
+@keyframes cut-art-rise-save { 0% { opacity: 0; transform: skewY(-4deg) translateY(30px); } 20%, 100% { opacity: 1; transform: skewY(-4deg); } }
 
 /* ---- 경기 화면의 토스트 (#toast-root = 스테이지 안 공용 루트, base.css): 스코어 헤더 · 필드를 가리지 않게 오른쪽 위 ----
    배너 띠의 빈 오른쪽 칸(헤더 오른쪽 끝 x 860 ~ 띠 끝 1262)에 좁게: 한 줄 토스트 = 띠 높이 안, 글은 두 줄까지, 한 번에 2개(base.css).
