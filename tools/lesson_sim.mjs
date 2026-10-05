@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // tools/lesson_sim.mjs — 카드 레슨 런 헤드리스 시뮬 (LESSON_PROTO_PLAN §10.1)
 //   node tools/lesson_sim.mjs --runs 200 --seed 1 [--policy all|ace|team|counter|press|poss] [--formation 2-2-2] [--no-match] [--json]
-//                             [--special-rate r] [--slot SLOT=charId]... [--unique-report]
+//                             [--special-rate r] [--slot SLOT=charId]... [--unique-report] [--events on|off]
+//   --events on|off: lesson.json events 의 기능 스위치를 모두 켜거나 끈다 (기본 = 데이터 그대로, §24.11). 이벤트가 하나라도 켜져 있으면
+//                    표 끝에 [이벤트] 줄 (런당 이벤트 — 트리거별 · 시간 어림 이벤트 하나 12초, §24.16) 을 더한다 (꺼져 있으면 표는 그대로).
 //   --slot SLOT=charId: 편성의 그 자리를 다른 캐릭터로 (여러 번 가능 — 미르카 측정은 --slot FW2=ch_cat_trickster, §16.11).
 //   --unique-report: 고유 카드 (L40 모양) 표 — 카드 · 모양별 낸 수 / 런 · 손에 든 턴 / 런 · 직접 상승 / 장 · 실패 % · 비용 / 장 ·
 //                    감독 AI EV / 장 · 강화 % + 낼 수 없는 턴 비율 + 자리 옮기기 · 가로지르기 구역 분포 + 이어 주기 · 연결 · 크로스
@@ -27,6 +29,7 @@ import { formationSlots } from "../js/engine/run.js";
 import { mainStatsOf, deadReason, getCard, shapeOf } from "../js/engine/cards.js";
 import { lessonCardDef } from "../js/engine/lesson.js";
 import { createRng } from "../js/engine/rng.js";
+import { setEventSwitches, switchOn, eventById, TRIGGERS, KIND_BADGES } from "../js/engine/lessonEvents.js";
 
 const DATA_FILES = ["config", "characters", "supports", "events", "skills", "relics", "opponents", "routes", "traits", "combos", "cards", "lesson", "policies"];
 /** 레슨 런 이벤트 7개 (LESSON_PROTO_PLAN §24.3.1 — lessonEvents.EVENT_FILES 와 같은 목록). 없으면 건너뛴다. 기능 스위치는 데이터 그대로 */
@@ -36,6 +39,21 @@ const STATS = ["shoot", "dribble", "pass", "defense", "physical"];
 const GRADES = ["S", "A", "B", "C", "D", "E", "F", "G"];
 /** 레슨 1회 시간 추정: 카드 · 벤치 · 턴 끝 행동 1번당 초 (가정) */
 const SEC_PER_ACTION = 6;
+/** 이벤트 1개 시간 어림 (초, §24.16 [가정]) */
+const SEC_PER_EVENT = 12;
+/** lesson.json events 의 기능 스위치 이름 (lessonEvents.switchOn) */
+const EVENT_SWITCH_NAMES = ["week", "seasonStart", "preMatch", "route", "outing", "coach", "surprise"];
+
+/** 이벤트 기능 스위치가 하나라도 켜져 있는가 */
+export function eventsOn(data) {
+  return EVENT_SWITCH_NAMES.some((k) => switchOn(data, k));
+}
+
+/** --events on|off: 데이터 사본의 기능 스위치를 모두 켜거나 끈다 (null = 데이터 그대로) */
+export function applyEventsArg(data, events) {
+  if (events === "on" || events === "off") setEventSwitches(data.lesson, events === "on");
+  return data;
+}
 
 export function loadData() {
   const data = {};
@@ -51,7 +69,7 @@ export function loadData() {
 }
 
 export function parseArgs(argv) {
-  const out = { runs: 200, seed: "1", policy: "all", formation: null, match: true, json: false, specialRate: 1, slots: {}, uniqueReport: false };
+  const out = { runs: 200, seed: "1", policy: "all", formation: null, match: true, json: false, specialRate: 1, slots: {}, uniqueReport: false, events: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--runs") out.runs = Math.max(1, parseInt(argv[++i], 10) || 200);
@@ -66,8 +84,12 @@ export function parseArgs(argv) {
       if (!slot || !charId) throw new Error(`--slot 은 SLOT=charId 형식입니다: ${argv[i]}`);
       out.slots[slot] = charId;
     } else if (a === "--unique-report") out.uniqueReport = true;
+    else if (a === "--events") {
+      out.events = String(argv[++i] || "");
+      if (out.events !== "on" && out.events !== "off") throw new Error(`--events 는 on 또는 off 입니다: ${argv[i]}`);
+    }
     else if (a === "--help" || a === "-h") {
-      console.log("usage: node tools/lesson_sim.mjs --runs N --seed S [--policy all|ace|team|counter|press|poss] [--formation 2-2-2] [--no-match] [--json] [--special-rate r] [--slot SLOT=charId]... [--unique-report]");
+      console.log("usage: node tools/lesson_sim.mjs --runs N --seed S [--policy all|ace|team|counter|press|poss] [--formation 2-2-2] [--no-match] [--json] [--special-rate r] [--slot SLOT=charId]... [--unique-report] [--events on|off]");
       process.exit(0);
     }
   }
@@ -135,6 +157,8 @@ export function simulateOne(data, { seed, policy, formation, slots = {}, playMat
     circ: {},
     // §18 코치 수업 · 부상 (레슨에만): 수업 수 · 습득 / 바꾸기 / 받지 않음 / 받을 선수 없음 · 수업 SP · 다친 선수 경기 출전 (예전 유스)
     teach: 0, teachLearned: 0, teachReplaced: 0, teachDeclined: 0, teachNone: 0, teachSp: 0, injuredPlays: 0,
+    // §24.16 이벤트: 트리거별 띄운 수 (고른 이벤트의 데이터 trigger)
+    events: {},
   };
   const benchTurnKeys = new Set();
   const uniqTurnKeys = new Set();
@@ -149,6 +173,12 @@ export function simulateOne(data, { seed, policy, formation, slots = {}, playMat
     if (wasLesson && state.lesson.status === "playing") uniqueTurnStart(state, data, m.uniq, uniqTurnKeys);
     const uniqFrom = wasLesson ? { ...state.lesson.zones } : null;
     if (state.phase === "match") m.injuredPlays += state.players.filter((p) => (Number(p.injuredTurns) || 0) > 0).length;
+    // 이벤트: 고르기 전에 그 이벤트의 트리거를 센다 (autoStep 이 고른다)
+    if (state.phase === "event" && state.currentEvent) {
+      const ev = eventById(data, state.currentEvent.eventId);
+      const t = ev ? ev.trigger : "?";
+      m.events[t] = (m.events[t] || 0) + 1;
+    }
     const forced = specialRateAction(state, data, seed, specialRate);
     let r;
     if (forced) {
@@ -518,6 +548,10 @@ export function summarize(data, args, policy) {
     actionsPerLesson: mean(apl.map((x) => x.actions)),
     minutesPerLesson: (mean(apl.map((x) => x.actions)) * SEC_PER_ACTION) / 60,
     stepsPerRun: mean(rs.map((r) => r.steps)),
+    // §24.16 이벤트 (런당) — 트리거별 · 합 · 시간 어림 (이벤트 하나 SEC_PER_EVENT 초)
+    eventsBy: Object.fromEntries(TRIGGERS.map((t) => [t, mean(rs.map((r) => r.events[t] || 0))])),
+    eventsPerRun: mean(rs.map((r) => Object.values(r.events).reduce((a, b) => a + b, 0))),
+    eventMinutes: (mean(rs.map((r) => Object.values(r.events).reduce((a, b) => a + b, 0))) * SEC_PER_EVENT) / 60,
   };
 }
 
@@ -595,6 +629,11 @@ function printTable(sums, args) {
       `[지원] ${c.name} (${c.rarity}) 몫 · 컷인/런`,
       (s) => { const x = s.attach.coaches[i]; return `${pc(x.share)} · ${f1(x.fires)}`; },
     ]),
+    // §24.16 이벤트 — 기능 스위치가 하나라도 켜져 있을 때만 (꺼져 있으면 표가 2차 전과 같다)
+    ...(args.eventsOn ? [
+      [`[이벤트] 런당 이벤트 합 · 시간 어림 (하나 ${SEC_PER_EVENT}초)`, (s) => `${f1(s.eventsPerRun)} · ${f1(s.eventMinutes)}분`],
+      ...TRIGGERS.map((t) => [`[이벤트] 런당 ${KIND_BADGES[t]} (${t})`, (s) => f2(s.eventsBy[t])]),
+    ] : []),
   ];
   const head = ["지표", ...sums.map((s) => s.policy)];
   const table = [head, ...rows.map(([label, fn]) => [label, ...sums.map(fn)])];
@@ -604,7 +643,7 @@ function printTable(sums, args) {
     const sp = " ".repeat(Math.max(0, w - width(str)));
     return right ? sp + str : str + sp;
   };
-  console.log(`lesson_sim: ${args.runs} runs/방침, seed ${args.seed}, formation ${args.formation || "기본"}, 경기 ${args.match ? "match.simulateAuto" : "없음 (1:0 승)"}, 특별 선택 ${args.specialRate < 1 ? `${args.specialRate} (시뮬 옵션)` : "감독 AI (늘)"}`);
+  console.log(`lesson_sim: ${args.runs} runs/방침, seed ${args.seed}, formation ${args.formation || "기본"}, 경기 ${args.match ? "match.simulateAuto" : "없음 (1:0 승)"}, 특별 선택 ${args.specialRate < 1 ? `${args.specialRate} (시뮬 옵션)` : "감독 AI (늘)"}${args.eventsOn ? `, 이벤트 켬 (${EVENT_SWITCH_NAMES.filter((k) => switchOn(args.data, k)).join(" · ")}${args.events ? ` — --events ${args.events}` : " — 데이터"})` : ""}`);
   for (const r of table) console.log(r.map((x, c) => pad(String(x), cols[c], c > 0)).join("  "));
   const names = sums[0].mains.map((x) => `${x.name}(${x.position})`).join(", ");
   console.log(`\n선수별 주 스탯 상승 순서: ${names}`);
@@ -696,12 +735,14 @@ function printUniqueReport(data, sums, args) {
 
 export function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv);
-  const data = loadData();
+  const data = applyEventsArg(loadData(), args.events);
+  // 표 · 머리줄에만 쓰는 값 (JSON 출력의 args 에는 넣지 않는다)
+  const view = { ...args, eventsOn: eventsOn(data), data };
   const policies = args.policy === "all" ? POLICIES : [args.policy];
   const sums = policies.map((p) => summarize(data, args, p));
   if (args.json) console.log(JSON.stringify({ args, results: sums, ...(args.uniqueReport ? { unique: uniqueReport(data, sums) } : {}) }, null, 2));
   else {
-    printTable(sums, args);
+    printTable(sums, view);
     if (args.uniqueReport) printUniqueReport(data, sums, args);
   }
   return sums;

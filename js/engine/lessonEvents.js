@@ -7,10 +7,12 @@
  *   - allEvents(data) · eventById(data, id): 7개 파일을 이어 붙여 한 목록으로 본다 (없는 파일은 건너뛴다, 캐시 없음).
  *   - validateLessonEvents(data): §24.3.7 규칙 전부. 오류를 모두 모아 "레슨 이벤트 데이터: …" 한 번에 throw, 통과면 true.
  *   - setEventSwitches(lesson, on): lesson.json events 의 기능 스위치를 모두 켜거나 끈다 (테스트 · 도구용 — 데이터 사본에).
- * E2 (이 판): 주인공 pickProtagonist · 띄우기 fireEvent · 뷰 getEventView · 고르기 resolveEvent · 감독 AI 기대값 choiceScore.
+ * E2: 주인공 pickProtagonist · 띄우기 fireEvent · 뷰 getEventView · 고르기 resolveEvent · 감독 AI 기대값 choiceScore.
  *   - resolveEvent 는 효과 · 결과 문구 · lastEvent · 기록 갈고리까지 하고 phase 를 "flow" 로 둔다. 흐름 잇기 (continueFlow) 는
  *     lessonRun.resolveEvent 가 한다 (lessonEvents 는 lessonRun 을 import 하지 않는다 — 순환 import 방지).
- * E3 · E4 가 흐름 자격 · 코치 · 이야기를 더한다.
+ * E3 (이 판): 흐름 자격 eligible · 주 끝 랜덤 pickWeekEvent · 일반 외출 pickOutingEvent · 고정 (시즌 시작 · 전야 · 루트) pickFixedEvent ·
+ *   기능 스위치 switchOn · 주 끝 조건 weekCondOk · 가중치 eventWeight. queue 단계 (weekSlot …) 는 lessonRun 이 부른다 (§24.2).
+ * E4 가 코치 · 이야기를 더한다.
  *
  * 순수 로직: DOM/Date/Math.random/localStorage 를 쓰지 않는다. 상태를 바꾸는 함수 (fireEvent · resolveEvent · setEventSwitches) 말고는
  * 입력을 바꾸지 않는다. rng 는 state.rngState 로만 (fireEvent · resolveEvent 가 한 번 열고 나갈 때 저장), 뷰 · 기대값은 rng 를 쓰지 않는다.
@@ -789,8 +791,8 @@ function plainCtx(ctx) {
 }
 
 /**
- * 이벤트를 띄운다 (§24.5.1): 주인공 · 코치 · 등장 선수 → state.currentEvent, 사용 기록 (usedEventIds · 시즌 1회면 usedEventSeasons),
- * eventSeq + 1, phase "event". rng = 주인공 고르기에만 (한 번 열고 저장).
+ * 이벤트를 띄운다 (§24.5.1): 주인공 · 코치 · 등장 선수 → state.currentEvent, 사용 기록 (usedEventIds · 시즌 1회면 usedEventSeasons ·
+ * 일반 외출이면 outingSeen 주머니 — 다 봤으면 비우고 다시), eventSeq + 1, phase "event". rng = 주인공 고르기에만 (한 번 열고 저장).
  * @param {object} state
  * @param {object} data
  * @param {object} ev  레슨 이벤트 (data/lesson_ev_*.json 안에 있어야 한다)
@@ -818,6 +820,14 @@ export function fireEvent(state, data, ev, ctx = {}) {
     if (!isObj(state.usedEventSeasons)) state.usedEventSeasons = {};
     const list = Array.isArray(state.usedEventSeasons[ev.id]) ? state.usedEventSeasons[ev.id] : [];
     if (!list.includes(state.season)) state.usedEventSeasons[ev.id] = [...list, state.season];
+  }
+  // 일반 외출 주머니 (E3 · §24.7): 데이터의 외출 이벤트를 모두 봤으면 비우고 다시 쌓는다
+  if (ev.trigger === "outing") {
+    const ids = allEvents(data).filter((e) => isObj(e) && e.trigger === "outing").map((e) => e.id);
+    let seen = Array.isArray(state.outingSeen) ? state.outingSeen.slice() : [];
+    if (ids.length && ids.every((id) => seen.includes(id))) seen = [];
+    if (!seen.includes(ev.id)) seen.push(ev.id);
+    state.outingSeen = seen;
   }
   state.eventSeq = (Number(state.eventSeq) || 0) + 1;
   state.phase = "event";
@@ -985,4 +995,166 @@ export function resolveEvent(state, data, choiceIndex, { uid } = {}) {
   onEventResolved(state, data, ev, { choice: idx, branch: out.branch, kind: cur.kind || ev.trigger, playerId: cur.playerId || null, supportId: cur.supportId || null, ctx: cur.ctx || {} });
   state.phase = "flow";
   return state;
+}
+
+// ---------------------------------------------------------------------------
+// E3 — 흐름 자격 · 고르기 (§24.2 · §24.3.2 ~ §24.3.4 · §24.7)
+// ---------------------------------------------------------------------------
+
+/** 흐름이 이 판에서 고르는 트리거 — 이야기 · 코치는 E4 (storyNext · coachReady), 깜짝은 E5 (레슨 안) */
+const FLOW_TRIGGERS = ["week", "seasonStart", "preMatch", "route", "outing"];
+
+/**
+ * lesson.json events 의 기능 스위치가 켜져 있는가 (§24.3.6). 블록 · 키가 없으면 꺼짐.
+ * @param {object} data
+ * @param {"week"|"seasonStart"|"preMatch"|"route"|"outing"|"coach"|"surprise"} name  coach · surprise 는 .enabled
+ * @returns {boolean}
+ */
+export function switchOn(data, name) {
+  const ev = data && data.lesson && data.lesson.events;
+  if (!isObj(ev)) return false;
+  if (name === "coach" || name === "surprise") return isObj(ev[name]) && ev[name].enabled === true;
+  return ev[name] === true;
+}
+
+/**
+ * 주 끝 조건 (§24.3.3 — week 의 cond · weightIf.cond, 모두 AND). 순수.
+ *   anyStaminaBelow = 결장 아닌 선수 중 체력 n 미만이 있다 · avgStaminaBelow = 7명 (결장 포함) 평균 체력 n 미만 ·
+ *   anyInjured = 결장 중인 선수가 있다 · teamworkBelow · conditionBelow (미만) · conditionAtLeast (이상).
+ * @param {object} state
+ * @param {object|undefined} cond  없으면 참
+ * @returns {boolean}
+ */
+export function weekCondOk(state, cond) {
+  if (cond === undefined || cond === null) return true;
+  if (!isObj(cond)) throw new Error(`주 끝 조건은 { 키: 값 } 객체입니다 (받은 값: ${show(cond)})`);
+  const ps = Array.isArray(state.players) ? state.players : [];
+  const st = (p) => Number(p.stamina) || 0;
+  for (const [k, v] of Object.entries(cond)) {
+    let ok;
+    switch (k) {
+      case "anyStaminaBelow":
+        ok = ps.some((p) => !isInjured(p) && st(p) < v);
+        break;
+      case "avgStaminaBelow":
+        ok = ps.length > 0 && ps.reduce((a, p) => a + st(p), 0) / ps.length < v;
+        break;
+      case "anyInjured":
+        ok = ps.some(isInjured) === (v === true);
+        break;
+      case "teamworkBelow":
+        ok = (Number(state.teamwork) || 0) < v;
+        break;
+      case "conditionBelow":
+        ok = (Number(state.condition) || 0) < v;
+        break;
+      case "conditionAtLeast":
+        ok = (Number(state.condition) || 0) >= v;
+        break;
+      default:
+        throw new Error(`주 끝 조건: 모르는 키 '${k}' (쓸 수 있는 키: ${COND_KEYS.join(" · ")})`);
+    }
+    if (!ok) return false;
+  }
+  return true;
+}
+
+/**
+ * 고를 때의 가중치: weightIf 조건이 참이면 weightIf.weight, 아니면 weight (없으면 1). 순수.
+ * @returns {number}
+ */
+export function eventWeight(state, ev) {
+  if (isObj(ev.weightIf) && weekCondOk(state, ev.weightIf.cond)) return ev.weightIf.weight;
+  return typeof ev.weight === "number" ? ev.weight : 1;
+}
+
+/** 그 캐릭터 선수가 편성돼 있고 결장이 아니다 */
+const charReady = (state, charId) => (state.players || []).some((p) => p.charId === charId && !isInjured(p));
+
+/** 주 끝 랜덤 한 개의 자격 (주 번호 · 시즌은 부르는 쪽) */
+function weekEventOk(state, ev) {
+  const ti = Number(state.turnIndex) || 0;
+  if (Array.isArray(ev.weeks) && !(ti >= ev.weeks[0] && ti <= ev.weeks[1])) return false;
+  if (Array.isArray(ev.weekList) && !ev.weekList.includes(ti)) return false;
+  const once = ev.once === undefined ? "run" : ev.once;
+  if (once === "run" && Array.isArray(state.usedEventIds) && state.usedEventIds.includes(ev.id)) return false;
+  if (once === "season") {
+    const list = isObj(state.usedEventSeasons) && Array.isArray(state.usedEventSeasons[ev.id]) ? state.usedEventSeasons[ev.id] : [];
+    if (list.includes(state.season)) return false;
+  }
+  if (once === false && state.lastWeekEventId === ev.id) return false; // 반복 이벤트도 바로 다음 주에는 다시 뜨지 않는다
+  if (Array.isArray(ev.chars) && ev.chars.length) {
+    const any = ev.charMode === "any";
+    if (any ? !ev.chars.some((c) => charReady(state, c)) : !ev.chars.every((c) => charReady(state, c))) return false;
+  }
+  if (typeof ev.coach === "string" && !(state.supports || []).some((s) => s.id === ev.coach)) return false;
+  return weekCondOk(state, ev.cond);
+}
+
+/**
+ * 지금 띄울 수 있는 이벤트 (§24.3.2 · §24.7) — 데이터 순서 (파일 7개 · 파일 안 순서). 순수 · rng 없음.
+ *   week: weeks [a, b] 또는 weekList (turnIndex 0 ~ 14) · seasons · once (run = usedEventIds · season = usedEventSeasons ·
+ *         false = 반복, 지난 주 슬롯 (lastWeekEventId) 과 같은 id 는 빼고) · chars (all / any — 편성 · 결장 아님) · coach (편성) · cond.
+ *   seasonStart · preMatch: seasons 에 지금 시즌. route: routeId = opts.routeId (반복).
+ *   outing: 이번 런에 안 본 것 (outingSeen), 모두 봤으면 전부 (주머니를 다시 채운다 — fireEvent 가 비운다).
+ * @param {object} state
+ * @param {object} data
+ * @param {"week"|"seasonStart"|"preMatch"|"route"|"outing"} trigger
+ * @param {{ routeId?: string }} [opts]
+ * @returns {object[]}
+ */
+export function eligible(state, data, trigger, opts = {}) {
+  if (!FLOW_TRIGGERS.includes(trigger)) {
+    throw new Error(`eligible: 트리거 '${trigger}' 은(는) 흐름 자격으로 고르지 않습니다 (${FLOW_TRIGGERS.join(" · ")} — 이야기 · 코치는 E4, 깜짝은 레슨 안)`);
+  }
+  const o = opts || {};
+  const list = allEvents(data).filter((ev) => isObj(ev) && ev.trigger === trigger);
+  if (trigger === "outing") {
+    const seen = Array.isArray(state.outingSeen) ? state.outingSeen : [];
+    const fresh = list.filter((ev) => !seen.includes(ev.id));
+    return fresh.length ? fresh : list;
+  }
+  return list.filter((ev) => {
+    if (Array.isArray(ev.seasons) && !ev.seasons.includes(state.season)) return false;
+    if (trigger === "route") return ev.routeId === o.routeId;
+    if (trigger === "week") return weekEventOk(state, ev);
+    return true; // seasonStart · preMatch — 시즌으로만
+  });
+}
+
+/** 가중치 뽑기 (후보가 있을 때만 rng 를 한 번 열고 저장) */
+function weightedPick(state, pool) {
+  if (!pool.length) return null;
+  const rng = createRngFromState(state.rngState);
+  const ev = rng.weighted(pool, (e) => eventWeight(state, e));
+  state.rngState = rng.getState();
+  return ev || null;
+}
+
+/**
+ * 주 끝 랜덤 1개 (§24.2 weekSlot): eligible(week) 에서 가중치 (weight · weightIf) 로 뽑는다. 후보가 없으면 null — rng 를 쓰지 않는다.
+ * 상태는 rngState 만 바꾼다 (띄우기는 부르는 쪽 — fireEvent).
+ * @returns {object|null}
+ */
+export function pickWeekEvent(state, data) {
+  return weightedPick(state, eligible(state, data, "week"));
+}
+
+/**
+ * 일반 외출 1개 (§24.7 — 이야기는 E4): 이번 런에 안 본 것 (다 봤으면 전부) 에서 가중치로. 후보가 없으면 null (rng 없음).
+ * @returns {object|null}
+ */
+export function pickOutingEvent(state, data) {
+  return weightedPick(state, eligible(state, data, "outing"));
+}
+
+/**
+ * 고정 이벤트 (시즌 시작 · 경계전 전야 · 루트): 자격이 있는 것 중 데이터 순서로 첫 번째 [구현 결정 — 고정이라 뽑지 않는다]. 순수 · rng 없음.
+ * @param {"seasonStart"|"preMatch"|"route"} trigger
+ * @param {{ routeId?: string }} [opts]
+ * @returns {object|null}
+ */
+export function pickFixedEvent(state, data, trigger, opts = {}) {
+  if (!["seasonStart", "preMatch", "route"].includes(trigger)) throw new Error(`pickFixedEvent: 고정 이벤트 트리거가 아닙니다 ('${trigger}')`);
+  return eligible(state, data, trigger, opts)[0] || null;
 }

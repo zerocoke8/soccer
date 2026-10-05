@@ -629,3 +629,97 @@ test("§24.11 recommendEventChoice (기대값이 큰 쪽 · 고르는 카드 uid
   const v = fire("ev_m_cond");
   assert.equal(LR.getEventView(v, d).choices.findIndex((c) => c.recommended), M.recommendEventChoice(v, d).choice);
 });
+
+// ---------------------------------------------------------------------------
+// LESSON_PROTO_PLAN §24.2 · §24.15 — 이벤트 흐름 (E3): 감독 AI 15주 완주
+// ---------------------------------------------------------------------------
+
+/** E3 흐름 본보기 (테스트 안): 주 끝 (반복 · 1회 · 시즌 1회 · 조건) · 시즌 시작 3 · 전야 3 · 루트 3 · 일반 외출 2 */
+function flowEvents() {
+  const res = (effects, text) => (effects.some((e) => e.type === "random") ? { then: text, else: `${text} (다른 갈래)` } : text);
+  const choices = (a, b) => [
+    { label: "그렇게 한다", effects: a, result: res(a, "그렇게 했습니다.") },
+    { label: "다르게 한다", effects: b, result: res(b, "다르게 했습니다.") },
+  ];
+  const ev = (id, trigger, patch, a = [{ type: "tp", amount: 5 }], b = [{ type: "teamwork", amount: 3 }]) => (
+    { id, trigger, title: "흐름 시험", text: "바람이 붑니다.", choices: choices(a, b), ...patch });
+  return [
+    ev("ev_mf_rain", "week", { once: false, weight: 2 }, [{ type: "condition", amount: 1 }]),
+    ev("ev_mf_tired", "week", { cond: { avgStaminaBelow: 70 }, who: { pick: "lowestStamina" }, once: "season", text: "{선수|이/가} 지쳐 보입니다." },
+      [{ type: "stamina", target: "player", amount: 20 }], [{ type: "random", chance: 0.5, then: [{ type: "stat", target: "player", stat: "random", amount: 5 }], else: [{ type: "tp", amount: 5 }] }]),
+    ev("ev_mf_pick", "week", { weeks: [2, 12] }, [{ type: "cardPick", op: "upgrade" }], [{ type: "rewardOffer" }]),
+    ev("ev_mf_pair", "week", { chars: ["ch_wolf_winger", "ch_giant_striker"], charMode: "all" }, [{ type: "stat", target: "char:ch_wolf_winger", stat: "pass", amount: 5 }]),
+    ...[1, 2, 3].map((n) => ev(`ev_mf_s${n}`, "seasonStart", { seasons: [n] }, [{ type: "rewardOffer" }])),
+    ...[1, 2, 3].map((n) => ev(`ev_mf_pre${n}`, "preMatch", { seasons: [n], who: { pick: "highestStamina" }, text: "{선수|이/가} 잠들지 못합니다." }, [{ type: "goalCondition", amount: 1 }])),
+    ...["rt_camp", "rt_expedition", "rt_hotspring"].map((r) => ev(`ev_mf_${r}`, "route", { routeId: r }, [{ type: "relic" }])),
+    ev("ev_mf_out1", "outing", { text: "{선수|이/가} 장터를 걷습니다." }, [{ type: "stamina", target: "player", full: true }]),
+    ev("ev_mf_out2", "outing", { text: "{선수|이/가} 강가에 앉습니다." }, [{ type: "playerHint" }]),
+  ];
+}
+
+function flowMgrData(events = flowEvents(), on = ["week", "seasonStart", "preMatch", "route", "outing"]) {
+  const d = clone(data);
+  for (const f of LE.EVENT_FILES) d[f] = { version: 1, notes: {}, events: [] };
+  d.lesson_ev_week = { version: 1, notes: {}, events: clone(events) };
+  for (const k of on) d.lesson.events[k] = true;
+  return d;
+}
+
+/** 감독 AI 로 끝까지 (실제 경기). 띄운 이벤트를 트리거별로 센다 */
+function autoRun(d, seed, policy) {
+  const s = LR.createRun({ data: d, seed, policy });
+  const by = {};
+  const phases = {};
+  let guard = 0;
+  while (s.phase !== "finished") {
+    if (++guard > 3000) throw new Error(`런이 끝나지 않습니다 (${s.phase})`);
+    if (s.phase === "event") {
+      const t = LE.eventById(d, s.currentEvent.eventId).trigger;
+      by[t] = (by[t] || 0) + 1;
+    }
+    phases[s.phase] = (phases[s.phase] || 0) + 1;
+    M.autoStep(s, d, { playMatch });
+  }
+  return { s, by, phases };
+}
+
+test("§24.2 E3 감독 AI 15주 완주 (이벤트 스위치 켬 · 고정 본보기): 시즌 시작 3 · 전야 3 · 루트 2 · 주 끝 · 카드 3택1 · 유물 · 결정성 · 스위치를 끄거나 띄울 것이 없으면 이벤트 없는 데이터와 같은 최종 상태", () => {
+  const d = flowMgrData();
+  const a = autoRun(d, 21, "team");
+  assert.equal(a.by.seasonStart, 3);
+  assert.equal(a.by.preMatch, 3);
+  assert.equal(a.by.route, 2, "감독 AI 루트 = 캠프 · 원정");
+  assert.ok(a.by.week >= 3, JSON.stringify(a.by));
+  assert.ok(a.phases.cardOffer >= 3, "시즌 시작의 3택1");
+  assert.equal(a.s.currentEvent, null);
+  assert.equal(a.s.eventSeq, Object.values(a.by).reduce((x, y) => x + y, 0));
+  same(JSON.parse(JSON.stringify(a.s)), a.s);
+  const b = autoRun(d, 21, "team");
+  same(a.s, b.s);
+  // 스위치를 모두 끄면 · 켜도 이벤트 파일이 비었으면: 이벤트 없는 데이터와 같은 최종 상태 (같은 흐름 · 같은 rng)
+  const plain = autoRun(data, 21, "team").s;
+  for (const dd of [flowMgrData(flowEvents(), []), flowMgrData([])]) {
+    const r = autoRun(dd, 21, "team");
+    assert.deepEqual(r.by, {});
+    same(r.s, plain);
+  }
+});
+
+test("§24.2 E3 감독 AI: 무료 외출 → 외출 이벤트 (추천 선택지) → 같은 주의 추천 행동 · 외출 주는 외출 이벤트만", () => {
+  const d = flowMgrData();
+  const s = LR.createRun({ data: d, seed: 4, policy: "team" });
+  M.autoStep(s, d, { playMatch }); // 시즌 1 시작 이벤트
+  if (s.phase === "cardOffer") M.autoStep(s, d, { playMatch });
+  assert.equal(s.phase, "week");
+  // 온천 다음 시즌 1주처럼 무료 외출 1번
+  s.freeOuting = 1;
+  const offer = JSON.stringify(s.weekOffer);
+  const r = M.autoStep(s, d, { playMatch });
+  assert.deepEqual([r.action.type, r.action.free], ["outing", true]);
+  assert.deepEqual([s.phase, s.currentEvent.kind], ["event", "outing"]);
+  const e = M.autoStep(s, d, { playMatch });
+  assert.equal(e.phase, "event");
+  assert.deepEqual([s.phase, s.turn, s.freeOuting], ["week", 1, 0]);
+  assert.equal(JSON.stringify(s.weekOffer), offer);
+  assert.notEqual(M.recommendWeek(s, d).free, true, "무료 외출은 한 번");
+});

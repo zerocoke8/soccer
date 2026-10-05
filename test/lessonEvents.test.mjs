@@ -1144,3 +1144,211 @@ test("E2 og_event 장면 (tools/lesson_scenarios.mjs): 레슨 이벤트 ev_local
   assert.equal(s.turn, turn + 1);
   assert.equal(s.pendingTeach.at(-1).skillId, "sk_rally_cry");
 });
+
+// ---------------------------------------------------------------------------
+// E3 — 흐름 자격 · 고르기 (§24.2 · §24.3.2 ~ §24.3.4 · §24.7)
+// ---------------------------------------------------------------------------
+
+/** E3 주 끝 본보기 (주인공 없음 · rng 를 쓰지 않는 효과) */
+const E3_BASE = {
+  id: "ev_e3", trigger: "week", title: "비 오는 날", text: "아침부터 비가 옵니다.",
+  choices: [
+    { label: "쉰다", effects: [{ type: "tp", amount: 5 }], result: "푹 쉬었습니다." },
+    { label: "뛴다", effects: [{ type: "teamwork", amount: 5 }], result: "흠뻑 젖었습니다." },
+  ],
+};
+const wk = (id, patch = {}) => ({ ...clone(E3_BASE), id, ...patch });
+const fx = (id, trigger, patch = {}) => ({ ...clone(E3_BASE), id, trigger, ...patch });
+/** 이벤트를 넣은 데이터 (스위치 꺼짐 — createRun 은 이벤트 없이 1주) + 기본 편성 런 */
+function e3(events, { seed = 7, mut, file = "lesson_ev_week" } = {}) {
+  const d = withEvents(events, file);
+  const s = LR.createRun({ data: d, seed });
+  if (mut) mut(s);
+  return { d, s };
+}
+const ids = (list) => list.map((e) => e.id);
+
+test("E3 eligible (주 끝 §24.3.2): weeks · weekList (turnIndex) · seasons · once run / season / false (지난 주 슬롯) · chars all / any (결장 아님) · coach 편성 · 데이터 순서 · 순수", () => {
+  const evs = [
+    wk("ev_e3_all"),
+    wk("ev_e3_weeks", { weeks: [3, 4] }),
+    wk("ev_e3_list", { weekList: [0, 7] }),
+    wk("ev_e3_s2", { seasons: [2] }),
+    wk("ev_e3_season", { once: "season" }),
+    wk("ev_e3_repeat", { once: false }),
+    wk("ev_e3_pair", { chars: ["ch_wolf_winger", "ch_giant_striker"], charMode: "all" }),
+    wk("ev_e3_any", { chars: ["ch_wolf_winger", "ch_cat_trickster"], charMode: "any" }),
+    wk("ev_e3_absent", { chars: ["ch_cat_trickster"] }),
+    wk("ev_e3_monk", { coach: "sp_mountain_monk" }),
+    wk("ev_e3_joy", { coach: "sp_street_striker" }),
+  ];
+  const { d, s } = e3(evs);
+  const at = (patch, mut) => {
+    const t = clone(s);
+    Object.assign(t, patch);
+    if (mut) mut(t);
+    const before = JSON.stringify(t);
+    const out = ids(LE.eligible(t, d, "week"));
+    assert.equal(JSON.stringify(t), before, "eligible 는 순수");
+    return out;
+  };
+  // 시즌 1 · 1주 (turnIndex 0): 편성에 없는 미르카 · 조이 · 주 3 ~ 4 · 시즌 2 만 빠진다 (데이터 순서 그대로)
+  assert.deepEqual(at({}), ["ev_e3_all", "ev_e3_list", "ev_e3_season", "ev_e3_repeat", "ev_e3_pair", "ev_e3_any", "ev_e3_monk"]);
+  // 주 번호 = turnIndex (시즌을 이어서 0 ~ 14)
+  assert.ok(at({ turnIndex: 3 }).includes("ev_e3_weeks") && at({ turnIndex: 4 }).includes("ev_e3_weeks"));
+  assert.ok(!at({ turnIndex: 5 }).includes("ev_e3_weeks"));
+  assert.ok(at({ turnIndex: 7 }).includes("ev_e3_list") && !at({ turnIndex: 1 }).includes("ev_e3_list"));
+  assert.ok(at({ season: 2, turnIndex: 5 }).includes("ev_e3_s2"));
+  // once: run (기본) = usedEventIds · season = 그 시즌에 봤으면 · false = 반복 (지난 주 슬롯과 같은 id 만 빠진다)
+  const used = ["ev_e3_all", "ev_e3_season", "ev_e3_repeat"];
+  const u = at({ usedEventIds: used, usedEventSeasons: { ev_e3_season: [1] } });
+  assert.ok(!u.includes("ev_e3_all") && !u.includes("ev_e3_season") && u.includes("ev_e3_repeat"));
+  assert.ok(at({ season: 2, usedEventIds: used, usedEventSeasons: { ev_e3_season: [1] } }).includes("ev_e3_season"), "다음 시즌이면 다시");
+  assert.ok(!at({ lastWeekEventId: "ev_e3_repeat" }).includes("ev_e3_repeat"), "반복 이벤트도 바로 다음 주에는 안 뜬다");
+  assert.ok(at({ lastWeekEventId: "ev_e3_all" }).includes("ev_e3_all"), "1회용은 usedEventIds 로만");
+  // chars: all = 모두 편성 · 결장 아님, any = 하나라도
+  const inj = (id) => (t) => (t.players.find((p) => p.id === id).injuredTurns = 1);
+  assert.ok(!at({}, inj("p7")).includes("ev_e3_pair"), "그레타 결장 → 짝 이벤트 없음");
+  assert.ok(at({}, inj("p7")).includes("ev_e3_any"));
+  assert.ok(!at({}, inj("p6")).includes("ev_e3_any"), "울리카 결장 · 미르카 편성 안 됨 → any 도 없음");
+  // coach: 편성된 코치 (유대와 상관없이)
+  assert.ok(!at({}, (t) => (t.supports = t.supports.filter((x) => x.id !== "sp_mountain_monk"))).includes("ev_e3_monk"));
+  // 다른 트리거는 섞이지 않는다
+  assert.deepEqual(ids(LE.eligible(s, d, "seasonStart")), []);
+});
+
+test("E3 주 끝 조건 cond (§24.3.3 — 모두 AND) · weightIf 가중치 · weekCondOk 순수 · 모르는 키는 throw", () => {
+  const { d, s } = e3([
+    wk("ev_e3_tired", { cond: { anyStaminaBelow: 50 } }),
+    wk("ev_e3_avg", { cond: { avgStaminaBelow: 50 } }),
+    wk("ev_e3_inj", { cond: { anyInjured: true } }),
+    wk("ev_e3_tw", { cond: { teamworkBelow: 10 } }),
+    wk("ev_e3_low", { cond: { conditionBelow: 2 } }),
+    wk("ev_e3_high", { cond: { conditionAtLeast: 3 } }),
+    wk("ev_e3_and", { cond: { anyInjured: true, conditionAtLeast: 3 } }),
+    wk("ev_e3_w", { weight: 2, weightIf: { cond: { anyInjured: true }, weight: 5 } }),
+  ]);
+  const on = (mut) => {
+    const t = clone(s);
+    mut(t);
+    return ids(LE.eligible(t, d, "week"));
+  };
+  // 시작: 체력 100 · 팀워크 0 · 컨디션 시작값
+  const c0 = s.condition;
+  const base = on(() => {});
+  assert.ok(!base.includes("ev_e3_tired") && !base.includes("ev_e3_avg") && !base.includes("ev_e3_inj"));
+  assert.ok(base.includes("ev_e3_tw"), "팀워크 0 < 10");
+  assert.equal(base.includes("ev_e3_low"), c0 < 2);
+  assert.equal(base.includes("ev_e3_high"), c0 >= 3);
+  // anyStaminaBelow: 결장 아닌 선수만 본다
+  assert.ok(on((t) => (P(t, "p3").stamina = 40)).includes("ev_e3_tired"));
+  assert.ok(!on((t) => Object.assign(P(t, "p3"), { stamina: 40, injuredTurns: 1 })).includes("ev_e3_tired"), "결장 선수는 빼고");
+  // avgStaminaBelow: 7명 평균 (결장 포함)
+  assert.ok(!on((t) => (P(t, "p3").stamina = 0)).includes("ev_e3_avg"), "한 명만 0 이면 평균 85.7");
+  assert.ok(on((t) => t.players.forEach((p) => (p.stamina = 49))).includes("ev_e3_avg"));
+  // anyInjured · teamwork · condition · AND
+  assert.ok(on((t) => (P(t, "p2").injuredTurns = 2)).includes("ev_e3_inj"));
+  assert.ok(!on((t) => (t.teamwork = 10)).includes("ev_e3_tw"));
+  assert.ok(on((t) => (t.condition = 1)).includes("ev_e3_low") && !on((t) => (t.condition = 2)).includes("ev_e3_low"));
+  assert.ok(on((t) => (t.condition = 3)).includes("ev_e3_high"));
+  assert.ok(!on((t) => (t.condition = 3)).includes("ev_e3_and"));
+  assert.ok(on((t) => Object.assign(t, { condition: 4 }) && (P(t, "p1").injuredTurns = 1)).includes("ev_e3_and"));
+  // weightIf: 조건이 참이면 그 가중치, 아니면 weight (없으면 1)
+  const w = LE.eventById(d, "ev_e3_w");
+  assert.equal(LE.eventWeight(s, w), 2);
+  const t = clone(s);
+  P(t, "p5").injuredTurns = 1;
+  assert.equal(LE.eventWeight(t, w), 5);
+  assert.equal(LE.eventWeight(s, LE.eventById(d, "ev_e3_tw")), 1);
+  // weekCondOk: 없으면 참 · 순수 · 모르는 키 throw
+  const before = JSON.stringify(s);
+  assert.equal(LE.weekCondOk(s, undefined), true);
+  assert.equal(LE.weekCondOk(s, { teamworkBelow: 1 }), true);
+  assert.equal(JSON.stringify(s), before);
+  assert.throws(() => LE.weekCondOk(s, { failedThisTurn: true }), /모르는 키 'failedThisTurn'/);
+});
+
+test("E3 pickWeekEvent · pickOutingEvent (가중치 뽑기 — 같은 rngState = 같은 결과, 후보가 없으면 null · rng 그대로) · pickFixedEvent (데이터 순서 첫 번째 · rng 없음) · 흐름 밖 트리거는 throw · switchOn", () => {
+  const { d, s } = e3([
+    wk("ev_e3_light", { weight: 1, weeks: [0, 13] }),
+    wk("ev_e3_heavy", { weight: 4, weeks: [0, 13] }),
+    fx("ev_e3_s1a", "seasonStart", { seasons: [1] }),
+    fx("ev_e3_s1b", "seasonStart", { seasons: [1] }),
+    fx("ev_e3_s2", "seasonStart", { seasons: [2] }),
+    fx("ev_e3_pre1", "preMatch", { seasons: [1] }),
+    fx("ev_e3_camp", "route", { routeId: "rt_camp" }),
+    fx("ev_e3_spa", "route", { routeId: "rt_hotspring" }),
+  ]);
+  // 가중치 뽑기: rngState 를 한 번 쓰고, 같은 rngState 면 같은 이벤트
+  const count = { ev_e3_light: 0, ev_e3_heavy: 0 };
+  for (let seed = 1; seed <= 200; seed++) {
+    const t = clone(s);
+    t.rngState = LR.createRun({ data: d, seed }).rngState;
+    const r0 = t.rngState;
+    const c = clone(t);
+    const ev = LE.pickWeekEvent(t, d);
+    assert.equal(LE.pickWeekEvent(c, d).id, ev.id);
+    assert.equal(t.rngState, c.rngState);
+    assert.notEqual(t.rngState, r0, "rng 를 썼다");
+    count[ev.id] += 1;
+  }
+  assert.ok(count.ev_e3_heavy > count.ev_e3_light * 2, JSON.stringify(count));
+  // 후보가 없으면 null — rngState 그대로 (스위치가 켜져도 띄울 것이 없으면 rng 를 쓰지 않는다)
+  const late = clone(s);
+  late.turnIndex = 14;
+  const r0 = late.rngState;
+  assert.equal(LE.pickWeekEvent(late, d), null);
+  assert.equal(LE.pickOutingEvent(late, d), null, "외출 이벤트가 없는 데이터");
+  assert.equal(late.rngState, r0);
+  // 고정: 그 시즌 · 그 루트의 첫 번째, rng 없음
+  const before = JSON.stringify(s);
+  assert.equal(LE.pickFixedEvent(s, d, "seasonStart").id, "ev_e3_s1a");
+  assert.equal(LE.pickFixedEvent({ ...clone(s), season: 2 }, d, "seasonStart").id, "ev_e3_s2");
+  assert.equal(LE.pickFixedEvent({ ...clone(s), season: 3 }, d, "seasonStart"), null);
+  assert.equal(LE.pickFixedEvent(s, d, "preMatch").id, "ev_e3_pre1");
+  assert.equal(LE.pickFixedEvent(s, d, "route", { routeId: "rt_hotspring" }).id, "ev_e3_spa");
+  assert.equal(LE.pickFixedEvent(s, d, "route", { routeId: "rt_expedition" }), null);
+  assert.equal(LE.pickFixedEvent(s, d, "route", {}), null);
+  assert.equal(JSON.stringify(s), before, "고정 고르기는 순수");
+  // 이야기 · 코치 · 깜짝은 흐름 자격이 아니다 (E4 · E5)
+  assert.throws(() => LE.eligible(s, d, "story"), /이야기 · 코치는 E4/);
+  assert.throws(() => LE.eligible(s, d, "surprise"), /흐름 자격으로 고르지 않습니다/);
+  assert.throws(() => LE.pickFixedEvent(s, d, "week"), /고정 이벤트 트리거가 아닙니다/);
+  // 기능 스위치 (§24.3.6)
+  assert.equal(LE.switchOn(d, "week"), false, "테스트 데이터는 모두 꺼짐");
+  const on = clone(d);
+  LE.setEventSwitches(on.lesson, true);
+  for (const k of ["week", "seasonStart", "preMatch", "route", "outing", "coach", "surprise"]) assert.equal(LE.switchOn(on, k), true, k);
+  assert.equal(LE.switchOn({ lesson: {} }, "week"), false, "events 블록이 없으면 꺼짐");
+});
+
+test("E3 일반 외출 주머니 (§24.7): 이번 런에 안 본 것 중 가중치로 · 다 보면 비우고 다시 · fireEvent 가 outingSeen 에 남긴다 · 주인공 = 외출 상대 (결장이어도)", () => {
+  const outing = (id, weight = 1) => fx(id, "outing", {
+    weight, title: "{선수}의 하루", text: "{선수|이/가} 장터를 걷습니다.",
+    choices: [
+      { label: "따라간다", effects: [{ type: "stamina", target: "player", amount: 10 }], result: "{선수|이/가} 웃었습니다." },
+      { label: "돌아간다", effects: [{ type: "tp", amount: 5 }], result: "해가 집니다." },
+    ],
+  });
+  const { d, s } = e3([outing("ev_e3_o1"), outing("ev_e3_o2", 2), outing("ev_e3_o3")], { file: "lesson_ev_fixed" });
+  P(s, "p5").injuredTurns = 1;
+  const seen = [];
+  for (let i = 0; i < 3; i++) {
+    const pool = ids(LE.eligible(s, d, "outing"));
+    assert.deepEqual(pool, ["ev_e3_o1", "ev_e3_o2", "ev_e3_o3"].filter((id) => !seen.includes(id)), `${i}번째: 안 본 것만`);
+    const ev = LE.pickOutingEvent(s, d);
+    LE.fireEvent(s, d, ev, { partnerId: "p5" });
+    assert.equal(s.currentEvent.playerId, "p5", "결장이어도 외출 상대");
+    assert.equal(s.currentEvent.kind, "outing");
+    seen.push(ev.id);
+    assert.deepEqual(s.outingSeen, seen);
+    s.currentEvent = null;
+  }
+  // 다 봤으면 전부가 후보 → 띄우면 주머니를 비우고 그것부터
+  assert.deepEqual(ids(LE.eligible(s, d, "outing")), ["ev_e3_o1", "ev_e3_o2", "ev_e3_o3"]);
+  const ev = LE.pickOutingEvent(s, d);
+  LE.fireEvent(s, d, ev, { partnerId: "p2" });
+  assert.deepEqual(s.outingSeen, [ev.id]);
+  // 외출 이벤트는 런 1회 규칙 없이 주머니로만 고른다 (usedEventIds 에는 남는다)
+  assert.ok(s.usedEventIds.includes(ev.id));
+});

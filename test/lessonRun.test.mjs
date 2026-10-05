@@ -1876,3 +1876,295 @@ test("§24.5.2 런 끝: 마지막 레슨 뒤에 얻은 코치 수업 (이벤트)
   assert.ok(s.log.some((x) => x.text === `남은 코치 수업 1개 (파워 슛) — 남은 레슨이 없어 SP +${data.lesson.rewards.teach.declineSp}`));
   checkInvariants(s);
 });
+
+// ---------------------------------------------------------------------------
+// §24.2 E3 — 런 흐름: 주 끝 슬롯 · 시즌 시작 · 전야 · 루트 · 외출 이벤트 · 무료 외출 (고정 본보기 · 스위치는 데이터 사본에서 켠다)
+// ---------------------------------------------------------------------------
+
+/** E3 흐름 본보기 — 효과에 rng 가 없다 (tp · teamwork · stamina) */
+const FLOW_CHOICES = [
+  { label: "쉰다", effects: [{ type: "tp", amount: 5 }], result: "쉬었습니다." },
+  { label: "뛴다", effects: [{ type: "teamwork", amount: 3 }], result: "뛰었습니다." },
+];
+const flowEv = (id, trigger, patch = {}) => ({ id, trigger, title: "흐름 시험", text: "바람이 붑니다.", choices: clone(FLOW_CHOICES), ...patch });
+const outingEv = (id) => flowEv(id, "outing", {
+  title: "{선수}의 외출", text: "{선수|이/가} 장터를 걷습니다.",
+  choices: [
+    { label: "사 준다", effects: [{ type: "stamina", target: "player", amount: 10 }], result: "{선수|이/가} 웃었습니다." },
+    { label: "같이 걷는다", effects: [{ type: "tp", amount: 5 }], result: "해가 집니다." },
+  ],
+});
+const FLOW_EVENTS = [
+  flowEv("ev_f_rain", "week", { weeks: [0, 3], once: false }), // 시즌 1 의 1 ~ 4주 반복 (2주 연속은 안 됨)
+  flowEv("ev_f_eve_slot", "week", { weekList: [4] }), // 시즌 1 의 5주 (경계전 전야 앞 슬롯)
+  ...[1, 2, 3].map((n) => flowEv(`ev_f_s${n}`, "seasonStart", { seasons: [n] })),
+  ...[1, 2, 3].map((n) => flowEv(`ev_f_pre${n}`, "preMatch", { seasons: [n] })),
+  ...["rt_camp", "rt_expedition", "rt_hotspring"].map((r) => flowEv(`ev_f_${r}`, "route", { routeId: r })),
+  outingEv("ev_f_out1"),
+  outingEv("ev_f_out2"),
+];
+/** E3 가 쓰는 기능 스위치 (코치 · 깜짝은 E4 · E5) */
+const E3_SWITCHES = ["week", "seasonStart", "preMatch", "route", "outing"];
+function flowData(events = FLOW_EVENTS, on = E3_SWITCHES) {
+  const d = withLessonEvents(events);
+  for (const k of on) d.lesson.events[k] = true;
+  return d;
+}
+
+/** walk 와 같은 단순 진행 (휴식 위주) + 이벤트 (선택지 0) · 3택1 (건너뛰기). 띄운 이벤트 id 를 seen 에 쌓는다 */
+function flowWalk(state, d, until, { route = "rt_camp", match: mres = WIN, seen = [] } = {}) {
+  let guard = 0;
+  while (!until(state)) {
+    if (++guard > 800) throw new Error(`flowWalk 가 끝나지 않습니다 (${state.phase})`);
+    switch (state.phase) {
+      case "week": LR.applyWeekAction(state, d, { type: "rest" }); break;
+      case "lesson": LR.endLessonTurn(state, d); break;
+      case "reward":
+        while (state.pendingReward.teach.some((t) => t.result === null)) LR.resolveTeach(state, d, { playerId: null });
+        LR.resolveReward(state, d, { pick: null });
+        break;
+      case "consult": LR.endConsult(state, d); break;
+      case "prep": LR.confirmPrep(state, d, {}); break;
+      case "match": LR.finishMatch(state, d, mres); break;
+      case "relic": LR.chooseRelic(state, d, state.pendingRelicChoices[0]); break;
+      case "route": LR.chooseRoute(state, d, route); break;
+      case "event": seen.push(state.currentEvent.eventId); LR.resolveEvent(state, d, 0); break;
+      case "cardOffer": LR.resolveCardOffer(state, d, { pick: null }); break;
+      default: throw new Error(`flowWalk: phase ${state.phase}`);
+    }
+  }
+  return state;
+}
+
+test("§24.2 E3 시즌 시작: createRun → 시즌 1 시작 이벤트 (1주 offer 앞) → 고르면 1주 · rng 를 쓰지 않는 이벤트면 1주 offer · rngState 가 스위치를 끈 런과 같다", () => {
+  const d = flowData();
+  const s = LR.createRun({ data: d, seed: 11 });
+  assert.equal(s.phase, "event");
+  assert.deepEqual([s.currentEvent.eventId, s.currentEvent.kind, s.currentEvent.playerId], ["ev_f_s1", "seasonStart", null]);
+  assert.equal(s.weekOffer, null, "1주 offer 는 이벤트 뒤에 굴린다");
+  assert.deepEqual(s.queue, ["beginWeek"]);
+  const v = LR.getEventView(s, d);
+  assert.deepEqual([v.badge, v.scene], ["시즌 시작", "stands"]);
+  assert.equal(LR.getWeekView(s, d).kind, "lesson", "이벤트 뒤 배경 (주 화면) 은 offer 없이도 그린다");
+  checkInvariants(s);
+  LR.resolveEvent(s, d, 0);
+  assert.deepEqual([s.phase, s.season, s.turn], ["week", 1, 1]);
+  const off = LR.createRun({ data, seed: 11 });
+  same(s.weekOffer, off.weekOffer);
+  assert.equal(s.rngState, off.rngState);
+  assert.equal(s.trainingPoints, off.trainingPoints + 5);
+});
+
+test("§24.2 E3 주 끝 슬롯 (L24): 행동 뒤 주 끝 랜덤 1개 → 다음 주 · 반복 이벤트는 2주 연속 안 됨 (lastWeekEventId) · 5주: 슬롯 → 경계전 전야 → 경기 전 준비", () => {
+  const d = flowData();
+  const s = LR.createRun({ data: d, seed: 11 });
+  LR.resolveEvent(s, d, 0); // 시즌 1 시작
+  // 1주: 휴식 → 주 끝 슬롯
+  LR.applyWeekAction(s, d, { type: "rest" });
+  assert.deepEqual([s.phase, s.currentEvent.eventId, s.currentEvent.kind, s.turn], ["event", "ev_f_rain", "week", 1]);
+  assert.deepEqual(s.queue, ["advanceWeek"], "1 ~ 4주는 전야 없음");
+  assert.equal(s.lastWeekEventId, "ev_f_rain");
+  LR.resolveEvent(s, d, 0);
+  assert.deepEqual([s.phase, s.turn], ["week", 2]);
+  // 2주: 지난 주와 같은 반복 이벤트는 빠진다 → 띄울 것이 없으면 그냥 다음 주
+  LR.applyWeekAction(s, d, { type: "rest" });
+  assert.deepEqual([s.phase, s.turn, s.lastWeekEventId], ["week", 3, null]);
+  // 3주: 다시 뜬다 · 4주: 다시 빠진다
+  LR.applyWeekAction(s, d, { type: "rest" });
+  assert.equal(s.currentEvent.eventId, "ev_f_rain");
+  LR.resolveEvent(s, d, 1);
+  LR.applyWeekAction(s, d, { type: "rest" });
+  assert.deepEqual([s.phase, s.turn], ["week", 5]);
+  assert.deepEqual(s.usedEventIds, ["ev_f_s1", "ev_f_rain"]);
+  // 5주 (그 시즌 마지막 주): 슬롯 → 전야 → 경기 전 준비
+  LR.applyWeekAction(s, d, { type: "rest" });
+  assert.deepEqual([s.phase, s.currentEvent.eventId], ["event", "ev_f_eve_slot"]);
+  assert.deepEqual(s.queue, ["preMatchEvent", "advanceWeek"]);
+  LR.resolveEvent(s, d, 0);
+  assert.deepEqual([s.phase, s.currentEvent.eventId, s.currentEvent.kind], ["event", "ev_f_pre1", "preMatch"]);
+  assert.deepEqual(s.queue, ["advanceWeek"]);
+  assert.equal(LR.getEventView(s, d).badge, "경계전 전야");
+  LR.resolveEvent(s, d, 0);
+  assert.equal(s.phase, "prep");
+  checkInvariants(s);
+  // 친선전 주도 같은 주 끝 (경기 뒤 슬롯)
+  const f = LR.createRun({ data: d, seed: 11 });
+  LR.resolveEvent(f, d, 0);
+  forceFree(f, ["friendly", "consult", "meeting"]);
+  LR.applyWeekAction(f, d, { type: "friendly" });
+  assert.deepEqual(f.queue, ["weekSlot", "advanceWeek"]);
+  LR.finishMatch(f, d, WIN);
+  if (f.phase === "relic") LR.chooseRelic(f, d, f.pendingRelicChoices[0]);
+  assert.deepEqual([f.phase, f.currentEvent.eventId], ["event", "ev_f_rain"]);
+});
+
+test("§24.2 E3 루트: 루트 효과 → 루트 이벤트 → (원정) 친선전 → 시즌 시작 이벤트 → 1주 · 캠프는 친선전 없이", () => {
+  const d = flowData();
+  const seen = [];
+  const s = flowWalk(LR.createRun({ data: d, seed: 11 }), d, (x) => x.phase === "route", { seen });
+  assert.deepEqual(seen, ["ev_f_s1", "ev_f_rain", "ev_f_rain", "ev_f_eve_slot", "ev_f_pre1"]);
+  const c = clone(s);
+  LR.chooseRoute(s, d, "rt_expedition");
+  assert.deepEqual([s.phase, s.season, s.turn, s.currentEvent.eventId, s.currentEvent.kind], ["event", 2, 1, "ev_f_rt_expedition", "route"]);
+  assert.equal(s.currentEvent.ctx.routeId, "rt_expedition");
+  assert.deepEqual(s.queue, ["routeFriendly", "seasonStartEvent", "beginWeek"]);
+  const v = LR.getEventView(s, d);
+  assert.deepEqual([v.badge, v.scene], ["루트", "nature"]);
+  LR.resolveEvent(s, d, 0);
+  assert.deepEqual([s.phase, s.pendingMatch.reason], ["match", "route"], "루트 이벤트 뒤에 원정 친선전");
+  LR.finishMatch(s, d, LOSS);
+  assert.deepEqual([s.phase, s.currentEvent.eventId], ["event", "ev_f_s2"], "친선전 뒤 시즌 2 시작 이벤트");
+  LR.resolveEvent(s, d, 0);
+  assert.deepEqual([s.phase, s.season, s.turn, s.weekOffer.kind], ["week", 2, 1, "lesson"]);
+  checkInvariants(s);
+  // 캠프: 루트 효과 (modifier) 가 먼저 → 루트 이벤트 → 시즌 시작 → 1주
+  LR.chooseRoute(c, d, "rt_camp");
+  assert.equal(c.currentEvent.eventId, "ev_f_rt_camp");
+  assert.ok(c.modifiers.some((m) => m.key === "trainingEfficiency" && m.untilSeason === 2), "루트 효과는 이벤트 앞에");
+  assert.deepEqual(c.queue, ["seasonStartEvent", "beginWeek"]);
+  assert.equal(LR.getEventView(c, d).scene, "ground");
+  LR.resolveEvent(c, d, 0);
+  assert.equal(c.currentEvent.eventId, "ev_f_s2");
+  LR.resolveEvent(c, d, 0);
+  assert.deepEqual([c.phase, c.season, c.turn], ["week", 2, 1]);
+});
+
+test("§24.2 E3 외출 주: 외출 기본 효과 뒤 외출 이벤트 (주인공 = 외출 상대) 가 그 주의 슬롯 — 주 끝 랜덤 없음 → 다음 주 · outing 스위치만 끄면 그 주는 이벤트 없음", () => {
+  const d = flowData();
+  const s = LR.createRun({ data: d, seed: 11 });
+  LR.resolveEvent(s, d, 0);
+  forceFree(s, ["outing", "consult", "meeting"]);
+  for (const p of s.players) p.stamina = 50;
+  LR.applyWeekAction(s, d, { type: "outing", playerId: "p5" });
+  assert.equal(P(s, "p5").stamina, 80, "외출 기본 효과가 먼저");
+  assert.equal(s.phase, "event");
+  assert.ok(["ev_f_out1", "ev_f_out2"].includes(s.currentEvent.eventId));
+  assert.deepEqual([s.currentEvent.kind, s.currentEvent.playerId, s.currentEvent.ctx.partnerId], ["outing", "p5", "p5"]);
+  assert.deepEqual(s.queue, ["advanceWeek"], "주 끝 슬롯 (weekSlot) 이 없다");
+  assert.deepEqual(s.outingSeen, [s.currentEvent.eventId]);
+  const v = LR.getEventView(s, d);
+  assert.equal(P(s, "p5").name, "타리아");
+  assert.equal(v.text, "타리아가 장터를 걷습니다.", "{선수|이/가} = 외출 상대");
+  assert.deepEqual([v.badge, v.scene], ["외출", "nature"]);
+  LR.resolveEvent(s, d, 0);
+  assert.deepEqual([s.phase, s.turn], ["week", 2]);
+  assert.ok(!s.usedEventIds.includes("ev_f_rain"), "외출한 주에는 주 끝 랜덤이 없다");
+  assert.equal(s.lastWeekEventId, null);
+  // outing 만 끄면: 외출한 주는 이벤트가 없다 (주 끝 랜덤으로 바꾸지 않는다)
+  const d2 = flowData(FLOW_EVENTS, ["week", "seasonStart"]);
+  const t = LR.createRun({ data: d2, seed: 11 });
+  LR.resolveEvent(t, d2, 0);
+  forceFree(t, ["outing", "consult", "meeting"]);
+  LR.applyWeekAction(t, d2, { type: "outing", playerId: "p5" });
+  assert.deepEqual([t.phase, t.turn, t.currentEvent], ["week", 2, null]);
+  assert.deepEqual(t.outingSeen, []);
+});
+
+test("§24.2 E3 무료 외출 (온천 다음 시즌 1주): 외출 이벤트 → 같은 주로 (weekOffer · rngState 그대로 — resumeWeek 는 rng 를 쓰지 않는다) · outing 스위치를 끄면 지금처럼 바로 같은 주", () => {
+  const d = flowData();
+  const s = flowWalk(LR.createRun({ data: d, seed: 11 }), d, (x) => x.phase === "route");
+  LR.chooseRoute(s, d, "rt_hotspring");
+  assert.equal(s.currentEvent.eventId, "ev_f_rt_hotspring");
+  assert.equal(LR.getEventView(s, d).scene, "onsen");
+  LR.resolveEvent(s, d, 0);
+  assert.equal(s.currentEvent.eventId, "ev_f_s2");
+  LR.resolveEvent(s, d, 0);
+  assert.deepEqual([s.phase, s.season, s.turn, s.freeOuting], ["week", 2, 1, 1]);
+  const offer = JSON.stringify(s.weekOffer);
+  for (const p of s.players) p.stamina = 50;
+  LR.applyWeekAction(s, d, { type: "outing", playerId: "p4", free: true });
+  assert.deepEqual([s.phase, s.currentEvent.kind, s.currentEvent.playerId, s.freeOuting], ["event", "outing", "p4", 0]);
+  assert.deepEqual(s.queue, ["resumeWeek"]);
+  assert.equal(P(s, "p4").stamina, 80);
+  const r0 = s.rngState;
+  LR.resolveEvent(s, d, 1); // TP — rng 없음
+  assert.deepEqual([s.phase, s.season, s.turn], ["week", 2, 1], "같은 주로");
+  assert.equal(JSON.stringify(s.weekOffer), offer, "offer 를 다시 굴리지 않는다");
+  assert.equal(s.rngState, r0, "resumeWeek 는 rng 를 쓰지 않는다");
+  assert.equal(LR.getWeekView(s, d).freeOuting, false);
+  rejects(s, () => LR.applyWeekAction(s, d, { type: "outing", playerId: "p4", free: true }));
+  checkInvariants(s);
+  // 그 주는 그대로 이어진다 (주 행동 → 주 끝 슬롯 → 2주)
+  LR.applyWeekAction(s, d, { type: "rest" });
+  assert.deepEqual([s.phase, s.turn], ["week", 2]);
+  // outing 스위치를 끄면 무료 외출은 지금처럼 이벤트 없이 phase week
+  const d2 = flowData(FLOW_EVENTS, ["week", "seasonStart", "preMatch", "route"]);
+  const t = flowWalk(LR.createRun({ data: d2, seed: 11 }), d2, (x) => x.phase === "route");
+  LR.chooseRoute(t, d2, "rt_hotspring");
+  flowWalk(t, d2, (x) => x.phase === "week");
+  const r1 = t.rngState;
+  LR.applyWeekAction(t, d2, { type: "outing", playerId: "p4", free: true });
+  assert.deepEqual([t.phase, t.turn, t.freeOuting, t.currentEvent, t.rngState], ["week", 1, 0, null, r1]);
+});
+
+test("§24.2 E3 이벤트 단계: 스위치가 꺼져 있으면 단계마다 아무것도 하지 않는다 (rng · 상태 그대로) · 켜면 그 단계의 이벤트 · supportEventCheck = weekSlot 별칭", () => {
+  const steps = [
+    ["weekSlot", "ev_f_rain"],
+    ["supportEventCheck", "ev_f_rain"],
+    ["preMatchEvent", "ev_f_pre1"],
+    ["seasonStartEvent", "ev_f_s1"],
+    ["routeEvent:rt_camp", "ev_f_rt_camp"],
+    ["routeEvent:rt_expedition", "ev_f_rt_expedition"],
+    ["outingEvent:p3", /^ev_f_out[12]$/],
+  ];
+  const off = withLessonEvents(FLOW_EVENTS); // loadData 기본 — 스위치 모두 꺼짐
+  const on = flowData();
+  for (const [step, want] of steps) {
+    // 꺼짐: 주입한 이벤트를 고른 뒤 [단계, resumeWeek] → 그 단계는 지나가고 같은 주
+    const s = LR.createRun({ data: off, seed: 3 });
+    injectEvent(s, off, "ev_f_rain");
+    s.queue = [step, "resumeWeek"];
+    const ref = clone(s);
+    ref.queue = ["resumeWeek"];
+    LR.resolveEvent(s, off, 0);
+    LR.resolveEvent(ref, off, 0);
+    assert.equal(s.phase, "week", step);
+    same(s, ref);
+    // 켜짐: 그 단계의 이벤트가 뜬다
+    const t = LR.createRun({ data: on, seed: 3 }); // 시즌 1 시작 이벤트가 떠 있다
+    t.queue = [step, "resumeWeek"];
+    LR.resolveEvent(t, on, 0);
+    assert.equal(t.phase, "event", step);
+    if (want instanceof RegExp) assert.match(t.currentEvent.eventId, want);
+    else assert.equal(t.currentEvent.eventId, want, step);
+    assert.deepEqual(t.queue, ["resumeWeek"]);
+  }
+  // 켜져 있어도 띄울 것이 없으면 (이벤트 파일이 비었으면) 지나간다 — rng 도 그대로
+  const empty = flowData([]);
+  const e = LR.createRun({ data: empty, seed: 3 });
+  assert.equal(e.phase, "week", "시즌 시작 이벤트가 없으면 바로 1주");
+  same(e, LR.createRun({ data, seed: 3 }));
+  // 모르는 단계
+  const u = LR.createRun({ data: on, seed: 3 });
+  u.queue = ["nonsense"];
+  assert.throws(() => LR.resolveEvent(u, on, 0), /알 수 없는 queue 단계: 'nonsense'/);
+});
+
+test("§24.15 E3 스위치를 모두 끄면 1차와 같은 흐름 · 같은 rng: 고정 이벤트가 있어도 · 켜도 띄울 것이 없으면 — 15주 완주 최종 상태가 이벤트 없는 데이터와 같다", () => {
+  const plain = flowWalk(LR.createRun({ data, seed: 5 }), data, (x) => x.phase === "finished", { route: "rt_expedition" });
+  const offEv = withLessonEvents(FLOW_EVENTS);
+  const onEmpty = flowData([]);
+  for (const d of [offEv, onEmpty]) {
+    const seen = [];
+    const s = flowWalk(LR.createRun({ data: d, seed: 5 }), d, (x) => x.phase === "finished", { route: "rt_expedition", seen });
+    assert.deepEqual(seen, []);
+    same(s, plain);
+  }
+  // 켜면 시즌 시작 3 · 전야 3 · 루트 2 · 주 끝이 뜨고 끝까지 간다 (결정적)
+  const on = flowData();
+  const runOn = () => {
+    const seen = [];
+    const s = flowWalk(LR.createRun({ data: on, seed: 5 }), on, (x) => x.phase === "finished", { route: "rt_expedition", seen });
+    return { s, seen };
+  };
+  const a = runOn();
+  const b = runOn();
+  same(a.s, b.s);
+  assert.deepEqual(a.seen, b.seen);
+  for (const id of ["ev_f_s1", "ev_f_s2", "ev_f_s3", "ev_f_pre1", "ev_f_pre2", "ev_f_pre3"]) assert.equal(a.seen.filter((x) => x === id).length, 1, id);
+  assert.equal(a.seen.filter((x) => x === "ev_f_rt_expedition").length, 2);
+  assert.ok(a.seen.includes("ev_f_rain") && a.seen.includes("ev_f_eve_slot"));
+  assert.equal(a.s.eventSeq, a.seen.length);
+  assert.equal(a.s.currentEvent, null);
+  checkInvariants(a.s);
+});

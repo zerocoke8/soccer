@@ -11,9 +11,16 @@
  *   - 주 끝 · 시즌 끝처럼 이어지는 단계는 state.queue (문자열 배열) 에 넣고 continueFlow 가 멈추는 phase 까지 처리한다.
  *   - 2차 이벤트 (§24, E2): 이벤트 뷰 · 고르기는 lessonEvents (getEventView · resolveEvent → 여기서 continueFlow), 효과는 lessonEffects.
  *     "보상 카드 3택1" 효과 = phase cardOffer (getCardOfferView · resolveCardOffer). 덱 · 유대 · 수업 도우미는 lessonCommon.
+ *   - 이벤트가 뜨는 자리 (§24.2, E3): 아래 queue 의 이벤트 단계가 lessonEvents 의 자격 · 고르기 (eligible · pickWeekEvent ·
+ *     pickOutingEvent · pickFixedEvent) 로 0 ~ 1개를 띄운다 (fireEvent → phase event). 코치 연속 · 외출 이야기는 E4.
  *
- * queue 단계: "beginWeek" · "supportEventCheck" (E2 부터 아무것도 하지 않는다 — E3 이 weekSlot 의 별칭으로) · "advanceWeek" ·
- *   "seasonEnd" · "routeFriendly"
+ * queue 단계: "beginWeek" · "advanceWeek" · "resumeWeek" (무료 외출 뒤 같은 주로 — phase 만 week, rng 없음) · "seasonEnd" · "routeFriendly" ·
+ *   이벤트 단계 (§24.2, E3) "weekSlot" (주 끝 랜덤) · "preMatchEvent" (경계전 전야) · "seasonStartEvent" · "routeEvent:<routeId>" ·
+ *   "outingEvent:<playerId>" (일반 외출 — 외출한 주는 이것이 그 주의 슬롯). 옛 저장본의 "supportEventCheck" = "weekSlot" (별칭).
+ *   이벤트 단계는 띄울 것이 없으면 그냥 지나가고 (rng 도 쓰지 않는다), lesson.json events 의 그 스위치가 꺼져 있으면 아무것도 하지 않는다.
+ *   queue 모양: createRun ["seasonStartEvent", "beginWeek"] · 주 끝 weekEndQueue = ["weekSlot", (마지막 주) "preMatchEvent", "advanceWeek"] ·
+ *   외출 ["outingEvent:<id>", (마지막 주) "preMatchEvent", "advanceWeek"] · 무료 외출 (outing 스위치가 켜졌을 때) ["outingEvent:<id>", "resumeWeek"] ·
+ *   루트 ["routeEvent:<id>", ("routeFriendly"), "seasonStartEvent", "beginWeek"] · 경기 전 준비 ["seasonEnd"].
  *
  * 순수 로직: DOM/fetch/Date/Math.random/localStorage 를 쓰지 않는다. 상태는 JSON 순수 객체.
  * 난수는 state.rngState 로만 쓰고, 함수에 들어올 때 열어 나가기 직전에 저장한다 (다른 rng 함수를 부르는 동안에는 들고 있지 않는다).
@@ -96,8 +103,6 @@ export const SAVE_VERSIONS = [1, 2, 3, 4, 5];
 
 /** 사용자 입력을 기다리는 phase (continueFlow 가 여기서 멈춘다) */
 const STOP_PHASES = new Set(["week", "lesson", "reward", "consult", "prep", "event", "cardOffer", "match", "relic", "route", "finished"]);
-/** 주 끝 queue */
-const WEEK_END = ["supportEventCheck", "advanceWeek"];
 /** 자유 주 행동 */
 const FREE_ACTIONS = ["outing", "friendly", "consult", "meeting"];
 
@@ -385,16 +390,61 @@ function leftoverTeachToSp(state, data) {
   state.pendingTeach = [];
 }
 
+// ---------------------------------------------------------------------------
+// 이벤트 단계 (§24.2, E3) — 하나에 이벤트 0 ~ 1개 (띄우면 phase event 로 흐름이 멈춘다). 스위치가 꺼져 있으면 아무것도 하지 않고 rng 도 쓰지 않는다.
+// ---------------------------------------------------------------------------
+
+/** 주 끝 슬롯 (L24): 주 끝 랜덤 1개 (E4 가 준비된 코치 연속 이벤트를 먼저 본다). lastWeekEventId = 이번 주 슬롯의 이벤트 (없으면 null) */
+function weekSlotStep(state, data) {
+  if (!lessonEvents.switchOn(data, "week")) return;
+  const ev = lessonEvents.pickWeekEvent(state, data);
+  state.lastWeekEventId = ev ? ev.id : null;
+  if (ev) lessonEvents.fireEvent(state, data, ev, { kind: ev.trigger });
+}
+
+/** 시즌 시작 · 경계전 전야 (그 시즌의 고정 이벤트 — 데이터 순서로 첫 번째) */
+function fixedEventStep(state, data, trigger) {
+  if (!lessonEvents.switchOn(data, trigger)) return;
+  const ev = lessonEvents.pickFixedEvent(state, data, trigger);
+  if (ev) lessonEvents.fireEvent(state, data, ev, { kind: ev.trigger });
+}
+
+/** 루트 이벤트 (루트를 고른 뒤 — 루트 효과 다음, 원정 친선전 앞) */
+function routeEventStep(state, data, routeId) {
+  if (!lessonEvents.switchOn(data, "route")) return;
+  const ev = lessonEvents.pickFixedEvent(state, data, "route", { routeId });
+  if (ev) lessonEvents.fireEvent(state, data, ev, { kind: ev.trigger, routeId });
+}
+
+/** 외출 이벤트 (외출 기본 효과 다음): 일반 외출 주머니에서 1개, 주인공 = 외출 상대 (E4 가 이야기 다음 화를 먼저 본다) */
+function outingEventStep(state, data, playerId) {
+  if (!lessonEvents.switchOn(data, "outing")) return;
+  playerById(state, playerId);
+  const ev = lessonEvents.pickOutingEvent(state, data);
+  if (ev) lessonEvents.fireEvent(state, data, ev, { kind: ev.trigger, partnerId: playerId });
+}
+
 function runStep(state, data, step) {
   switch (step) {
     case "beginWeek":
       beginWeek(state, data);
       break;
-    case "supportEventCheck":
-      // 옛 유대 60 서포트 이벤트 자리 (lesson.json events.support — E2 에서 지웠다). E3 이 weekSlot 의 별칭으로 바꾼다.
+    case "weekSlot":
+    case "supportEventCheck": // 옛 저장본 (v4 이전 주 끝) 의 별칭
+      weekSlotStep(state, data);
+      break;
+    case "preMatchEvent":
+      fixedEventStep(state, data, "preMatch");
+      break;
+    case "seasonStartEvent":
+      fixedEventStep(state, data, "seasonStart");
       break;
     case "advanceWeek":
       advanceWeek(state, data);
+      break;
+    case "resumeWeek":
+      // 무료 외출 이벤트 뒤 같은 주로: offer 를 다시 굴리지 않는다 (rng 없음)
+      state.phase = "week";
       break;
     case "seasonEnd":
       seasonEnd(state, data);
@@ -404,7 +454,9 @@ function runStep(state, data, step) {
       state.phase = "match";
       break;
     default:
-      throw new Error(`알 수 없는 queue 단계: '${step}'`);
+      if (typeof step === "string" && step.startsWith("routeEvent:")) routeEventStep(state, data, step.slice("routeEvent:".length));
+      else if (typeof step === "string" && step.startsWith("outingEvent:")) outingEventStep(state, data, step.slice("outingEvent:".length));
+      else throw new Error(`알 수 없는 queue 단계: '${step}'`);
   }
 }
 
@@ -431,8 +483,19 @@ function continueFlow(state, data) {
   throw new Error("이어 갈 단계가 없습니다 (queue 가 비었습니다)");
 }
 
+/**
+ * 주 끝 queue (§24.2): ["weekSlot", (그 시즌 마지막 주면) "preMatchEvent", "advanceWeek"].
+ * @param {object} state
+ * @param {object} data
+ * @param {string} [slot]  주 끝 슬롯 단계 (외출한 주 = "outingEvent:<id>")
+ * @returns {string[]}
+ */
+function weekEndQueue(state, data, slot = "weekSlot") {
+  return [slot, ...(state.turn === weeksPerSeason(data) ? ["preMatchEvent"] : []), "advanceWeek"];
+}
+
 function weekEnd(state, data) {
-  state.queue = WEEK_END.slice();
+  state.queue = weekEndQueue(state, data);
   return continueFlow(state, data);
 }
 
@@ -678,7 +741,7 @@ export function createRun({ data, seed, squad, formation, supportIds, tactics, p
   };
   log(state, `새 런 시작 (seed: ${seed}, 방침: ${policyOf(data, pol).name}). 시즌 1.`);
   rollSeasonPlan(state, data);
-  state.queue = ["beginWeek"];
+  state.queue = ["seasonStartEvent", "beginWeek"]; // 시즌 1 시작 이벤트 → 1주 (§24.2)
   return continueFlow(state, data);
 }
 
@@ -793,12 +856,18 @@ export function applyWeekAction(state, data, action) {
         doOuting(state, data, p);
         state.freeOuting -= 1;
         log(state, `무료 외출: ${p.name} (체력 +${LD(data).outing.picked}, 전원 +${LD(data).outing.team}, 컨디션 +${LD(data).outing.condition})`);
-        return state;
+        // 외출 이벤트를 켜면 이벤트 뒤 같은 주로 (offer 그대로, §24.2). 끄면 지금처럼 phase week 그대로
+        if (!lessonEvents.switchOn(data, "outing")) return state;
+        state.queue = [`outingEvent:${p.id}`, "resumeWeek"];
+        return continueFlow(state, data);
       }
       if (!offered("outing")) throw new Error("이번 주에는 외출이 열려 있지 않습니다");
       doOuting(state, data, p);
       log(state, `외출: ${p.name} (체력 +${LD(data).outing.picked}, 전원 +${LD(data).outing.team}, 컨디션 +${LD(data).outing.condition})`);
-      return weekEnd(state, data);
+      // 외출 이벤트가 그 주의 슬롯 (주 끝 랜덤 없음) — 반복 이벤트의 "2주 연속" 판단도 여기서 끊긴다
+      state.lastWeekEventId = null;
+      state.queue = weekEndQueue(state, data, `outingEvent:${p.id}`);
+      return continueFlow(state, data);
     }
     case "meeting": {
       if (!offered("meeting")) throw new Error("이번 주에는 전술 미팅이 열려 있지 않습니다");
@@ -821,7 +890,7 @@ export function applyWeekAction(state, data, action) {
     case "friendly": {
       if (!offered("friendly")) throw new Error("이번 주에는 친선전이 열려 있지 않습니다");
       run.makeFriendlyMatch(state, data, "friendly");
-      state.queue = WEEK_END.slice();
+      state.queue = weekEndQueue(state, data);
       state.phase = "match";
       return state;
     }
@@ -1526,8 +1595,8 @@ export function chooseRelic(state, data, relicId) {
 }
 
 /**
- * 루트 고르기 (§5.4.2): 시즌 +1 → 만료 modifier 제거 → 루트 효과 → (온천) 무료 외출 → 시즌 계획 → [원정 친선전] → 1주 시작.
- * 루트 이벤트 · 시즌 시작 이벤트는 없다.
+ * 루트 고르기 (§5.4.2 · §24.2): 시즌 +1 → 만료 modifier 제거 → 루트 효과 → (온천) 무료 외출 → 시즌 계획 →
+ * queue [루트 이벤트 "routeEvent:<id>", (원정) 친선전, 시즌 시작 이벤트, 1주 시작]. 이벤트 단계는 스위치가 꺼져 있으면 그냥 지나간다.
  */
 export function chooseRoute(state, data, routeId) {
   assertData(data);
@@ -1546,9 +1615,9 @@ export function chooseRoute(state, data, routeId) {
   const ov = (LD(data).routeOverrides || {})[routeId];
   if (ov && ov.freeOuting) state.freeOuting = ov.freeOuting;
   rollSeasonPlan(state, data);
-  state.queue = [];
+  state.queue = [`routeEvent:${routeId}`];
   if (route.forcedFriendly) state.queue.push("routeFriendly");
-  state.queue.push("beginWeek");
+  state.queue.push("seasonStartEvent", "beginWeek");
   return continueFlow(state, data);
 }
 
