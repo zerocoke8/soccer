@@ -2,7 +2,8 @@ name: Deploy to GitHub Pages
 
 # main → https://zerocoke8.github.io/soccer/
 # outgame-lesson 브랜치 → https://zerocoke8.github.io/soccer/lesson/ (그 브랜치에 .lesson-site 표시 파일이 있을 때만)
-# 브랜치에 푸시하면 그 브랜치의 lesson-redeploy.yml 이 이 워크플로를 main 에서 다시 실행한다.
+# outgame-sprite 브랜치 → https://zerocoke8.github.io/soccer/sprite/ (그 브랜치에 .sprite-site 표시 파일이 있을 때만 — 2D 스프라이트 시험판)
+# 브랜치에 푸시하면 그 브랜치의 lesson-redeploy.yml · sprite-redeploy.yml 이 이 워크플로를 main 에서 다시 실행한다.
 
 on:
   push:
@@ -20,6 +21,7 @@ concurrency:
 
 env:
   LESSON_BRANCH: outgame-lesson
+  SPRITE_BRANCH: outgame-sprite
 
 jobs:
   deploy:
@@ -44,6 +46,15 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Does the sprite branch exist?
+        id: sprite
+        run: |
+          if git ls-remote --exit-code --heads "https://github.com/${GITHUB_REPOSITORY}.git" "refs/heads/${SPRITE_BRANCH}" > /dev/null; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout lesson branch (/lesson/)
         if: steps.lesson.outputs.exists == 'true'
         uses: actions/checkout@v4
@@ -51,10 +62,18 @@ jobs:
           ref: ${{ env.LESSON_BRANCH }}
           path: src/lesson
 
+      - name: Checkout sprite branch (/sprite/)
+        if: steps.sprite.outputs.exists == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SPRITE_BRANCH }}
+          path: src/sprite
+
       - name: Assemble site
         run: |
           set -eu
           if [ -e src/main/lesson ]; then echo "::error::main has a lesson/ path that would collide with the lesson site"; exit 1; fi
+          if [ -e src/main/sprite ]; then echo "::error::main has a sprite/ path that would collide with the sprite site"; exit 1; fi
           mkdir -p _site
           rsync -a --exclude='.git' --exclude='.github' src/main/ _site/
           if [ -f src/lesson/.lesson-site ]; then
@@ -63,6 +82,13 @@ jobs:
             echo "lesson site deployed from $(git -C src/lesson rev-parse --short HEAD)" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "lesson site skipped (branch missing or no .lesson-site marker)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -f src/sprite/.sprite-site ]; then
+            mkdir -p _site/sprite
+            rsync -a --exclude='.git' --exclude='.github' --exclude='/.lesson-site' --exclude='/.sprite-site' --exclude='/art/' --exclude='/node_modules/' src/sprite/ _site/sprite/
+            echo "sprite site deployed from $(git -C src/sprite rev-parse --short HEAD)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "sprite site skipped (branch missing or no .sprite-site marker)" >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - uses: actions/configure-pages@v5
