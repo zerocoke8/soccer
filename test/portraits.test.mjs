@@ -1,5 +1,5 @@
-// test/portraits.test.mjs — LESSON_PROTO_PLAN §24.12.1 (초상화 파이프라인, A1). Node 만 쓴다 (Chrome 없음).
-// 자르기 명세 art/portraits.json ↔ 목록 data/portraits.json ↔ img/portraits/*.webp ↔ 캐릭터 · 서포트 id.
+// test/portraits.test.mjs — LESSON_PROTO_PLAN §24.12.1 (초상화 파이프라인, A1) · §24.12.5 (배경 7장, A2). Node 만 쓴다 (Chrome 없음).
+// 자르기 명세 art/portraits.json ↔ 목록 data/portraits.json ↔ img/portraits/*.webp · img/scenes/*.webp ↔ 캐릭터 · 서포트 id · 배경 id (SCENE_IDS).
 // 그림을 다시 자르려면 `node tools/portraits.mjs` (Chrome 필요) — 이 테스트는 결과물이 명세 · 목록과 맞는지만 본다.
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -8,6 +8,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { PRESET_NAMES, cropBox, sceneBox, specErrors, buildManifest, formatManifest, portraitPath, scenePath } from "../tools/portraits.mjs";
+import { SCENE_IDS } from "../js/engine/lessonEvents.js";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const readJson = (rel) => JSON.parse(fs.readFileSync(path.join(ROOT, rel), "utf8"));
@@ -24,6 +25,18 @@ const PRESETS = {
   bust: { w: 3.6, h: 4.5, top: 1.3, out: [384, 480], quality: 0.82 },
   half: { w: 4.4, h: 6.6, top: 1.4, out: [512, 768], quality: 0.8 },
 };
+
+/** 배경 (§24.12.5): 원본 1536×1024 PNG → 1280×853 WebP, 한 장 300KB 이하 (7장 약 1MB) */
+const SCENE_SOURCE = [1536, 1024];
+const SCENE_OUT = [1280, 853];
+const SCENE_LIMIT = 300 * 1024;
+
+/** PNG 크기 [폭, 높이] (IHDR) */
+function pngSize(buf) {
+  assert.equal(buf.toString("hex", 0, 8), "89504e470d0a1a0a", "PNG 서명");
+  assert.equal(buf.toString("ascii", 12, 16), "IHDR");
+  return [buf.readUInt32BE(16), buf.readUInt32BE(20)];
+}
 
 /** WebP 캔버스 크기 [폭, 높이] (VP8X · VP8 · VP8L) */
 function webpSize(buf) {
@@ -166,6 +179,36 @@ test("img/portraits/ 에는 목록의 파일만 있다 · 목록은 디스크에
   for (const group of ["chars", "coaches"]) for (const id of Object.keys(manifest[group])) for (const p of PRESET_NAMES) expected.add(path.basename(portraitPath(id, p)));
   assert.deepEqual(fs.readdirSync(path.join(ROOT, "img", "portraits")).sort(), [...expected].sort());
   assert.equal(fs.readFileSync(path.join(ROOT, "data", "portraits.json"), "utf8"), formatManifest(buildManifest(spec, ROOT)));
+});
+
+test("배경 7장 (A2 · §24.12.5): 명세 · 목록 = SCENE_IDS · 원본 PNG 1536×1024 · 프롬프트 · README · WebP 1280×853 · 300KB 이하 · img/scenes/ 에는 목록 파일만", () => {
+  assert.equal(SCENE_IDS.length, 7);
+  assert.deepEqual(Object.keys(spec.scenes), [...SCENE_IDS], "art/portraits.json scenes");
+  assert.deepEqual(Object.keys(manifest.scenes), [...SCENE_IDS], "data/portraits.json scenes");
+  const readme = fs.readFileSync(path.join(ROOT, "art", "scenes", "README.md"), "utf8");
+  for (const id of SCENE_IDS) {
+    const e = spec.scenes[id];
+    assert.equal(e.file, `scenes/${id}.png`, `scenes.${id}.file`);
+    assert.deepEqual(e.out, SCENE_OUT, `scenes.${id}.out`);
+    assert.ok(e.quality > 0 && e.quality <= 1, `scenes.${id}.quality`);
+    const src = path.join(ROOT, "art", e.file);
+    assert.ok(fs.existsSync(src), `art/${e.file}`);
+    assert.deepEqual(pngSize(fs.readFileSync(src)), SCENE_SOURCE, `art/${e.file} 크기`);
+    const prompt = `art/scenes/prompts/${id}.txt`;
+    assert.ok(fs.existsSync(path.join(ROOT, prompt)), prompt);
+    const ptext = fs.readFileSync(path.join(ROOT, prompt), "utf8");
+    assert.match(ptext, /^\$imagegen\n/, `${prompt} 첫 줄`);
+    assert.match(ptext, new RegExp(`as ${id}\\.png\\.`), `${prompt} 저장 이름`);
+    assert.ok(readme.includes(`${id}.png`), `art/scenes/README.md 에 ${id}.png 줄이 없다`);
+    const f = scenePath(id);
+    assert.ok(fs.existsSync(path.join(ROOT, f)), f);
+    const buf = fs.readFileSync(path.join(ROOT, f));
+    assert.deepEqual(webpSize(buf), SCENE_OUT, `${f} 크기`);
+    assert.ok(buf.length <= SCENE_LIMIT, `${f} ${buf.length}B > ${SCENE_LIMIT}B`);
+    assert.equal(manifest.scenes[id].v, sha8([f]), `scenes.${id}.v`);
+  }
+  assert.deepEqual(fs.readdirSync(path.join(ROOT, "img", "scenes")).sort(), SCENE_IDS.map((id) => `${id}.webp`).sort());
+  assert.deepEqual(fs.readdirSync(path.join(ROOT, "art", "scenes", "prompts")).sort(), SCENE_IDS.map((id) => `${id}.txt`).sort());
 });
 
 test("배포 코드 (js/ · css/ · index.html) 는 art/ 를 가리키지 않는다 (art/ 는 배포에서 빠진다 — img/ 만 쓴다)", () => {

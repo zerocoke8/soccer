@@ -1,0 +1,16 @@
+$imagegen
+Generate exactly ONE background illustration (scenery only, no characters) for the story and event screens of a fantasy soccer game. Landscape orientation, 1536x1024 pixels (3:2).
+
+TWO ATTACHED IMAGES = two APPROVED finished character illustrations of this game. Use them ONLY as the reference for how this game paints its BACKGROUNDS — look at their skies, grass, trees, water, buildings and distant silhouettes. Do NOT draw these characters or any other person.
+STYLE: match them as closely as possible — a background frame from a high-budget 2D TV anime: clean lineart of even weight, flat cel coloring (flat base colors with ONE hard-edged shadow tone, cool blue-violet shadow tint, very little gradient), simple readable shapes, a smooth sky gradient, far scenery as flat layered silhouettes, crisp rim light on edges that face the light, glowing lights drawn as flat shapes with a soft outer glow. NOT painterly, NOT semi-realistic or photographic, NOT glossy, NOT 3D-rendered, NOT busy or cluttered with tiny details.
+
+WORLD: a fantasy continent where humans, elves, dwarves, giants, beastfolk and spirits settle border disputes with football (soccer) matches instead of wars; our club is a small, newly founded club in a frontier town. Warm, hopeful slice-of-life mood. Buildings are a cozy fantasy mix of pale stone, timber frames and slate or red-tile roofs.
+
+COMPOSITION: an empty establishing shot, camera at eye level, gentle perspective. Keep the CENTRE-LEFT part of the picture calm and simple (open sky, plain ground, a plain wall or calm water with few details), because character busts and text boxes will be laid over it; put the main details toward the right side and the outer edges. Nothing important cut off by the frame.
+
+SCENE: an outdoor mountain hot spring at early evening. A natural rock pool of milky turquoise water with gentle ripples; soft white steam rising and drifting, drawn as flat simple shapes; large smooth grey rocks around the pool; on the right, a wooden walkway with a wooden railing and the eaves of a small wooden bathhouse with a warm glowing paper lantern; a wooden bucket on a rock; autumn maple trees in red and orange and dark pines around; mountain slopes behind as flat layered silhouettes. Sky: a soft twilight gradient from pale orange to lavender and blue-violet, the first star.
+Palette: turquoise water, white steam, warm wood, red-orange maples, lavender sky. Mood: relaxing, quiet, healing after hard training.
+
+HARD RULES: NO people — no human figures, no silhouettes of people, no crowd, no characters of any kind; NO animals and NO birds. No text, no letters, no numbers, no logos, no emblems or crests, no flags or banners with symbols (plain single-colour cloth only), no shop signs with writing, no scoreboard digits, no watermark, no signature, no frame, no UI elements.
+
+Save the final PNG in the current working directory as onsen.png. Do not create any other files. Reply with the saved file path only.

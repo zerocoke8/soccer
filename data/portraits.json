@@ -29,5 +29,13 @@
     "sp_street_striker": { "v": "4813197b" },
     "sp_river_scholar": { "v": "cb24a5ab" }
   },
-  "scenes": {}
+  "scenes": {
+    "title": { "v": "817d031b" },
+    "ground": { "v": "a9452044" },
+    "clubhouse": { "v": "1a78e667" },
+    "town": { "v": "144018e1" },
+    "stands": { "v": "1c05c5a5" },
+    "nature": { "v": "c3f3647a" },
+    "onsen": { "v": "7d2d3e1d" }
+  }
 }

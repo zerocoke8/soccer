@@ -1,0 +1,16 @@
+$imagegen
+Generate exactly ONE background illustration (scenery only, no characters) for the story and event screens of a fantasy soccer game. Landscape orientation, 1536x1024 pixels (3:2).
+
+TWO ATTACHED IMAGES = two APPROVED finished character illustrations of this game. Use them ONLY as the reference for how this game paints its BACKGROUNDS — look at their skies, grass, trees, water, buildings and distant silhouettes. Do NOT draw these characters or any other person.
+STYLE: match them as closely as possible — a background frame from a high-budget 2D TV anime: clean lineart of even weight, flat cel coloring (flat base colors with ONE hard-edged shadow tone, cool blue-violet shadow tint, very little gradient), simple readable shapes, a smooth sky gradient, far scenery as flat layered silhouettes, crisp rim light on edges that face the light, glowing lights drawn as flat shapes with a soft outer glow. NOT painterly, NOT semi-realistic or photographic, NOT glossy, NOT 3D-rendered, NOT busy or cluttered with tiny details.
+
+WORLD: a fantasy continent where humans, elves, dwarves, giants, beastfolk and spirits settle border disputes with football (soccer) matches instead of wars; our club is a small, newly founded club in a frontier town. Warm, hopeful slice-of-life mood. Buildings are a cozy fantasy mix of pale stone, timber frames and slate or red-tile roofs.
+
+COMPOSITION: an empty establishing shot, camera at eye level, gentle perspective. Keep the CENTRE-LEFT part of the picture calm and simple (open sky, plain ground, a plain wall or calm water with few details), because character busts and text boxes will be laid over it; put the main details toward the right side and the outer edges. Nothing important cut off by the frame.
+
+SCENE: an afternoon lakeside hill outside the town. In the foreground a gentle grassy hill with small wildflowers in flat colour patches and a lone tree on the right; below it a calm blue lake with simple flat reflections and a small wooden pier; around the lake a patchwork of green and golden fields, hedgerows and a few distant farmhouses; far away, layered blue mountains with snow caps as flat silhouettes. Sky: clear afternoon blue with large flat cumulus clouds, warm sunlight with soft rim light on the grass.
+Palette: sky blue, lake blue, fresh green, golden fields, white clouds. Mood: open, refreshing, a calm journey.
+
+HARD RULES: NO people — no human figures, no silhouettes of people, no crowd, no characters of any kind; NO animals and NO birds. No text, no letters, no numbers, no logos, no emblems or crests, no flags or banners with symbols (plain single-colour cloth only), no shop signs with writing, no scoreboard digits, no watermark, no signature, no frame, no UI elements.
+
+Save the final PNG in the current working directory as nature.png. Do not create any other files. Reply with the saved file path only.

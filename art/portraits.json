@@ -34,5 +34,13 @@
     "sp_street_striker": { "file": "coaches/joy.png", "x": 466, "y": 152, "head": 140, "bust": { "dy": -17, "scale": 0.8 } },
     "sp_river_scholar": { "file": "coaches/irene.png", "x": 490, "y": 208, "head": 130, "bust": { "dy": -16, "scale": 0.8 } }
   },
-  "scenes": {}
+  "scenes": {
+    "title": { "file": "scenes/title.png", "out": [1280, 853], "quality": 0.8 },
+    "ground": { "file": "scenes/ground.png", "out": [1280, 853], "quality": 0.8 },
+    "clubhouse": { "file": "scenes/clubhouse.png", "out": [1280, 853], "quality": 0.8 },
+    "town": { "file": "scenes/town.png", "out": [1280, 853], "quality": 0.8 },
+    "stands": { "file": "scenes/stands.png", "out": [1280, 853], "quality": 0.8 },
+    "nature": { "file": "scenes/nature.png", "out": [1280, 853], "quality": 0.8 },
+    "onsen": { "file": "scenes/onsen.png", "out": [1280, 853], "quality": 0.8 }
+  }
 }
