@@ -10,7 +10,12 @@ export const KEYS = {
   // 도전 모드 (2026-10-01): 런 저장(run · match)과 따로 둔다 — 도전 경기는 런 저장을 건드리지 않는다
   challenge: `${STORAGE_PREFIX}challenge`,           // 진행 기록 { version, teams: { [팀 id]: { cleared, attempts, wins, lastResult, resets } } } (엔진 challenge.normalizeProgress)
   challengeMatch: `${STORAGE_PREFIX}challengeMatch`, // 진행 중인 도전 경기 { version, teamId, stage, attempt, resets, seed, team, match } — 시작 화면 [도전 모드] 가 이어서 한다
+  // 계정 저장 (LESSON_PROTO_PLAN §24.7 — 런 밖): 본 외출 이야기 · 만난 코치 { version: 1, stories: { [charId]: 1 ~ 3 }, coachMet: { [supportId]: true } }.
+  // 런 저장 삭제 · 다시 하기 · clearRunSaves 는 이 키를 지우지 않는다. 엔진 호출마다 app.js engine() 이 런 진행을 합친다 (lessonEvents.accountMerge).
+  account: `${STORAGE_PREFIX}account`,
 };
+/** KEYS.account 저장 형식 버전 */
+export const ACCOUNT_VERSION = 1;
 /**
  * 레슨 런 저장본인가 — 엔진 lessonRun.isLessonRunSave 와 같은 검사 (kind "lessonRun" · version 1 ~ 5 · phase 문자열).
  * version 1 ~ 4 는 continueRun 이 엔진 migrateLessonRun 으로 5 로 올린다 (1 은 레슨 · 보상 중이면 못 올린다, §14.15 · §18.7 · §19.13 · §24.10).
@@ -47,7 +52,7 @@ const URL_PREFS = urlMatchPrefs();
 
 export const store = {
   data: null,          // { config, characters, supports, events, skills, relics, opponents, routes, …, challenge, challenge_sample_team }
-  screen: 'start',     // 'start' | 'setup' | 'run' | 'challenge'(도전 목록) | 'challengeMatch'(도전 경기)
+  screen: 'start',     // 'start' | 'setup' | 'run' | 'challenge'(도전 목록) | 'challengeMatch'(도전 경기) | 'recollection'(회상 — 시작 화면 [회상])
   run: null,           // RunState (엔진 lessonRun.js 소유, kind "lessonRun")
   match: null,         // MatchState (엔진 소유), 경기 중에만 — 도전 경기 중에는 도전 경기 상태 (런 경기는 KEYS.match 에 그대로 있고 이어하기가 다시 읽는다)
                        //   도전 경기를 떠나면(결과 기록 · 포기 · [나가기] · 처음으로) 늘 null 로 비운다
@@ -87,6 +92,11 @@ export const store = {
   },
   // 상담 화면: 고른 덱 카드 · 스킬마다 고른 배울 선수 { [skillId]: playerId } (render 뒤에도 남는다, 상담을 끝내면 비운다)
   consultUi: { selectedUid: null, skillPick: {} },
+  // 이벤트 결과 카드 (LESSON_PROTO_PLAN §24.13 — 화면 전용, 엔진 단계가 아니다): 방금 고른 이벤트의 state.lastEvent.seq.
+  // 값이 있고 store.run.lastEvent.seq 와 같으면 다음 phase 화면 대신 결과 카드를 먼저 그린다 ([계속] = null). 메모리만 — 새로 고침하면 보이지 않는다
+  eventUi: { resultSeq: null },
+  // 회상 화면 (§24.7): 고른 캐릭터 (메모리만 — 다시 그려도 남는다)
+  recollectionUi: { charId: null },
 };
 // 화면은 인게임·아웃게임 모두 가로 전용 (고정 스테이지 1280×720, js/ui/stage.js) — 방향 상태 · ?orient · 방향 저장값은 없다.
 
@@ -147,6 +157,37 @@ export function saveChallengeMatch(save) { return lsSet(KEYS.challengeMatch, sav
 
 export function hasSavedRun() {
   return !!loadRun();
+}
+
+// ---- 계정 저장 (런 밖, §24.7) ----
+const isPlainObj = (o) => !!o && typeof o === 'object' && !Array.isArray(o);
+/** 빈 계정 저장 */
+export function emptyAccount() { return { version: ACCOUNT_VERSION, stories: {}, coachMet: {} }; }
+/**
+ * 계정 저장 (KEYS.account) — 읽기에 실패하거나 모양이 틀리면 빈 값 (version 1 · stories · coachMet 객체).
+ * 칸 하나가 틀리면 그 칸만 버린다 (이야기 = 1 ~ 3 정수, 코치 = true). 엔진 normalizeAccount 와 같은 범위 (store 는 엔진을 정적으로 불러오지 않는다).
+ * @returns {{ version: 1, stories: Record<string, number>, coachMet: Record<string, true> }}
+ */
+export function loadAccount() {
+  const a = lsGet(KEYS.account);
+  const out = emptyAccount();
+  if (!isPlainObj(a) || (a.version !== undefined && a.version !== ACCOUNT_VERSION)) return out;
+  if (isPlainObj(a.stories)) {
+    for (const [id, ep] of Object.entries(a.stories)) if (id && Number.isInteger(ep) && ep >= 1) out.stories[id] = Math.min(3, ep);
+  }
+  if (isPlainObj(a.coachMet)) {
+    for (const [id, v] of Object.entries(a.coachMet)) if (id && v === true) out.coachMet[id] = true;
+  }
+  return out;
+}
+/** 계정 저장 쓰기 (모양을 loadAccount 와 같게 맞춘다). 실패하면 false */
+export function saveAccount(account) {
+  const a = isPlainObj(account) ? account : {};
+  return lsSet(KEYS.account, {
+    version: ACCOUNT_VERSION,
+    stories: isPlainObj(a.stories) ? { ...a.stories } : {},
+    coachMet: isPlainObj(a.coachMet) ? { ...a.coachMet } : {},
+  });
 }
 
 export function resetMatchUi() {

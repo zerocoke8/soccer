@@ -238,10 +238,20 @@ export function renderWeek(root, ctx, { inert = false } = {}) {
         h('span', { class: 'tiny muted' }, '경기 전 준비 후')));
   }
 
+  // 외출 모달 (§24.7 · §24.13 U3): 선수 줄 = 흉상 + 이름 + 체력 + "이야기 n/3화" (안 본 다음 화 — view.players[].story.next) 또는 "일반 외출".
+  // 배지는 외출 이벤트 스위치 (lesson.json events.outing) 가 켜져 있을 때만 — 꺼져 있으면 외출 이벤트가 없다.
   function openOuting(free) {
     const recPid = rec && rec.type === 'outing' && !!rec.free === !!free ? rec.playerId : null;
     const picked = Number(outingCfg.picked ?? 20);
     const team = Number(outingCfg.team ?? 10);
+    const outingEvents = data.lesson?.events?.outing === true;
+    const storyBadge = (p) => {
+      if (!outingEvents) return null;
+      const s = p.story || {};
+      return s.next
+        ? h('span', { class: 'badge badge-purple op-story', title: `외출하면 ${p.name} 이야기 ${s.next}화를 봅니다` }, `이야기 ${s.next}/${s.total ?? 3}화`)
+        : h('span', { class: 'badge op-story op-plain', title: '이야기를 다 봤습니다 — 일반 외출 이벤트' }, '일반 외출');
+    };
     openModal(h('div', { class: 'col outing-modal' },
       h('div', { class: 'row between' },
         h('h3', {}, `${L.FREE_ACTION_ICONS.outing} ${free ? '무료 외출 (온천)' : '외출'} — 누구와 갈까요?`),
@@ -255,18 +265,19 @@ export function renderWeek(root, ctx, { inert = false } = {}) {
         const st = Math.round(Number(p.stamina) || 0);
         const after = Math.min(100, st + picked + team);
         const out = Number(p.injuredTurns) > 0;
+        const bust = playerArt(ctx, p, 'bust');
         return h('button', {
           class: ['char-pick', 'outing-pick', p.id === recPid ? 'recommended' : ''],
-          dataset: { pid: p.id },
+          dataset: { pid: p.id, story: p.story?.next ? String(p.story.next) : '' },
           onclick: () => { closeOverlays(); act({ type: 'outing', playerId: p.id, ...(free ? { free: true } : {}) }); },
         },
-        avatar(p.portraitColor, p.name, 'md', out ? 'dim' : '', { art: playerArt(ctx, p) }),
+        avatar(p.portraitColor, p.name, 'md', ['op-bust', bust ? 'bust' : '', out ? 'dim' : ''], { art: bust || playerArt(ctx, p) }),
         h('span', { class: 'grow col op-who' },
           h('span', { class: 'row op-name' }, h('b', {}, p.name), h('span', { class: 'tiny muted' }, p.slot ?? ''),
             out ? h('span', { class: 'badge badge-bad' }, `결장 ${p.injuredTurns}`) : null,
             p.id === recPid ? h('span', { class: 'badge badge-accent', title: rec.reason ?? '' }, '추천') : null),
-          h('span', { class: 'op-stam' }, bar(st / 100, stamCls(st)))),
-        h('span', { class: 'op-gain' }, h('span', { class: stamCls(st) }, st), h('span', { class: 'muted' }, ' → '), h('b', { class: stamCls(after) }, after)));
+          h('span', { class: 'row op-sub' }, h('span', { class: 'op-stam' }, bar(st / 100, stamCls(st))), storyBadge(p))),
+        h('span', { class: 'op-gain' }, h('span', { class: 'tiny muted op-gain-k' }, '체력 '), h('span', { class: stamCls(st) }, st), h('span', { class: 'muted' }, ' → '), h('b', { class: stamCls(after) }, after)));
       }))), { className: 'modal-md' });
   }
 

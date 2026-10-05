@@ -1,15 +1,20 @@
 // js/ui/app.js — 진입점. 고정 스테이지(1280×720) → 데이터 로드 → 화면 라우팅(render) → 엔진 호출 래퍼/저장
 // 카드 레슨 시험판 (LESSON_PROTO_PLAN §6.1): 런 엔진 = js/engine/lessonRun.js (ctx.run), 감독 AI = js/engine/manager.js (ctx.manager).
-//   phase: week(주 선택) · lesson(레슨) · reward(레슨 결과 모달) · consult(상담) · prep(경기 전 준비) · event · match · relic · route · finished.
+//   phase: week(주 선택) · lesson(레슨) · reward(레슨 결과 모달) · consult(상담) · prep(경기 전 준비) · event · cardOffer(보상 카드 3택1) · match · relic · route · finished.
 //   저장 키는 store.js KEYS ('soccer-lesson.' 앞머리 — 본편 저장과 따로). 레슨 화면은 lessonCall 로 엔진을 직접 부르고 저장만 한다 (render 없음).
 // 2026-10-01 도전 모드: 화면 'challenge'(목록 · js/ui/screens/challenge.js) · 'challengeMatch'(경기 — 경기 화면에 경기 모드 훅 ctx.matchMode).
 //   진행 기록 = KEYS.challenge, 진행 중인 경기 = KEYS.challengeMatch (store.js). 런 상태 · 런 저장(KEYS.run · KEYS.match)은 건드리지 않는다.
 //   새로고침(부트)은 런과 같이 늘 시작 화면 — 진행 중인 도전 경기가 저장돼 있으면 시작 화면 [도전 모드] 가 "이어하기" 로 바뀌고 누르면 그 경기로.
 //   경기 중 나가기 = [나가기] (경기는 저장한 채 시작 화면, 기록 없음) · [포기] (기권 패로 기록).
+// 2차 (LESSON_PROTO_PLAN §24.13, U3): phase 'cardOffer' (이벤트 "보상 카드 3택1" — 배경 = 주 화면 inert + 3택1 모달), 화면 'recollection' (시작 화면 [회상]).
+//   이벤트를 고르면 결과 카드 (store.eventUi.resultSeq — 화면 전용) 를 다음 phase 화면보다 먼저 그린다.
+//   계정 저장 (KEYS.account — 본 이야기 · 만난 코치): startRun 이 createRun 에 스냅샷을 넘기고, engine() 이 런을 저장한 뒤 이번 런 진행을 합친다.
+//   개발 · 스크린샷용 ?events=on: 불러온 data/lesson.json 의 이벤트 기능 스위치를 모두 켠다 (tools/lesson_scenarios.mjs og_event_* — I1 전에는 데이터가 꺼져 있다).
 import { mountStage } from './stage.js';
 import {
   store, saveRun, loadRun, saveMatch, loadMatch, clearRunSaves, addTeam, resetMatchUi, resetLessonUi, loadTeams, TEAMS_CAP,
   loadChallengeProgress, saveChallengeProgress, loadChallengeMatch, saveChallengeMatch, CHALLENGE_MATCH_VERSION,
+  loadAccount, saveAccount,
 } from './store.js';
 import { h, toast, closeOverlays } from './dom.js';
 import { renderStart } from './screens/start.js';
@@ -19,7 +24,9 @@ import { renderLesson } from './screens/lesson.js';
 import { renderRewardModal } from './screens/reward.js';
 import { renderConsult } from './screens/consult.js';
 import { renderPrep } from './screens/prep.js';
-import { renderEventModal } from './screens/event.js';
+import { renderEventModal, renderEventResult } from './screens/event.js';
+import { renderCardOfferModal } from './screens/cardOffer.js';
+import { renderRecollection } from './screens/recollection.js';
 import { renderMatch } from './screens/match.js';
 import { renderRelicModal } from './screens/relic.js';
 import { renderRoute } from './screens/route.js';
@@ -42,6 +49,8 @@ let run = null;
 let match = null;
 let manager = null; // js/engine/manager.js (감독 AI — 추천 배지 · 자리표시 화면의 [추천대로])
 let challenge = null; // js/engine/challenge.js (도전 모드 — 없으면 도전 모드만 못 연다)
+let lessonEvents = null; // js/engine/lessonEvents.js (회상 — storyList · eventById, §24.7)
+let lessonText = null; // js/engine/lessonText.js (회상 본문 — fillText · pickText)
 
 function errMsg(e) {
   if (!e) return '알 수 없는 오류';
@@ -77,8 +86,36 @@ function safe(fn) {
 }
 function engine(fn) {
   const r = safe(fn);
-  if (store.run) saveRun(store.run);
+  if (store.run) {
+    saveRun(store.run);
+    syncAccount();
+  }
   return r;
+}
+
+/**
+ * 계정 저장에 이번 런 진행 (본 이야기 화 · 코치 첫 만남) 을 합친다 (§24.7 — lessonEvents.accountMerge, 멱등). 바뀐 것이 있을 때만 쓴다.
+ * 이야기는 고른 순간 (resolveEvent) 에 본 것으로 세므로 엔진 호출마다 부른다. 엔진이 없거나 실패해도 런은 그대로 진행한다.
+ */
+function syncAccount() {
+  if (!run || typeof run.accountMerge !== 'function' || !store.run) return;
+  try {
+    const before = loadAccount();
+    const after = run.accountMerge(before, store.run);
+    if (JSON.stringify(after) !== JSON.stringify(before)) saveAccount(after);
+  } catch (e) {
+    console.warn('계정 저장을 합치지 못했습니다', e);
+  }
+}
+
+/** 개발 · 스크린샷용 ?events=on (또는 1): 이벤트 기능 스위치를 모두 켠다 */
+function eventsParam() {
+  try {
+    const v = new URLSearchParams(globalThis.location?.search || '').get('events');
+    return v === 'on' || v === '1';
+  } catch (_) {
+    return false;
+  }
 }
 
 function newLogLines(before) {
@@ -234,10 +271,10 @@ const actions = {
   },
 
   continueRun() {
-    const s = loadRun(); // 레슨 런 저장본만 (store.isLessonRunSave — version 1 ~ 4)
+    const s = loadRun(); // 레슨 런 저장본만 (store.isLessonRunSave — version 1 ~ 5)
     if (!s) return toast('저장된 런이 없습니다.');
     if (run) {
-      safe(() => run.migrateLessonRun(s, store.data)); // version 1 → 2 → 3 → 4 (1 은 레슨 · 보상 중이면 그대로, §14.15 · §18.7 · §19.13)
+      safe(() => run.migrateLessonRun(s, store.data)); // version 1 → 2 → 3 → 4 → 5 (1 은 레슨 · 보상 중이면 그대로, §14.15 · §18.7 · §19.13 · §24.10)
       if (!run.isLessonRun(s)) {
         const oldLesson = s.version === 1;
         clearRunSaves(); // "저장 없음"
@@ -248,6 +285,7 @@ const actions = {
     store.run = s;
     store.final = null;
     store.registered = false;
+    store.eventUi.resultSeq = null; // 결과 카드는 화면 전용 — 이어하기에는 없다
     const m = loadMatch();
     const matchOk = m && s.phase === 'match' && (s.pendingMatch?.seed == null || m.seed === s.pendingMatch.seed);
     store.match = matchOk ? m : null;
@@ -258,7 +296,7 @@ const actions = {
   },
 
   discardSave() {
-    clearRunSaves();
+    clearRunSaves(); // 런 · 경기 저장만 (계정 저장 KEYS.account 는 남는다 — §24.7)
     store.run = null;
     store.match = null;
     store.final = null;
@@ -275,12 +313,15 @@ const actions = {
 
   startRun({ squad, formation, supportIds, tactics, policy, seed }) {
     if (!run) return toast('엔진 모듈(lessonRun.js)이 로드되지 않았습니다.');
-    const st = safe(() => run.createRun({ data: store.data, seed, squad, formation, supportIds, tactics, policy }));
+    // 계정 스냅샷 (§24.7 — 본 이야기 · 만난 코치): 런 안의 이야기 다음 화 · 코치 첫 만남 건너뛰기에 쓴다
+    const account = loadAccount();
+    const st = safe(() => run.createRun({ data: store.data, seed, squad, formation, supportIds, tactics, policy, account }));
     if (!st) return;
     store.run = st;
     store.match = null;
     store.final = null;
     store.registered = false;
+    store.eventUi.resultSeq = null;
     resetMatchUi();
     resetLessonUi();
     saveRun(st);
@@ -363,10 +404,38 @@ const actions = {
     render();
   },
 
-  resolveEvent(choiceIndex) {
+  /**
+   * 이벤트 선택지 (lessonRun.resolveEvent — 고르는 선택지면 { uid } = 고른 덱 카드, §24.5.3).
+   * 고르면 결과 카드 (state.lastEvent) 를 다음 phase 화면보다 먼저 보여 준다 (store.eventUi.resultSeq — 화면 전용).
+   * 결과는 결과 카드가 보여 주므로 토스트를 띄우지 않는다.
+   */
+  resolveEvent(choiceIndex, opts = {}) {
+    const uid = opts && opts.uid != null ? opts.uid : undefined;
+    const r = engine(() => run.resolveEvent(store.run, store.data, choiceIndex, uid === undefined ? {} : { uid }));
+    if (r !== undefined) {
+      const seq = store.run?.lastEvent?.seq;
+      store.eventUi.resultSeq = seq == null ? null : seq;
+    }
+    render();
+  },
+
+  /** 이벤트 결과 카드 [계속] → 지금 phase 의 화면 (다음 이벤트 · 3택1 · 유물 · 주 …) */
+  closeEventResult() {
+    store.eventUi.resultSeq = null;
+    render();
+  },
+
+  /** 보상 카드 3택1 (phase cardOffer — lessonRun.resolveCardOffer { pick }: 0 ~ 2, null = 건너뛰기) */
+  resolveCardOffer(args) {
     const before = store.run?.log?.length ?? 0;
-    const r = engine(() => run.resolveEvent(store.run, store.data, choiceIndex));
+    const r = engine(() => run.resolveCardOffer(store.run, store.data, args || {}));
     if (r !== undefined) announce(newLogLines(before));
+    render();
+  },
+
+  /** 시작 화면 [회상] → 회상 화면 (외출 이야기 다시 읽기, §24.7) */
+  openRecollection() {
+    store.screen = 'recollection';
     render();
   },
 
@@ -412,7 +481,8 @@ const actions = {
   },
 
   replay(seed) {
-    clearRunSaves();
+    clearRunSaves(); // 계정 저장은 남는다 (§24.7)
+    store.eventUi.resultSeq = null;
     store.run = null;
     store.match = null;
     store.final = null;
@@ -561,6 +631,9 @@ function makeCtx() {
     match,
     manager,
     challenge,
+    lessonEvents, // 회상 (storyList · eventById) — 없으면 null
+    lessonText, // 회상 본문 (fillText · pickText) — 없으면 null
+    loadAccount, // 계정 저장 (회상 · 시작 화면)
     pendingChallenge, // 시작 화면 [도전 모드]: 이어서 할 도전 경기 (없으면 null)
     render,
     safe,
@@ -585,7 +658,10 @@ function errorPanel(e, extra) {
         : h('button', { class: 'btn btn-danger', onclick: () => { if (confirm('저장된 런을 삭제할까요?')) actions.discardSave(); } }, '저장 삭제')));
 }
 
-/** 이벤트 · 유물 모달의 배경 = 주 선택 화면 (조작 불가) */
+/**
+ * 이벤트 · 유물 · 카드 3택1 · 이벤트 결과 카드의 배경 = 주 선택 화면 (조작 불가).
+ * 시즌 시작 이벤트 때는 weekOffer 가 아직 없다 — getWeekView 가 그 주 종류 (weekKinds) 로 그린다 (§24.13). 뷰가 없으면 빈 배경.
+ */
 function renderBackdrop(root, ctx) {
   try {
     renderWeek(root, ctx, { inert: true });
@@ -630,8 +706,17 @@ export function render() {
       store.screen = 'challenge';
     }
     if (store.screen === 'challenge') { renderChallenge(root, ctx); return; }
+    if (store.screen === 'recollection') { renderRecollection(root, ctx); return; }
     if (store.screen !== 'run' || !store.run) { renderStart(root, ctx); return; }
     if (!run || !match) { root.append(errorPanel(new Error('엔진 모듈이 로드되지 않아 런을 진행할 수 없습니다.'))); return; }
+    // 이벤트 결과 카드 (§24.13 — 화면 전용): 방금 고른 이벤트 (state.lastEvent) 를 다음 phase 화면보다 먼저. [계속] = closeEventResult
+    const rs = store.eventUi.resultSeq;
+    if (rs != null && store.run.lastEvent && store.run.lastEvent.seq === rs) {
+      renderBackdrop(root, ctx);
+      renderEventResult(ctx);
+      return;
+    }
+    store.eventUi.resultSeq = null;
     const phase = safe(() => run.getPhase(store.run)) ?? store.run.phase;
     switch (phase) {
       case 'week': renderWeek(root, ctx); break;
@@ -640,6 +725,7 @@ export function render() {
       case 'consult': renderConsult(root, ctx); break;
       case 'prep': renderPrep(root, ctx); break;
       case 'event': renderBackdrop(root, ctx); renderEventModal(ctx); break;
+      case 'cardOffer': renderBackdrop(root, ctx); renderCardOfferModal(ctx); break;
       case 'match': setStageMode('match'); renderMatch(root, ctx); break;
       case 'relic': renderBackdrop(root, ctx); renderRelicModal(ctx); break;
       case 'route': renderRoute(root, ctx); break;
@@ -677,11 +763,14 @@ async function boot() {
   }
 
   try {
-    [run, match, manager] = await Promise.all([import('../engine/lessonRun.js'), import('../engine/match.js'), import('../engine/manager.js')]);
+    [run, match, manager, lessonEvents, lessonText] = await Promise.all([import('../engine/lessonRun.js'), import('../engine/match.js'), import('../engine/manager.js'),
+      import('../engine/lessonEvents.js'), import('../engine/lessonText.js')]);
   } catch (e) {
     console.error(e);
     toast(`엔진 모듈 로드 실패: ${errMsg(e)}`, 'error', 8000);
   }
+  // 개발 · 스크린샷용 ?events=on: 이벤트 기능 스위치를 모두 켠 데이터로 (§24.3.6 — I1 전에는 data/lesson.json 이 꺼 둔다)
+  if (eventsParam() && lessonEvents && store.data?.lesson) lessonEvents.setEventSwitches(store.data.lesson, true);
   // 도전 모드 엔진은 따로: 실패해도 런은 그대로 할 수 있다
   try {
     challenge = await import('../engine/challenge.js');
@@ -693,7 +782,7 @@ async function boot() {
   // 디버깅 편의
   window.__soccer = {
     store, get run() { return run; }, get match() { return match; }, get manager() { return manager; }, get challenge() { return challenge; },
-    get stage() { return stage?.fit ?? null; }, render, actions,
+    get lessonEvents() { return lessonEvents; }, get stage() { return stage?.fit ?? null; }, render, actions,
   };
 
   // 부트는 늘 시작 화면 (런 [이어하기] 와 같다). 진행 중인 도전 경기는 시작 화면 [도전 모드] 가 "이어하기" 로 보여 주고 누르면 복원한다

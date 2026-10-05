@@ -84,7 +84,7 @@ test("저장 키: 'soccer-lesson.' 앞머리 · loadRun 은 레슨 런 저장본
   const st = await import(pathToFileURL(path.join(ROOT, "js/ui/store.js")).href);
   const lr = await import(pathToFileURL(path.join(ROOT, "js/engine/lessonRun.js")).href);
   assert.equal(st.STORAGE_PREFIX, "soccer-lesson.");
-  assert.deepEqual(Object.keys(st.KEYS).sort(), ["challenge", "challengeMatch", "match", "run", "teams"]);
+  assert.deepEqual(Object.keys(st.KEYS).sort(), ["account", "challenge", "challengeMatch", "match", "run", "teams"]); // account = 계정 저장 (§24.7 — 본 이야기 · 만난 코치)
   for (const [k, v] of Object.entries(st.KEYS)) assert.equal(v, `soccer-lesson.${k}`, `KEYS.${k}`);
   assert.equal(st.LESSON_RUN_KIND, lr.RUN_KIND);
   assert.equal(st.LESSON_RUN_VERSION, lr.RUN_VERSION);
@@ -747,9 +747,11 @@ test("jsdom: 아웃게임 화면 전부 스테이지 안에 그려지고 주요 
   };
 
   inject("og_event");
-  inStage("#modal-root .modal.modal-lg .ev-body", "이벤트(주입)");
-  assert.ok($("#modal-root .ev-story .ev-cast .ev-who"), "이벤트: 등장 인물");
-  assert.ok($$("#modal-root .ev-choices .choice-btn").length >= 2, "이벤트: 선택지 2개 이상 (오른쪽 세로)");
+  // 2차 이벤트 모달 (§24.13 U3 — screens/event.js): 배경 띠 · 흉상 칸 (왼쪽) · 본문 + 선택지 (오른쪽, 두 칸)
+  inStage("#modal-root .modal.event-modal .ev-body", "이벤트(주입)");
+  assert.ok($("#modal-root .evm-band .evm-title"), "이벤트: 배경 띠 · 제목");
+  assert.ok($("#modal-root .ev-cast .ev-who"), "이벤트: 등장 인물 (흉상)");
+  assert.ok($$("#modal-root .ev-choices .choice-btn").length >= 2, "이벤트: 선택지 2개 이상");
   assert.ok($$("#modal-root .choice-btn .preview").length >= 1, "이벤트: 효과 미리보기");
   assert.ok($(".week-screen.inert"), "이벤트: 배경 = 주 선택 화면 (조작 불가)");
 

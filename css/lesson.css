@@ -178,12 +178,26 @@
 /* 외출: 선수 고르기 (modal-md, 1열) */
 .outing-modal { gap: 10px; }
 .pick-grid.outing-grid { grid-template-columns: minmax(0, 1fr); gap: 6px; }
-.outing-pick { min-height: 54px; padding: 6px 12px; }
+.outing-pick { min-height: 64px; padding: 4px 12px 4px 6px; }
 .outing-pick.recommended { border-color: var(--accent); }
+/* 외출 줄 흉상 (§24.13 U3 — 44×55, 그림이 없으면 40 원 글자) · 이야기 배지 */
+.outing-pick .avatar.op-bust.bust { width: 44px; height: 55px; border-radius: 9px; }
+.outing-pick .avatar.op-bust.bust > .pt { object-position: 50% 0%; }
 .op-who { gap: 4px; }
 .op-name { gap: 6px; }
-.op-stam .bar { width: 170px; height: 5px; margin-top: 0; }
+.op-sub { gap: 10px; align-items: center; }
+.op-stam .bar { width: 150px; height: 5px; margin-top: 0; }
+.op-story { font-size: 11px; }
+.op-story.op-plain { color: var(--muted); }
 .op-gain { flex: none; font-size: 15px; font-variant-numeric: tabular-nums; }
+.op-gain-k { font-size: 11px; }
+/* 이벤트 "보상 카드 3택1" 모달 (screens/cardOffer.js — phase cardOffer, §24.13 U3): 보상 모달의 카드 칸 (.rw-offer · .rw-skip · .rw-explain) 을 빌려 쓴다 */
+.modal.card-offer-modal { max-width: 1000px; padding: 18px 22px 16px; gap: 0; }
+.cof-body { gap: 8px; }
+.cof-head { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.cof-head h3 { flex: none; font-size: 19px; }
+.cof-src { font-size: 12px; background: rgba(255, 209, 102, .16); color: var(--gold); }
+.cof-offer { padding: 14px 0 6px; }
 /* 전술 미팅 모달 · 경기 전 준비 편집기 (meeting.js meetingEditor) */
 .meeting { gap: 12px; }
 .meeting-foot { gap: 10px; }

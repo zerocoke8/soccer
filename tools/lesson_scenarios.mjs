@@ -3,14 +3,80 @@
 // U1: walkLesson + 임시 화면 시나리오 몇 개. U2: 주 선택 · 외출 · 미팅 · 경기 전 준비. U3: 레슨. U4: 보상 모달 · 상담.
 // I1: 경기 시나리오 01~27 의 런(prepareLessonMatch → scenarios.mjs prepareRun), 등록 팀(lessonRegisteredTeam — og_start · og_challenge),
 //     이벤트(2차 라우팅 확인용 주입) · 유물 · 루트 · 결과.
+// 2차 U3 (§24.13): og_event_* · og_card_offer · og_outing_story · og_season_start — 이벤트 기능 스위치를 켠 실제 데이터 (eventsOn) 로 걷고
+//     브라우저는 ?events=on (app.js). og_recollection* · og_start_keyart — 계정 저장 (KEYS.account) 주입. 터치 915×412: og_event_week_touch · og_recollection_touch.
 import * as lessonRun from "../js/engine/lessonRun.js";
 import * as manager from "../js/engine/manager.js";
 import * as match from "../js/engine/match.js";
-import { fireEvent, eventById } from "../js/engine/lessonEvents.js"; // og_event 주입 전용 (레슨 이벤트 — 데이터 스위치는 꺼 둔 채, §24 E2)
+import { fireEvent, eventById, setEventSwitches } from "../js/engine/lessonEvents.js"; // og_event 주입 (레슨 이벤트) · og_event_* (스위치를 켠 데이터, §24 U3)
+import { KEYS } from "../js/ui/store.js";
 
 export { lessonRun, manager };
 
 const clone = (x) => JSON.parse(JSON.stringify(x));
+
+// ---- 2차 이벤트 장면 (§24.13 U3): 이벤트 기능 스위치를 켠 실제 데이터로 걷는다 (I1 전에는 data/lesson.json 이 꺼 둔다).
+//   브라우저도 같은 데이터를 쓰게 URL ?events=on (app.js — 불러온 lesson.json 의 스위치를 켠다) ----
+/** 이벤트 스위치를 모두 켠 데이터 사본 (lesson 만 복제) */
+export function eventsOn(data) {
+  const d = { ...data, lesson: clone(data.lesson) };
+  setEventSwitches(d.lesson, true);
+  return d;
+}
+/** og_event_* 장면의 URL 파라미터 (app.js eventsParam) */
+const EVENTS_QUERY = { events: "on" };
+/** 터치 가로 폰 (915×412) */
+const TOUCH_VIEWPORT = { width: 915, height: 412, deviceScaleFactor: 1, isMobile: true, hasTouch: true };
+/** 이벤트 모달 장면의 기대 상태 */
+const EVENT_EXPECT = { screen: "run", phase: "event", modal: ".event-modal" };
+/** 지금 떠 있는 이벤트 (레슨 이벤트) */
+const curEv = (s) => (s.phase === "event" && s.currentEvent ? s.currentEvent : null);
+/** 회상 · 키 아트 장면의 계정 저장 (본 이야기 — 네리아 3 · 도르비나 1 · 그레타 2 · 실루엔 1 · 헤르타 3 · 코니 1 = 11/48) */
+const SAMPLE_ACCOUNT = {
+  version: 1,
+  stories: { ch_spirit_keeper: 3, ch_dwarf_wall: 1, ch_giant_striker: 2, ch_elf_playmaker: 1, ch_giant_keeper: 3, ch_rabbit_fullback: 1 },
+  coachMet: { sp_coach_harr: true },
+};
+
+/** 스위치를 켠 데이터로 감독 AI 걷기 (walkOrThrow) — 계정은 빈 값 (코치 첫 만남 · 이야기 1화부터) */
+function walkEvOrThrow(name, data, opts) {
+  return walkOrThrow(name, eventsOn(data), opts);
+}
+
+/**
+ * 떠 있는 이벤트를 다른 레슨 이벤트로 바꾼다 (장면 고르기 — 배경 · queue 는 실제 흐름 그대로). ctx = fireEvent ctx (kind · playerId · supportId).
+ * @returns {object} state
+ */
+function swapEvent(data, st, eventId, ctx) {
+  const ev = eventById(data, eventId);
+  if (!ev) throw new Error(`이벤트 ${eventId} 이(가) 데이터에 없습니다`);
+  st.currentEvent = null;
+  fireEvent(st, data, ev, ctx);
+  return st;
+}
+
+/** 실제 흐름의 첫 주 끝 이벤트 (시즌 1) 에서 다른 이벤트로 바꾼 장면 */
+function swapScene(name, data, runSeed, eventId, ctxOf) {
+  const ed = eventsOn(data);
+  const b = walkOrThrow(name, ed, { seed: runSeed, until: (s) => curEv(s)?.kind === "week" });
+  const ctx = typeof ctxOf === "function" ? ctxOf(b.runState) : ctxOf;
+  swapEvent(ed, b.runState, eventId, ctx);
+  return { ...b, summary: `${describeLessonRun(b.runState)} (주 끝 이벤트를 ${eventId} 로 바꿈)` };
+}
+
+/** 그 캐릭터의 선수 id (편성에 없으면 throw) */
+function pidOf(st, charId) {
+  const p = st.players.find((x) => x.charId === charId);
+  if (!p) throw new Error(`${charId} 이(가) 편성에 없습니다`);
+  return p.id;
+}
+
+/** 외출 장면: 스위치를 켠 데이터로 외출이 열린 자유 주까지 → 계정 스냅샷 주입 (state.account) */
+function outingWeekState(name, data, runSeed, account) {
+  const b = walkEvOrThrow(name, data, { seed: runSeed, until: (s) => s.phase === "week" && s.weekOffer?.kind === "free" && s.weekOffer.actions.includes("outing") });
+  b.runState.account = { stories: { ...(account?.stories || {}) }, coachMet: { ...(account?.coachMet || {}) } };
+  return b;
+}
 
 /** 경기 결과 (실제 match.js 자동 진행) — manager.autoStep 의 playMatch */
 export function playMatch(data, setup) {
@@ -1660,6 +1726,185 @@ export const LESSON_OG_SCENARIOS = [
     },
     ready: "#modal-root .choice-btn",
     expect: { screen: "run", phase: "event", modal: ".modal" },
+  },
+  // ---- 2차 이벤트 화면 (§24.13 U3) — 스위치를 켠 실제 데이터 (브라우저 ?events=on) ----
+  {
+    // 시즌 1 첫 주 끝 랜덤 이벤트 (실제 흐름): 배경 띠 · 주인공 흉상 · 본문 · 선택지 2 (미리보기 줄 · 추천)
+    name: "og_event_week",
+    title: "이벤트 모달 — 주 끝 랜덤 (실제 흐름, 배경 띠 · 흉상 · 선택지 2 · 추천)",
+    outgame: true,
+    query: EVENTS_QUERY,
+    build: (data, { runSeed }) => walkEvOrThrow("og_event_week", data, { seed: runSeed, until: (s) => curEv(s)?.kind === "week" }),
+    ready: "#modal-root .event-modal .choice-btn",
+    expect: EVENT_EXPECT,
+  },
+  {
+    // 반말 선수 (도르비나) 가 주인공인 이벤트 (ev_hot_streak — 반말판 alt.banmal)
+    name: "og_event_banmal",
+    title: "이벤트 모달 — 반말판 (주인공 도르비나 · ev_hot_streak)",
+    outgame: true,
+    query: EVENTS_QUERY,
+    build: (data, { runSeed }) => swapScene("og_event_banmal", data, runSeed, "ev_hot_streak", (st) => ({ kind: "week", playerId: pidOf(st, "ch_dwarf_wall") })),
+    ready: "#modal-root .event-modal .evm-bust",
+    expect: EVENT_EXPECT,
+  },
+  {
+    // 짝 이벤트 (주인공 없음 — 등장 선수 둘 = 흉상 둘): 실루엔 × 타리아 「공보다 먼저」
+    name: "og_event_pair",
+    title: "이벤트 모달 — 짝 이벤트 (흉상 둘: 실루엔 · 타리아, ev_ahead_of_the_ball)",
+    outgame: true,
+    query: EVENTS_QUERY,
+    build: (data, { runSeed }) => swapScene("og_event_pair", data, runSeed, "ev_ahead_of_the_ball", { kind: "week" }),
+    ready: "#modal-root .event-modal .evm.cast-2",
+    expect: EVENT_EXPECT,
+  },
+  {
+    // 코치 연속 이벤트 1단계 (첫 만남 — 실제 흐름: 레슨에 처음 나온 주의 주 끝 슬롯): 주인공 + 코치 흉상
+    name: "og_event_coach1",
+    title: "이벤트 모달 — 코치 · 첫 만남 (실제 흐름, 주인공 + 코치 흉상)",
+    outgame: true,
+    query: EVENTS_QUERY,
+    build: (data, { runSeed }) => walkEvOrThrow("og_event_coach1", data, { seed: runSeed, until: (s) => curEv(s)?.kind === "coach" }),
+    ready: "#modal-root .event-modal .evm-bust.k-coach",
+    expect: EVENT_EXPECT,
+  },
+  {
+    // 코치 연속 이벤트 3단계 (유대 80 — 하르나 「한 골 차」, 수업 선택지): 유대 80 · 1 · 2단계를 본 것으로 주입
+    name: "og_event_coach3",
+    title: "이벤트 모달 — 코치 · 유대 80 (하르나 3단계, 수업 미리보기)",
+    outgame: true,
+    query: EVENTS_QUERY,
+    build: (data, { runSeed }) => swapScene("og_event_coach3", data, runSeed, "ev_coach_harr_3", (st) => {
+      const sup = st.supports.find((s) => s.id === "sp_coach_harr");
+      if (sup) sup.bond = Math.max(80, Number(sup.bond) || 0);
+      st.coachSteps = { ...(st.coachSteps || {}), sp_coach_harr: [1, 2] };
+      return { kind: "coach", supportId: "sp_coach_harr" };
+    }),
+    ready: "#modal-root .event-modal .evm-bust.k-coach",
+    expect: EVENT_EXPECT,
+  },
+  {
+    // 외출 이야기 (실제 흐름: 자유 주 외출 → 그레타 2화 — 계정에 1화를 본 것으로 주입)
+    name: "og_event_story",
+    title: "이벤트 모달 — 외출 이야기 2/3화 (그레타, 실제 외출 흐름)",
+    outgame: true,
+    query: EVENTS_QUERY,
+    build: (data, { runSeed }) => {
+      const ed = eventsOn(data);
+      const b = outingWeekState("og_event_story", data, runSeed, { stories: { ch_giant_striker: 1 } });
+      lessonRun.applyWeekAction(b.runState, ed, { type: "outing", playerId: pidOf(b.runState, "ch_giant_striker") });
+      if (curEv(b.runState)?.eventId !== "out_greta_2") throw new Error(`[og_event_story] 그레타 2화가 뜨지 않았습니다 (${curEv(b.runState)?.eventId})`);
+      return { ...b, storage: { [KEYS.account]: { version: 1, stories: { ch_giant_striker: 1 }, coachMet: {} } }, summary: `${describeLessonRun(b.runState)} (그레타와 외출 → 이야기 2화)` };
+    },
+    ready: "#modal-root .event-modal .evm-kind.k-story",
+    expect: EVENT_EXPECT,
+  },
+  {
+    // 고르는 선택지 (카드 1장 강화 — ev_step_count 타리아): 선택지를 누르면 같은 모달 안 덱 고르기 (상담 덱 칸과 같은 작은 카드 · 추천)
+    name: "og_event_pick",
+    title: "이벤트 — 덱 고르기 (카드 1장 강화: 선택지 → 덱 miniCard · 추천 · [강화 확정])",
+    outgame: true,
+    query: EVENTS_QUERY,
+    build: (data, { runSeed }) => swapScene("og_event_pick", data, runSeed, "ev_step_count", { kind: "week" }),
+    steps: [{ click: "#modal-root .choice-btn.needs-pick" }],
+    ready: "#modal-root .evm.picking .evm-deck .mini-card",
+    expect: EVENT_EXPECT,
+  },
+  {
+    // 결과 카드 (화면 전용): og_event_week 상태에서 추천 선택지를 누른 뒤 — 결과 문구 · 받은 효과 · [계속]
+    name: "og_event_result",
+    title: "이벤트 결과 카드 — 고른 뒤 결과 문구 · 받은 효과 줄 · [계속] (배경 = 다음 주)",
+    outgame: true,
+    query: EVENTS_QUERY,
+    build: (data, { runSeed }) => walkEvOrThrow("og_event_result", data, { seed: runSeed, until: (s) => curEv(s)?.kind === "week" }),
+    steps: [{ click: "#modal-root .choice-btn.recommended" }],
+    ready: "#modal-root .evm-result .evm-continue",
+    expect: { screen: "run", modal: ".evm-result" },
+  },
+  {
+    // 이벤트 "보상 카드 3택1" (phase cardOffer — 실제 흐름: 시즌 1 개막 이벤트 「우리는 이기러 왔다」): 배경 = 주 화면 inert
+    name: "og_card_offer",
+    title: "보상 카드 3택1 (phase cardOffer — 시즌 시작 이벤트, 카드 3 + 건너뛰기 TP +10)",
+    outgame: true,
+    query: EVENTS_QUERY,
+    build: (data, { runSeed }) => walkEvOrThrow("og_card_offer", data, { seed: runSeed, until: (s) => s.phase === "cardOffer" }),
+    ready: "#modal-root .card-offer-modal .card-face",
+    expect: { screen: "run", phase: "cardOffer", modal: ".card-offer-modal" },
+  },
+  {
+    // 외출 모달 (§24.7): 선수 줄 흉상 · "이야기 n/3화" / "일반 외출" (계정 주입 — 네리아 3화 다 봄 · 도르비나 1 · 그레타 2)
+    name: "og_outing_story",
+    title: "외출 모달 — 흉상 · 이야기 n/3화 배지 · 일반 외출 (계정 주입)",
+    outgame: true,
+    query: EVENTS_QUERY,
+    build: (data, { runSeed }) => {
+      const b = outingWeekState("og_outing_story", data, runSeed, SAMPLE_ACCOUNT);
+      return { ...b, storage: { [KEYS.account]: SAMPLE_ACCOUNT }, summary: `${b.summary} (계정 이야기 주입)` };
+    },
+    steps: [{ click: '.week-act[data-act="outing"]' }],
+    ready: "#modal-root .outing-grid .op-story",
+    expect: { screen: "run", phase: "week", modal: ".modal-md" },
+  },
+  {
+    // 시즌 시작 이벤트 (createRun 직후 — weekOffer 가 아직 없다): 배경 = 1주차 주 화면 (weekKinds 로)
+    name: "og_season_start",
+    title: "이벤트 모달 — 시즌 1 시작 (weekOffer 없음 → 배경 = 1주차 주 화면)",
+    outgame: true,
+    query: EVENTS_QUERY,
+    build: (data, { runSeed }) => walkEvOrThrow("og_season_start", data, { seed: runSeed, until: (s) => curEv(s)?.kind === "seasonStart" }),
+    ready: "#modal-root .event-modal .evm-kind.k-seasonStart",
+    expect: EVENT_EXPECT,
+  },
+  {
+    // 회상 (시작 화면 [📖 회상] → 회상 화면): 16칸 · 본 화 진행 · 그레타 3화 목록 (1 · 2 = 읽기, 3 = 외출하면 볼 수 있다)
+    name: "og_recollection",
+    title: "회상 — 선수 16칸 (n/3) · 그레타 3화 목록 (본 화 · 다음 화 · 잠김) · 본 이야기 11/48",
+    outgame: true,
+    build: () => ({ runState: null, teams: [], storage: { [KEYS.account]: SAMPLE_ACCOUNT }, summary: "저장된 런 없음 · 계정 이야기 11화 주입 → [회상]" }),
+    steps: [{ click: ".start-menu .recollection-btn" }, { click: '.rc-cell[data-char="ch_giant_striker"]' }],
+    ready: '.recollection-screen .rc-cell.selected[data-char="ch_giant_striker"]',
+    expect: { screen: "recollection", modal: false },
+  },
+  {
+    // 회상 읽기 모달: 그레타 2화 (확률 갈래 — 두 결과를 다 보인다, 효과 없음)
+    name: "og_recollection_read",
+    title: "회상 읽기 — 그레타 2화 (배경 띠 · 흉상 · 본문 · 선택지 결과 갈래 둘 다)",
+    outgame: true,
+    build: () => ({ runState: null, teams: [], storage: { [KEYS.account]: SAMPLE_ACCOUNT }, summary: "계정 이야기 주입 → [회상] → 그레타 → 2화 읽기" }),
+    steps: [{ click: ".start-menu .recollection-btn" }, { click: '.rc-cell[data-char="ch_giant_striker"]' }, { click: '.rc-ep.seen[data-ep="2"]' }],
+    ready: "#modal-root .rc-read-modal .rc-choice",
+    expect: { screen: "recollection", modal: ".rc-read-modal" },
+  },
+  {
+    // 시작 화면 키 아트: 배경 title + 반신 5명 (네리아 · 울리카 · 실루엔 · 그레타 · 헤르타) · 제목 · 흐름 3단계 · [📖 회상 11/48]
+    name: "og_start_keyart",
+    title: "시작 화면 키 아트 — 노을 경기장 + 반신 5명, 메뉴 [📖 회상]",
+    outgame: true,
+    build: () => ({ runState: null, teams: [], storage: { [KEYS.account]: SAMPLE_ACCOUNT }, summary: "저장된 런 없음 · 등록 팀 없음 · 계정 이야기 11화" }),
+    ready: ".hero.has-art .hc-3 .hc-img",
+    expect: { screen: "start", modal: false },
+  },
+  {
+    // 터치 915×412: 이벤트 모달 (무대가 통째로 줄어도 잘림 · 스크롤 없음)
+    name: "og_event_week_touch",
+    title: "이벤트 모달 — 터치 915×412 (주 끝 랜덤, 잘림 · 스크롤 없음)",
+    outgame: true,
+    viewport: TOUCH_VIEWPORT,
+    query: EVENTS_QUERY,
+    build: (data, { runSeed }) => walkEvOrThrow("og_event_week_touch", data, { seed: runSeed, until: (s) => curEv(s)?.kind === "week" }),
+    ready: "#modal-root .event-modal .choice-btn",
+    expect: EVENT_EXPECT,
+  },
+  {
+    // 터치 915×412: 회상 화면 (탭으로 열기)
+    name: "og_recollection_touch",
+    title: "회상 — 터치 915×412 (탭 → 회상 → 그레타)",
+    outgame: true,
+    viewport: TOUCH_VIEWPORT,
+    build: () => ({ runState: null, teams: [], storage: { [KEYS.account]: SAMPLE_ACCOUNT }, summary: "계정 이야기 주입 → [회상] (터치)" }),
+    steps: [{ tap: ".start-menu .recollection-btn" }, { tap: '.rc-cell[data-char="ch_giant_striker"]' }],
+    ready: '.recollection-screen .rc-cell.selected[data-char="ch_giant_striker"]',
+    expect: { screen: "recollection", modal: false },
   },
   {
     name: "og_relic",
