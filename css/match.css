@@ -713,14 +713,24 @@
 .match-screen.d25 .w-goals .frame-halo { fill: none; stroke: rgba(0, 0, 0, .35); stroke-width: 6.5; stroke-linejoin: round; stroke-linecap: round; }
 .match-screen.d25 .w-goals .frame { fill: none; stroke: #fff; stroke-width: 4; stroke-linejoin: round; stroke-linecap: round; }
 /* 층 */
-.match-screen.d25 .charge-veil { z-index: 0; }
+/* 차지 막 (2026-10-06 아이폰 사파리 탭 재시작 수정): 2.5D 에서는 backdrop-filter 막을 끄고, 카메라 층 안의 단색 덮개 하나로 어둡게 한다 (.w-cam::after) */
+.match-screen.d25 .charge-veil { display: none; }
 .match-screen.d25 .pitch-svg { z-index: 60; }
 .match-screen.d25 .pitch-svg.top { z-index: 1600; }
 .match-screen.d25 .m-ball { z-index: 1500; }
 .match-screen.d25 .pop-layer { z-index: 1700; }
 .match-screen.d25 .tok.charge-foe { z-index: 1550 !important; }
 .match-screen.d25 .tok.charge-user { z-index: 1560 !important; }
-.match-screen.d25 .m-field.charging .w-ground, .match-screen.d25 .m-field.charging .w-strip, .match-screen.d25 .m-field.charging .w-goals { filter: grayscale(1) brightness(.7); }
+/* 필살기 차지 = 단색 덮개 하나 (z 1540: 판 · 골대 · 선수 · 공 위, 사용자 · 상대 1550 · 1560 과 글자 층 아래).
+   전에는 판 (matrix3d) · 띠 · 골대 · 선수 12명에 filter (grayscale · brightness) 를 걸었는데, 아이폰 사파리에서 결정 확대 (2배) 중인
+   큰 3D 판을 필터용 비트맵으로 다시 그리느라 메모리가 넘쳐 탭이 다시 시작됐다 (메테오 슛 → 처음 화면). 덮개는 그림을 다시 그리지 않는다 */
+.match-screen.d25 .w-cam::after {
+  content: ""; position: absolute; left: -2000px; top: -2000px; width: 6000px; height: 6000px; z-index: 1540; pointer-events: none;
+  background: rgba(4, 6, 12, .55); opacity: 0; transition: opacity var(--t-charge, 200ms) ease-out;
+}
+.match-screen.d25 .m-field.charging .w-cam::after { opacity: 1; }
+.match-screen.d25 .m-field.charging .tok:not(.charge-user):not(.charge-foe), .match-screen.d25 .m-field.charging .m-ball,
+.match-screen.d25 .m-field.charging .pitch-svg { filter: none; }
 
 /* 토큰: 발밑 타원 (팀 색 고리 + 그림자, 역할 고리) */
 .match-screen.d25 .tok-ground {
@@ -745,7 +755,7 @@
 }
 .match-screen.d25 .tok-figure > .spr-img {
   position: absolute; bottom: 0; display: block; max-width: none; user-select: none; -webkit-user-select: none; -webkit-user-drag: none; -webkit-touch-callout: none;
-  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .35)); transition: transform .14s ease-out;
+  transition: transform .14s ease-out; /* 그림자 = 발밑 타원 (.tok-ground) — 선수마다 늘 걸던 drop-shadow 필터는 뺐다 (모바일 메모리) */
 }
 .match-screen.d25 .tok.face-l .tok-figure > .spr-img { transform: scaleX(-1); } /* 그림만 좌우 반전 (이름표 · 바는 그대로) */
 /* 스탠디: 팀 색 몸 + 얼굴 원 (평면 .tok-face 를 몸 위에 — 역할은 발밑 고리가 보여 준다) */
