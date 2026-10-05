@@ -1,11 +1,11 @@
-// test/layoutJitter.test.mjs — 경기 배치 흔들림 (J1 — docs/SPRITE_25D_PLAN.md §11, 2026-10-06, 되돌릴 수 있음)
-//   js/ui/layout.js computeLayout(view, { …, jitter: { seed } }) · js/ui/store.js isLayoutJitter (?jitter=0 · ?jitter=1 · 2.5D 기본 켬).
+// test/layoutJitter.test.mjs — 경기 배치 흔들림 (J1 · J2 — docs/SPRITE_25D_PLAN.md §11, 2026-10-06, 되돌릴 수 있음)
+//   js/ui/layout.js computeLayout(view, { …, jitter: { seed, ref } }) · js/ui/store.js isLayoutJitter (?jitter=0 · ?jitter=1 · 2.5D 기본 켬).
 //   jitter 없음 = 예전 배치 그대로 · 같은 열쇠 (seed · 포제션 · 마지막 비트 seq · 공격 팀) = 같은 배치 · 난수 없음 ·
-//   비트마다 다른 자리 (구역 띠 · 필드 안 · 최대 비낌) · 간격 ≥ min(minD, 처음 거리) · 듀얼 둘 함께 (수비 − 공 벡터 그대로) · 공 = 공 가진 선수 ·
-//   수비 팀 · 받는 선수의 공 앞 · 뒤 · 커버 · 박스 후보의 좌우 · 배급 · 승부차기 · 화살표 가림이 늘지 않는다 ·
-//   같은 비트의 미리보기 변형 (스킬 · 필살기 토글 · 자동/수동 · 기본 받는 선수 — ref = 엔진 view) 은 규칙 자리가 같으면 흔든 자리도 같다
-//   (회귀: 16_skill_row_4 · 17_skill_row_many 자동 ↔ 수동) · 경기 화면 (jsdom: 2.5D 켬 · 받는 선수 탭 · 자동 ↔ 수동 · 다시 그리기에서 그대로 ·
-//   비트 뒤 새 자리 · 평면 기본 끔 · ?jitter=1 평면 켬).
+//   J2: 도착 자리 = 맡은 구역 띠 안 무작위 자리 (세로 = 띠 어디든 · 가로 ±JITTER.ax · GK 작게) · 같은 편 · 같은 구역은 좌우 순서 · 다른 라인 앞뒤 순서 그대로 ·
+//   간격 ≥ min(minD, 처음 거리) · 듀얼 둘 함께 (수비 − 공 벡터 그대로) · 공 = 공 가진 선수 · 수비 팀 · 받는 선수의 공 앞 · 뒤 · 커버 · 박스 후보의 좌우 ·
+//   배급 · 승부차기 · 화살표 가림이 늘지 않는다 · 같은 비트의 화면 변형 (스킬 · 필살기 토글 · 자동/수동 — ref = 엔진 view) 은 어느 둘 사이에서도
+//   규칙 자리가 같은 선수를 옮기지 않는다 (J2 회귀: 스루 패스 · 필살기 extra line — 16 · 17 · 28 · 31 · 36) · 경기 화면 (jsdom: 2.5D 켬 · 받는 선수 탭 ·
+//   자동 ↔ 수동 · 스루 패스 토글 · 다시 그리기에서 그대로 · 비트 뒤 새 자리 · 평면 기본 끔 · ?jitter=1 평면 켬).
 // 평면 기본 배치는 test/layout.test.mjs 가 그대로 지킨다 (고치지 않는다).
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -98,7 +98,11 @@ function arrowBlock(L, geo) {
   return score;
 }
 
-/** 흔든 배치 J 가 흔들기 전 배치 A 에 대해 지키는 것 (§11) */
+/** 공격 방향 기준 세로 (0 = 공격 팀 골) — 흔들림의 구역 띠는 이 좌표의 구역 (경계 위면 공격 방향 쪽 구역) */
+const fyOf = (L, y) => (L.attackingSide === "away" ? 100 - y : y);
+const zoneOf = (L, y) => ZONES[zoneAtY(fyOf(L, y)) - 1];
+
+/** 흔든 배치 J 가 흔들기 전 배치 A 에 대해 지키는 것 (§11 — J2) */
 function assertJittered(view, A, J, geo, where) {
   const minD = geo.tokenSize * 100;
   assert.equal(J.tokens.length, A.tokens.length, `${where}: 토큰 수`);
@@ -107,11 +111,12 @@ function assertJittered(view, A, J, geo, where) {
   assert.deepEqual(strip(J), strip(A), `${where}: 좌표 밖은 같다`);
   const byKeyA = new Map(A.tokens.map((t) => [`${t.side}:${t.id}`, t]));
   const byKeyJ = new Map(J.tokens.map((t) => [`${t.side}:${t.id}`, t]));
+  const play = A.mode === "play";
   for (let i = 0; i < J.tokens.length; i++) {
     const a = A.tokens[i];
     const t = J.tokens[i];
     const gk = t.position === "GK";
-    // 최대 비낌 · 필드 안 (가로 [6, 94] ⊂ [5, 95]) · 구역 그대로
+    // 가로 최대 비낌 (GK 는 세로도 작게) · 필드 안 (가로 [6, 94] ⊂ [5, 95])
     assert.ok(Math.abs(t.x - a.x) <= (gk ? JITTER.gkAx : JITTER.ax) + TOL, `${where}: ${t.id} 가로 비낌 ${t.x - a.x}`);
     assert.ok(Math.abs(t.y - a.y) <= (gk ? JITTER.gkAy : JITTER.ay) + TOL, `${where}: ${t.id} 세로 비낌 ${t.y - a.y}`);
     assert.ok(t.x >= X_MIN - TOL && t.x <= X_MAX + TOL, `${where}: ${t.id} x=${t.x} 필드 안`);
@@ -120,15 +125,32 @@ function assertJittered(view, A, J, geo, where) {
       const q = (t[k] - a[k]) * 10;
       assert.ok(Math.abs(q - Math.round(q)) < 1e-6, `${where}: ${t.id} ${k} 비낌 0.1 단위 (${t[k] - a[k]})`);
     }
-    assert.equal(zoneAtY(t.y), zoneAtY(a.y), `${where}: ${t.id} 구역 그대로 (y ${a.y} → ${t.y})`);
-    // 경계에서 edge 안쪽 (처음부터 더 가까웠으면 그 자리보다 바깥으로 가지 않는다)
-    const z = ZONES[zoneAtY(a.y) - 1];
-    assert.ok(t.y >= Math.min(a.y, z.from + JITTER.edge) - TOL && t.y <= Math.max(a.y, z.to - JITTER.edge) + TOL, `${where}: ${t.id} 구역 띠 안`);
-    // 간격: 흔들기 전보다 가까워지지 않는다 (minD 아래로는)
+    if (play) {
+      // 맡은 구역 그대로 (공격 방향 기준) · 띠 안 = 경계에서 edge 안쪽 (처음부터 더 가까웠으면 그 자리보다 바깥으로 가지 않는다)
+      const z = zoneOf(A, a.y);
+      assert.equal(zoneOf(A, t.y).id, z.id, `${where}: ${t.id} 구역 그대로 (y ${a.y} → ${t.y})`);
+      const f = fyOf(A, t.y);
+      const f0 = fyOf(A, a.y);
+      assert.ok(f >= Math.min(f0, z.from + JITTER.edge) - TOL && f <= Math.max(f0, z.to - JITTER.edge) + TOL, `${where}: ${t.id} 구역 띠 안 (${f0} → ${f})`);
+    }
     for (let j = i + 1; j < J.tokens.length; j++) {
-      const need = Math.min(minD, tokenDistance(a, A.tokens[j], geo.aspect));
-      const d = tokenDistance(t, J.tokens[j], geo.aspect);
-      assert.ok(d >= need - TOL, `${where}: ${t.id} ↔ ${J.tokens[j].id} 간격 ${d.toFixed(3)} < ${need.toFixed(3)}`);
+      const b = A.tokens[j];
+      const u = J.tokens[j];
+      // 간격: 흔들기 전보다 가까워지지 않는다 (minD 아래로는)
+      const need = Math.min(minD, tokenDistance(a, b, geo.aspect));
+      const d = tokenDistance(t, u, geo.aspect);
+      assert.ok(d >= need - TOL, `${where}: ${t.id} ↔ ${u.id} 간격 ${d.toFixed(3)} < ${need.toFixed(3)}`);
+      // 같은 편 · 같은 구역: 좌우 순서 그대로 (서로 가로지르지 않는다), 다른 라인이면 앞뒤 순서도 — 간격 ≥ min(처음 간격, keep)
+      if (play && t.side === u.side && zoneOf(A, a.y).id === zoneOf(A, b.y).id) {
+        const order = (axis, keep, what) => {
+          const d0 = b[axis] - a[axis];
+          const d1 = u[axis] - t[axis];
+          if (Math.abs(d0) < TOL) return;
+          assert.ok(sign(d1) === sign(d0) && Math.abs(d1) >= Math.min(Math.abs(d0), keep) - TOL, `${where}: ${t.id} ↔ ${u.id} ${what} (${d0} → ${d1})`);
+        };
+        order("x", JITTER.keepX, "좌우 순서");
+        if (t.position !== u.position) order("y", JITTER.keepY, "라인 앞뒤 순서");
+      }
     }
   }
   if (A.mode !== "play") return;
@@ -140,7 +162,8 @@ function assertJittered(view, A, J, geo, where) {
   if (cJ) assert.deepEqual(J.ball, { x: cJ.x, y: cJ.y }, `${where}: 공 = 공 가진 선수`);
   else assert.deepEqual(J.ball, A.ball, `${where}: 공 가진 선수가 없으면 공 그대로`);
   if (J.nextBall) assert.deepEqual(J.nextBall, { x: J.ball.x, y: A.nextBall.y }, `${where}: nextBall`);
-  assert.equal(zoneAtY(J.ball.y), zoneAtY(A.ball.y), `${where}: 공 구역 그대로`);
+  assert.equal(zoneOf(A, J.ball.y).id, zoneOf(A, A.ball.y).id, `${where}: 공 구역 그대로`);
+  assert.equal(zoneAtY(J.ball.y), zoneAtY(A.ball.y), `${where}: 공 구역 그대로 (화면 구역)`);
   // 듀얼 둘 (배급이면 롱패스 받는 선수 + 경합 상대) = 한 비낌: 수비 − 공 가진 선수 벡터 그대로
   const dKey = `${def}:${A.defenderId}`;
   const mateKey = A.dist ? `${atk}:${A.dist.long}` : `${atk}:${A.carrierId}`;
@@ -182,7 +205,7 @@ const opt = (geo, seed) => ({ ...geo, jitter: { seed } });
 
 /* ------------------------------------------------------------------ */
 
-test("J1 jitter 없음 = 예전 배치 그대로 · 같은 열쇠 = 같은 배치 (다시 계산 · JSON 왕복 · 결정 필드) · 난수 없음 · view 를 바꾸지 않음", () => {
+test("J1 · J2 jitter 없음 = 예전 배치 그대로 · 같은 열쇠 = 같은 배치 (다시 계산 · JSON 왕복 · 결정 필드) · 난수 없음 · view 를 바꾸지 않음", () => {
   const realRandom = Math.random;
   Math.random = () => { throw new Error("Math.random 을 쓰면 안 된다"); };
   try {
@@ -213,12 +236,18 @@ test("J1 jitter 없음 = 예전 배치 그대로 · 같은 열쇠 = 같은 배�
   for (const s of ["", "J1|1|3|17|home", "레슨|x", "a".repeat(80)]) assert.equal(hash32(s), zones.hash32(s), `hash32("${s.slice(0, 20)}")`);
 });
 
-test("J1 비트마다 다른 자리: 구역 띠 · 필드 안 · 최대 비낌 · 간격 ≥ min(minD, 처음 거리) · 듀얼 둘 함께 · 공 = 공 가진 선수 · 공 앞뒤 · 좌우 · 배급 · 가림 (실제 엔진, 2.5D · 평면 간격)", () => {
+test("J2 비트마다 다른 자리 = 맡은 구역 띠 안 무작위: 띠 · 필드 안 · 가로 ±ax · GK 작게 · 좌우 · 라인 순서 · 간격 ≥ min(minD, 처음 거리) · 듀얼 둘 함께 · 공 = 공 가진 선수 · 공 앞뒤 · 좌우 · 배급 · 가림 (실제 엔진, 2.5D · 평면 간격)", () => {
   const seen = new Set();
   let moved = 0;
   let total = 0;
   let tokMoved = 0;
   let tokTotal = 0;
+  // J2 넓이: 골 방향은 구역 띠 어디든 (J1 ±3.5 보다 멀리), 가로는 ±ax (J1 ±5 보다 멀리) — GK 빼고
+  let field = 0;
+  let farY = 0;
+  let farX = 0;
+  let maxY = 0;
+  const thirds = [0, 0, 0]; // 띠 안 자리 (공격 방향 기준 뒤 · 가운데 · 앞 셋째) — 띠 전체를 쓴다
   for (const { view, seed } of VIEWS) {
     for (const [g, geo] of Object.entries(GEOS)) {
       const A = computeLayout(view, geo);
@@ -232,12 +261,27 @@ test("J1 비트마다 다른 자리: 구역 띠 · 필드 안 · 최대 비낌 �
       tokMoved += n;
       tokTotal += J.tokens.length;
       if (n >= J.tokens.length / 2) moved++;
+      J.tokens.forEach((t, i) => {
+        if (t.position === "GK") return;
+        const a = A.tokens[i];
+        field++;
+        if (Math.abs(t.y - a.y) > 3.5 + TOL) farY++;
+        if (Math.abs(t.x - a.x) > 5 + TOL) farX++;
+        maxY = Math.max(maxY, Math.abs(t.y - a.y));
+        const z = zoneOf(A, a.y);
+        const q = (fyOf(A, t.y) - (z.from + JITTER.edge)) / (z.to - z.from - 2 * JITTER.edge);
+        thirds[Math.max(0, Math.min(2, Math.floor(q * 3)))]++;
+      });
     }
   }
   for (const k of ["home0", "home1", "home2", "home3", "away0", "away1", "away2", "away3", "dist", "fin-goal"]) assert.ok(seen.has(k), `상황 ${k} (${[...seen].join(",")})`);
   // 흔들림이 보인다: 거의 모든 배치에서 절반 이상의 선수가 0.3 넘게 비낀다
   assert.ok(moved / total > 0.9, `절반 이상 비낀 배치 ${moved}/${total}`);
-  assert.ok(tokMoved / tokTotal > 0.75, `비낀 선수 ${tokMoved}/${tokTotal}`);
+  assert.ok(tokMoved / tokTotal > 0.85, `비낀 선수 ${tokMoved}/${tokTotal}`);
+  // J1 범위 (세로 ±3.5 · 가로 ±5) 밖으로 간 선수가 흔하다 · 띠 뒤 · 가운데 · 앞 셋째를 모두 쓴다
+  assert.ok(farY / field > 0.25 && maxY > 12, `세로 3.5 넘게 ${farY}/${field} · 최대 ${maxY}`);
+  assert.ok(farX / field > 0.1, `가로 5 넘게 ${farX}/${field}`);
+  for (const [i, c] of thirds.entries()) assert.ok(c / field > 0.12, `띠 ${i + 1}번째 셋째 ${c}/${field} (${thirds})`);
 });
 
 /** 경기 화면이 넘기는 흔들림 옵션 (screens/match.js layoutFor): ref = 미리보기를 고르기 전의 엔진 view */
@@ -245,29 +289,72 @@ const optRef = (geo, seed, ref) => ({ ...geo, jitter: { seed, ref } });
 const xy = (L) => L.tokens.map((t) => [t.x, t.y]);
 const sameXY = (a, b) => JSON.stringify(xy(a)) === JSON.stringify(xy(b));
 /**
- * 같은 비트 안에서 화면이 그릴 수 있는 미리보기 변형 전부 (screens/match.js shownView): 결정 중 스킬 토글 · 필살기 토글 · 자동 진행 (deciding false —
- * 확정할 수 없는 후보 숨김) + 기본 받는 선수만 바뀐 변형 (필살 패스 합체기 등 — 후보 중 아무나).
+ * 같은 비트 안에서 화면이 그릴 수 있는 미리보기 변형 전부 (screens/match.js shownView = resolvePreview): 결정 중 스킬 토글 · 필살기 토글 ·
+ * 스킬 + 필살기 · 자동 진행 (deciding false — 확정할 수 없는 후보 숨김). 기준 view 와 같은 것은 뺀다
  */
-function previewVariants(view) {
-  const out = [];
+function screenVariants(view) {
   const keys = new Set([...Object.keys(view.receiverPreviewBySkill || {}), ...Object.keys(view.outcomesBySkill || {}), ...Object.keys(view.receiversBySkill || {})]);
-  for (const skillId of keys) out.push([`skill ${skillId}`, resolvePreview(view, { skillId, deciding: true })]);
-  out.push(["ultimate", resolvePreview(view, { ultimate: true, deciding: true })]);
-  out.push(["auto", resolvePreview(view, { deciding: false })]);
+  for (const s of view.skills || []) if (s && s.skillId) keys.add(s.skillId);
+  const out = [["auto", resolvePreview(view, { deciding: false })], ["ultimate", resolvePreview(view, { ultimate: true, deciding: true })]];
+  for (const skillId of keys) {
+    out.push([`skill ${skillId}`, resolvePreview(view, { skillId, deciding: true })]);
+    out.push([`skill ${skillId} + ultimate`, resolvePreview(view, { skillId, ultimate: true, deciding: true })]);
+  }
+  return out.filter(([, sv]) => sv !== view);
+}
+/** 만든 변형 (화면은 그리지 않는다): 기본 받는 선수만 다른 후보로 바꾼 것 · 없앤 것 (J1 — 역할만 바뀌는 경우) */
+function madeVariants(view) {
+  const out = [];
   const ids = new Set();
   for (const a of ["pass", "cross"]) for (const id of view.receivers?.[a]?.candidates || []) ids.add(String(id));
   for (const id of ids) if (id !== String(view.receiverPreview?.id)) out.push([`rp ${id}`, { ...view, receiverPreview: { ...(view.receiverPreview || {}), id } }]);
   if (view.receiverPreview) out.push(["rp null", { ...view, receiverPreview: null }]);
-  return out.filter(([, sv]) => sv !== view);
+  return out;
+}
+/**
+ * 같은 비트의 변형들 (list = [{ what, A: 흔들기 전, J: 흔든 배치 }]): 어느 둘 사이에서도 규칙 자리가 같은 선수는 흔든 자리도 같다 (J2 — 토글은 규칙 자리가
+ * 바뀐 선수만 옮긴다). → { pairs, ruleChanged: 규칙 자리가 바뀐 쌍, kept: 그 쌍들에서 그대로 선 선수 수, whats: 규칙 자리가 바뀐 변형 이름 }
+ */
+function assertStable(list, where) {
+  const out = { pairs: 0, ruleChanged: 0, kept: 0, whats: new Set() };
+  for (let i = 0; i < list.length; i++) {
+    for (let j = i + 1; j < list.length; j++) {
+      const a = list[i];
+      const b = list[j];
+      out.pairs++;
+      let changed = 0;
+      let kept = 0;
+      a.A.tokens.forEach((t, k) => {
+        const u = b.A.tokens[k];
+        assert.equal(`${u.side}:${u.id}`, `${t.side}:${t.id}`, `${where}: 같은 순서`);
+        if (t.x !== u.x || t.y !== u.y) {
+          changed++;
+          return;
+        }
+        kept++;
+        const p = a.J.tokens[k];
+        const q = b.J.tokens[k];
+        assert.ok(p.x === q.x && p.y === q.y, `${where} ${a.what} ↔ ${b.what}: ${t.side}:${t.id} 규칙 자리 그대로인데 흔든 자리가 바뀜 (${p.x},${p.y} → ${q.x},${q.y})`);
+      });
+      if (changed) {
+        out.ruleChanged++;
+        out.kept += kept;
+        out.whats.add(a.what);
+        out.whats.add(b.what);
+      }
+    }
+  }
+  return out;
 }
 
-test("J1 열쇠: 마지막 비트 seq · 포제션 · 공격 팀 · 경기 seed 가 바뀌면 새 자리, 같은 비트 안의 미리보기 변형 (스킬 · 필살기 토글 · 자동/수동 · 기본 받는 선수) 은 비낌을 바꾸지 않는다", () => {
+test("J1 · J2 열쇠: 마지막 비트 seq · 포제션 · 공격 팀 · 경기 seed 가 바뀌면 새 자리, 같은 비트 안의 변형 (스킬 · 필살기 토글 · 자동/수동 · 기본 받는 선수) 은 규칙 자리가 같은 선수를 옮기지 않는다", () => {
   const plays = VIEWS.filter(({ view }) => !view.finished && view.phase === "decision" && view.lastBeat);
   assert.ok(plays.length > 50);
   let diffSeq = 0;
   let diffSeed = 0;
   let checked = 0;
   let roleChanged = 0;
+  let screenPairs = 0;
   for (const { view, seed } of plays) {
     for (const [g, geo] of Object.entries(GEOS)) {
       const J = computeLayout(view, opt(geo, seed));
@@ -279,30 +366,94 @@ test("J1 열쇠: 마지막 비트 seq · 포제션 · 공격 팀 · 경기 seed 
         // 다른 비트의 ref 는 쓰지 않는다 (그 view 를 기준으로)
         assert.deepEqual(computeLayout(bumped, optRef(geo, seed, view)), computeLayout(bumped, opt(geo, seed)), "다른 비트의 ref 는 무시");
       }
-      // 미리보기 변형 (화면 = shownView, ref = 엔진 view): 흔들기 전 자리가 기본과 같으면 흔든 자리도 같다 — 역할 (receiver ↔ support) · 기본 받는 선수가
-      // 바뀌어도 (비낌 계획 = ref 의 모든 변형 후보). 흔든 변형도 §11 을 지킨다 (그 변형의 받는 선수 · 화살표 기준)
+      // 화면 변형 (shownView, ref = 엔진 view): 규칙 자리가 바뀌는 변형도 빼지 않고 — 어느 둘 사이에서도 규칙 자리가 같은 선수는 흔든 자리도 같다.
+      // 흔든 변형도 §11 을 지킨다 (그 변형의 받는 선수 · 화살표 기준)
       const A0 = computeLayout(view, geo);
-      for (const [what, sv] of previewVariants(view)) {
-        const where = `${g} ${seed} #${view.lastBeat.seq} ${what}`;
+      const where = `${g} ${seed} #${view.lastBeat.seq}`;
+      const list = [{ what: "base", A: A0, J }];
+      for (const [what, sv] of screenVariants(view)) {
         const A1 = computeLayout(sv, geo);
         const J1 = computeLayout(sv, optRef(geo, seed, view));
-        assertJittered(sv, A1, J1, geo, where);
+        assertJittered(sv, A1, J1, geo, `${where} ${what}`);
+        list.push({ what, A: A1, J: J1 });
+        if (sameXY(A1, A0)) {
+          checked++;
+          if (JSON.stringify([A1.receiverIds, A1.receiverId]) !== JSON.stringify([A0.receiverIds, A0.receiverId])) roleChanged++;
+        }
+      }
+      screenPairs += assertStable(list, where).pairs;
+      // 만든 변형 (기본 받는 선수만 바뀐 것 — 화면은 그리지 않는다): 흔들기 전 자리가 기본과 같으면 흔든 자리도 같다 (J1)
+      for (const [what, sv] of madeVariants(view)) {
+        const A1 = computeLayout(sv, geo);
+        const J1 = computeLayout(sv, optRef(geo, seed, view));
+        assertJittered(sv, A1, J1, geo, `${where} ${what}`);
         if (!sameXY(A1, A0)) continue;
         checked++;
         if (JSON.stringify([A1.receiverIds, A1.receiverId]) !== JSON.stringify([A0.receiverIds, A0.receiverId])) roleChanged++;
-        assert.deepEqual(xy(J1), xy(J), `${where}: 변형을 그려도 그대로`);
+        assert.deepEqual(xy(J1), xy(J), `${where} ${what}: 변형을 그려도 그대로`);
       }
     }
   }
   assert.ok(diffSeq / plays.length > 0.95, `seq 가 바뀌면 새 자리 ${diffSeq}/${plays.length}`);
   assert.ok(diffSeed / plays.length > 0.95, `seed 가 바뀌면 새 자리 ${diffSeed}/${plays.length}`);
   // 역할이 바뀌는 변형 (자동 진행 후보 숨김 · 기본 받는 선수) 을 실제로 많이 거쳤다
-  assert.ok(checked > 300 && roleChanged > 100, `규칙 자리가 같은 변형 ${checked} · 그중 받는 선수 표시가 바뀐 것 ${roleChanged}`);
+  assert.ok(checked > 300 && roleChanged > 100 && screenPairs > 300, `규칙 자리가 같은 변형 ${checked} · 그중 받는 선수 표시가 바뀐 것 ${roleChanged} · 화면 변형 쌍 ${screenPairs}`);
   // 같은 비트의 연속 view (결정 대기 → 간파 등, seq 같음) 는 흔들기 전 자리가 같으면 흔든 자리도 같다 — 포제션 · 공격 팀도 열쇠
   const base = plays[0];
   const A = computeLayout(base.view, opt(GEOS.d25, base.seed));
   const pos2 = { ...base.view, possession: (base.view.possession ?? 0) + 1 };
   assert.notDeepEqual(computeLayout(pos2, opt(GEOS.d25, base.seed)).tokens, A.tokens, "포제션이 바뀌면 새 자리");
+});
+
+test("J2 회귀 (검증 차단 버그): 스루 패스 · 필살기 (extra line) 토글은 규칙 자리가 바뀐 받는 선수만 옮긴다 — 16 · 17 · 28 · 31 · 36 시나리오를 여러 비트 진행 (2.5D · 평면)", async () => {
+  const SC = await import(pathToFileURL(path.join(ROOT, "tools/scenarios.mjs")).href);
+  const sdata = SC.loadData();
+  const total = { pairs: 0, ruleChanged: 0, kept: 0, whats: new Set() };
+  const bySeq = new Map(); // 16_skill_row_4 비트 seq → view (검증에서 찾은 #12 · #24 · #35)
+  for (const name of ["16_skill_row_4", "17_skill_row_many", "28_injured_plays", "31_ult_dribble_extra", "36_through_pass"]) {
+    const prep = SC.buildScenarioState(sdata, SC.SCENARIOS.find((s) => s.name === name), { runSeed: 1 });
+    const ms = prep.matchState;
+    for (let g = 0; g < 60; g++) {
+      const view = SC.match.getMatchView(ms, sdata, "home");
+      if (name === "16_skill_row_4" && !bySeq.has(view.lastBeat?.seq)) bySeq.set(view.lastBeat?.seq, { view, seed: ms.seed });
+      for (const [gn, geo] of Object.entries(GEOS)) {
+        const where = `${name} ${gn} #${view.lastBeat?.seq}`;
+        const list = [["base", view], ...screenVariants(view)].map(([what, sv]) => {
+          const A = computeLayout(sv, geo);
+          const J = computeLayout(sv, optRef(geo, ms.seed, view));
+          assertJittered(sv, A, J, geo, `${where} ${what}`);
+          return { what, A, J };
+        });
+        const r = assertStable(list, where);
+        total.pairs += r.pairs;
+        total.ruleChanged += r.ruleChanged;
+        total.kept += r.kept;
+        for (const w of r.whats) total.whats.add(w.replace(/ \+ ultimate$/, ""));
+      }
+      if (SC.match.isFinished(ms)) break;
+      SC.match.step(ms, sdata, null);
+    }
+  }
+  // 규칙 자리가 바뀌는 토글을 실제로 거쳤다: 스루 패스 · 필살기 — 그 쌍들에서 규칙 자리가 같은 선수 (공 가진 선수 · 듀얼 수비 · 커버 …) 는 모두 그대로
+  assert.ok(total.ruleChanged >= 40 && total.kept > 400, `규칙 자리가 바뀐 변형 쌍 ${total.ruleChanged} · 그대로 선 선수 ${total.kept}`);
+  for (const w of ["skill sk_through_pass", "ultimate"]) assert.ok(total.whats.has(w), `${w} (${[...total.whats].join(", ")})`);
+  // 검증에서 찾은 장면 (16_skill_row_4 #12 · #24 · #35, 2.5D): 스루 패스를 켜면 옮기는 선수 = 규칙 자리가 바뀐 받는 선수 (p6 · p7) 뿐 — 공 · 듀얼 · 커버 그대로
+  for (const seq of [12, 24, 35]) {
+    const at = bySeq.get(seq);
+    assert.ok(at, `16_skill_row_4 #${seq} (${[...bySeq.keys()].join(",")})`);
+    const { view, seed } = at;
+    const sv = resolvePreview(view, { skillId: "sk_through_pass", deciding: true });
+    assert.notEqual(sv, view, `#${seq}: 스루 패스 변형이 있다`);
+    const key = (t) => `${t.side}:${t.id}`;
+    const diff = (P, Q) => P.tokens.filter((t, i) => t.x !== Q.tokens[i].x || t.y !== Q.tokens[i].y).map(key);
+    const ruleMoved = diff(computeLayout(view, GEOS.d25), computeLayout(sv, GEOS.d25));
+    const J0 = computeLayout(view, optRef(GEOS.d25, seed, view));
+    const J1 = computeLayout(sv, optRef(GEOS.d25, seed, view));
+    const moved = diff(J0, J1);
+    assert.deepEqual(ruleMoved, ["home:p6", "home:p7"], `#${seq}: 규칙 자리가 바뀐 선수`);
+    assert.ok(moved.length > 0 && moved.every((k) => ruleMoved.includes(k)), `#${seq}: 옮긴 선수 ${moved} ⊆ ${ruleMoved}`);
+    assert.deepEqual(J1.ball, J0.ball, `#${seq}: 공 그대로`);
+  }
 });
 
 test("J1 회귀 (16_skill_row_4 · 17_skill_row_many): 자동 ↔ 수동 (deciding false ↔ true) 로 받는 선수 후보가 숨겨져도 흔든 자리는 그대로", async () => {
@@ -329,7 +480,7 @@ test("J1 회귀 (16_skill_row_4 · 17_skill_row_many): 자동 ↔ 수동 (decidi
       assertJittered(manual, Am, Jm, geo, `${where} 수동`);
       assertJittered(auto, Aa, Ja, geo, `${where} 자동`);
       // 필살기 · 스킬 토글도 (규칙 자리가 같으면) 그대로
-      for (const [what, sv] of previewVariants(view)) {
+      for (const [what, sv] of [...screenVariants(view), ...madeVariants(view)]) {
         const A1 = computeLayout(sv, geo);
         if (sameXY(A1, Am)) assert.deepEqual(xy(computeLayout(sv, optRef(geo, ms.seed, view))), xy(Jm), `${where} ${what}: 그대로`);
       }
@@ -407,7 +558,7 @@ async function until(fn, ms = 4000, step = 20) {
   return fn();
 }
 
-test("jsdom: 경기 화면 — 2.5D 는 흔든 자리 (받는 선수 탭 · 다시 그리기에서 그대로, 비트 뒤 새 자리), 평면 기본 = 예전 자리, ?jitter 스위치", { skip: !JSDOM && "jsdom 미설치" }, async (t) => {
+test("jsdom: 경기 화면 — 2.5D 는 흔든 자리 (받는 선수 탭 · 자동 ↔ 수동 · 다시 그리기에서 그대로, 스루 패스 토글은 규칙 자리가 바뀐 선수만, 비트 뒤 새 자리), 평면 기본 = 예전 자리, ?jitter 스위치", { skip: !JSDOM && "jsdom 미설치" }, async (t) => {
   const ST = await import(STORE);
   const html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
   const dom = new JSDOM(html, { url: "http://localhost/soccer/", pretendToBeVisual: true });
@@ -521,6 +672,24 @@ test("jsdom: 경기 화면 — 2.5D 는 흔든 자리 (받는 선수 탭 · 다�
     assert.equal(ui.auto, false);
     assert.equal(viewNow().lastBeat?.seq, v.lastBeat?.seq, "같은 비트");
     assert.deepEqual(shown(scr), expect(J), "수동으로 돌아와도 그대로");
+    // J2: 스루 패스 토글 — 규칙 자리가 바뀐 받는 선수 (도착 구역 +1) 만 옮기고 공 · 듀얼 둘 · 커버 · 나머지는 그대로, 끄면 제자리
+    const btn = scr.querySelector('.sk-btn[data-skill="sk_through_pass"]');
+    assert.ok(btn && !btn.disabled, "스루 패스 버튼");
+    const sv = resolvePreview(v, { skillId: "sk_through_pass", deciding: true });
+    const A0 = expect(computeLayout(v, GEOS.d25));
+    const A1 = expect(computeLayout(sv, GEOS.d25));
+    const ruleMoved = Object.keys(A0).filter((k) => String(A0[k]) !== String(A1[k]));
+    const before = shown(scr);
+    btn.click();
+    assert.equal(ui.selectedSkillId, "sk_through_pass");
+    const after = shown(scr);
+    assert.deepEqual(after, expect(computeLayout(sv, { ...GEOS.d25, jitter: { seed, ref: v } })), "스루 패스 = 그 변형의 흔든 배치");
+    const moved = Object.keys(before).filter((k) => String(before[k]) !== String(after[k]));
+    assert.ok(ruleMoved.length > 0 && moved.length > 0, `옮긴 선수 ${moved} · 규칙 자리가 바뀐 선수 ${ruleMoved}`);
+    assert.ok(moved.every((k) => ruleMoved.includes(k)), `스루 패스로 옮긴 선수 ${moved} ⊆ 규칙 자리가 바뀐 선수 ${ruleMoved}`);
+    scr.querySelector('.sk-btn[data-skill="sk_through_pass"]').click(); // 끄기
+    assert.equal(ui.selectedSkillId, null);
+    assert.deepEqual(shown(scr), before, "스루 패스를 끄면 제자리");
     S.actions.resetToStart();
   }
   // ---- 2.5D + ?jitter=0 (테스트용 끄기): 예전 자리 ----

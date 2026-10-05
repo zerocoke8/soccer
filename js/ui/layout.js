@@ -25,10 +25,13 @@
 //    starterId, 제자리), 롱패스를 다투는 상대 MF(contest) = defender 역할 (롱패스 받는 선수와 같은 레인 — 낙하 지점 경합).
 //    zone = GK 박스 (gkZone), track.gk = true (아직 ① 전). 배급 비트 뒤 배너 = "롱패스 성공! 중원에서 시작" · 롱패스 실패 뒤 "세컨드볼!".
 //  - 2026-10-06 배치 흔들림 (J1 — docs/SPRITE_25D_PLAN.md §11, 되돌릴 수 있음): opts.jitter 가 있을 때만 (경기 화면은 2.5D 모드 기본 켬,
-//    ?jitter=0 끔 · ?jitter=1 평면에서도 켬 — store.isLayoutJitter). 위 규칙으로 놓은 뒤 선수마다 구역 안에서 조금 비낀다 (jitterPositions).
+//    ?jitter=0 끔 · ?jitter=1 평면에서도 켬 — store.isLayoutJitter). 위 규칙으로 놓은 뒤 선수마다 구역 안에서 조금 비낀다 (J2 부터 jitterSolve).
 //    비낌은 해시 (경기 seed · 포제션 · 마지막 비트 seq · 공격 팀 · 선수 id) 에서만 — 난수 없음, 같은 비트 안에서는 늘 같은 자리.
 //    비낌 계획 (받는 선수 후보 · 흔드는 차례) 은 opts.jitter.ref (미리보기를 고르기 전의 엔진 view) 의 모든 변형 후보로 — 자동/수동 · 스킬 토글에도 그대로.
 //    opts.jitter 가 없으면 (테스트 · 평면 기본) 예전과 한 자리도 다르지 않다. 승부차기는 흔들지 않는다.
+//  - 2026-10-06 배치 흔들림 2 (J2 — §11): 도착 자리 = 맡은 구역 띠 안 무작위 자리 (세로는 띠 어디든, 가로 ±10 — 같은 편 · 같은 구역은 좌우 순서 그대로).
+//    그 비트에 화면이 그릴 수 있는 미리보기 변형 (스킬 · 필살기 토글 · 자동/수동) 의 규칙 자리를 한꺼번에 흔든다 (jitterSolve) —
+//    토글로 규칙 자리가 바뀐 선수만 옮기고, 나머지는 어느 변형에서도 같은 자리.
 
 export const ZONES = [
   { id: 1, from: 0, to: 16, name: "우리 박스" },
@@ -79,21 +82,25 @@ const NUDGE = { step: 1.5, max: 8 };
 /** GK 배급 대기: 배급 GK(공)의 세로 % (공격 방향 기준 — 자기 박스 0~16 안, 골문 앞 SHAPE.atk.GK[0] 보다 조금 앞) */
 export const DISTRIBUTION = { gkFy: 9 };
 /**
- * 배치 흔들림 (J1 — SPRITE_25D_PLAN §11, [구현 결정] 시작값). 단위 = 필드 % (x = 골과 나란한 쪽, y = 골 방향).
- *  - ax · ay: 선수마다 가로 · 세로 최대 비낌 (GK 는 gkAx · gkAy). 듀얼 둘 (공 가진 선수 + 듀얼 수비) 은 한 비낌을 함께 (작은 쪽 크기).
- *  - edge: 구역 경계에서 이만큼 안쪽까지만 (처음부터 경계에 더 가까이 선 선수는 그 자리보다 바깥으로 가지 않는다 — 구역이 바뀌지 않는다).
- *  - keepY: 공 앞 · 뒤 관계 (수비 팀 전원 · 받는 선수 후보 ↔ 공 가진 선수): 같은 쪽 + 간격 ≥ min(처음 간격, keepY) — 뚫린 라인은 공 뒤, 남은 수비는 공 앞.
- *  - keepX: 좌우 관계 (커버 ↔ 듀얼 수비, ④ 박스 연결 후보 ↔ 공 가진 선수): 같은 쪽 + 간격 ≥ min(처음 간격, keepX).
- *  - scales: 겹침 방지 간격 (minD) 이 안 맞으면 그 선수의 비낌을 이 차례로 줄인다 (0 = 제자리 — 늘 된다).
- *  - guardRounds · guard: 공 가진 선수 → 받는 선수 후보 화살표를 흔들기 전에 가리지 않던 선수가 새로 가리면 (boxDepths 와 같은 판정)
- *    그 화살표의 받는 선수 · 새로 가린 선수를 제자리에 두고 다시 (guardRounds 번), 그래도 가리면 전체 비낌을 guard 차례로 줄인다.
- *  받는 선수 후보 (관계 · 화살표 · 흔드는 차례) = 그 비트의 모든 미리보기 변형 후보 합집합 (planRecvIds) — 자동/수동 · 스킬 · 필살기 토글로 바뀌지 않는다.
+ * 배치 흔들림 (J1 → J2 — SPRITE_25D_PLAN §11, [구현 결정] 시작값 — 기획자가 여기 숫자만 고치면 된다). 단위 = 필드 % (x = 골과 나란한 쪽, y = 골 방향).
+ * J2 (2026-10-06 기획자 설명): 공격이 성공 · 실패하고 다음 자리로 옮길 때 도착 자리를 고정 좌표 대신 맡은 구역 안 무작위 자리로.
+ *  - ay: 세로 (골 방향) 최대 비낌 — Infinity = 자기 구역 띠 어디든. 구역 = 규칙 자리의 구역 (공격 방향 기준 — 경계 위면 공격 방향 쪽 구역).
+ *  - edge: 구역 띠 = 구역 경계에서 이만큼 안쪽까지 (처음부터 경계에 더 가까이 선 선수는 그 자리보다 바깥으로 가지 않는다 — 구역이 바뀌지 않는다).
+ *  - ax: 가로 최대 비낌 (±). 필드 가로 X_MIN ~ X_MAX 안.
+ *  - gkAx · gkAy: GK 는 작게 (가로 · 세로 ±). 듀얼 둘 (공 가진 선수 + 듀얼 수비) 은 한 비낌을 함께 (둘 중 작은 범위 — 수비가 GK 면 GK 크기).
+ *  - bias: 허용 구간 안 분포 = 균등 난수 bias 개의 평균 (1 = 균등, 2 = 가운데가 잦은 삼각 분포 — 끝에 몰리지 않는다).
+ *  - keepY: 공 앞 · 뒤 (수비 팀 전원 · 받는 선수 후보 ↔ 공 가진 선수), 같은 편 · 같은 구역의 다른 라인 앞 · 뒤 (DF · MF · FW · GK 깊이 순서):
+ *    같은 쪽 + 간격 ≥ min(처음 간격, keepY).
+ *  - keepX: 좌우 (커버 ↔ 듀얼 수비, ④ 박스 연결 후보 ↔ 공 가진 선수, 같은 편 · 같은 구역 선수끼리 — 서로 가로지르지 않는다):
+ *    같은 쪽 + 간격 ≥ min(처음 간격, keepX).
+ *  - tries · shrink: 겹침 (minD) · 화살표 가림 때문에 첫 무작위 자리가 안 되면 다른 무작위 자리를 tries 개까지 (같은 해시 수열의 다음 값),
+ *    그래도 안 되면 첫 자리를 shrink 배씩 규칙 자리 쪽으로 당기고, 마지막은 규칙 자리 (늘 된다).
+ *  받는 선수 후보 (관계 · 화살표 · 흔드는 차례) = 그 비트의 모든 미리보기 변형 후보 합집합 — 자동/수동 · 스킬 · 필살기 토글로 바뀌지 않는다.
  */
 export const JITTER = Object.freeze({
-  ax: 5, ay: 3.5, gkAx: 3, gkAy: 1.5, edge: 1.5, keepY: 2, keepX: 1.5,
-  scales: Object.freeze([1, 0.75, 0.5, 0.25, 0]),
-  guardRounds: 3,
-  guard: Object.freeze([1, 0.5, 0]),
+  ax: 10, ay: Infinity, gkAx: 3, gkAy: 1.5, edge: 1.5, bias: 2, keepY: 2, keepX: 1.5,
+  tries: 6,
+  shrink: Object.freeze([0.5, 0.25]),
 });
 
 // 엔진(match.js)과 같은 값의 사본 — layout 은 엔진 없이도 import 된다
@@ -250,8 +257,8 @@ export function receiverCandidates(view) {
  * @param {{ aspect?: number, tokenSize?: number, jitter?: { seed?: string|number, ref?: object }|true|null }} [opts] aspect = 필드 폭/높이 (기본 0.8),
  *   tokenSize = 필드 폭 대비 토큰 지름 (기본 0.075).
  *   폭 = x 방향(골과 나란한 쪽) 픽셀, 높이 = y 방향(골↔골) 픽셀 — 가로 화면이면 폭 = 요소 높이, 높이 = 요소 폭 (§13.9)
- *   jitter (J1 — 배치 흔들림): 있으면 구역 안에서 선수마다 조금 비낀다 (seed = 경기 seed, 비트마다 다른 자리 — jitterPositions). 없으면 예전 그대로.
- *   jitter.ref = resolvePreview 전의 엔진 view (같은 비트일 때만 쓴다, 없으면 view) — 비낌 계획의 받는 선수 후보를 여기서 정한다 (jitterOpt)
+ *   jitter (J1 · J2 — 배치 흔들림): 있으면 선수마다 맡은 구역 안 무작위 자리 (seed = 경기 seed, 비트마다 다른 자리 — jitterSolve). 없으면 예전 그대로.
+ *   jitter.ref = resolvePreview 전의 엔진 view (같은 비트일 때만 쓴다, 없으면 view) — 그 비트의 미리보기 변형 전부를 여기서 만든다 (jitterOpt · previewViews)
  * @returns {{
  *   mode: "play"|"penalties",
  *   ball: {x:number,y:number},
@@ -286,8 +293,8 @@ export function computeLayout(view, opts = {}) {
 /**
  * opts.jitter → 흔들림 설정 (없거나 false · null 이면 null = 흔들지 않음). 해시 열쇠 = 경기 seed · 포제션 · 마지막 비트 seq · 공격 팀 —
  * 한 비트 안의 모든 다시 그리기 (결정 토글 · 받는 선수 탭 · 스킬 토글 · 자동/수동 전환 · 화면 다시 열기 · 이어하기) 에서 같고 비트마다 바뀐다.
- * recvIds = 비낌 계획의 받는 선수 후보 (planRecvIds) — 기준 view (opts.jitter.ref = resolvePreview 전의 엔진 view, 같은 비트일 때만) 에서.
- * 화면이 그리는 변형 view (자동 진행 중 후보 숨김 · 스킬 · 필살기 변형) 의 receivers · receiverPreview 는 비낌 계획에 쓰지 않는다.
+ * ref = 기준 view (opts.jitter.ref = resolvePreview 전의 엔진 view — 같은 비트일 때만: 포제션 · 공격 팀 · phase · seq 가 같을 때, 아니면 그리는 view).
+ * 흔들림은 ref 의 미리보기 변형 전부 (previewViews) 를 한꺼번에 계산한다 — 화면이 그리는 변형 (자동 진행 중 후보 숨김 · 스킬 · 필살기 변형) 과 상관없이 같은 답.
  */
 function jitterOpt(j, v, lastBeat) {
   if (!j) return null;
@@ -299,31 +306,22 @@ function jitterOpt(j, v, lastBeat) {
   return {
     ...JITTER,
     key: `J1|${seed}|${v.possession ?? ""}|${seq}|${v.attackingSide ?? ""}`,
-    recvIds: planRecvIds(sameBeat ? ref : v),
+    ref: sameBeat ? ref : v,
   };
 }
 
 /**
- * 비낌 계획의 받는 선수 후보 id (문자열 Set): view 의 모든 변형 — 기본 receivers (패스 · 크로스) · receiverPreview ·
- * receiversBySkill · receiverPreviewBySkill (스킬 · 필살기) — 의 합집합. 한 비트 안에서는 고정 (어느 변형을 그려도 같다)
+ * 기준 view 로 화면이 이 비트에 그릴 수 있는 미리보기 변형 전부 (screens/match.js shownView = resolvePreview — 순서 고정):
+ * 그대로 (결정 중 · 토글 없음) · 자동 진행 (deciding false — 확정할 수 없는 후보 숨김) · 스킬 · 필살기 변형 (receiverPreviewBySkill ·
+ * receiversBySkill · outcomesBySkill 의 열쇠마다 — 필살기 토글도 그 skillId 열쇠, 스킬 + 필살기도 둘 중 하나의 열쇠). 받는 선수 탭은 view 를 바꾸지 않는다.
  */
-function planRecvIds(v) {
-  const out = new Set();
-  const obj = (x) => (x && typeof x === "object" ? x : null);
-  const addRs = (rs) => {
-    if (!obj(rs)) return;
-    for (const a of ["pass", "cross"]) {
-      const c = obj(rs[a]) && Array.isArray(rs[a].candidates) ? rs[a].candidates : [];
-      for (const id of c) if (id != null) out.add(String(id));
-    }
-  };
-  const addRp = (rp) => {
-    if (obj(rp) && rp.id != null) out.add(String(rp.id));
-  };
-  addRs(v.receivers);
-  addRp(v.receiverPreview);
-  for (const rs of Object.values(obj(v.receiversBySkill) || {})) addRs(rs);
-  for (const rp of Object.values(obj(v.receiverPreviewBySkill) || {})) addRp(rp);
+function previewViews(ref) {
+  const out = [ref, resolvePreview(ref, { deciding: false })];
+  const keys = new Set();
+  for (const m of [ref.receiverPreviewBySkill, ref.receiversBySkill, ref.outcomesBySkill]) {
+    if (m && typeof m === "object") for (const k of Object.keys(m)) keys.add(k);
+  }
+  for (const k of keys) out.push(resolvePreview(ref, { skillId: k, deciding: true }));
   return out;
 }
 
@@ -342,6 +340,58 @@ function distributionOf(v) {
 const PRIO = { carrier: 0, defender: 1, receiver: 2, gk: 3, cover: 4, support: 5, broken: 6 };
 
 function playLayout(v, teams, geo, lastBeat, jit = null) {
+  const R = playRule(v, teams, geo, lastBeat);
+  const { fin, atk, step, toY, A, D, carrier, defender, receiver, landingOf, ballFy } = R;
+  // J1 · J2 배치 흔들림: 듀얼 둘은 함께, 수비 팀 · 받는 선수는 공 앞 · 뒤 그대로, 커버는 듀얼 수비의 같은 옆, ④ 박스 후보는 공 가진 선수의 같은 옆,
+  // 같은 편 · 같은 구역은 좌우 · 라인 앞뒤 순서 그대로. 공 · nextBall · 화살표는 아래에서 흔든 자리로 계산된다 (공 = 공 가진 선수).
+  const pos = jit ? playJitter(R, v, geo, jit) : R.pos;
+
+  const cPos = carrier ? pos.get(carrier) : null;
+  let ball;
+  if (cPos) ball = { x: cPos.x, y: cPos.y };
+  else if (fin && fin.kind === "goal") ball = { x: GOAL_FRAME.ballX, y: toY(GOAL_FRAME.ballFy) };
+  else ball = { x: 50, y: toY(ballFy) };
+  const zone = fin ? zoneAtY(ball.y) : validZone(v.zone) ?? zoneFor(atk, step);
+  const tokens = buildTokens(teams, pos);
+  const finished = !!v.finished;
+  // 종료 후에는 "남은 수비"가 의미 없다 (정보 줄은 '경기 종료')
+  const remainingText = finished
+    ? ""
+    : v.remaining && typeof v.remaining.text === "string" ? v.remaining.text : remainingFromTeam(D, step);
+
+  const gkEntry = defender && defender.position === "GK" ? defender : D.byPos.GK[0] || defender;
+  const banner = playBanner({
+    atk, step, zone, finished, lastBeat, prevBeat: findPrevBeat(v, lastBeat), remainingText,
+    carrierName: carrier ? carrier.name : null,
+    defenderName: defender ? defender.name : null,
+    gkName: gkEntry ? gkEntry.name : null,
+  });
+
+  return {
+    mode: "play",
+    ball,
+    tokens,
+    zone,
+    highlight: highlightFor(atk, zone, finished),
+    track: { side: atk, step, dir: fin ? (atk === "home" ? "up" : "down") : attackDir(v, atk) },
+    remainingText,
+    banner,
+    attackingSide: atk,
+    attackStep: step,
+    carrierId: carrier ? carrier.id : null,
+    defenderId: defender ? defender.id : null,
+    receiverId: receiver ? receiver.id : null,
+    receiverIds: A.list.filter((e) => landingOf.has(e)).map((e) => e.id),
+    nextBall: step < 3 && !fin ? { x: ball.x, y: toY(SHAPE.ball[step + 1]) } : null,
+    goal: { x: 50, y: atk === "home" ? 100 : 0 },
+  };
+}
+
+/**
+ * 인플레이 규칙 자리 (흔들기 전): 역할 · 세로 SHAPE · 받는 선수 도착 구역 · 가로 겹침 방지 (placeAll) · ④ 박스 깊이 (boxDepths).
+ * 흔들림 (playJitter) 이 같은 비트의 미리보기 변형마다 다시 부른다 — view 만의 함수 (난수 없음).
+ */
+function playRule(v, teams, geo, lastBeat) {
   // 경기 종료: 마지막 비트가 끝난 뒤의 모습 (공을 얻은 팀 기준). 정보가 없으면 null → 마지막 상태 그대로
   const fin = v.finished ? finalFrame(lastBeat) : null;
   const atk = fin ? fin.atk : v.attackingSide === "away" ? "away" : "home";
@@ -462,71 +512,80 @@ function playLayout(v, teams, geo, lastBeat, jit = null) {
     const recv = specs.filter((s) => s.role === "receiver");
     if (recv.length) pos = boxDepths(specs, recv, carrier, receiver, toY, geo);
   }
-  // J1 배치 흔들림: 듀얼 둘은 함께, 수비 팀 · 받는 선수는 공 앞 · 뒤 그대로, 커버는 듀얼 수비의 같은 옆, ④ 박스 후보는 공 가진 선수의 같은 옆.
-  // 공 · nextBall · 화살표는 아래에서 흔든 자리로 계산된다 (공 = 공 가진 선수).
-  // 비낌 계획 (관계 · 화살표 가림 · 흔드는 차례) 은 그 비트의 고정된 기준으로만 정한다: 받는 선수 후보 = 지금 후보 ∪ jit.recvIds (기준 view 의 모든 변형).
-  // 그래서 자동/수동 전환 (후보 숨김) · 스킬 · 필살기 토글로 역할 (receiver ↔ support) · 기본 받는 선수가 바뀌어도 규칙 자리가 같으면 흔든 자리도 같다
-  if (jit) {
-    const planRecv = fin ? new Set() : new Set(A.list.filter((e) => e !== carrier && (landingOf.has(e) || jit.recvIds.has(e.id))));
-    const rel = [];
-    if (carrier) {
-      for (const e of D.list) if (e !== defender) rel.push({ e, ref: carrier, axis: "y" });
-      for (const e of planRecv) {
-        rel.push({ e, ref: carrier, axis: "y" });
-        if (step >= 3) rel.push({ e, ref: carrier, axis: "x" });
-      }
+  return { fin, atk, def, step, toY, A, D, carrier, defender, receiver, landingOf, ballFy, specs, pos };
+}
+
+/**
+ * J2 인플레이 흔들림 (§11): 그 비트에 화면이 그릴 수 있는 미리보기 변형 전부 (기준 view jit.ref 의 previewViews) 의 규칙 자리를 한꺼번에 흔든다.
+ * 변형마다 규칙 자리가 다른 선수 (스루 패스 · 필살기로 도착 구역이 바뀐 받는 선수 후보, 그 후보에게 밀려 규칙 자리가 바뀐 선수) 는 자리마다 따로,
+ * 나머지는 한 번만 흔든다 (jitterSolve) — 그래서 토글로 옮기는 것은 규칙 자리가 바뀐 선수뿐이고, 결과는 그 비트의 고정된 것 (규칙 자리들 · 열쇠) 만의 함수.
+ * 비낌 계획: 받는 선수 후보 = 모든 변형 후보 합집합 (흔드는 차례 = placeAll 우선순위, 후보는 늘 receiver), 관계 (공 앞뒤 · 좌우), 화살표 = 공 가진 선수 → 후보 전원.
+ * 그리는 view 의 규칙 자리가 어느 변형과도 다르면 (만든 view — 화면은 그러지 않는다) 그 view 를 변형으로 더해 푼다.
+ */
+function playJitter(R, v, geo, jit) {
+  const keyOf = (e) => `${e.side}:${e.id}`;
+  const ruleMap = (r) => new Map([...r.pos].map(([e, p]) => [keyOf(e), { x: p.x, y: p.y }]));
+  const sig = (m) => JSON.stringify([...m.keys()].sort().map((k) => [k, m.get(k).x, m.get(k).y]));
+  const players = (r) => [...r.pos.keys()].map(keyOf).sort().join("|");
+  // 같은 비트의 변형만 (같은 공격 팀 · 단계 · 공 가진 선수 · 듀얼 수비 · 선수들 — 미리보기는 이것들을 바꾸지 않는다)
+  const same = (r) => r.atk === R.atk && r.step === R.step && (r.carrier && r.carrier.id) === (R.carrier && R.carrier.id)
+    && (r.defender && r.defender.id) === (R.defender && R.defender.id) && players(r) === players(R);
+  // 변형의 규칙 자리 (같은 자리 모음은 하나로, 차례 = previewViews 차례). 끝난 경기는 미리보기가 없다 → 이 view 하나
+  const rules = [];
+  if (!R.fin) {
+    for (const vv of previewViews(jit.ref)) {
+      const r = vv === v ? R : playRule(vv, { home: normTeam(vv, "home"), away: normTeam(vv, "away") }, geo, findLastBeat(vv));
+      if (same(r)) rules.push(r);
     }
-    if (defender) for (const s of specs) if (s.role === "cover") rel.push({ e: s.e, ref: defender, axis: "x" });
-    // 흔드는 차례 = placeAll 우선순위 (계획 역할 — 후보는 늘 receiver) → 편 → 선수 순서
-    const prioOf = (s) => s.prio ?? PRIO[planRecv.has(s.e) ? "receiver" : s.role];
-    const order = specs.slice().sort((a, b) => prioOf(a) - prioOf(b) || a.sideOrder - b.sideOrder || a.e.index - b.e.index).map((s) => s.e);
-    pos = jitterPositions(pos, jit, geo, {
-      pair: [carrier, defender].filter((e) => e && pos.has(e)),
-      rel,
-      order,
-      guard: carrier && planRecv.size ? { carrier, receivers: [...planRecv] } : null,
-    });
   }
-
-  const cPos = carrier ? pos.get(carrier) : null;
-  let ball;
-  if (cPos) ball = { x: cPos.x, y: cPos.y };
-  else if (fin && fin.kind === "goal") ball = { x: GOAL_FRAME.ballX, y: toY(GOAL_FRAME.ballFy) };
-  else ball = { x: 50, y: toY(ballFy) };
-  const zone = fin ? zoneAtY(ball.y) : validZone(v.zone) ?? zoneFor(atk, step);
-  const tokens = buildTokens(teams, pos);
-  const finished = !!v.finished;
-  // 종료 후에는 "남은 수비"가 의미 없다 (정보 줄은 '경기 종료')
-  const remainingText = finished
-    ? ""
-    : v.remaining && typeof v.remaining.text === "string" ? v.remaining.text : remainingFromTeam(D, step);
-
-  const gkEntry = defender && defender.position === "GK" ? defender : D.byPos.GK[0] || defender;
-  const banner = playBanner({
-    atk, step, zone, finished, lastBeat, prevBeat: findPrevBeat(v, lastBeat), remainingText,
-    carrierName: carrier ? carrier.name : null,
-    defenderName: defender ? defender.name : null,
-    gkName: gkEntry ? gkEntry.name : null,
+  const variants = [];
+  const sigs = [];
+  for (const r of rules) {
+    const m = ruleMap(r);
+    const s = sig(m);
+    if (sigs.includes(s)) continue;
+    sigs.push(s);
+    variants.push(m);
+  }
+  // 그리는 view 가 어느 변형과도 다르면 (만든 view) 그 view 를 변형으로 더한다
+  const shownSig = sig(ruleMap(R));
+  if (!sigs.includes(shownSig)) {
+    sigs.push(shownSig);
+    variants.push(ruleMap(R));
+  }
+  // 받는 선수 후보 = 모든 변형 (+ 그리는 view) 의 후보 합집합 — 공 가진 선수 제외
+  const recvIds = new Set();
+  for (const r of [...rules, R]) for (const e of r.landingOf.keys()) recvIds.add(e.id);
+  const planRecv = new Set(R.A.list.filter((e) => e !== R.carrier && recvIds.has(e.id)));
+  const ck = R.carrier ? keyOf(R.carrier) : null;
+  const dk = R.defender ? keyOf(R.defender) : null;
+  const rel = [];
+  if (ck) {
+    for (const e of R.D.list) if (e !== R.defender) rel.push([keyOf(e), ck, "y"]);
+    for (const e of planRecv) {
+      rel.push([keyOf(e), ck, "y"]);
+      if (R.step >= 3) rel.push([keyOf(e), ck, "x"]);
+    }
+  }
+  if (dk) for (const s of R.specs) if (s.role === "cover") rel.push([keyOf(s.e), dk, "x"]);
+  // 흔드는 차례 = placeAll 우선순위 (계획 역할 — 후보는 늘 receiver) → 편 → 선수 순서
+  const prioOf = (s) => s.prio ?? PRIO[planRecv.has(s.e) ? "receiver" : s.role];
+  const order = R.specs.slice().sort((a, b) => prioOf(a) - prioOf(b) || a.sideOrder - b.sideOrder || a.e.index - b.e.index).map((s) => keyOf(s.e));
+  const out = jitterSolve(jit, geo, {
+    variants,
+    shown: sigs.indexOf(shownSig),
+    info: new Map([...R.pos.keys()].map((e) => [keyOf(e), e])),
+    toFy: R.toY,
+    pair: [ck, dk].filter((k) => k != null),
+    rel,
+    order,
+    recv: ck ? [...planRecv].map(keyOf) : [],
+    carrier: ck,
   });
-
-  return {
-    mode: "play",
-    ball,
-    tokens,
-    zone,
-    highlight: highlightFor(atk, zone, finished),
-    track: { side: atk, step, dir: fin ? (atk === "home" ? "up" : "down") : attackDir(v, atk) },
-    remainingText,
-    banner,
-    attackingSide: atk,
-    attackStep: step,
-    carrierId: carrier ? carrier.id : null,
-    defenderId: defender ? defender.id : null,
-    receiverId: receiver ? receiver.id : null,
-    receiverIds: A.list.filter((e) => landingOf.has(e)).map((e) => e.id),
-    nextBall: step < 3 && !fin ? { x: ball.x, y: toY(SHAPE.ball[step + 1]) } : null,
-    goal: { x: 50, y: atk === "home" ? 100 : 0 },
-  };
+  return new Map([...R.pos].map(([e, p]) => {
+    const q = out.get(keyOf(e));
+    return [e, { x: q.x, y: q.y, role: p.role }];
+  }));
 }
 
 /* ------------------------------------------------------------------ */
@@ -567,15 +626,26 @@ function distributionLayout(v, teams, geo, lastBeat, dist, jit = null) {
     else specs.push({ e, role: e.position === "GK" ? "gk" : "support", fx: e.laneX, fy: SHAPE.def[e.position][0], nudge: 1, sideOrder: 1 });
   }
   let pos = placeAll(specs, toY, geo);
-  // J1 배치 흔들림: 배급 GK 는 자기 박스 안에서 조금 (GK 크기), 롱패스 받는 선수 + 경합 상대 MF 는 함께 (같은 레인 · 마주 봄 그대로).
-  // 역할 · 받는 선수 후보는 엔진 distribution (배급 선택지) 에서만 온다 — 미리보기 변형과 상관없어 placeAll 차례 그대로 흔든다
+  // J1 · J2 배치 흔들림: 배급 GK 는 자기 박스 안에서 조금 (GK 크기), 롱패스 받는 선수 + 경합 상대 MF 는 함께 (같은 레인 · 마주 봄 그대로),
+  // 나머지는 맡은 구역 안 무작위 자리 (같은 편 · 같은 구역 순서 그대로). 역할 · 받는 선수 후보는 엔진 distribution (배급 선택지) 에서만 온다 —
+  // 미리보기 변형이 자리를 바꾸지 않으므로 이 배치 하나를 placeAll 차례 그대로 흔든다
   if (jit) {
-    pos = jitterPositions(pos, jit, geo, {
-      pair: contest && longE && longE !== carrier ? [contest, longE] : [],
+    const keyOf = (e) => `${e.side}:${e.id}`;
+    const out = jitterSolve(jit, geo, {
+      variants: [new Map([...pos].map(([e, p]) => [keyOf(e), { x: p.x, y: p.y }]))],
+      shown: 0,
+      info: new Map([...pos.keys()].map((e) => [keyOf(e), e])),
+      toFy: toY,
+      pair: contest && longE && longE !== carrier ? [keyOf(contest), keyOf(longE)] : [],
       rel: [],
-      order: [...pos.keys()],
-      guard: carrier && recv.size ? { carrier, receivers: [...recv] } : null,
+      order: [...pos.keys()].map(keyOf),
+      recv: carrier ? [...recv].map(keyOf) : [],
+      carrier: carrier ? keyOf(carrier) : null,
     });
+    pos = new Map([...pos].map(([e, p]) => {
+      const q = out.get(keyOf(e));
+      return [e, { x: q.x, y: q.y, role: p.role }];
+    }));
   }
   const cPos = carrier ? pos.get(carrier) : null;
   const ball = cPos ? { x: cPos.x, y: cPos.y } : { x: 50, y: toY(DISTRIBUTION.gkFy) };
@@ -902,80 +972,146 @@ function prefer(a, b, want, side) {
 }
 
 /* ------------------------------------------------------------------ */
-/* 배치 흔들림 (J1 — SPRITE_25D_PLAN §11, 2026-10-06, 되돌릴 수 있음)          */
+/* 배치 흔들림 (J1 · J2 — SPRITE_25D_PLAN §11, 2026-10-06, 되돌릴 수 있음)     */
 /* ------------------------------------------------------------------ */
 
 /**
- * 규칙 자리 (placeAll · boxDepths 결과 pos) 를 구역 안에서 조금 비낀 새 pos (같은 순서 · 역할). 난수 없음 — 비낌 = hash(J.key | 선수).
- *  ① plan.pair (듀얼 둘 · 배급 경합 둘) 먼저 — 한 비낌을 함께 (크기는 둘 중 작은 쪽). plan.rel 의 관계가 나머지 선수의 제자리에서도 지켜지게 자른다.
- *  ② 나머지는 plan.order 차례 (= placeAll 우선순위, 계획 역할로 — 그 비트 안에서 고정) 대로: 비낌 범위 = 자기 구역 띠 (경계 − edge) ∩
- *     필드 가로 [X_MIN, X_MAX] ∩ rel (흔든 기준 선수와 같은 쪽 · 간격 ≥ min(처음 간격, keep)). 범위는 늘 0 (제자리) 을 품는다.
- *  ③ 겹침: 이미 흔든 선수 · 아직 안 흔든 선수 (제자리) 와 거리 ≥ min(minD, 처음 거리) — 안 되면 J.scales 차례로 비낌을 줄인다 (0 = 제자리, 늘 된다:
- *     먼저 흔든 선수가 이 선수의 제자리를 피했으므로). 그래서 흔들기 전보다 가까워지는 두 선수는 없다 (minD 아래로는).
- *  ④ plan.guard (공 가진 선수 → 받는 선수 후보 화살표 — 계획의 후보 전원): 어느 화살표든 흔들기 전에 가리지 않던 선수가 새로 가리면
- *     그 화살표의 받는 선수 · 새로 가린 선수를 제자리에 두고 다시 (J.guardRounds 번, 2번째부터 듀얼 둘도) — 그래도 가리면 전체 비낌을 J.guard
- *     차례로 줄인다 (마지막 = 흔들지 않음). 화살표마다 가린 선수가 늘지 않으므로 어떤 변형 (후보 일부 · 기본 받는 선수 ×2) 의 벌점도 늘지 않는다.
- * 결과는 pos 의 자리 (규칙 자리) · plan (그 비트의 고정 기준) · J.key 만의 함수 — 역할 · 기본 받는 선수 같은 변형 필드는 쓰지 않는다.
- * @param {Map} pos entry → { x, y, role }
- * @param {{ pair: object[], rel: Array<{ e, ref, axis: "x"|"y" }>, order: object[], guard: null | { carrier, receivers: object[] } }} plan
+ * 규칙 자리를 맡은 구역 안 무작위 자리로 흔든다 (J2). 난수 없음 — 선수마다 hash(J.key | side:id) 수열 (듀얼 둘은 hash(J.key | pair:…) 하나).
+ * P.variants = 그 비트에 화면이 그릴 수 있는 변형들의 규칙 자리 (Map key → {x, y}), P.shown = 지금 그리는 변형 → 그 변형의 Map key → {x, y}.
+ *  단위 = (선수, 규칙 자리): 변형마다 규칙 자리가 같은 선수는 단위 하나 → 어느 변형을 그려도 같은 자리. 변형마다 자리가 다른 선수 (토글로 도착 구역이
+ *  바뀐 받는 선수 후보) 는 자리마다 단위 하나 — 그 자리로 돌아오면 같은 답. 겹침 · 관계 · 화살표는 한 변형에 함께 나오는 단위끼리만 본다.
+ *  ① P.pair (듀얼 둘 · 배급 경합 둘) 먼저 — 한 비낌을 함께 (범위 = 둘의 범위 교집합, 다른 선수가 규칙 자리여도 관계가 지켜지게 자른다).
+ *  ② 나머지는 P.order 차례 (placeAll 우선순위 — 그 비트 안에서 고정), 한 선수의 단위들은 변형 차례로.
+ *     범위 = 맡은 구역 띠 (규칙 자리의 구역 — 공격 방향 기준, 경계에서 edge 안쪽, 세로 ±ay) × 가로 ±ax ∩ X_MIN ~ X_MAX (GK 는 gkAx · gkAy) ∩ 관계
+ *     (상대가 이미 흔들렸으면 흔든 자리, 아니면 규칙 자리와 같은 쪽 · 간격 ≥ min(처음 간격, keep)). 범위는 늘 0 (규칙 자리) 을 품는다.
+ *     관계 = P.rel (공 앞뒤 · 커버 · 박스 후보) + 같은 편 · 같은 구역 선수끼리 (가로 순서 — 서로 가로지르지 않는다, 다른 라인이면 앞뒤 순서도).
+ *  ③ 자리 = 범위 안 해시 무작위 (균등 J.bias 개의 평균). 겹침 (이미 흔든 선수 · 아직 안 흔든 선수의 규칙 자리와 거리 ≥ min(minD, 처음 거리)) 이나
+ *     화살표 가림 (공 가진 선수 → 후보 전원, 변형마다 — 흔들기 전에 가리지 않던 선수가 새로 가림) 에 걸리면 다음 무작위 자리 (J.tries 개),
+ *     그래도 안 되면 첫 자리를 J.shrink 배로, 마지막은 규칙 자리 — 늘 된다 (먼저 흔든 선수가 이 선수의 규칙 자리를 피했고, 관계 · 화살표도 그렇게 골랐다).
+ *     그래서 흔들기 전보다 가까워지는 두 선수 (minD 아래로) · 새로 가린 화살표 · 뒤바뀐 앞뒤 · 좌우가 없다.
+ * 결과는 P (그 비트의 규칙 자리들 · 계획) 와 J.key 만의 함수 — 어느 변형을 그리는지 (P.shown) 는 답을 고르기만 한다.
+ * @param {{ variants: Array<Map<string,{x:number,y:number}>>, shown: number, info: Map<string,{side:string,position:string}>,
+ *   toFy: (y:number)=>number, pair: string[], rel: Array<[string, string, "x"|"y"]>, order: string[], recv: string[], carrier: string|null }} P
  */
-function jitterPositions(pos, J, geo, plan) {
-  const orig = new Map([...pos].map(([e, p]) => [e, { x: p.x, y: p.y }]));
-  const pair = plan.pair.filter((e) => orig.has(e));
-  const pairSet = new Set(pair);
-  // 흔드는 차례: plan.order (빠진 선수는 뒤에 pos 순서로 — 늘 전원)
-  const order = (plan.order || []).filter((e) => orig.has(e));
-  const inOrder = new Set(order);
-  for (const e of orig.keys()) if (!inOrder.has(e)) order.push(e);
-  const keep = { x: J.keepX, y: J.keepY };
-  // 관계 (기준은 듀얼 둘 중 하나일 때만 — 제자리가 늘 관계를 지키게): 처음 차이 d0 · 지킬 간격 g
-  const rel = plan.rel
-    .filter((r) => orig.has(r.e) && pairSet.has(r.ref) && !pairSet.has(r.e))
-    .map((r) => {
-      const d0 = orig.get(r.e)[r.axis] - orig.get(r.ref)[r.axis];
-      return { ...r, d0, g: Math.min(Math.abs(d0), keep[r.axis]) };
-    })
-    .filter((r) => Math.abs(r.d0) > EPS);
-  const amp = (e) => (e.position === "GK" ? { x: J.gkAx, y: J.gkAy } : { x: J.ax, y: J.ay });
-  const hashOff = (tag, a) => {
-    const r = hashStream(hash32(`${J.key}|${tag}`));
-    return { dx: (2 * r() - 1) * a.x, dy: (2 * r() - 1) * a.y };
-  };
-  const tagOf = (e) => `${e.side}:${e.id}`;
-  // 자기 구역 띠 · 필드 가로 → 비낌 범위 (제자리 0 을 품는다)
-  const rangeOf = (e) => {
-    const p = orig.get(e);
-    const z = ZONES[zoneAtY(p.y) - 1];
-    return {
-      xLo: Math.min(p.x, X_MIN) - p.x, xHi: Math.max(p.x, X_MAX) - p.x,
-      yLo: Math.min(p.y, z.from + J.edge) - p.y, yHi: Math.max(p.y, z.to - J.edge) - p.y,
+function jitterSolve(J, geo, P) {
+  // 단위 (선수, 규칙 자리) · 변형마다 key → 단위
+  const units = [];
+  const byKey = new Map();
+  const unitOf = P.variants.map((m, vi) => {
+    const out = new Map();
+    for (const [k, p] of m) {
+      let list = byKey.get(k);
+      if (!list) byKey.set(k, (list = []));
+      let u = list.find((w) => w.x === p.x && w.y === p.y);
+      if (!u) {
+        const e = P.info.get(k) || {};
+        u = { k, x: p.x, y: p.y, side: e.side, position: e.position, vs: new Set(), nb: [], gap: new Map(), rel: [] };
+        list.push(u);
+        units.push(u);
+      }
+      u.vs.add(vi);
+      out.set(k, u);
+    }
+    return out;
+  });
+  const co = (a, b) => a.k !== b.k && [...a.vs].some((vi) => b.vs.has(vi));
+  // 맡은 구역 띠: 공격 방향 fy 의 구역 (경계 위면 공격 방향 쪽 — home · away 가 같다. toFy 는 제 역함수) → 기본 범위 (규칙 자리 0 을 품는다)
+  for (const u of units) {
+    const z = ZONES[zoneAtY(P.toFy(u.y)) - 1];
+    const a = P.toFy(z.from + J.edge);
+    const b = P.toFy(z.to - J.edge);
+    const gk = u.position === "GK";
+    const ax = gk ? J.gkAx : J.ax;
+    const ay = gk ? J.gkAy : J.ay;
+    u.zone = z.id;
+    u.base = {
+      xLo: Math.max(-ax, Math.min(u.x, X_MIN) - u.x), xHi: Math.min(ax, Math.max(u.x, X_MAX) - u.x),
+      yLo: Math.max(-ay, Math.min(a, b, u.y) - u.y), yHi: Math.min(ay, Math.max(a, b, u.y) - u.y),
     };
-  };
-  const cut = (rg, axis, lo, hi) => {
-    const L = axis === "x" ? "xLo" : "yLo";
-    const Hh = axis === "x" ? "xHi" : "yHi";
-    rg[L] = Math.max(rg[L], lo);
-    rg[Hh] = Math.min(rg[Hh], hi);
-  };
-  const minGap = (a, b) => Math.min(geo.minD, tokenDistance(orig.get(a), orig.get(b), geo.aspect)) - EPS;
-
-  // 듀얼 둘의 범위: 둘의 구역 띠 ∩ 관계 (다른 선수가 제자리여도 같은 쪽 · 간격 g)
-  const pairRange = { xLo: -Infinity, xHi: Infinity, yLo: -Infinity, yHi: Infinity };
-  for (const e of pair) {
-    const rg = rangeOf(e);
-    cut(pairRange, "x", rg.xLo, rg.xHi);
-    cut(pairRange, "y", rg.yLo, rg.yHi);
   }
-  for (const r of rel) {
-    if (r.d0 > 0) cut(pairRange, r.axis, -Infinity, r.d0 - r.g);
-    else cut(pairRange, r.axis, r.d0 + r.g, Infinity);
+  // 이웃 (한 변형에 함께 나오는 다른 선수의 단위) · 겹침 간격 · 관계 (처음과 같은 쪽 s · 간격 ≥ g)
+  const keep = { x: J.keepX, y: J.keepY };
+  const relAxes = new Map(); // "a|b" → Set(axis)
+  for (const [a, b, axis] of P.rel) {
+    for (const kk of [`${a}|${b}`, `${b}|${a}`]) {
+      if (!relAxes.has(kk)) relAxes.set(kk, new Set());
+      relAxes.get(kk).add(axis);
+    }
   }
-  const pairAmp = pair.reduce((a, e) => {
-    const m = amp(e);
-    return { x: Math.min(a.x, m.x), y: Math.min(a.y, m.y) };
-  }, { x: Infinity, y: Infinity });
-  const pairHash = pair.length ? hashOff(`pair:${pair.map(tagOf).join("+")}`, pairAmp) : null;
+  for (const u of units) {
+    for (const w of units) {
+      if (!co(u, w)) continue;
+      u.nb.push(w);
+      u.gap.set(w, Math.min(geo.minD, tokenDistance(u, w, geo.aspect)) - EPS);
+      const axes = new Set(relAxes.get(`${u.k}|${w.k}`) || []);
+      // 같은 편 · 같은 구역: 좌우 순서 그대로 (서로 가로지르지 않는다), 다른 라인 (DF · MF · FW · GK) 이면 앞뒤 순서도
+      if (u.side === w.side && u.zone === w.zone) {
+        axes.add("x");
+        if (u.position !== w.position) axes.add("y");
+      }
+      for (const axis of axes) {
+        const d0 = w[axis] - u[axis];
+        if (Math.abs(d0) > EPS) u.rel.push({ w, axis, s: Math.sign(d0), g: Math.min(Math.abs(d0), keep[axis]) });
+      }
+    }
+  }
+  // 화살표: 변형마다 공 가진 선수 → 후보 전원. base = 흔들기 전 (그 변형의 규칙 자리) 에 가리던 선수 — boxDepths 와 같은 판정
+  const clear = geo.minD * BOX_LANE.clear;
+  const arrows = [];
+  if (P.carrier != null) {
+    unitOf.forEach((m, vi) => {
+      const c = m.get(P.carrier);
+      if (!c) return;
+      const present = [...m.values()];
+      for (const rk of P.recv) {
+        const r = m.get(rk);
+        if (!r || r === c) continue;
+        const base = new Set(present.filter((w) => w !== c && w !== r && segDist(w, c, r, geo.aspect) < clear).map((w) => w.k));
+        arrows.push({ vi, c, r, base, present });
+      }
+    });
+  }
 
+  const cur = new Map(units.map((u) => [u, { x: u.x, y: u.y }])); // 흔든 자리 (아직이면 규칙 자리)
+  // 범위 = 기본 범위 ∩ 관계 (상대의 지금 자리 기준 — skip = 함께 움직이는 선수는 빼고)
+  const range = (u, skip) => {
+    const rg = { ...u.base };
+    for (const r of u.rel) {
+      if (skip && skip.has(r.w.k)) continue;
+      const lim = cur.get(r.w)[r.axis] - u[r.axis]; // 이 비낌이면 상대와 같은 줄
+      if (r.s > 0) {
+        const H = r.axis === "x" ? "xHi" : "yHi";
+        rg[H] = Math.min(rg[H], lim - r.g);
+      } else {
+        const L = r.axis === "x" ? "xLo" : "yLo";
+        rg[L] = Math.max(rg[L], lim + r.g);
+      }
+    }
+    return rg;
+  };
+  // 움직이는 단위들 M ([단위, 자리]) 이 겹침 · 화살표를 지키는가 (나머지는 지금 자리)
+  const ok = (M) => {
+    const mv = new Map(M);
+    const at = (w) => mv.get(w) || cur.get(w);
+    for (const [u, p] of M) {
+      for (const w of u.nb) {
+        if (mv.has(w)) continue; // 함께 움직이는 둘 — 간격 그대로
+        if (tokenDistance(p, cur.get(w), geo.aspect) < u.gap.get(w)) return false;
+      }
+    }
+    for (const a of arrows) {
+      const ends = mv.has(a.c) || mv.has(a.r);
+      const check = ends ? a.present : M.map(([u]) => u).filter((u) => u.vs.has(a.vi));
+      if (!check.length) continue;
+      const C = at(a.c);
+      const R = at(a.r);
+      for (const w of check) {
+        if (w === a.c || w === a.r || a.base.has(w.k)) continue;
+        if (segDist(at(w), C, R, geo.aspect) < clear) return false;
+      }
+    }
+    return true;
+  };
   // 비낌은 0.1 단위 (화면 data-x · data-y 가 소수 1자리 — 규칙 자리가 0.1 단위면 흔든 자리도 그대로 적힌다), 범위 안으로 자른다
   const snap = (d, lo, hi) => {
     if (!(lo <= hi)) return 0;
@@ -984,112 +1120,60 @@ function jitterPositions(pos, J, geo, plan) {
     if (q < lo - EPS) q = Math.ceil(lo * 10 - EPS) / 10;
     return q >= lo - EPS && q <= hi + EPS ? q : 0;
   };
-  const pick = (h, rg, f, ok) => {
-    for (const s of J.scales) {
-      const off = { dx: snap(h.dx * f * s, rg.xLo, rg.xHi), dy: snap(h.dy * f * s, rg.yLo, rg.yHi) };
-      if (ok(off)) return off;
-    }
-    return { dx: 0, dy: 0 };
-  };
-
-  // f = 전체 비낌 배율, pins = 제자리에 두는 선수 (화살표 가림 — ④)
-  const once = (f, pins) => {
-    const off = new Map(); // 흔든 선수 → 비낌
-    const at = (e) => {
-      const p = orig.get(e);
-      const o = off.get(e);
-      return o ? { x: p.x + o.dx, y: p.y + o.dy } : p;
+  // 무작위 자리 후보: 해시 수열 → 범위 안 (균등 bias 개 평균) J.tries 개 → 첫 자리 × J.shrink → 규칙 자리
+  const bias = Math.max(1, Math.round(J.bias) || 1);
+  const fracs = (tag) => {
+    const r = hashStream(hash32(`${J.key}|${tag}`));
+    const f = () => {
+      let s = 0;
+      for (let i = 0; i < bias; i++) s += r();
+      return s / bias;
     };
-    const fits = (e, P, skip) => {
-      for (const o of orig.keys()) {
-        if (o === e || (skip && skip.has(o))) continue;
-        if (tokenDistance(P, at(o), geo.aspect) < minGap(e, o)) return false;
-      }
-      return true;
-    };
-    if (pair.length) {
-      const o = pair.some((e) => pins.has(e)) ? { dx: 0, dy: 0 } : pick(pairHash, pairRange, f, (d) => pair.every((e) => {
-        const p = orig.get(e);
-        return fits(e, { x: p.x + d.dx, y: p.y + d.dy }, pairSet);
-      }));
-      for (const e of pair) off.set(e, o);
-    }
-    for (const e of order) {
-      if (pairSet.has(e)) continue;
-      if (pins.has(e)) {
-        off.set(e, { dx: 0, dy: 0 });
-        continue;
-      }
-      const p = orig.get(e);
-      const rg = rangeOf(e);
-      for (const r of rel) {
-        if (r.e !== e) continue;
-        const refAt = at(r.ref)[r.axis];
-        // 흔든 뒤 차이 = p + d − refAt: 처음과 같은 쪽 · 간격 ≥ g
-        if (r.d0 > 0) cut(rg, r.axis, refAt + r.g - p[r.axis], Infinity);
-        else cut(rg, r.axis, -Infinity, refAt - r.g - p[r.axis]);
-      }
-      off.set(e, pick(hashOff(tagOf(e), amp(e)), rg, f, (d) => fits(e, { x: p.x + d.dx, y: p.y + d.dy }, null)));
-    }
-    const out = new Map();
-    for (const [e, p] of pos) {
-      const q = at(e);
-      out.set(e, { x: q.x, y: q.y, role: p.role });
-    }
-    return out;
+    return Array.from({ length: Math.max(1, J.tries) }, () => ({ fx: f(), fy: f() }));
+  };
+  const cands = (fr, rg) => {
+    const t = fr.map(({ fx, fy }) => ({ dx: rg.xLo + fx * (rg.xHi - rg.xLo), dy: rg.yLo + fy * (rg.yHi - rg.yLo) }));
+    const all = [...t, ...(J.shrink || []).map((s) => ({ dx: t[0].dx * s, dy: t[0].dy * s })), { dx: 0, dy: 0 }];
+    return all.map((d) => ({ dx: snap(d.dx, rg.xLo, rg.xHi), dy: snap(d.dy, rg.yLo, rg.yHi) }));
   };
 
-  // ④ 화살표 가림: 흔든 배치에서 어느 화살표든 새로 가린 선수가 있으면, 그 화살표의 받는 선수 · 새로 가린 선수를 제자리에 두고 다시
-  //    (2번째부터는 듀얼 둘도). J.guardRounds 번 안에 안 되면 그 제자리 + 전체 비낌을 J.guard 차례로 줄인다 (마지막 = 흔들지 않음)
-  const g = plan.guard && orig.has(plan.guard.carrier) ? plan.guard : null;
-  const pins = new Set();
-  if (!g) return once(1, pins);
-  const base = arrowBlockers(pos, g, geo);
-  const newly = (now) => {
-    const out = [];
-    for (const [r, by] of now) {
-      const b = base.get(r) || new Set();
-      const add = [...by].filter((e) => !b.has(e));
-      if (add.length) out.push([r, add]);
+  // ① 듀얼 둘: 한 비낌
+  const pairSet = new Set(P.pair.filter((k) => byKey.has(k)));
+  const pairUnits = units.filter((u) => pairSet.has(u.k));
+  if (pairUnits.length) {
+    const rg = { xLo: -Infinity, xHi: Infinity, yLo: -Infinity, yHi: Infinity };
+    for (const u of pairUnits) {
+      const r = range(u, pairSet);
+      rg.xLo = Math.max(rg.xLo, r.xLo);
+      rg.xHi = Math.min(rg.xHi, r.xHi);
+      rg.yLo = Math.max(rg.yLo, r.yLo);
+      rg.yHi = Math.min(rg.yHi, r.yHi);
     }
-    return out;
-  };
-  for (let round = 0; round < J.guardRounds; round++) {
-    const out = once(1, pins);
-    const worse = newly(arrowBlockers(out, g, geo));
-    if (!worse.length) return out;
-    for (const [r, add] of worse) {
-      pins.add(r);
-      for (const e of add) pins.add(e);
+    for (const d of cands(fracs(`pair:${[...pairSet].join("+")}`), rg)) {
+      const M = pairUnits.map((u) => [u, { x: u.x + d.dx, y: u.y + d.dy }]);
+      if (!ok(M)) continue;
+      for (const [u, p] of M) cur.set(u, p);
+      break;
     }
-    if (round > 0) for (const e of pair) pins.add(e);
   }
-  for (const f of J.guard) {
-    if (!(f > 0)) break;
-    const out = once(f, pins);
-    if (!newly(arrowBlockers(out, g, geo)).length) return out;
-  }
-  return new Map([...pos].map(([e, p]) => [e, { ...p }]));
-}
-
-/**
- * 공 가진 선수 → 받는 선수 후보 화살표마다 그 화살표를 가리는 선수 (boxDepths 와 같은 판정 — 선분이 토큰 중심에서 BOX_LANE.clear × 지름 안).
- * 배치 흔들림이 어느 화살표도 새로 가리지 않게 (jitterPositions ④). 역할 · 기본 받는 선수와 상관없다 → Map 받는 선수 → Set(가린 선수)
- */
-function arrowBlockers(pos, { carrier, receivers }, geo) {
-  const C = pos.get(carrier);
-  const per = new Map();
-  for (const r of receivers) {
-    const R = pos.get(r);
-    if (!C || !R) continue;
-    const by = new Set();
-    for (const [e, p] of pos) {
-      if (e === carrier || e === r) continue;
-      if (segDist(p, C, R, geo.aspect) < geo.minD * BOX_LANE.clear) by.add(e);
+  // ② 나머지: 흔드는 차례 (빠진 선수는 뒤에 — 늘 전원)
+  const order = P.order.filter((k) => byKey.has(k));
+  for (const k of byKey.keys()) if (!order.includes(k)) order.push(k);
+  for (const k of order) {
+    if (pairSet.has(k)) continue;
+    const fr = fracs(k);
+    for (const u of byKey.get(k)) {
+      for (const d of cands(fr, range(u))) {
+        const p = { x: u.x + d.dx, y: u.y + d.dy };
+        if (!ok([[u, p]])) continue;
+        cur.set(u, p);
+        break;
+      }
     }
-    per.set(r, by);
   }
-  return per;
+  const out = new Map();
+  for (const [k, u] of unitOf[P.shown] || unitOf[0]) out.set(k, cur.get(u));
+  return out;
 }
 
 /** 문자열 → 32비트 정수 (FNV-1a + murmur3 마무리) — js/engine/zones.js hash32 와 같은 식 (사본: layout 은 엔진 없이 import 된다) */

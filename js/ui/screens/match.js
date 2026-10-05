@@ -97,6 +97,8 @@
 // 2026-10-06 배치 흔들림 (SPRITE_25D_PLAN §11 — J1, 되돌릴 수 있음): store.isLayoutJitter() (2.5D 기본 켬 · ?jitter=0 끔 · ?jitter=1 평면에서도)
 //  이면 layoutFor 가 computeLayout 에 { jitter: { seed: 경기 seed, ref: 엔진 view } } 를 넘긴다 — 선수가 구역 안에서 비트마다 조금 다른 자리
 //  (같은 비트 안에서는 그대로 — 비낌 계획은 ref 에서 정하므로 자동/수동 · 스킬 · 필살기 토글로 바뀌는 미리보기 변형과 상관없다).
+//  J2 (§11): 도착 자리 = 맡은 구역 띠 안 무작위 자리. layout 이 ref 의 미리보기 변형 전부를 한꺼번에 흔들어, 토글은 규칙 자리가 바뀐 선수
+//  (스루 패스 · 필살기로 도착 구역이 바뀐 받는 선수) 만 옮긴다.
 //  이 파일의 좌표는 전부 그 레이아웃에서 오므로 (공 · nextBall · 화살표 · 미리보기 · 결정 틀) 따로 고칠 것이 없다.
 //
 // 가로 전용 (고정 스테이지 1280×720 — js/ui/stage.js, css/match.css). 세로 경기 화면·방향 전환은 없다 (?orient · 저장값은 무시).
@@ -461,7 +463,8 @@ export function renderMatch(root, ctx) {
     // 2.5D: 판 px 기준 — 필드 깊이 FD · 길이 FL, 간격 46 판 px (가까이 선 두 선수가 몸 폭만큼 떨어지게, SPRITE_25D_PLAN §4)
     const geo = d25 ? { aspect: V.V25.FD / V.V25.FL, tokenSize: V.V25.TOK_GAP / V.V25.FD } : { aspect: H / W, tokenSize: (tokPx + 4) / H };
     // 배치 흔들림 (J1): 열쇠 = 경기 seed + view 의 포제션 · 마지막 비트 seq · 공격 팀 (layout.js jitterOpt) — 같은 비트 안의 다시 그리기에서는 그대로.
-    // ref = 미리보기를 고르기 전의 엔진 view: 비낌 계획 (받는 선수 후보) 은 여기서 — 자동/수동 · 스킬 · 필살기 토글로 바뀌는 shownView 필드에 기대지 않는다
+    // ref = 미리보기를 고르기 전의 엔진 view: 비낌은 이 view 의 미리보기 변형 전부로 한꺼번에 정한다 (J2) — 자동/수동 · 스킬 · 필살기 토글로
+    // 바뀌는 shownView 에 기대지 않아, 토글은 규칙 자리가 바뀐 선수만 옮긴다
     if (jitterOn) geo.jitter = { seed: store.match?.seed ?? '', ref: view };
     return safe(() => computeLayout(shownView(view), geo)) || null;
   }
