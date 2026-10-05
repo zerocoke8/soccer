@@ -753,6 +753,7 @@ test("E2 효과: teach (맡을 코치 · 없으면 코치 힌트 · 남은 레�
   // 후보가 없으면 SP +10 (미리보기도)
   const d = clone(data);
   for (const sc of d.supports) sc.teachSkillIds = [];
+  for (const f of LE.EVENT_FILES) d[f] = EMPTY(); // 실제 콘텐츠는 코치 수업 목록을 참조한다 — 목록을 비우는 이 사본에서는 뺀다
   const n = run0(d);
   assert.equal(desc(n, [{ type: "coachHint", from: "fielded" }], {}, d).text, "SP +10 (가르칠 코치 스킬 없음)");
   const sp0 = n.skillPoints;
@@ -1598,7 +1599,7 @@ test("E4 이야기 다음 화 (§24.7): min(3, 계정 + 이번 런) + 1 · 그 �
   assert.deepEqual(list[0], { charId: nk, name: "네리아", ep: 1, id: "out_fixture_1", title: "호수 1화" });
   assert.deepEqual(list[3], { charId: "ch_human_runner", name: "타리아", ep: 1, id: "out_fixture_runner_1", title: "타리아와 달리기 1화" });
   const noStory = clone(data);
-  noStory.lesson_ev_story = EMPTY();
+  for (const f of LE.EVENT_FILES) if (noStory[f]) noStory[f].events = noStory[f].events.filter((e) => e.trigger !== "story"); // 새 8명 이야기는 new_a · new_b 파일에 있다
   assert.deepEqual(LE.storyList(noStory), [], "이야기가 없으면 빈 목록");
 });
 

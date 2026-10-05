@@ -646,6 +646,7 @@ test("보상: 실패 → 후보 없음 · TP · SP 없음, 힌트 후보가 없�
   // 코치 액티브도 누구도 새로 배울 수 없다 (FW 모두 이미 보유) → 코치 힌트 대신 SP +10 도
   const d2 = clone(data);
   for (const sc of d2.supports) sc.teachSkillIds = ["sk_power_shot"];
+  for (const f of LE.EVENT_FILES) d2[f] = { version: 1, notes: {}, events: [] }; // 실제 콘텐츠는 코치 수업 목록을 참조한다 — 목록을 바꾸는 이 사본에서는 뺀다
   s = LR.createRun({ data: d2, seed: 11 });
   allPassives(s);
   for (const p of s.players) if (p.position === "FW") p.learnedSkillIds.push("sk_power_shot");
