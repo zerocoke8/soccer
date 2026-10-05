@@ -706,12 +706,15 @@
 .match-screen.d25 .pl-box.top { border-right: none; }
 .match-screen.d25 .pl-goal { display: none; } /* 납작한 골문 대신 서 있는 골대 (.w-goals) */
 .match-screen.d25 .pl-spot { width: 10px; height: 10px; margin: -5px 0 0 -5px; background: rgba(255, 255, 255, .9); }
-/* 서 있는 골대 (view25.goalShapes): 그물 면 · 줄 → 앞 틀 (기둥 · 크로스바) */
+/* 서 있는 골대 (view25.goalShapes): 그물 면 · 줄 → 틀 (기둥 · 크로스바).
+   K1 (§12): 두 층 — 뒤 .w-goals (뒤 · 먼 옆 그물 · 먼 기둥, 선수 아래 z 50) · 앞 .w-goals-front (지붕 · 가까운 옆 그물 · 가까운 기둥 + 크로스바 —
+   토큰 층 안, z = 100 + 가까운 기둥 깊이의 화면 y (JS): 골문 안 GK · 그물 안 공은 그 뒤, 가까운 기둥보다 가까운 선수는 앞) */
 .match-screen.d25 .w-goals { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; z-index: 50; }
-.match-screen.d25 .w-goals .net { fill: rgba(255, 255, 255, .13); stroke: rgba(255, 255, 255, .55); stroke-width: 1; stroke-linejoin: round; }
-.match-screen.d25 .w-goals .net-line { stroke: rgba(255, 255, 255, .32); stroke-width: .8; }
-.match-screen.d25 .w-goals .frame-halo { fill: none; stroke: rgba(0, 0, 0, .35); stroke-width: 6.5; stroke-linejoin: round; stroke-linecap: round; }
-.match-screen.d25 .w-goals .frame { fill: none; stroke: #fff; stroke-width: 4; stroke-linejoin: round; stroke-linecap: round; }
+.match-screen.d25 .w-goals-front { position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.match-screen.d25 .w-goals .net, .match-screen.d25 .w-goals-front .net { fill: rgba(255, 255, 255, .13); stroke: rgba(255, 255, 255, .55); stroke-width: 1; stroke-linejoin: round; }
+.match-screen.d25 .w-goals .net-line, .match-screen.d25 .w-goals-front .net-line { stroke: rgba(255, 255, 255, .32); stroke-width: .8; }
+.match-screen.d25 .w-goals .frame-halo, .match-screen.d25 .w-goals-front .frame-halo { fill: none; stroke: rgba(0, 0, 0, .35); stroke-width: 6.5; stroke-linejoin: round; stroke-linecap: round; }
+.match-screen.d25 .w-goals .frame, .match-screen.d25 .w-goals-front .frame { fill: none; stroke: #fff; stroke-width: 4; stroke-linejoin: round; stroke-linecap: round; }
 /* 층 */
 /* 차지 막 (2026-10-06 아이폰 사파리 탭 재시작 수정): 2.5D 에서는 backdrop-filter 막을 끄고, 카메라 층 안의 단색 덮개 하나로 어둡게 한다 (.w-cam::after) */
 .match-screen.d25 .charge-veil { display: none; }
@@ -775,8 +778,10 @@
 .match-screen.d25 .tok.fallen::before { left: -6px; top: -36px; }
 .match-screen.d25 .tok.header .tok-figure { translate: 0 -16px; scale: 1.06; }
 .match-screen.d25 .tok.steal .tok-figure { scale: 1.12; }
-.match-screen.d25 .tok.dive .tok-figure { rotate: -40deg; translate: 0 -6px; }
-.match-screen.d25 .tok.dive.face-l .tok-figure { rotate: 40deg; }
+/* 다이브: 기본 = 뒤로 40° (필드 수비). K1 GK 는 JS 가 --dive-r (세이브 = 앞으로 손을 공 쪽, 골 = 뒤로 젖힘 — 부호는 그림 방향) · --dive-up 을 단다 */
+.match-screen.d25 .tok.dive .tok-figure { rotate: var(--dive-r, -40deg); translate: 0 var(--dive-up, -6px); }
+.match-screen.d25 .tok.dive.face-l .tok-figure { rotate: var(--dive-r, 40deg); }
+.match-screen.d25 .tok.dive .tok-trait, .match-screen.d25 .tok.dive .tok-yu { visibility: hidden; } /* 머리 옆 아이콘은 기울지 않는다 — 다이브 동안 숨김 */
 .match-screen.d25 .tok.catching .tok-figure { scale: 1.08; }
 .match-screen.d25 .tok.claim .tok-figure { scale: 1.12; }
 .match-screen.d25 .tok.claim::before { left: calc(var(--fhw, 20px) * .5); top: calc(var(--fh, 60px) * -.85); }

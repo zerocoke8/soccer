@@ -100,6 +100,10 @@
 //  J2 (§11): 도착 자리 = 맡은 구역 띠 안 무작위 자리. layout 이 ref 의 미리보기 변형 전부를 한꺼번에 흔들어, 토글은 규칙 자리가 바뀐 선수
 //  (스루 패스 · 필살기로 도착 구역이 바뀐 받는 선수) 만 옮긴다.
 //  이 파일의 좌표는 전부 그 레이아웃에서 오므로 (공 · nextBall · 화살표 · 미리보기 · 결정 틀) 따로 고칠 것이 없다.
+// 2026-10-06 GK 자리 · 슛 방향 (SPRITE_25D_PLAN §12 — K1): 2.5D 는 layoutFor 가 keeper 를 넘긴다 (공을 갖지 않은 GK = 자기 골문 안 골라인 바로 앞).
+//  슛 (shotPhase): 골 = GK 가 없는 쪽 가장자리 (layout.shotTarget — 2.5D 는 그물 안 낮은 · 높은 구석으로 살짝 뜬 슛), GK 는 그쪽으로 몸을 날리지만 못 미친다.
+//  세이브 = GK 가 옆으로 날아 앞으로 뻗은 손에 공. 슛 미리보기 화살표 · 궤적도 같은 자리 (열쇠 = 경기 seed · 포제션 · 마지막 비트 seq).
+//  골대는 두 층 (뒤 .w-goals · 앞 .w-goals-front — 토큰 층 안, 가까운 기둥 깊이로 화면 y 순 겹침): 골문 안 GK · 그물 안 공은 앞 층 뒤.
 //
 // 가로 전용 (고정 스테이지 1280×720 — js/ui/stage.js, css/match.css). 세로 경기 화면·방향 전환은 없다 (?orient · 저장값은 무시).
 //  - 필드 좌표(layout.js)는 그대로, 픽셀 변환만 가로 (layout.js fieldToScreen 'land' — home 골 왼쪽, away 골 오른쪽, 필드 x 0 = 위).
@@ -114,7 +118,7 @@
 import { h, avatar, openModal, closeOverlays, bar, statBadge, toast, setFaceArt } from '../dom.js';
 import { portraitUrl, portraitUrls, preloadArt, cutArt, spriteOf } from '../art.js';
 import { saveMatch, isD25, isLayoutJitter } from '../store.js';
-import { computeLayout, resolvePreview, withJosa, ZONES, SHAPE, fieldToScreen, screenToField } from '../layout.js';
+import { computeLayout, resolvePreview, withJosa, ZONES, SHAPE, fieldToScreen, screenToField, shotTarget } from '../layout.js';
 import * as L from '../labels.js';
 import * as V from '../view25.js';
 
@@ -160,6 +164,20 @@ const GRASS_URL = './img/sprites/grass_top.webp';
 const STRIP_URL = './img/sprites/far_strip.webp';
 // 2.5D 카메라 (D2): 결과 한 줄 · 연계 문구 (.m-pop · .m-link — transform-origin 0 0) 는 확대해도 화면 크기 그대로 = 자리 뒤에 scale(1 / z)
 const POP_SCALE25 = ' scale(calc(1 / var(--cam-z, 1)))';
+/**
+ * 2.5D 슛 · GK 반응 숫자 (K1 — SPRITE_25D_PLAN §12, [구현 결정] 시작값): net = 골 공이 멈추는 그물 깊이 (필드 % — 그물 깊이 GOAL_DEPTH 의 0.6),
+ * fall = 골일 때 GK 옆 걸음 최대 (필드 x — 못 미친다), up = 다이브 때 몸이 뜨는 높이 (px), saveLow · saveHigh = 세이브 앞으로 기울기 (낮은 · 높은 공, 도),
+ * beaten = 골일 때 뒤로 젖히는 기울기 (도), hand = 손 높이 (키 비율), catchScale = .catching 크기 (css), flight = 공이 나는 시간 (액션 비율),
+ * bump = 슛이 살짝 뜨는 혹 (화면 px × s, 화면 길이 ARC_FULL 보다 짧으면 비례해서 낮게), headUp · headScale = 헤더 출발 높이 (css .tok.header:
+ * 위 16px · 1.06배 → 머리 = 키 × 1.06 × 0.9).
+ */
+const SHOT25 = Object.freeze({
+  net: Math.round((V.V25.GOAL_DEPTH / V.V25.FL) * 100 * 0.6 * 100) / 100,
+  fall: 3, up: 8, saveLow: 62, saveHigh: 30, beaten: 55, hand: 0.9, catchScale: 1.08, flight: 0.8, bump: 14,
+  headUp: 16, headScale: 0.95,
+});
+/** 2.5D 공 글자 가운데의 땅 점 위 높이 (s = 1 px — css .d25 .m-ball > span: top −19 · 줄 높이 20) */
+const BALL_MID25 = 9;
 const STEP_MARKS = ['①', '②', '③', '④'];
 const RECV_ACTIONS = ['pass', 'cross'];
 const ACTION_ORDER = ['dribble', 'pass', 'cross', 'shoot', 'tackle', 'intercept', 'hold', 'save'];
@@ -274,10 +292,14 @@ export function renderMatch(root, ctx) {
   const tipG = svgEl('g', { class: 'g-tip' });
   const aceTipG = svgEl('g', { class: 'g-ace-tip' }); // 에이스의 외침 배지 (토큰 위 층)
   const svgTop = svgEl('svg', { class: 'pitch-svg top', 'aria-hidden': 'true', focusable: 'false' }, aceTipG, tipG);
-  const tokLayer = h('div', { class: 'tok-layer' });
+  // 2.5D 골대 앞 층 (K1 — 지붕 · 가까운 옆 그물 · 가까운 기둥 + 크로스바): 토큰과 같은 층에서 화면 y 순 겹침 (z = 가까운 기둥 깊이) —
+  // 골문 안 GK · 그물 안 공은 그 뒤, 가까운 기둥보다 가까운 선수는 앞. 뒤 층 (뒤 · 먼 옆 그물 · 먼 기둥) 은 .w-goals (선수 아래)
+  const goalsFront = d25 ? svgEl('svg', { class: 'w-goals-front', 'aria-hidden': 'true', focusable: 'false' }) : null;
+  const tokLayer = h('div', { class: 'tok-layer' }, goalsFront);
   // 공: 2.5D 는 바닥 그림자(.b-shadow)를 앞에 둔다 (공 글자는 그림자 위로 뜬다 — arcBall)
   const ballIco = h('span', {}, '⚽');
-  const ballEl = h('div', { class: 'm-ball', 'aria-hidden': 'true' }, d25 ? h('i', { class: 'b-shadow' }) : null, ballIco);
+  const ballShadow = d25 ? h('i', { class: 'b-shadow' }) : null;
+  const ballEl = h('div', { class: 'm-ball', 'aria-hidden': 'true' }, ballShadow, ballIco);
   const popLayer = h('div', { class: 'pop-layer', 'aria-hidden': 'true' });
   const goalFx = h('div', { class: 'goal-fx', 'aria-hidden': 'true' });
   // 필살기 차지: 잔디 전체를 흑백으로 (사용자 · 듀얼 상대 토큰은 이 막 위에 색 그대로 — css .m-field.charging)
@@ -340,6 +362,7 @@ export function renderMatch(root, ctx) {
   let laShown = null;        // 마지막 공격 배너를 띄운 추가 포제션 ("stage|possession") — 첫 배너만 "⏱ 추가시간 — 마지막 공격!"
   let curAce = null;         // 지금 그린 에이스의 외침 (aceInfo) — 같은 받는 선수의 미리보기 화살표면 점선을 숨긴다
   let ballDest = null;       // 2.5D 카메라: 액션 연출에서 공이 가는 곳 (필드 %) — placeBallAt · arcBall
+  let goalFrontZ = 0;        // 2.5D 골대 앞 층의 z-index (drawGoals — 그물 안 공은 이보다 1 아래)
   let aceSig = null;         // 점선 모양 서명: 같으면 다시 그려도 페이드 없이
   const tokEls = new Map();
   const timers = new Set();
@@ -461,7 +484,8 @@ export function renderMatch(root, ctx) {
     measure();
     // 겹침 방지 간격 = 토큰 지름 + 팀 링(2px×2) → 링끼리도 닿지 않게. 필드 폭(골과 나란한 쪽) = 요소 높이 H, 길이(골↔골) = 폭 W → aspect = H/W
     // 2.5D: 판 px 기준 — 필드 깊이 FD · 길이 FL, 간격 46 판 px (가까이 선 두 선수가 몸 폭만큼 떨어지게, SPRITE_25D_PLAN §4)
-    const geo = d25 ? { aspect: V.V25.FD / V.V25.FL, tokenSize: V.V25.TOK_GAP / V.V25.FD } : { aspect: H / W, tokenSize: (tokPx + 4) / H };
+    // K1 (§12): 2.5D 는 GK 가 자기 골문 안 골라인 바로 앞 (keeper — 평면은 예전 자리)
+    const geo = d25 ? { aspect: V.V25.FD / V.V25.FL, tokenSize: V.V25.TOK_GAP / V.V25.FD, keeper: true } : { aspect: H / W, tokenSize: (tokPx + 4) / H };
     // 배치 흔들림 (J1): 열쇠 = 경기 seed + view 의 포제션 · 마지막 비트 seq · 공격 팀 (layout.js jitterOpt) — 같은 비트 안의 다시 그리기에서는 그대로.
     // ref = 미리보기를 고르기 전의 엔진 view: 비낌은 이 view 의 미리보기 변형 전부로 한꺼번에 정한다 (J2) — 자동/수동 · 스킬 · 필살기 토글로
     // 바뀌는 shownView 에 기대지 않아, 토글은 규칙 자리가 바뀐 선수만 옮긴다
@@ -505,6 +529,7 @@ export function renderMatch(root, ctx) {
       backgroundImage: `url("${STRIP_URL}")`,
     });
     goalsSvg.setAttribute('viewBox', `0 0 ${round1(W)} ${round1(H)}`);
+    goalsFront.setAttribute('viewBox', `0 0 ${round1(W)} ${round1(H)}`);
     drawGoals();
     setCam(camT, 0); // 크기가 바뀌면 지금 목표를 새 W × H 로 다시 (순간)
   }
@@ -583,18 +608,31 @@ export function renderMatch(root, ctx) {
     }
     return out.filter(Boolean);
   }
-  /** 서 있는 골대 두 개 (뒤 그물 → 옆 · 지붕 → 앞 틀 순서, 흰 선 SVG) */
+  /**
+   * 서 있는 골대 두 개 (흰 선 SVG) — K1 (§12): 두 층. 뒤 (.w-goals — 선수 아래): 뒤 그물 · 먼 옆 그물 · 먼 기둥.
+   * 앞 (.w-goals-front — 토큰 층 안, z = 100 + 가까운 기둥 깊이의 화면 y): 지붕 · 가까운 옆 그물 · 가까운 기둥 + 크로스바.
+   * 골문 안에 선 GK · 그물 안의 공은 앞 층 뒤에, 가까운 기둥보다 가까운 (화면 아래) 선수는 그 앞에 그려진다.
+   */
   function drawGoals() {
     goalsSvg.replaceChildren();
+    goalsFront.replaceChildren();
     const pts = (list) => list.map((p) => `${round1(p[0])},${round1(p[1])}`).join(' ');
+    const layer = (part, cls) => {
+      const grp = svgEl('g', { class: cls });
+      for (const poly of part.nets) grp.append(svgEl('polygon', { class: 'net', points: pts(poly) }));
+      for (const [a, b] of part.grid) grp.append(svgEl('line', { class: 'net-line', x1: round1(a[0]), y1: round1(a[1]), x2: round1(b[0]), y2: round1(b[1]) }));
+      grp.append(svgEl('polyline', { class: 'frame-halo', points: pts(part.frame) }), svgEl('polyline', { class: 'frame', points: pts(part.frame) }));
+      return grp;
+    };
+    let fz = 0;
     for (const end of ['home', 'away']) {
       const g = V.goalShapes(end, W, H);
-      const grp = svgEl('g', { class: `goal ${end}` });
-      for (const poly of g.nets) grp.append(svgEl('polygon', { class: 'net', points: pts(poly) }));
-      for (const [a, b] of g.grid) grp.append(svgEl('line', { class: 'net-line', x1: round1(a[0]), y1: round1(a[1]), x2: round1(b[0]), y2: round1(b[1]) }));
-      grp.append(svgEl('polyline', { class: 'frame-halo', points: pts(g.frame) }), svgEl('polyline', { class: 'frame', points: pts(g.frame) }));
-      goalsSvg.append(grp);
+      goalsSvg.append(layer(g.layers.back, `goal ${end}`));
+      goalsFront.append(layer(g.layers.front, `goal-front ${end}`));
+      fz = Math.round(round1(g.layers.frontSy));
     }
+    goalFrontZ = 100 + fz;
+    goalsFront.style.zIndex = String(goalFrontZ);
   }
   // 스프라이트 (data/sprites.json): 토큰 키 → { url, w, h, footX } | null (스냅샷 charId — 그림 없는 선수 · 런 상대 = null = 스탠디)
   const spriteCache = new Map();
@@ -1130,10 +1168,17 @@ export function renderMatch(root, ctx) {
 
   /** 공: play 모드에서 공 가진 선수가 있으면 발 앞(공격 방향)으로 살짝 — 얼굴을 가리지 않게. 승부차기·골문 안은 그대로 */
   function placeBall(Lay) {
+    // K1: 슛 끝 (그물 안 · GK 손) 에 떠 있던 공 글자 — 재배치와 함께 땅으로 내려놓는다 (stopBallArc 가 높이를 지운다)
+    const lifted = d25 ? ballIco.style.transform : '';
     stopBallArc();
     ballEl.dataset.x = String(round1(Lay.ball.x));
     ballEl.dataset.y = String(round1(Lay.ball.y));
     placeBallAt(Lay.ball.x, Lay.ball.y, Lay.mode === 'play' && Lay.carrierId ? Lay.attackingSide : null);
+    if (lifted && !reduced && !screen.classList.contains('no-anim') && typeof ballIco.animate === 'function') {
+      try {
+        ballIco.animate([{ transform: lifted }, { transform: 'none' }], { duration: Math.max(1, Math.round(T.move * fx() * 0.45)), easing: 'ease-in' });
+      } catch (_) { /* 애니메이션이 없으면 바로 땅 */ }
+    }
   }
   function ballPx(x, y, frontOf = null) {
     if (d25) {
@@ -2254,7 +2299,8 @@ export function renderMatch(root, ctx) {
         }
         return;
       } else if (action === 'shoot') {
-        to = { x: Lay.goal.x, y: Lay.goal.y >= 50 ? 99 : 1 };
+        // K1 (§12): 골이 들어가는 자리와 같은 쪽 (shotTarget — GK 가 없는 쪽 가장자리, 연출과 같은 열쇠), 화살표는 골라인까지 (바닥)
+        to = { x: shotAim(Lay, view, 'goal').x, y: Lay.goal.y >= 50 ? 99 : 1 };
         tip = '골문';
       }
       if (!to) return;
@@ -2268,7 +2314,8 @@ export function renderMatch(root, ctx) {
     field.classList.add('previewing-def'); // 미리보기 동안 우리 수비수 이름표를 접어 ✕ 자리를 비운다
     const D = tokOf(Lay, Lay.defenderId, def);
     const d = D ? toPx(D.x, D.y) : null;
-    const goal = toPx(Lay.goal.x, Lay.goal.y >= 50 ? 99 : 1);
+    // 상대 슛 길의 골문 쪽 끝 (K1): 상대 슛이 노리는 자리와 같은 쪽 (shotTarget — 우리 GK 가 없는 쪽 가장자리)
+    const goal = toPx(shotAim(Lay, view, 'goal').x, Lay.goal.y >= 50 ? 99 : 1);
     const ea = view?.expected?.attack?.action;
     const recvId = (ea === 'pass' || ea === 'cross')
       ? view?.expected?.attack?.receiverId ?? view?.receivers?.[ea]?.defaultId ?? Lay.receiverId
@@ -2743,7 +2790,6 @@ export function renderMatch(root, ctx) {
     const def = atk === 'home' ? 'away' : 'home';
     const C = tokOf(prevL, ev.playerId, atk) || tokOf(prevL, prevL.carrierId, atk) || prevL.ball;
     const D = tokOf(prevL, ev.defenderId, def) || tokOf(prevL, prevL.defenderId, def);
-    const goalPt = { x: prevL.goal.x, y: prevL.goal.y >= 50 ? 99.5 : 0.5 };
     const tokEl2 = (side, id) => tokEls.get(`${side}:${id}`);
     const moveTok = (side, id, p) => { const el = tokEl2(side, id); if (el && p) place(el, p.x, p.y); };
     const addCls = (side, id, c) => { const el = tokEl2(side, id); if (el) el.classList.add(c); };
@@ -2837,16 +2883,13 @@ export function renderMatch(root, ctx) {
       if (D) { moveTok(def, D.id, P); addCls(def, D.id, 'steal'); }
       placeBallAt(P.x, P.y);
     } else if (ev.type === 'save' || (ev.type === 'penalty' && !ev.success)) {
-      const G = D || goalPt;
-      const p = lerp(C, G, 0.92);
-      placeBallAt(p.x, p.y);
-      if (D) addCls(def, D.id, 'dive');
+      // K1 (§12): 세이브 = GK 가 닿는 쪽으로 몸을 날려 공이 GK 손에 멈춘다 (shotPhase)
+      shotPhase(ev, prevL, prevView, C, D, 'save', k);
       if (ev.header) addCls(atk, C.id, 'header');
       if (ev.defUltimate && D) addCls(def, D.id, 'ult-act');
     } else if (ev.type === 'goal' || ev.type === 'penalty') {
-      trail(C, goalPt, atk, !!ev.ultimate);
-      placeBallAt(goalPt.x + (ev.type === 'penalty' ? 6 : 0), goalPt.y);
-      if (D) addCls(def, D.id, 'dive');
+      // K1 (§12): 골 = GK 가 서 있지 않은 쪽 구석으로 (2.5D: 그물 안 낮은 · 높은 구석), GK 는 몸을 날리지만 못 미친다
+      shotPhase(ev, prevL, prevView, C, D, 'goal', k);
       if (ev.header) addCls(atk, C.id, 'header');
     }
     if (ev.ultimate && C?.id) addCls(atk, C.id, 'ult-act');
@@ -2863,6 +2906,176 @@ export function renderMatch(root, ctx) {
     if (d25 && ballDest) setCam(V.cameraTarget({ phase: 'action', W, H, to: ballDest, current: camT }), T.act * k, EASE_ACT);
     if (ok && links.length) later(() => linkPop(links.join(' '), linkAt, prevL), Math.round(T.act * k * 0.5));
   }
+  /* K1 슛 방향 · GK 반응 (SPRITE_25D_PLAN §12) ---------------------------------------------------------------------- */
+  /** 슛 열쇠 (layout.shotTarget 해시): 경기 seed · 포제션 · 마지막 비트 seq — 결정 중 미리보기 (그 view) 와 그 결정의 연출 (prevView) 이 같다 */
+  const shotKey = (view) => `K1|${store.match?.seed ?? ''}|${view?.possession ?? ''}|${view?.lastBeat?.seq ?? ''}`;
+  /** 슛을 막는 GK 토큰: 듀얼 수비가 GK (④) 이거나 승부차기면 그 선수, 아니면 (③ 중거리 슛) 수비 팀 GK */
+  function keeperTok(Lay, side, D = null) {
+    if (D && (D.position === 'GK' || Lay?.mode === 'penalties')) return D;
+    return Lay?.tokens.find((t) => t.side === side && t.position === 'GK') || null;
+  }
+  /**
+   * 이 배치의 슛 자리 (layout.shotTarget + GK 토큰 K): 골문 = Lay.goal, GK = 수비 팀 GK 의 지금 자리. 2.5D 골은 그물 안 (골라인 너머 SHOT25.net),
+   * 평면은 골라인 안쪽 0.5 (예전 골 자리). 미리보기 화살표 (drawArrow) 와 연출 (shotPhase) 이 같은 배치 · 같은 열쇠로 부른다 → 같은 자리.
+   */
+  function shotAim(Lay, view, kind, D = null) {
+    const def = Lay.attackingSide === 'home' ? 'away' : 'home';
+    const K = keeperTok(Lay, def, D);
+    const goalSide = Number(Lay.goal?.y) >= 50 ? 'away' : 'home';
+    const st = shotTarget({
+      gkX: K ? K.x : 50, gkY: K ? K.y : null, goalSide, kind, key: shotKey(view),
+      depth: d25 && kind === 'goal' ? SHOT25.net : undefined,
+    });
+    return { ...st, K };
+  }
+  /**
+   * ① 슛 연출 (K1): 골 = GK 가 없는 쪽 구석 — GK 는 그쪽으로 몸을 날리지만 못 미친다 (옆 걸음 SHOT25.fall 까지 · 뒤로 젖힌 다이브).
+   * 세이브 (승부차기 실축 포함) = GK 가 닿는 쪽으로 옆으로 날아 (공 자리까지) 앞으로 몸을 뻗고, 공이 손에 멈춘다.
+   * 2.5D: 공은 바닥 직선 위로 살짝 뜬 슛 (shotBall25 — 골 = 낮은 · 높은 구석, 그물 안에서는 골대 앞 층 뒤), 궤적 = 같은 길.
+   * 평면: 공 = 골 자리 / GK 앞 (예전 0.92), GK 는 같은 옆 걸음 + 다이브 (얼굴 원 기울기).
+   */
+  function shotPhase(ev, prevL, prevView, C, D, kind, k) {
+    const atk = ev.side === 'away' ? 'away' : 'home';
+    const def = atk === 'home' ? 'away' : 'home';
+    const ult = !!ev.ultimate;
+    const aim = shotAim(prevL, prevView, kind, D);
+    const K = aim.K;
+    const kEl = K ? tokEls.get(`${def}:${K.id}`) : null;
+    // GK 옆 걸음 (필드 x — 골문을 따라): 세이브 = 공 자리까지, 골 = 공 쪽으로 조금 (못 미친다)
+    const kTo = K ? {
+      x: kind === 'save' ? aim.x : round1(K.x + aim.side * Math.min(SHOT25.fall, Math.abs(aim.x - K.x) * 0.45)),
+      y: K.y,
+    } : null;
+    if (kEl && kTo) place(kEl, kTo.x, kTo.y);
+    const act = T.act * k;
+    // 다이브는 공이 뜬 뒤 (반응) — 빠른 배속에서는 자세 트랜지션 (0.25초) 이 공보다 늦지 않게 바로
+    const diveAt = Math.max(0, Math.min(act * 0.3, act * SHOT25.flight - 260));
+    const dive = (el, ang = null) => {
+      if (!el) return;
+      if (ang == null) { el.style.removeProperty('--dive-r'); el.style.removeProperty('--dive-up'); }
+      else { el.style.setProperty('--dive-r', `${ang}deg`); el.style.setProperty('--dive-up', `${-SHOT25.up}px`); }
+      later(() => el.classList.add('dive', ...(kind === 'save' && d25 && ang != null ? ['catching'] : [])), diveAt);
+    };
+    // 필드 수비 (③ 중거리 슛을 막으려던 선수) 는 예전 다이브 그대로
+    if (D && D !== K) dive(tokEls.get(`${def}:${D.id}`));
+    if (!d25) {
+      const end = kind === 'goal' ? { x: aim.x, y: aim.y } : lerp(C, kTo || aim, 0.92);
+      trail(C, end, atk, ult);
+      placeBallAt(end.x, end.y);
+      dive(kEl);
+      return;
+    }
+    // 2.5D: GK 자세 = 세이브 앞으로 (손을 공 쪽으로 — 낮은 공은 깊게), 골 뒤로 젖힘 (공은 그 뒤 그물로). 각도 부호 = 그림 방향 (.face-l)
+    const fwd = kEl && kEl.classList.contains('face-l') ? -1 : 1;
+    const ang = kind === 'save' ? fwd * (aim.lift < 0.4 ? SHOT25.saveLow : SHOT25.saveHigh) : -fwd * SHOT25.beaten;
+    if (kEl) dive(kEl, ang);
+    // 출발 = 공의 지금 땅 점 (발 앞 · 승부차기 스폿). 헤더는 뛰어오른 머리 (css .tok.header: 위 16 · 1.06배) 에서 — 땅 점 = 발
+    const head = ev.header && C?.id != null ? tokGeo({ x: C.x, y: C.y, side: atk, id: C.id }) : null;
+    const p0 = head ? [head.sx, head.sy] : ballPx(prevL.ball.x, prevL.ball.y, prevL.mode === 'play' && prevL.carrierId ? prevL.attackingSide : null);
+    const startH = head ? Math.max(0, SHOT25.headUp + head.fh * SHOT25.headScale - BALL_MID25 * head.s) : 0;
+    let end;
+    let endH;
+    if (kind === 'save' && K && kTo) {
+      const hand = handsAt(K, kTo, ang);
+      end = hand.ground;
+      endH = hand.h;
+    } else {
+      end = { x: aim.x, y: aim.y };
+      endH = aim.lift * V.V25.GOAL_H * V.project(end.x, end.y, W, H).k * V.V25.LIFT_K;
+    }
+    const dur = act * SHOT25.flight;
+    trailShot25(p0, end, endH, atk, ult, startH);
+    shotBall25(p0, end, endH, dur, startH);
+    if (kind === 'goal') {
+      // 골라인을 넘는 순간부터 공은 골대 앞 층 (지붕 · 가까운 옆 그물 · 가까운 기둥) 뒤 — 그물 안에 보인다 (GK · 그 뒤 선수보다는 앞)
+      const from = V.unproject(p0[0], p0[1], W, H);
+      const lineY = Number(prevL.goal?.y) >= 50 ? 100 : 0;
+      const f = Math.abs(end.y - from.y) > 1e-6 ? clamp01((lineY - from.y) / (end.y - from.y)) : 1;
+      const behind = () => { ballEl.style.zIndex = String(goalFrontZ - 1); };
+      if (reduced || dur < 50) behind();
+      else later(behind, dur * f);
+    }
+  }
+  /**
+   * 2.5D 세이브의 손 자리 (K1): GK 가 kTo 로 옆으로 날아 ang 만큼 기울고 (.dive — rotate · translate 위 SHOT25.up) 조금 커진 (.catching 1.08) 자세에서
+   * 키 × SHOT25.hand 높이의 점 (발 기준 — css .tok-figure 원점 = 발). 공 = 그 아래 바닥 (GK 와 같은 깊이) + 높이 h (공 글자 가운데가 손).
+   */
+  function handsAt(K, kTo, ang) {
+    const g = tokGeo({ x: kTo.x, y: kTo.y, side: K.side, id: K.id });
+    const L = g.fh * SHOT25.hand * SHOT25.catchScale;
+    const a = (ang * Math.PI) / 180;
+    const hx = g.sx + L * Math.sin(a);
+    const hy = g.sy - SHOT25.up - L * Math.cos(a);
+    const ground = V.unproject(hx, g.sy, W, H);
+    const s = V.project(ground.x, ground.y, W, H).s;
+    return { ground: { x: round3(ground.x), y: round3(ground.y) }, h: Math.max(0, g.sy - hy - BALL_MID25 * s) };
+  }
+  /** 슛이 끝 높이까지 오르며 살짝 뜨는 혹 (화면 px) — 거리 비례, 짧으면 낮게 */
+  const shotBump = (p0, p2, s) => SHOT25.bump * s * Math.min(1, Math.hypot(p2[0] - p0[0], p2[1] - p0[1]) / V.V25.ARC_FULL);
+  /** 슛 높이 (화면 px — 공 글자를 땅 점에서 올리는 만큼): 출발 startH (헤더 = 머리) → 끝 endH 직선 + 혹 4t(1 − t) */
+  const shotHeight = (t, startH, endH, bump) => startH * (1 - t) + endH * t + bump * 4 * t * (1 - t);
+  /**
+   * 2.5D 슛 (K1): 공 요소 (= 바닥 그림자 자리) 는 바닥 직선 p0 → 끝 땅 점, 공 글자는 shotHeight 로 오른다 (낮은 슛도 살짝 뜬다).
+   * 끝 = 그 높이에 머문다 (골 = 그물 안 구석, 세이브 = GK 손) — 다음 재배치 (placeBall) 가 땅으로 내려놓는다. 궤적 (trailShot25) 과 같은 곡선.
+   */
+  function shotBall25(p0, end, endH, duration, startH = 0) {
+    stopBallArc();
+    ballDest = { x: end.x, y: end.y };
+    const pb = V.project(end.x, end.y, W, H);
+    const s0 = V.scaleAtScreen(p0[0], p0[1], W, H);
+    const p2 = [pb.sx, pb.sy];
+    const bump = shotBump(p0, p2, (s0 + pb.s) / 2);
+    const shadowAt = (hgt) => {
+      const q = Math.min(1, hgt / 60);
+      return { transform: `scale(${round3(1 - 0.3 * q)})`, opacity: round3(1 - 0.35 * q) };
+    };
+    ballEl.classList.add('arc');
+    ballEl.style.transform = `translate(${round1(p2[0])}px, ${round1(p2[1])}px) scale(${round3(pb.s)})`;
+    ballIco.style.transform = `translateY(${round1(-endH / pb.s)}px)`;
+    if (ballShadow) Object.assign(ballShadow.style, shadowAt(endH));
+    if (reduced || typeof ballEl.animate !== 'function' || duration < 50) return;
+    const ground = [];
+    const up = [];
+    const sh = [];
+    for (let i = 0; i <= 12; i++) {
+      const t = i / 12;
+      const p = lerp2(p0, p2, t);
+      const sc = s0 + (pb.s - s0) * t;
+      const hgt = shotHeight(t, startH, endH, bump);
+      ground.push({ transform: `translate(${round1(p[0])}px, ${round1(p[1])}px) scale(${round3(sc)})` });
+      up.push({ transform: `translateY(${round1(-hgt / sc)}px)` });
+      sh.push(shadowAt(hgt));
+    }
+    try {
+      // 찬 공 = 거의 같은 빠르기 (선형) — 골라인을 넘는 때 (shotPhase 의 겹침 바꾸기) 가 길 비율과 같다
+      const opts = { duration: Math.round(duration), easing: 'linear' };
+      const anims = [ballEl.animate(ground, opts), ballIco.animate(up, opts), ballShadow ? ballShadow.animate(sh, opts) : null].filter(Boolean);
+      ballAnim = { cancel: () => { for (const x of anims) x.cancel(); } };
+      anims[0].onfinish = () => { ballAnim = null; };
+    } catch (_) {
+      ballAnim = null;
+    }
+  }
+  /**
+   * 2.5D 슛 궤적 (K1): 공이 지나는 곡선 = shotHeight 를 그대로 (2차 곡선 — 양 끝 = 땅 점 위 startH · endH, 제어점 = 그 중점에서 혹 × 2 위)
+   * + 바닥 그림자 길. 높이 기준은 공 · 크로스 궤적과 같다 (공 바닥 길)
+   */
+  function trailShot25(p0, end, endH, side, ult = false, startH = 0) {
+    trailG.replaceChildren();
+    const pb = V.project(end.x, end.y, W, H);
+    const p2 = [pb.sx, pb.sy];
+    const s0 = V.scaleAtScreen(p0[0], p0[1], W, H);
+    const bump = shotBump(p0, p2, (s0 + pb.s) / 2);
+    const a = [p0[0], p0[1] - startH];
+    const e = [p2[0], p2[1] - endH];
+    const cp = [(a[0] + e[0]) / 2, (a[1] + e[1]) / 2 - 2 * bump];
+    trailG.append(svgEl('line', { x1: round1(p0[0]), y1: round1(p0[1]), x2: round1(p2[0]), y2: round1(p2[1]), class: 'trail ground' }));
+    trailG.append(svgEl('path', {
+      d: `M${round1(a[0])},${round1(a[1])} Q${round1(cp[0])},${round1(cp[1])} ${round1(e[0])},${round1(e[1])}`,
+      class: `trail shot ${side}${ult ? ' ult' : ''}`,
+    }));
+  }
+
   /** 패스(직선) · 크로스(포물선) 길 위의 점 (필드 좌표) — t = 0 공 가진 선수 … 1 받는 선수 */
   function linkPoint(C, R, curve, t) {
     if (!curve || d25) return lerp(C, R, t); // 2.5D: 공중 곡선 아래의 바닥 점 = 직선 위 점
@@ -3158,6 +3371,10 @@ export function renderMatch(root, ctx) {
       ballEl.classList.remove('arc');
       void ballEl.offsetWidth;
     }
+    // K1 슛 (shotBall25) 이 남긴 끝 높이 · 그림자 · 겹침 (그물 안 공 = 골대 앞 층 뒤) 을 되돌린다
+    if (ballIco.style.transform) ballIco.style.transform = '';
+    if (ballShadow && ballShadow.getAttribute('style')) ballShadow.removeAttribute('style');
+    if (ballEl.style.zIndex) ballEl.style.zIndex = '';
   }
 
   function beatResult(ev, view) {

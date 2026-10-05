@@ -22,8 +22,9 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const STORE = pathToFileURL(path.join(ROOT, "js/ui/store.js")).href;
 const TOL = 1e-6;
 // 경기 화면이 넘기는 간격 (screens/match.js layoutFor): 2.5D = 판 px 46 / FD 980 · FL 1244, 평면 = (토큰 44 + 4) / 528 · 528 / 1244
+// K1 (§12): 2.5D 경기 화면은 GK 골문 자리 (keeper) 도 넘긴다 — 흔들림 규칙은 그 자리에서도 그대로 지킨다
 const GEOS = {
-  d25: { aspect: 980 / 1244, tokenSize: 46 / 980 },
+  d25: { aspect: 980 / 1244, tokenSize: 46 / 980, keeper: true },
   flat: { aspect: 528 / 1244, tokenSize: 48 / 528 },
 };
 const other = (s) => (s === "home" ? "away" : "home");

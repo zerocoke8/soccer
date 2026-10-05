@@ -32,6 +32,9 @@
 //  - 2026-10-06 배치 흔들림 2 (J2 — §11): 도착 자리 = 맡은 구역 띠 안 무작위 자리 (세로는 띠 어디든, 가로 ±10 — 같은 편 · 같은 구역은 좌우 순서 그대로).
 //    그 비트에 화면이 그릴 수 있는 미리보기 변형 (스킬 · 필살기 토글 · 자동/수동) 의 규칙 자리를 한꺼번에 흔든다 (jitterSolve) —
 //    토글로 규칙 자리가 바뀐 선수만 옮기고, 나머지는 어느 변형에서도 같은 자리.
+//  - 2026-10-06 GK 자리 · 슛 방향 (K1 — SPRITE_25D_PLAN §12): opts.keeper 일 때만 (2.5D 경기 화면) 공을 갖지 않은 GK 는 자기 골문 안 골라인 바로 앞
+//    (KEEPER — ④ 듀얼 수비 GK 도 공 가진 선수 레인 대신, 흔들어도 골문 안). shotTarget = 슛이 가는 골문 자리 (골 = GK 가 없는 쪽 가장자리 ·
+//    세이브 = GK 가 닿는 쪽, 해시 — 난수 없음). 평면 · 테스트 기본 (keeper 없음) 은 예전 자리 그대로.
 
 export const ZONES = [
   { id: 1, from: 0, to: 16, name: "우리 박스" },
@@ -102,6 +105,30 @@ export const JITTER = Object.freeze({
   tries: 6,
   shrink: Object.freeze([0.5, 0.25]),
 });
+/**
+ * GK 골문 자리 (K1 — SPRITE_25D_PLAN §12, [구현 결정] 시작값): opts.keeper 일 때만 (2.5D 경기 화면 — 평면 · 테스트 기본은 예전 자리).
+ * 공을 갖지 않은 GK (양 팀 · 듀얼 수비가 GK 인 ④ 포함 · 배급 대기의 상대 GK · 승부차기 GK) 는 자기 골라인 바로 앞, 골문 안에 선다.
+ *  - depth: 골라인에서 필드 안쪽으로 (필드 %, 골 방향) — 흔들어도 depthBand 안.
+ *  - 가로 = 50 + (공 x − 50) · shade (공 쪽으로 조금), 50 ± half 안. 흔들어도 mouth 안 (골문 38 ~ 62 의 기둥 안쪽).
+ *  공을 가진 GK (배급 대기 · 세이브로 끝난 경기) 는 그대로 (자기 박스에서 공을 든다).
+ */
+export const KEEPER = Object.freeze({ depth: 2, depthBand: Object.freeze([1.5, 2.5]), half: 5, shade: 0.3, mouth: Object.freeze([42, 58]) });
+/**
+ * 슛이 가는 골문 자리 (K1 — shotTarget, [구현 결정] 시작값). 단위 = 필드 % (x = 골과 나란한 쪽), 높이 = 골대 높이 비율 (0 땅 · 1 크로스바).
+ *  - posts: 골문 = 필드 x 38 ~ 62 (view25 GOAL_X0 · GOAL_X1, 평면 .pl-goal 과 같다).
+ *  - 골: GK 가 먼 쪽 (x < 50) 이면 near (가까운 기둥 쪽), 아니면 far (먼 기둥 쪽). |GK x − 50| < tie 면 해시로 쪽. 높이 (공 바닥) = low · high 반반 (해시) —
+ *    high 위 끝 0.62 + 공 지름 ≈ 0.8 < 그물 지붕 (2.5D 그물 안 깊이 0.6 에서 약 0.82) < 크로스바 1.
+ *    depth = 골라인 너머 깊이 (+ = 그물 안 — 2.5D 는 인자로, 평면 기본 −0.5 = 골라인 안쪽 0.5 = 예전 골 자리 99.5 · 0.5).
+ *  - 세이브: GK 옆 reach (쪽 = 해시 — GK 가 골문 안이면 기둥 안쪽 postIn 에 남게 뒤집고, 골문 밖이면 골문 가운데 쪽), 높이 = 손 handsLow · handsHigh 반반.
+ */
+export const SHOT = Object.freeze({
+  posts: Object.freeze([38, 62]), postIn: 1, tie: 0.5,
+  far: Object.freeze([40, 42]), near: Object.freeze([58, 60]),
+  depth: -0.5,
+  low: Object.freeze([0.1, 0.2]), high: Object.freeze([0.5, 0.62]),
+  reach: Object.freeze([2.5, 3.5]),
+  handsLow: Object.freeze([0.2, 0.3]), handsHigh: Object.freeze([0.5, 0.62]),
+});
 
 // 엔진(match.js)과 같은 값의 사본 — layout 은 엔진 없이도 import 된다
 const POSITIONS = ["GK", "DF", "MF", "FW"];
@@ -155,6 +182,49 @@ export function withJosa(word, pair) {
   const w = String(word ?? "");
   const [withB, withoutB] = String(pair).split("/");
   return w + (hasBatchim(w) ? withB : withoutB);
+}
+
+/**
+ * 슛이 가는 골문 자리 (K1 — SPRITE_25D_PLAN §12, 화면만). 난수 없음 — key (경기 seed · 포제션 · 마지막 비트 seq: 결정 미리보기와 그 비트의 연출이 같다) 의 해시.
+ *  - kind "goal": GK 가 서 있지 않은 쪽 가장자리 — GK x < 50 이면 가까운 기둥 쪽 (SHOT.near 58 ~ 60), 아니면 먼 기둥 쪽 (SHOT.far 40 ~ 42),
+ *    GK 가 가운데 (|x − 50| < SHOT.tie) 면 해시로. 세로 = 골라인 + depth (+ = 골라인 너머 그물 안), 높이 lift = 낮은 · 높은 구석 (해시 반반, 크로스바 아래).
+ *  - kind "save": GK 가 닿는 쪽 — x = GK x ± reach (쪽 = 해시. GK 가 골문 안이면 기둥 안쪽 postIn 에 남게, 골문 밖 (평면 ④ 의 GK 는 공 가진 선수 레인) 이면
+ *    골문 가운데 쪽), 세로 = GK 깊이 gkY (없으면 골라인 앞 KEEPER.depth), 높이 = 손.
+ * 해시 값은 늘 같은 차례로 뽑는다 (쪽 · 높이 · 자리 · 거리) — 골과 세이브가 같은 열쇠면 같은 쪽 · 높이 수.
+ * @param {{ gkX?: number, gkY?: number|null, goalSide?: "home"|"away"|0|100, kind?: "goal"|"save", key?: string, depth?: number }} [o]
+ *   goalSide = 슛을 받는 골문 (view25 goalShapes 의 end — "home" = 필드 y 0 왼쪽, "away" = y 100 오른쪽; 숫자면 골라인 y)
+ * @returns {{ x: number, y: number, lift: number, side: -1|1 }} 필드 % · 높이 (골대 높이 비율) · 공이 가는 쪽 (−1 = 먼 기둥 쪽 x 감소, +1 = 가까운 기둥 쪽)
+ */
+export function shotTarget({ gkX = 50, gkY = null, goalSide = "away", kind = "goal", key = "", depth = SHOT.depth } = {}) {
+  const r = hashStream(hash32(`SHOT|${key}`));
+  const uSide = r();
+  const uHigh = r();
+  const uSpot = r();
+  const uReach = r();
+  const within = ([a, b], u) => round2(a + (b - a) * u);
+  const goalY = goalSide === "home" || goalSide === 0 ? 0 : 100;
+  const out = goalY === 0 ? -1 : 1; // 골라인 너머 (그물) 쪽 필드 y 방향
+  const gx = Number.isFinite(Number(gkX)) ? Number(gkX) : 50;
+  const hashSide = uSide < 0.5 ? -1 : 1;
+  const high = uHigh < 0.5;
+  if (kind === "save") {
+    const [p0, p1] = SHOT.posts;
+    const reach = within(SHOT.reach, uReach);
+    const inMouth = gx >= p0 && gx <= p1;
+    let side = inMouth ? hashSide : gx < 50 ? 1 : -1;
+    if (inMouth && (gx + side * reach > p1 - SHOT.postIn || gx + side * reach < p0 + SHOT.postIn)) side = -side;
+    let x = gx + side * reach;
+    if (inMouth) x = clamp(x, p0 + SHOT.postIn, p1 - SHOT.postIn);
+    const y = gkY != null && Number.isFinite(Number(gkY)) ? Number(gkY) : goalY - out * KEEPER.depth;
+    return { x: round2(x), y, lift: within(high ? SHOT.handsHigh : SHOT.handsLow, uSpot), side };
+  }
+  const side = Math.abs(gx - 50) < SHOT.tie ? hashSide : gx < 50 ? 1 : -1;
+  return {
+    x: within(side > 0 ? SHOT.near : SHOT.far, uSpot),
+    y: round2(goalY + out * (Number.isFinite(Number(depth)) ? Number(depth) : SHOT.depth)),
+    lift: within(high ? SHOT.high : SHOT.low, uReach),
+    side,
+  };
 }
 
 /**
@@ -254,11 +324,12 @@ export function receiverCandidates(view) {
 
 /**
  * @param {object} view match.getMatchView(...) 반환값
- * @param {{ aspect?: number, tokenSize?: number, jitter?: { seed?: string|number, ref?: object }|true|null }} [opts] aspect = 필드 폭/높이 (기본 0.8),
+ * @param {{ aspect?: number, tokenSize?: number, jitter?: { seed?: string|number, ref?: object }|true|null, keeper?: boolean }} [opts] aspect = 필드 폭/높이 (기본 0.8),
  *   tokenSize = 필드 폭 대비 토큰 지름 (기본 0.075).
  *   폭 = x 방향(골과 나란한 쪽) 픽셀, 높이 = y 방향(골↔골) 픽셀 — 가로 화면이면 폭 = 요소 높이, 높이 = 요소 폭 (§13.9)
  *   jitter (J1 · J2 — 배치 흔들림): 있으면 선수마다 맡은 구역 안 무작위 자리 (seed = 경기 seed, 비트마다 다른 자리 — jitterSolve). 없으면 예전 그대로.
  *   jitter.ref = resolvePreview 전의 엔진 view (같은 비트일 때만 쓴다, 없으면 view) — 그 비트의 미리보기 변형 전부를 여기서 만든다 (jitterOpt · previewViews)
+ *   keeper (K1 — 2.5D): 공을 갖지 않은 GK 는 자기 골문 안 골라인 바로 앞 (KEEPER — ④ 듀얼 수비 GK 도 공 가진 선수 레인 대신). 없으면 예전 그대로.
  * @returns {{
  *   mode: "play"|"penalties",
  *   ball: {x:number,y:number},
@@ -281,7 +352,8 @@ export function computeLayout(view, opts = {}) {
   const o = opts && typeof opts === "object" ? opts : {};
   const aspect = positive(o.aspect, 0.8);
   const tokenSize = positive(o.tokenSize, 0.075);
-  const geo = { aspect, minD: tokenSize * 100, minDy: tokenSize * 100 * aspect };
+  // keeper (K1): GK 골문 자리 (KEEPER) — 2.5D 경기 화면만 켠다 (평면 · 테스트 기본은 예전 자리)
+  const geo = { aspect, minD: tokenSize * 100, minDy: tokenSize * 100 * aspect, keeper: !!o.keeper };
   const teams = { home: normTeam(v, "home"), away: normTeam(v, "away") };
   const lastBeat = findLastBeat(v);
   if (isPenaltyView(v)) return penaltyLayout(v, teams, geo, lastBeat); // 승부차기는 흔들지 않는다 (키커 · GK · 반원 모양 그대로)
@@ -431,7 +503,10 @@ function playRule(v, teams, geo, lastBeat) {
   // 듀얼 수비수: 공 가진 선수와 마주보도록 세로 간격 확보 (자기 골 쪽으로 — 여전히 공과 골 사이).
   // 필드가 좁고 높아 골문(97)을 넘게 되면 먼저 공을 자기 골 쪽으로 당긴다 (같은 구역 · 뚫린 라인보다 앞 유지)
   let defFy = defender ? SHAPE.def[duelPos][step] : null;
-  if (defender && carrier) {
+  // K1 GK 골문 자리 (geo.keeper — 2.5D): 듀얼 수비가 GK (④) 면 골라인 앞 KEEPER.depth (공 가진 선수와의 간격은 박스 깊이로 늘 넉넉하다)
+  const keeperDuel = !!(geo.keeper && defender && defender.position === "GK");
+  if (keeperDuel) defFy = Math.max(100 - KEEPER.depth, carrier ? ballFy + geo.minDy : 0);
+  else if (defender && carrier) {
     const base = defFy;
     defFy = Math.max(base, ballFy + geo.minDy);
     if (defFy > DEF_SOFT_MAX) {
@@ -440,6 +515,8 @@ function playRule(v, teams, geo, lastBeat) {
     }
   }
   const carrierX = carrier ? carrier.laneX : 50;
+  // GK 골문 자리의 가로: 공 (= 공 가진 선수 레인) 쪽으로 조금, 골문 안 (KEEPER)
+  const keeperX = (bx) => clamp(50 + (bx - 50) * KEEPER.shade, 50 - KEEPER.half, 50 + KEEPER.half);
   // ④ 박스 연결: 공 가진 선수 레인에서 떨어진(비키지 않는) 후보들의 레인 — 비키는 후보가 그 반대쪽으로 (boxLaneX)
   const boxOthers = step >= 3 && carrier
     ? [...landingOf.keys()].map((e) => e.laneX).filter((x) => Math.abs(x - carrier.laneX) >= BOX_LANE.gap)
@@ -470,6 +547,7 @@ function playRule(v, teams, geo, lastBeat) {
       role = "gk";
       fy = SHAPE.atk.GK[step];
       nudge = 1;
+      if (geo.keeper) { fy = KEEPER.depth; fx = keeperX(carrierX); } // K1: 공격 팀 GK 도 자기 골문 안 (골라인 바로 앞)
     } else {
       role = "support";
       fy = SHAPE.atk[e.position][step];
@@ -490,11 +568,14 @@ function playRule(v, teams, geo, lastBeat) {
     if (e === defender) {
       role = "defender";
       fy = defFy;
-      if (carrier) fx = carrierX;
+      if (keeperDuel) fx = keeperX(carrierX); // K1: ④ GK 는 공 가진 선수 레인 대신 골문 안 (공 쪽으로 조금)
+      else if (carrier) fx = carrierX;
     } else if (e.position === "GK") {
       role = "gk";
       fy = SHAPE.def.GK[step];
-      if (fin && fin.kind === "goal") fx = GOAL_FRAME.gkX; // 골: 반대쪽으로 다이브
+      if (geo.keeper) { fy = 100 - KEEPER.depth; fx = keeperX(carrierX); } // K1: 골문 안 골라인 바로 앞
+      // 골: 반대쪽으로 다이브 (K1 골문 자리면 골문 안 먼 쪽 끝)
+      if (fin && fin.kind === "goal") fx = geo.keeper ? KEEPER.mouth[0] : GOAL_FRAME.gkX;
     } else if (li < step) {
       role = "broken";
       fy = SHAPE.def[e.position][step];
@@ -581,11 +662,17 @@ function playJitter(R, v, geo, jit) {
     order,
     recv: ck ? [...planRecv].map(keyOf) : [],
     carrier: ck,
+    keepers: keeperKeys(R.specs, geo, keyOf),
   });
   return new Map([...R.pos].map(([e, p]) => {
     const q = out.get(keyOf(e));
     return [e, { x: q.x, y: q.y, role: p.role }];
   }));
+}
+
+/** K1 골문 자리에 선 GK 들의 흔들림 열쇠 (geo.keeper 일 때 공을 갖지 않은 GK — jitterSolve 가 골문 안 · 골라인 앞 띠에 남긴다) */
+function keeperKeys(specs, geo, keyOf) {
+  return geo.keeper ? specs.filter((s) => s.e.position === "GK" && s.role !== "carrier").map((s) => keyOf(s.e)) : [];
 }
 
 /* ------------------------------------------------------------------ */
@@ -623,6 +710,8 @@ function distributionLayout(v, teams, geo, lastBeat, dist, jit = null) {
   }
   for (const e of D.list) {
     if (e === contest) specs.push({ e, role: "defender", fx: longE ? longE.laneX : e.laneX, fy: SHAPE.def[e.position][0], nudge: 1, sideOrder: 1 });
+    // K1 (geo.keeper — 2.5D): 상대 GK 는 자기 골문 안 골라인 바로 앞 (배급 GK 가 공 = 레인 50 → 가운데)
+    else if (e.position === "GK" && geo.keeper) specs.push({ e, role: "gk", fx: 50, fy: 100 - KEEPER.depth, nudge: 1, sideOrder: 1 });
     else specs.push({ e, role: e.position === "GK" ? "gk" : "support", fx: e.laneX, fy: SHAPE.def[e.position][0], nudge: 1, sideOrder: 1 });
   }
   let pos = placeAll(specs, toY, geo);
@@ -641,6 +730,7 @@ function distributionLayout(v, teams, geo, lastBeat, dist, jit = null) {
       order: [...pos.keys()].map(keyOf),
       recv: carrier ? [...recv].map(keyOf) : [],
       carrier: carrier ? keyOf(carrier) : null,
+      keepers: keeperKeys(specs, geo, keyOf),
     });
     pos = new Map([...pos].map(([e, p]) => {
       const q = out.get(keyOf(e));
@@ -816,7 +906,7 @@ function penaltyLayout(v, teams, geo, lastBeat) {
     pos.set(e, { x, y, role: e === kicker ? "carrier" : e === gk ? "defender" : "support" });
     placed.push({ x, y });
   };
-  if (gk) put(gk, 50, toY(PENALTY.goal));
+  if (gk) put(gk, 50, toY(geo.keeper ? 100 - KEEPER.depth : PENALTY.goal)); // K1 (2.5D): 골라인 바로 앞
   if (kicker) put(kicker, clampX(50 - (geo.minD + 1)), toY(PENALTY.spot - PENALTY.kickerBack));
   const rest = [...teams.home.list, ...teams.away.list].filter((e) => e !== kicker && e !== gk);
   const n = rest.length;
@@ -991,7 +1081,8 @@ function prefer(a, b, want, side) {
  *     그래서 흔들기 전보다 가까워지는 두 선수 (minD 아래로) · 새로 가린 화살표 · 뒤바뀐 앞뒤 · 좌우가 없다.
  * 결과는 P (그 비트의 규칙 자리들 · 계획) 와 J.key 만의 함수 — 어느 변형을 그리는지 (P.shown) 는 답을 고르기만 한다.
  * @param {{ variants: Array<Map<string,{x:number,y:number}>>, shown: number, info: Map<string,{side:string,position:string}>,
- *   toFy: (y:number)=>number, pair: string[], rel: Array<[string, string, "x"|"y"]>, order: string[], recv: string[], carrier: string|null }} P
+ *   toFy: (y:number)=>number, pair: string[], rel: Array<[string, string, "x"|"y"]>, order: string[], recv: string[], carrier: string|null,
+ *   keepers?: string[] }} P   keepers = K1 골문 자리 GK (범위 ∩ 골문 안 KEEPER.mouth · 골라인 앞 KEEPER.depthBand)
  */
 function jitterSolve(J, geo, P) {
   // 단위 (선수, 규칙 자리) · 변형마다 key → 단위
@@ -1015,6 +1106,7 @@ function jitterSolve(J, geo, P) {
     return out;
   });
   const co = (a, b) => a.k !== b.k && [...a.vs].some((vi) => b.vs.has(vi));
+  const keepers = new Set(P.keepers || []);
   // 맡은 구역 띠: 공격 방향 fy 의 구역 (경계 위면 공격 방향 쪽 — home · away 가 같다. toFy 는 제 역함수) → 기본 범위 (규칙 자리 0 을 품는다)
   for (const u of units) {
     const z = ZONES[zoneAtY(P.toFy(u.y)) - 1];
@@ -1028,6 +1120,17 @@ function jitterSolve(J, geo, P) {
       xLo: Math.max(-ax, Math.min(u.x, X_MIN) - u.x), xHi: Math.min(ax, Math.max(u.x, X_MAX) - u.x),
       yLo: Math.max(-ay, Math.min(a, b, u.y) - u.y), yHi: Math.min(ay, Math.max(a, b, u.y) - u.y),
     };
+    // K1 골문 자리 GK: 골문 안 (KEEPER.mouth) · 골라인 앞 띠 (depthBand) 에 남는다 (규칙 자리 0 은 늘 품는다)
+    if (keepers.has(u.k)) {
+      const line = u.y > 50 ? 100 : 0;
+      const dir = line === 100 ? -1 : 1;
+      const yA = line + dir * KEEPER.depthBand[0];
+      const yB = line + dir * KEEPER.depthBand[1];
+      u.base.xLo = Math.max(u.base.xLo, Math.min(0, KEEPER.mouth[0] - u.x));
+      u.base.xHi = Math.min(u.base.xHi, Math.max(0, KEEPER.mouth[1] - u.x));
+      u.base.yLo = Math.max(u.base.yLo, Math.min(0, Math.min(yA, yB) - u.y));
+      u.base.yHi = Math.min(u.base.yHi, Math.max(0, Math.max(yA, yB) - u.y));
+    }
   }
   // 이웃 (한 변형에 함께 나오는 다른 선수의 단위) · 겹침 간격 · 관계 (처음과 같은 쪽 s · 간격 ≥ g)
   const keep = { x: J.keepX, y: J.keepY };
@@ -1412,6 +1515,10 @@ function clamp(x, lo, hi) {
 
 function clampInt(x, lo, hi) {
   return clamp(Math.round(num(x, lo)), lo, hi);
+}
+
+function round2(x) {
+  return Math.round(x * 100) / 100;
 }
 
 function clampX(x) {

@@ -279,6 +279,8 @@ export function worldRect(W, H) {
  * 서 있는 골대 하나의 화면 도형 (필드 영역 px): end 'home' = 왼쪽 골 (u = RU, 그물은 −u), 'away' = 오른쪽 (u = RU + FL, 그물은 +u).
  * frame = 가까운 기둥 아래 → 위 → 크로스바 → 먼 기둥 위 → 아래, nets = 그물 면 (뒤 · 먼 옆 · 지붕 · 가까운 옆 — 그리는 순서),
  * grid = 그물 줄 [[x1, y1], [x2, y2]]. 그물 뒤 높이 = 골대 높이 × 0.7.
+ * layers (K1 — §12) = 같은 도형을 두 층으로: back { nets, grid, frame = 먼 기둥 } · front { nets, grid, frame = 가까운 기둥 + 크로스바 } ·
+ * frontSy = 가까운 기둥 아래의 화면 y (앞 층의 화면 y 순 겹침 깊이).
  */
 export function goalShapes(end, W, H) {
   const right = end === 'away';
@@ -300,17 +302,37 @@ export function goalShapes(end, W, H) {
     [P(u0, v2, 0), P(u0, v2, GH), P(ub, v2, BH), P(ub, v2, 0)],   // 가까운 옆
   ];
   const grid = [];
+  // K1 앞 · 뒤 층 (그물 줄): 뒤 그물 · 먼 옆 = 뒤, 지붕 · 가까운 옆 = 앞
+  const gridBack = [];
+  const gridFront = [];
   for (let i = 1; i < 8; i++) {
     const v = v1 + ((v2 - v1) * i) / 8;
-    grid.push([P(ub, v, 0), P(ub, v, BH)], [P(u0, v, GH), P(ub, v, BH)]);
+    const back = [P(ub, v, 0), P(ub, v, BH)];
+    const roof = [P(u0, v, GH), P(ub, v, BH)];
+    grid.push(back, roof);
+    gridBack.push(back);
+    gridFront.push(roof);
   }
   for (let j = 1; j < 4; j++) {
     const hh = (BH * j) / 4;
-    grid.push([P(ub, v1, hh), P(ub, v2, hh)]);
+    const back = [P(ub, v1, hh), P(ub, v2, hh)];
+    grid.push(back);
+    gridBack.push(back);
     const f = j / 4;
-    for (const v of [v1, v2]) grid.push([P(u0 + (ub - u0) * f, v, 0), P(u0 + (ub - u0) * f, v, GH + (BH - GH) * f)]);
+    for (const v of [v1, v2]) {
+      const side = [P(u0 + (ub - u0) * f, v, 0), P(u0 + (ub - u0) * f, v, GH + (BH - GH) * f)];
+      grid.push(side);
+      (v === v1 ? gridBack : gridFront).push(side);
+    }
   }
-  return { frame, nets, grid };
+  // K1 (§12): 골대를 GK · 공 앞뒤로 나눈 두 층 — 뒤 (back: 뒤 그물 · 먼 옆 · 먼 기둥 — 선수 아래) · 앞 (front: 지붕 · 가까운 옆 그물 ·
+  // 가까운 기둥 + 크로스바 — 가까운 기둥 깊이 frontSy 로 선수와 화면 y 순 겹침: 골문 안 GK · 그물 안 공은 그 뒤, 가까운 기둥보다 가까운 선수는 앞)
+  const layers = {
+    back: { nets: [nets[0], nets[1]], grid: gridBack, frame: [frame[2], frame[3]] },
+    front: { nets: [nets[2], nets[3]], grid: gridFront, frame: [frame[0], frame[1], frame[2]] },
+    frontSy: projectPlane(u0, v2, W, H).sy,
+  };
+  return { frame, nets, grid, layers };
 }
 
 /* ------------------------------------------------------------------ */
