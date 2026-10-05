@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "presets": { "face": [256, 256], "bust": [384, 480], "half": [512, 768] },
+  "chars": {
+    "ch_spirit_keeper": { "v": "574c2085" },
+    "ch_dwarf_wall": { "v": "99c84ca2" },
+    "ch_human_captain": { "v": "96ee30dd" },
+    "ch_elf_playmaker": { "v": "1f480851" },
+    "ch_human_runner": { "v": "f2efb297" },
+    "ch_wolf_winger": { "v": "a5a56375" },
+    "ch_giant_striker": { "v": "6540f0d8" },
+    "ch_cat_trickster": { "v": "1ea13e9d" },
+    "ch_giant_keeper": { "v": "1e9b844d" },
+    "ch_spirit_striker": { "v": "fa852099" },
+    "ch_elf_regista": { "v": "fb6881c3" },
+    "ch_rabbit_fullback": { "v": "8d0861d1" },
+    "ch_spirit_dribbler": { "v": "e1b01347" },
+    "ch_elf_archer": { "v": "6e6c0678" },
+    "ch_human_header": { "v": "e9eb046f" },
+    "ch_dwarf_finisher": { "v": "bed7c3e7" }
+  },
+  "coaches": {
+    "sp_coach_harr": { "v": "4d2ac5f9" },
+    "sp_wind_dancer": { "v": "904f8e4f" },
+    "sp_elder_sage": { "v": "8997e3c3" },
+    "sp_iron_captain": { "v": "d156ce6b" },
+    "sp_mountain_monk": { "v": "7a7dc51a" },
+    "sp_bard_lumi": { "v": "cbe2b7ef" },
+    "sp_street_striker": { "v": "4813197b" },
+    "sp_river_scholar": { "v": "cb24a5ab" }
+  },
+  "scenes": {}
+}

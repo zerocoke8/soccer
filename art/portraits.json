@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "sourceSize": [1024, 1536],
+  "presets": {
+    "face": { "w": 1.8, "h": 1.8, "top": 0.85, "out": [256, 256], "quality": 0.85 },
+    "bust": { "w": 3.6, "h": 4.5, "top": 1.3, "out": [384, 480], "quality": 0.82 },
+    "half": { "w": 4.4, "h": 6.6, "top": 1.4, "out": [512, 768], "quality": 0.8 }
+  },
+  "chars": {
+    "ch_spirit_keeper": { "file": "characters/neria.png", "x": 419, "y": 257, "head": 145, "bust": { "dy": -17, "scale": 0.8 } },
+    "ch_dwarf_wall": { "file": "characters/dorbina.png", "x": 470, "y": 218, "head": 175, "bust": { "dy": -21, "scale": 0.8 } },
+    "ch_human_captain": { "file": "characters/adeline.png", "x": 513, "y": 230, "head": 130, "bust": { "dy": -16, "scale": 0.8 } },
+    "ch_elf_playmaker": { "file": "characters/silluen.png", "x": 550, "y": 231, "head": 130, "bust": { "dy": -16, "scale": 0.8 } },
+    "ch_human_runner": { "file": "characters/taria.png", "x": 405, "y": 268, "head": 160, "bust": { "dy": -19, "scale": 0.8 } },
+    "ch_wolf_winger": { "file": "characters/ulrika.png", "x": 541, "y": 196, "head": 130, "bust": { "dy": -16, "scale": 0.8 } },
+    "ch_giant_striker": { "file": "characters/greta.png", "x": 488, "y": 143, "head": 130, "bust": { "dy": -16, "scale": 0.8 } },
+    "ch_cat_trickster": { "file": "characters/mirka.png", "x": 495, "y": 254, "head": 150, "bust": { "dy": -18, "scale": 0.8 } },
+    "ch_giant_keeper": { "file": "characters/herta.png", "x": 489, "y": 196, "head": 150, "bust": { "dy": -18, "scale": 0.8 } },
+    "ch_spirit_striker": { "file": "characters/bronte.png", "x": 441, "y": 188, "head": 140, "bust": { "dy": -17, "scale": 0.8 } },
+    "ch_elf_regista": { "file": "characters/naelis.png", "x": 460, "y": 181, "head": 140, "bust": { "dy": -17, "scale": 0.8 } },
+    "ch_rabbit_fullback": { "file": "characters/connie.png", "x": 501, "y": 432, "head": 135, "bust": { "dy": -75, "scale": 0.85 } },
+    "ch_spirit_dribbler": { "file": "characters/ondina.png", "x": 493, "y": 333, "head": 160, "bust": { "dy": -19, "scale": 0.8 } },
+    "ch_elf_archer": { "file": "characters/risiel.png", "x": 485, "y": 179, "head": 125, "bust": { "dy": -15, "scale": 0.8 } },
+    "ch_human_header": { "file": "characters/camila.png", "x": 439, "y": 238, "head": 130, "bust": { "dy": -16, "scale": 0.8 } },
+    "ch_dwarf_finisher": { "file": "characters/hildi.png", "x": 526, "y": 279, "head": 165, "bust": { "dy": -20, "scale": 0.8 } }
+  },
+  "coaches": {
+    "sp_coach_harr": { "file": "coaches/harr.png", "x": 490, "y": 168, "head": 135, "bust": { "dy": -26, "scale": 0.8 } },
+    "sp_wind_dancer": { "file": "coaches/celia.png", "x": 466, "y": 203, "head": 130, "bust": { "dy": -16, "scale": 0.8 } },
+    "sp_elder_sage": { "file": "coaches/ornella.png", "x": 488, "y": 146, "head": 120, "bust": { "dy": -14, "scale": 0.8 } },
+    "sp_iron_captain": { "file": "coaches/barbara.png", "x": 544, "y": 159, "head": 130, "bust": { "dy": -16, "scale": 0.8 } },
+    "sp_mountain_monk": { "file": "coaches/hanna.png", "x": 518, "y": 232, "head": 155, "bust": { "dy": -19, "scale": 0.8 } },
+    "sp_bard_lumi": { "file": "coaches/lumi.png", "x": 506, "y": 237, "head": 140, "bust": { "dy": -17, "scale": 0.8 } },
+    "sp_street_striker": { "file": "coaches/joy.png", "x": 466, "y": 152, "head": 140, "bust": { "dy": -17, "scale": 0.8 } },
+    "sp_river_scholar": { "file": "coaches/irene.png", "x": 490, "y": 208, "head": 130, "bust": { "dy": -16, "scale": 0.8 } }
+  },
+  "scenes": {}
+}
