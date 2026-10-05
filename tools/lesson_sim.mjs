@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // tools/lesson_sim.mjs — 카드 레슨 런 헤드리스 시뮬 (LESSON_PROTO_PLAN §10.1)
 //   node tools/lesson_sim.mjs --runs 200 --seed 1 [--policy all|ace|team|counter|press|poss] [--formation 2-2-2] [--no-match] [--json]
-//                             [--special-rate r] [--slot SLOT=charId]... [--unique-report] [--events on|off] [--account fresh|carry]
+//                             [--special-rate r] [--slot SLOT=charId]... [--unique-report] [--events on|off] [--account fresh|carry] [--legends n]
 //   --events on|off: lesson.json events 의 기능 스위치를 모두 켜거나 끈다 (기본 = 데이터 그대로, §24.11). 이벤트가 하나라도 켜져 있으면
 //                    표 끝에 [이벤트] 줄 (런당 이벤트 — 트리거별 · 시간 어림 이벤트 하나 12초, 코치 단계 도달 · 이야기 화, §24.16) 을 더한다
 //                    (꺼져 있으면 표는 그대로).
@@ -9,6 +9,10 @@
 //                    깜짝이 뜬 / 안 뜬 레슨의 점수 · 퍼펙트율) 과 표 아래 id 별 깜짝 / 런 한 줄을 더한다.
 //   --account fresh|carry: 계정 스냅샷 (§24.7 — 이야기 진행 · 코치 첫 만남). fresh (기본) = 런마다 빈 계정, carry = 방침마다 빈 계정에서
 //                    시작해 끝난 런을 lessonEvents.accountMerge 로 합쳐 다음 런의 createRun 에 넘긴다 (방침 칸끼리는 섞지 않는다).
+//   --legends n (0 ~ 2, 기본 0): 레전드 · 메모리 카드 (§24.9, E6). 방침마다 두 번째 런부터 앞 런의 등록 팀 (finalizeRun registeredTeam +
+//                    감독 추천 메모리 카드 manager.recommendMemoryCard) 에서 스탯 합이 큰 n 명을 레전드로 createRun 에 넘긴다 (같은 팀이라
+//                    메모리 카드는 1장). 0 보다 크면 표 끝에 [레전드] 줄 (레전드 런 수 · 시작 덱 · 메모리 카드 / 런 · 메모리 카드 낸 수 /
+//                    런 · 런 끝 덱에 남은 메모리 카드) 을 더한다 (0 이면 표는 그대로).
 //   --slot SLOT=charId: 편성의 그 자리를 다른 캐릭터로 (여러 번 가능 — 미르카 측정은 --slot FW2=ch_cat_trickster, §16.11).
 //   --unique-report: 고유 카드 (L40 모양) 표 — 카드 · 모양별 낸 수 / 런 · 손에 든 턴 / 런 · 직접 상승 / 장 · 실패 % · 비용 / 장 ·
 //                    감독 AI EV / 장 · 강화 % + 낼 수 없는 턴 비율 + 자리 옮기기 · 가로지르기 구역 분포 + 이어 주기 · 연결 · 크로스
@@ -35,6 +39,7 @@ import { mainStatsOf, deadReason, getCard, shapeOf } from "../js/engine/cards.js
 import { lessonCardDef } from "../js/engine/lesson.js";
 import { createRng } from "../js/engine/rng.js";
 import { setEventSwitches, switchOn, eventById, accountMerge, normalizeAccount, TRIGGERS, KIND_BADGES } from "../js/engine/lessonEvents.js";
+import { teamIdOf } from "../js/engine/challenge.js";
 
 const DATA_FILES = ["config", "characters", "supports", "events", "skills", "relics", "opponents", "routes", "traits", "combos", "cards", "lesson", "policies"];
 /** 레슨 런 이벤트 7개 (LESSON_PROTO_PLAN §24.3.1 — lessonEvents.EVENT_FILES 와 같은 목록). 없으면 건너뛴다. 기능 스위치는 데이터 그대로 */
@@ -74,7 +79,7 @@ export function loadData() {
 }
 
 export function parseArgs(argv) {
-  const out = { runs: 200, seed: "1", policy: "all", formation: null, match: true, json: false, specialRate: 1, slots: {}, uniqueReport: false, events: null, account: "fresh" };
+  const out = { runs: 200, seed: "1", policy: "all", formation: null, match: true, json: false, specialRate: 1, slots: {}, uniqueReport: false, events: null, account: "fresh", legends: 0 };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--runs") out.runs = Math.max(1, parseInt(argv[++i], 10) || 200);
@@ -97,8 +102,14 @@ export function parseArgs(argv) {
       out.account = String(argv[++i] || "");
       if (out.account !== "fresh" && out.account !== "carry") throw new Error(`--account 는 fresh 또는 carry 입니다: ${argv[i]}`);
     }
+    else if (a === "--legends") {
+      const raw = String(argv[++i] ?? "");
+      const n = Number(raw);
+      if (!/^\d+$/.test(raw) || n > 2) throw new Error(`--legends 는 0 ~ 2 입니다: ${raw}`);
+      out.legends = n;
+    }
     else if (a === "--help" || a === "-h") {
-      console.log("usage: node tools/lesson_sim.mjs --runs N --seed S [--policy all|ace|team|counter|press|poss] [--formation 2-2-2] [--no-match] [--json] [--special-rate r] [--slot SLOT=charId]... [--unique-report] [--events on|off] [--account fresh|carry]");
+      console.log("usage: node tools/lesson_sim.mjs --runs N --seed S [--policy all|ace|team|counter|press|poss] [--formation 2-2-2] [--no-match] [--json] [--special-rate r] [--slot SLOT=charId]... [--unique-report] [--events on|off] [--account fresh|carry] [--legends 0-2]");
       process.exit(0);
     }
   }
@@ -143,7 +154,23 @@ function specialRateAction(state, data, seed, rate) {
   return alt.type === "lesson" ? { type: "lesson", zone: alt.zone } : null;
 }
 
-export function simulateOne(data, { seed, policy, formation, slots = {}, playMatches, specialRate = 1, account }) {
+/**
+ * 레전드 (--legends n, §24.9): 앞 런의 등록 팀 (finalizeRun registeredTeam) 과 그 런의 감독 추천 메모리 카드로 레전드 n 명을 만든다 —
+ * 화면이 등록 팀 사본에서 만드는 모양 그대로 ({ teamId: challenge.teamIdOf, teamName, charId, name, memoryCard }).
+ * 고르는 선수 = 등록 스탯 (5스탯 합) 이 큰 순, 같으면 팀 순서. 레전드는 메모리 카드 말고는 런에 아무것도 하지 않는다.
+ */
+export function legendsFrom(team, memoryCard, n) {
+  if (!team || !(n > 0)) return [];
+  const teamId = teamIdOf(team);
+  const sum = (p) => STATS.reduce((a, k) => a + (Number(p.stats && p.stats[k]) || 0), 0);
+  return team.players
+    .map((p, i) => ({ p, i, s: sum(p) }))
+    .sort((a, b) => b.s - a.s || a.i - b.i)
+    .slice(0, n)
+    .map(({ p }) => ({ teamId, teamName: team.name, charId: p.charId, name: p.name, memoryCard: memoryCard ? { ...memoryCard } : null }));
+}
+
+export function simulateOne(data, { seed, policy, formation, slots = {}, playMatches, specialRate = 1, account, legends }) {
   const playMatch = playMatches
     ? (setup) => {
         const ms = match.createMatch({ data, seed: setup.seed, home: setup.home, away: setup.away, possessions: setup.possessions, kind: setup.kind });
@@ -152,8 +179,13 @@ export function simulateOne(data, { seed, policy, formation, slots = {}, playMat
       }
     : () => ({ ...NO_MATCH_RESULT });
   const squad = squadFor(data, formation, slots);
-  const state = LR.createRun({ data, seed, policy, ...(formation ? { formation } : {}), ...(squad ? { squad } : {}), ...(account ? { account } : {}) });
+  const state = LR.createRun({ data, seed, policy, ...(formation ? { formation } : {}), ...(squad ? { squad } : {}), ...(account ? { account } : {}), ...(legends && legends.length ? { legends } : {}) });
   const startStats = Object.fromEntries(state.players.map((p) => [p.id, { ...p.stats }]));
+  // §24.9 레전드: 시작 덱 · 그중 메모리 카드 (낸 수는 아래 레슨 카드 내기에서 센다)
+  const isMemory = (uid) => state.deck.some((e) => e.uid === uid && e.src === "memory");
+  const startDeck = state.deck.length;
+  const memoryStart = state.deck.filter((e) => e.src === "memory").length;
+  let memoryPlays = 0;
   const m = {
     weekRests: 0, benches: 0, benchTurns: 0, lessonTurns: 0, hints: 0,
     base: 0, mood: 0, card: 0, sub: 0,
@@ -212,6 +244,7 @@ export function simulateOne(data, { seed, policy, formation, slots = {}, playMat
       benchTurnKeys.add(`${state.record.lessons.length}-${state.lesson.turn}`);
     }
     if (r.phase === "lesson" && r.action.kind === "play") {
+      if (isMemory(r.action.uid)) memoryPlays += 1;
       uniquePlay(state, data, m.uniq, r.action, uniqFrom);
       circlePlay(state, data, m.circ, r.action);
       if (policy === "press") {
@@ -279,6 +312,8 @@ export function simulateOne(data, { seed, policy, formation, slots = {}, playMat
   }
   m.benchTurns = benchTurnKeys.size;
   const fin = LR.finalizeRun(state, data);
+  // 팀 등록 (§24.9): 화면처럼 감독 추천 메모리 카드를 붙인다 (--legends 가 다음 런의 레전드로 쓴다)
+  const memoryCard = M.recommendMemoryCard(state, data);
   // 고르게 크기: 선수별 런 동안 주 스탯 (포지션 주 스탯 2개) 상승 · 5스탯 상승
   const mainGrowth = {};
   const totalGrowth = {};
@@ -310,6 +345,11 @@ export function simulateOne(data, { seed, policy, formation, slots = {}, playMat
     coachMetSkip: ((data.lesson.events || {}).coach || {}).firstMeet === "run" ? 0
       : state.supports.filter((x) => state.account && state.account.coachMet && state.account.coachMet[x.id] === true).length,
     storyEps: (state.storySeen || []).length,
+    // §24.9 레전드 · 메모리 카드 (E6): 레전드 수 · 시작 덱 · 시작 덱의 메모리 카드 · 낸 수 · 런 끝 덱에 남은 메모리 카드 · 등록 팀 (+ 메모리 카드)
+    legendCount: (state.legends || []).length,
+    startDeck, memoryStart, memoryPlays,
+    memoryEnd: state.deck.filter((e) => e.src === "memory").length,
+    team: { ...fin.registeredTeam, memoryCard },
     players: state.players.map((p) => ({ id: p.id, name: p.name, position: p.position })),
     spEnd: state.skillPoints,
     // 런 끝 선수당 습득 액티브 · 패시브 (§18.9)
@@ -429,11 +469,16 @@ export function summarize(data, args, policy) {
   // --account carry: 방침마다 빈 계정에서 시작해 끝난 런을 합쳐 다음 런에 넘긴다 (fresh = 런마다 빈 계정 — createRun 에 넘기지 않는다)
   const carry = args.account === "carry";
   let account = carry ? normalizeAccount(null) : undefined;
+  // --legends n: 방침마다 두 번째 런부터 앞 런의 등록 팀에서 레전드 n 명 (§24.9)
+  const nLegends = Number(args.legends) || 0;
   for (let i = 0; i < args.runs; i++) {
-    const r = simulateOne(data, { seed: `${args.seed}-${i}`, policy, formation: args.formation, slots: args.slots || {}, playMatches: args.match, specialRate: args.specialRate ?? 1, account });
+    const prev = rs.at(-1);
+    const legends = nLegends > 0 && prev ? legendsFrom(prev.team, prev.team.memoryCard, nLegends) : undefined;
+    const r = simulateOne(data, { seed: `${args.seed}-${i}`, policy, formation: args.formation, slots: args.slots || {}, playMatches: args.match, specialRate: args.specialRate ?? 1, account, legends });
     if (carry) account = accountMerge(account, r.state);
     rs.push(r);
   }
+  const withLegends = rs.filter((r) => r.legendCount > 0);
   const N = rs.length;
   const lessons = rs.flatMap((r) => r.lessons);
   const bySeason = [1, 2, 3].map((s) => lessons.filter((l) => Math.floor(l.turnIndex / data.lesson.weeksPerSeason) + 1 === s));
@@ -584,6 +629,13 @@ export function summarize(data, args, policy) {
     coachMetSkip: mean(rs.map((r) => r.coachMetSkip)),
     storyPerRun: mean(rs.map((r) => r.storyEps)),
     accountStories: account ? Object.values(account.stories).reduce((a, b) => a + b, 0) : null,
+    // §24.9 레전드 (--legends): 레전드가 있었던 런만 — 런 수 · 시작 덱 · 메모리 카드 / 런 · 낸 수 / 런 · 런 끝 덱에 남음 / 런
+    legendRuns: withLegends.length,
+    legendStartDeck: withLegends.length ? mean(withLegends.map((r) => r.startDeck)) : NaN,
+    legendMemory: withLegends.length ? mean(withLegends.map((r) => r.memoryStart)) : NaN,
+    legendMemoryPlays: withLegends.length ? mean(withLegends.map((r) => r.memoryPlays)) : NaN,
+    legendMemoryEnd: withLegends.length ? mean(withLegends.map((r) => r.memoryEnd)) : NaN,
+    legendDeckEnd: withLegends.length ? mean(withLegends.map((r) => r.deck)) : NaN,
     // §24.16 E5 레슨 깜짝: 런당 깜짝 · id 별 (런당) · 고른 선택지 1번 비율 · 계획된 레슨 비율 · 계획 중 뜬 비율 · 깜짝이 뜬 / 안 뜬 레슨의 점수 · 퍼펙트율
     ...surpriseSummary(rs),
   };
@@ -701,6 +753,11 @@ function printTable(sums, args) {
       ["[깜짝] 레슨 점수 (뜬 레슨 / 안 뜬 레슨)", (s) => s.surpriseScore.map(f0).join(" / ")],
       ["[깜짝] 퍼펙트율 (뜬 레슨 / 안 뜬 레슨)", (s) => s.surprisePerfect.map(pc).join(" / ")],
     ] : []),
+    // §24.9 레전드 · 메모리 카드 — --legends 가 0 보다 클 때만 (레전드가 있었던 런 = 방침마다 두 번째 런부터)
+    ...(args.legends > 0 ? [
+      [`[레전드 ${args.legends}명] 레전드 런 수 · 시작 덱 · 메모리 카드 / 런`, (s) => `${s.legendRuns} · ${f1(s.legendStartDeck)} · ${f2(s.legendMemory)}`],
+      ["[레전드] 메모리 카드 낸 수 / 런 · 런 끝 덱에 남음 · 런 끝 덱 크기", (s) => `${f2(s.legendMemoryPlays)} · ${f2(s.legendMemoryEnd)} · ${f1(s.legendDeckEnd)}`],
+    ] : []),
   ];
   const head = ["지표", ...sums.map((s) => s.policy)];
   const table = [head, ...rows.map(([label, fn]) => [label, ...sums.map(fn)])];
@@ -710,7 +767,7 @@ function printTable(sums, args) {
     const sp = " ".repeat(Math.max(0, w - width(str)));
     return right ? sp + str : str + sp;
   };
-  console.log(`lesson_sim: ${args.runs} runs/방침, seed ${args.seed}, formation ${args.formation || "기본"}, 경기 ${args.match ? "match.simulateAuto" : "없음 (1:0 승)"}, 특별 선택 ${args.specialRate < 1 ? `${args.specialRate} (시뮬 옵션)` : "감독 AI (늘)"}${args.eventsOn ? `, 이벤트 켬 (${EVENT_SWITCH_NAMES.filter((k) => switchOn(args.data, k)).join(" · ")}${args.events ? ` — --events ${args.events}` : " — 데이터"}), 계정 ${args.account || "fresh"}` : ""}`);
+  console.log(`lesson_sim: ${args.runs} runs/방침, seed ${args.seed}, formation ${args.formation || "기본"}, 경기 ${args.match ? "match.simulateAuto" : "없음 (1:0 승)"}, 특별 선택 ${args.specialRate < 1 ? `${args.specialRate} (시뮬 옵션)` : "감독 AI (늘)"}${args.eventsOn ? `, 이벤트 켬 (${EVENT_SWITCH_NAMES.filter((k) => switchOn(args.data, k)).join(" · ")}${args.events ? ` — --events ${args.events}` : " — 데이터"}), 계정 ${args.account || "fresh"}` : ""}${args.legends > 0 ? `, 레전드 ${args.legends}명 (앞 런 등록 팀 · 감독 추천 메모리 카드)` : ""}`);
   for (const r of table) console.log(r.map((x, c) => pad(String(x), cols[c], c > 0)).join("  "));
   if (args.surpriseOn) {
     // id 별 깜짝 / 런 (방침 합 — 런 수로 나눈 평균)

@@ -11,6 +11,7 @@ import * as LR from "./lessonRun.js";
 import * as lesson from "./lesson.js";
 import * as cards from "./cards.js";
 import { STATS } from "./training.js";
+import { cardPrice } from "./lessonCommon.js";
 
 /** 카드 가치 계산의 평균 카드 상승 (초안 시뮬 value() 의 avg) */
 const AVG_GAIN = 75;
@@ -580,6 +581,29 @@ export function recommendCardOffer(state, data) {
     }
   });
   return { pick };
+}
+
+// ---------------------------------------------------------------------------
+// 메모리 카드 (LESSON_PROTO_PLAN §24.9 · §24.11, E6)
+// ---------------------------------------------------------------------------
+
+/**
+ * 팀 등록 때 남길 메모리 카드 추천 (결과 화면에서 처음부터 골라져 있다). 순수 · rng 없음.
+ * 후보 (lessonRun.memoryCardOptions — 고유 · 대비 · 코치 카드 빼고 같은 카드 · 같은 강화는 한 칸) 중
+ * 값 (lessonCommon.cardPrice — 상담 값: 방침 > 공용) 이 높은 것, 같으면 강화판, 그다음 덱 순서 (먼저 있는 것).
+ * @returns {{ cardId: string, plus: boolean } | null} 후보가 없으면 null
+ */
+export function recommendMemoryCard(state, data) {
+  let best = null;
+  let bestPrice = -Infinity;
+  for (const o of LR.memoryCardOptions(state, data)) {
+    const price = Number(cardPrice(data, o.cardId)) || 0;
+    if (best === null || price > bestPrice || (price === bestPrice && o.plus && !best.plus)) {
+      best = o;
+      bestPrice = price;
+    }
+  }
+  return best ? { cardId: best.cardId, plus: best.plus } : null;
 }
 
 // ---------------------------------------------------------------------------

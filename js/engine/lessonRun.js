@@ -20,6 +20,9 @@
  *   - 외출 이야기 (§24.7, E4): 외출 이벤트 단계가 외출 상대의 다음 화 (lessonEvents.pickStoryEvent) 를 일반 외출보다 먼저 띄운다.
  *     계정 진행은 createRun 의 account 스냅샷으로만 들어오고 (state.account), 이번 런 진행은 고른 순간에 storySeen · storyEps · coachSteps 에
  *     쌓인다 — 화면이 lessonEvents.accountMerge 로 계정 저장소에 합친다.
+ *   - 레전드 · 메모리 카드 (§24.9, E6): createRun({ legends }) 가 검사 (validateLegends) 하고, 등록 팀 (teamId) 마다 메모리 카드 1장을
+ *     시작 덱 (고유 카드 뒤) 에 { uid, cardId, plus, src: "memory" } 로 넣는다. 레전드는 state.legends 에 사본으로만 남고 경기 · 평가 ·
+ *     흐름에는 아무것도 하지 않는다 (인자 없음). 팀 등록 때 남길 후보 = memoryCardOptions (화면이 registeredTeam.memoryCard 를 붙인다).
  *
  * queue 단계: "beginWeek" · "advanceWeek" · "resumeWeek" (무료 외출 뒤 같은 주로 — phase 만 week, rng 없음) · "seasonEnd" · "routeFriendly" ·
  *   이벤트 단계 (§24.2, E3 · E4) "weekSlot" (코치 연속 → 없으면 주 끝 랜덤) · "preMatchEvent" (경계전 전야) · "seasonStartEvent" ·
@@ -234,7 +237,7 @@ function prepCardsFor(state, data) {
 // 뷰 헬퍼 (순수)
 // ---------------------------------------------------------------------------
 
-/** 덱 · 진열 · 보상 카드 뷰 (레슨 밖). entry = { uid?, cardId, plus } */
+/** 덱 · 진열 · 보상 카드 뷰 (레슨 밖). entry = { uid?, cardId, plus, src? } — memory = 레전드 메모리 카드 (§24.9 "메모리" 띠) */
 function cardView(state, data, entry) {
   const raw = cards.getCard(data, entry.cardId);
   const def = lesson.resolveEntry(state, data, entry);
@@ -258,6 +261,7 @@ function cardView(state, data, entry) {
     canUpgrade: !!up,
     upgrade: up ? { power: up.power ?? null, desc: up.desc } : null,
     shape: cards.shapeView(def, data), // 고유 카드 모양 (L40) — 그 밖 null
+    memory: entry.src === "memory", // 레전드가 가져온 메모리 카드 (§24.9, E6)
   };
 }
 
@@ -704,16 +708,142 @@ function validateEventsOnce(data) {
   validatedData.add(data);
 }
 
+// ---------------------------------------------------------------------------
+// 레전드 · 메모리 카드 (LESSON_PROTO_PLAN §24.9 · L26 · L27, E6)
+// ---------------------------------------------------------------------------
+
+/** 편성에 데려갈 수 있는 레전드 수 (§24.9 — 코치 6장과 따로 2칸) */
+export const MAX_LEGENDS = 2;
+/**
+ * 메모리 카드로 남길 수 없는 카드 family 와 이름 (§24.9): 고유 (주인 캐릭터 전용) · 대비 (경기 전 준비 전용) ·
+ * 코치 (그 코치가 다음 편성에 없으면 쓸모가 없다 — [구현 결정] 기획자 확인 Q5).
+ */
+const MEMORY_EXCLUDED = new Map([["unique", "고유"], ["prep", "대비"], ["coach", "코치"]]);
+
+/**
+ * 팀 등록 때 남길 메모리 카드 후보 (§24.9): 이번 런 덱에서 고유 · 대비 · 코치 카드를 뺀 것. 같은 카드 · 같은 강화는 한 칸 (덱 순서의 처음 자리).
+ * 순수 · rng 없음. 화면은 고른 것의 { cardId, plus } 를 등록 팀 memoryCard 로 남긴다.
+ * @returns {Array<{ cardId: string, plus: boolean, name: string, family: string, card: object }>} card = 덱 카드 뷰 (보상 · 상담과 같은 모양)
+ */
+export function memoryCardOptions(state, data) {
+  const out = [];
+  const seen = new Set();
+  for (const e of state.deck || []) {
+    const raw = cards.getCard(data, e.cardId);
+    if (MEMORY_EXCLUDED.has(raw.family)) continue;
+    const plus = !!e.plus;
+    const key = `${e.cardId}|${plus}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ cardId: e.cardId, plus, name: raw.name, family: raw.family, card: cardView(state, data, { cardId: e.cardId, plus }) });
+  }
+  return out;
+}
+
+/**
+ * 레전드 목록 검사의 오류 (던지지 않는다). 한 줄 = "레전드 n: <이유>" (목록 전체 오류는 앞에 번호 없이).
+ * 레전드 = { teamId, teamName, charId, name, memoryCard: { cardId, plus } | null } — 화면이 등록 팀에서 만든 사본 (teamId = challenge.teamIdOf).
+ *   teamId · charId 는 꼭 있어야 하고, teamName · name 은 있으면 문자열. 같은 팀의 같은 선수를 두 번 넣을 수 없다.
+ *   이번 런 선수와 같은 캐릭터는 된다 (§24.9). 그 밖의 키는 보지 않는다 (state.legends 에는 남기지 않는다).
+ * @returns {string[]}
+ */
+export function legendErrors(data, legends) {
+  if (legends === undefined || legends === null) return [];
+  if (!Array.isArray(legends)) return ["레전드 목록이 배열이 아닙니다"];
+  const errors = [];
+  if (legends.length > MAX_LEGENDS) errors.push(`레전드는 ${MAX_LEGENDS}명까지입니다 (${legends.length}명)`);
+  const chars = new Set((data.characters || []).map((c) => c.id));
+  const index = cards.indexCards(data);
+  const pairs = new Map(); // "teamId|charId" → 레전드 번호
+  legends.forEach((l, i) => {
+    const at = `레전드 ${i + 1}`;
+    if (!l || typeof l !== "object" || Array.isArray(l)) {
+      errors.push(`${at}: 레전드가 객체가 아닙니다`);
+      return;
+    }
+    if (typeof l.teamId !== "string" || !l.teamId) errors.push(`${at}: 등록 팀 id (teamId) 가 없습니다`);
+    if (l.teamName !== undefined && typeof l.teamName !== "string") errors.push(`${at}: 팀 이름 (teamName) 이 문자열이 아닙니다`);
+    if (l.name !== undefined && typeof l.name !== "string") errors.push(`${at}: 선수 이름 (name) 이 문자열이 아닙니다`);
+    if (typeof l.charId !== "string" || !chars.has(l.charId)) errors.push(`${at}: 알 수 없는 캐릭터 '${l.charId}'`);
+    else if (typeof l.teamId === "string" && l.teamId) {
+      const key = `${l.teamId}|${l.charId}`;
+      if (pairs.has(key)) errors.push(`${at}: 레전드 ${pairs.get(key)} 과(와) 같은 팀의 같은 선수입니다`);
+      else pairs.set(key, i + 1);
+    }
+    const mc = l.memoryCard;
+    if (mc === undefined || mc === null) return;
+    if (typeof mc !== "object" || Array.isArray(mc)) {
+      errors.push(`${at}: 메모리 카드가 객체가 아닙니다`);
+      return;
+    }
+    const raw = typeof mc.cardId === "string" ? index.get(mc.cardId) : null;
+    if (!raw) {
+      errors.push(`${at}: 메모리 카드 '${mc.cardId}' 을(를) 찾을 수 없습니다`);
+      return;
+    }
+    if (MEMORY_EXCLUDED.has(raw.family)) errors.push(`${at}: '${raw.name}' 은(는) ${MEMORY_EXCLUDED.get(raw.family)} 카드라 메모리 카드로 쓸 수 없습니다`);
+    if (mc.plus !== undefined && typeof mc.plus !== "boolean") errors.push(`${at}: 메모리 카드 강화 (plus) 가 참 / 거짓이 아닙니다`);
+    else if (mc.plus === true && !cards.canUpgrade(raw)) errors.push(`${at}: '${raw.name}' 은(는) 강화할 수 없는 카드입니다`);
+  });
+  return errors;
+}
+
+/**
+ * 레전드 목록 검사 (§24.9): 2명까지 · 캐릭터가 있다 · 메모리 카드가 있고 고유 · 대비 · 코치 카드가 아니다.
+ * 없음 (undefined · null) · 빈 배열은 통과. 오류를 모두 모아 한 번에 던진다. 순수.
+ * @returns {true}
+ * @throws {Error} "레전드: 오류 N개\n- 레전드 n: <이유>\n…"
+ */
+export function validateLegends(data, legends) {
+  const errors = legendErrors(data, legends);
+  if (errors.length) throw new Error(`레전드: 오류 ${errors.length}개\n${errors.map((e) => `- ${e}`).join("\n")}`);
+  return true;
+}
+
+/** state.legends 에 남길 사본 (검사를 통과한 목록 — 아는 키만, 빠진 이름은 캐릭터 이름 · 빈 팀 이름) */
+function legendCopies(data, legends) {
+  return (legends || []).map((l) => {
+    const c = data.characters.find((x) => x.id === l.charId);
+    const mc = l.memoryCard;
+    return {
+      teamId: l.teamId,
+      teamName: typeof l.teamName === "string" ? l.teamName : "",
+      charId: l.charId,
+      name: typeof l.name === "string" && l.name ? l.name : c.name,
+      memoryCard: mc ? { cardId: mc.cardId, plus: mc.plus === true } : null,
+    };
+  });
+}
+
+/**
+ * 시작 덱에 넣을 메모리 카드 (§24.9): 등록 팀 (teamId) 마다 1장 — 같은 팀에서 둘을 데려가면 카드는 1장 (그 팀 레전드 중 처음 있는 메모리 카드).
+ * @returns {Array<{ cardId: string, plus: boolean }>}
+ */
+function memoryDeckCards(copies) {
+  const out = [];
+  const teams = new Set();
+  for (const l of copies) {
+    if (!l.memoryCard || teams.has(l.teamId)) continue;
+    teams.add(l.teamId);
+    out.push({ cardId: l.memoryCard.cardId, plus: l.memoryCard.plus });
+  }
+  return out;
+}
+
 /**
  * 새 레슨 런.
  * account = 계정 스냅샷 (§24.5.2 · §24.7, E4): { stories: { [charId]: 0 ~ 3 }, coachMet: { [supportId]: true } } — 화면이 계정 저장소
  *   (soccer-lesson.account) 에서 읽어 넘긴다. lessonEvents.normalizeAccount 로 정리해 state.account 에 둔다 (없거나 틀리면 빈 값).
  *   이야기 다음 화 · 코치 첫 만남 건너뛰기가 이 값을 읽는다 — 같은 seed 라도 계정 진행이 다르면 다른 런이 될 수 있다 [구현 결정 §24.5.4].
+ * legends = 레전드 (§24.9, E6): [{ teamId, teamName, charId, name, memoryCard: { cardId, plus } | null }] (2명까지) — 화면이 등록 팀에서 만든
+ *   사본. validateLegends 로 검사하고 (틀리면 throw), 등록 팀 (teamId) 마다 메모리 카드 1장을 시작 덱의 고유 카드 뒤에
+ *   { uid, cardId, plus, src: "memory" } 로 넣는다. state.legends 에 사본을 남긴다. 이번 런 선수와 같은 캐릭터도 된다.
+ *   레전드는 스탯 · 힌트 · 적성 인자가 없고 경기 · 평가에 아무것도 하지 않는다. 없거나 빈 배열이면 레전드 전과 같은 런 (같은 rng).
  * @param {{ data: object, seed: string|number, squad?: Record<string,string>, formation?: string, supportIds?: string[],
- *           tactics?: object, policy?: string, leagueTier?: number, account?: object }} params
+ *           tactics?: object, policy?: string, leagueTier?: number, account?: object, legends?: object[] }} params
  * @returns {object} RunState (kind "lessonRun")
  */
-export function createRun({ data, seed, squad, formation, supportIds, tactics, policy, leagueTier = 1, account }) {
+export function createRun({ data, seed, squad, formation, supportIds, tactics, policy, leagueTier = 1, account, legends }) {
   assertData(data);
   cards.validateAttachData(data); // 코치 지원 데이터 (§15.3)
   cards.validateShapeData(data); // 고유 카드 모양 데이터 (L40 · §16.2 ④)
@@ -721,6 +851,7 @@ export function createRun({ data, seed, squad, formation, supportIds, tactics, p
   if (seed === undefined || seed === null || seed === "") throw new Error("seed 가 필요합니다");
   const pol = policy || LD(data).defaultPolicy || "team";
   if (!policyOf(data, pol)) throw new Error(`알 수 없는 훈련 방침: '${pol}'`);
+  validateLegends(data, legends); // 레전드 (§24.9 — 2명까지 · 캐릭터 · 메모리 카드)
   const cfg = data.config;
   const roster = run.buildRoster({ data, formation, squad, supportIds });
 
@@ -730,6 +861,11 @@ export function createRun({ data, seed, squad, formation, supportIds, tactics, p
     if (u) deckIds.push(u.id);
   }
   for (const id of deckIds) cards.getCard(data, id);
+  const deck = deckIds.map((cardId, i) => ({ uid: `k${i + 1}`, cardId, plus: false }));
+  // 레전드 메모리 카드 (§24.9): 고유 카드 뒤에 팀마다 1장
+  const legendList = legendCopies(data, legends);
+  const memory = memoryDeckCards(legendList);
+  for (const m of memory) deck.push({ uid: `k${deck.length + 1}`, cardId: m.cardId, plus: m.plus, src: "memory" });
 
   const rng = createRng(seed);
   const state = {
@@ -755,8 +891,8 @@ export function createRun({ data, seed, squad, formation, supportIds, tactics, p
     pendingTeach: [],
     relics: [],
     modifiers: [],
-    deck: deckIds.map((cardId, i) => ({ uid: `k${i + 1}`, cardId, plus: false })),
-    nextUid: deckIds.length + 1,
+    deck,
+    nextUid: deck.length + 1,
     seasonPlan: null,
     weekOffer: null,
     freeOuting: 0,
@@ -772,11 +908,17 @@ export function createRun({ data, seed, squad, formation, supportIds, tactics, p
     usedEventIds: [],
     ...v5Fields(), // 2차 (§24.10)
     account: lessonEvents.normalizeAccount(account), // 계정 스냅샷 (E4 — v5Fields 의 자리 그대로)
+    legends: legendList, // 레전드 사본 (E6 — v5Fields 의 자리 그대로)
     log: [],
     rating: null,
     queue: [],
   };
   log(state, `새 런 시작 (seed: ${seed}, 방침: ${policyOf(data, pol).name}). 시즌 1.`);
+  if (legendList.length) {
+    const who = legendList.map((l) => (l.teamName ? `${l.name} (${l.teamName})` : l.name)).join(" · ");
+    const mem = memory.map((m) => `${cards.getCard(data, m.cardId).name}${m.plus ? "+" : ""}`).join(" · ");
+    log(state, `레전드 합류: ${who}${mem ? ` — 메모리 카드 ${mem}` : ""}`);
+  }
   rollSeasonPlan(state, data);
   state.queue = ["seasonStartEvent", "beginWeek"]; // 시즌 1 시작 이벤트 → 1주 (§24.2)
   return continueFlow(state, data);
@@ -831,7 +973,8 @@ export function getWeekView(state, data) {
     coaches: coachViews(state, data),
     partyPassives: passives.partyPassivesFor(state, data), // 코치 파티 패시브 (L48)
     shopBuyable: shopBuyableCount(state, data), // 지금 SP 로 살 수 있는 패시브 수 (L48 — 주 화면 [패시브] 버튼 배지)
-    deck: state.deck.map((e) => ({ uid: e.uid, cardId: e.cardId, name: cards.getCard(data, e.cardId).name, family: cards.getCard(data, e.cardId).family, plus: !!e.plus })),
+    deck: state.deck.map((e) => ({ uid: e.uid, cardId: e.cardId, name: cards.getCard(data, e.cardId).name, family: cards.getCard(data, e.cardId).family, plus: !!e.plus, memory: e.src === "memory" })),
+    legends: (state.legends || []).map((l) => ({ ...l, memoryCard: l.memoryCard ? { ...l.memoryCard } : null })), // 레전드 (§24.9 — 표시만)
     hints: { ...state.hints },
     relics: state.relics.slice(),
     modifiers: state.modifiers.map((m) => ({ ...m })),
@@ -1806,6 +1949,8 @@ export function resolveCardOffer(state, data, { pick = null } = {}) {
 
 /**
  * 런 끝 평가 (run.finalizeRun) + registeredTeam.policy (D44).
+ * 레전드는 평가 · 등록 팀에 들어가지 않는다 (§24.9). 메모리 카드 (memoryCardOptions 중 하나 { cardId, plus }) 는 화면이 등록할 때
+ * registeredTeam.memoryCard 로 붙인다 (감독 추천 = manager.recommendMemoryCard).
  * @returns {{ rating: object, registeredTeam: object }}
  */
 export function finalizeRun(state, data) {
