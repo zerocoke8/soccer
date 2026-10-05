@@ -1,0 +1,16 @@
+{
+  "fps": 12,
+  "count": 48,
+  "w": 150,
+  "h": 250,
+  "footX": 76.5,
+  "footY": 247,
+  "scale": 0.458,
+  "video": {
+    "w": 640,
+    "h": 640,
+    "duration": 4.083
+  },
+  "loopDiff": 0.0038,
+  "key": "magenta"
+}

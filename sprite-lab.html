@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>스프라이트 동작 시험</title>
+<meta name="description" content="시댄스 2.5 로 만든 2.5등신 동작 스프라이트 미리보기 (docs/SPRITE_25D_PLAN.md 동작 단계)">
+<style>
+  :root { --bg: #15171c; --fg: #f1f2f4; --mut: #a7adb8; --card: #1f232b; --grass: #2a6b3d; --grass2: #2f7444; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { padding: 16px; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  p { margin: 0; color: var(--mut); font-size: 13px; }
+  .row { display: flex; flex-wrap: wrap; gap: 12px; padding: 0 16px 16px; }
+  .card { background: var(--card); border-radius: 12px; padding: 10px; flex: 1 1 300px; min-width: 0; }
+  .card h2 { font-size: 15px; margin: 0 0 6px; }
+  .stage { background: repeating-linear-gradient(90deg, var(--grass) 0 36px, var(--grass2) 36px 72px); border-radius: 8px; height: 230px; display: flex; align-items: flex-end; justify-content: space-around; padding: 0 8px 14px; position: relative; overflow: hidden; }
+  .stage canvas { display: block; }
+  .tag { position: absolute; left: 8px; top: 6px; font-size: 11px; color: rgba(255,255,255,.8); }
+  .ctl { display: flex; gap: 8px; align-items: center; margin-top: 8px; font-size: 13px; color: var(--mut); flex-wrap: wrap; }
+  .ctl button { background: #333a46; color: var(--fg); border: 0; border-radius: 6px; padding: 4px 10px; font: inherit; }
+  .ctl button.on { background: #4a7be0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>실루엔 동작 시험 — 시댄스 2.5 (480p · 4초 → 12fps)</h1>
+  <p>기준 그림 한 장을 첫 · 끝 프레임으로 넣어 만든 영상을 배경을 빼고 240px 시트로 바꿨다. 왼쪽 = 경기 크기 (64px), 가운데 = 결정 확대 (약 2배), 오른쪽 = 원본 240px.</p>
+</header>
+<div class="row" id="rows"></div>
+<script>
+  const ACTS = [
+    { id: "idle", name: "대기 (숨쉬기 · 반복)" },
+    { id: "run", name: "제자리 달리기 (반복)" },
+    { id: "kick", name: "킥 (공 없이)" },
+  ];
+  const SIZES = [64, 128, 240];
+  const rows = document.getElementById("rows");
+  for (const a of ACTS) {
+    const card = document.createElement("div"); card.className = "card";
+    card.innerHTML = `<h2>${a.name}</h2><div class="stage"><span class="tag"></span></div><div class="ctl"><button data-s="1" class="on">1배속</button><button data-s="0.5">0.5배속</button><button data-flip="1">좌우 반전</button><span class="info"></span></div>`;
+    rows.append(card);
+    const stage = card.querySelector(".stage"), info = card.querySelector(".info");
+    let speed = 1, flip = false;
+    card.querySelectorAll("button[data-s]").forEach((b) => b.onclick = () => { speed = +b.dataset.s; card.querySelectorAll("button[data-s]").forEach((x) => x.classList.toggle("on", x === b)); });
+    card.querySelector("button[data-flip]").onclick = (e) => { flip = !flip; e.target.classList.toggle("on", flip); };
+    Promise.all([fetch(`img/sprites/anim/ch_elf_playmaker.${a.id}.json`).then((r) => r.json()), new Promise((ok, no) => { const im = new Image(); im.onload = () => ok(im); im.onerror = no; im.src = `img/sprites/anim/ch_elf_playmaker.${a.id}.webp`; })]).then(([j, im]) => {
+      info.textContent = `${j.count}프레임 · ${j.fps}fps · 칸 ${j.w}×${j.h}`;
+      card.querySelector(".tag").textContent = "64px · 128px · 240px";
+      const cvs = SIZES.map((hh) => {
+        const k = hh / (j.footY), c = document.createElement("canvas");
+        const dpr = Math.min(3, window.devicePixelRatio || 1);
+        c.width = Math.ceil(j.w * k * dpr); c.height = Math.ceil(j.h * k * dpr);
+        c.style.width = `${j.w * k}px`; c.style.height = `${j.h * k}px`;
+        stage.append(c);
+        return { c, g: c.getContext("2d"), k, dpr };
+      });
+      let t0 = performance.now();
+      const draw = (now) => {
+        const f = Math.floor(((now - t0) / 1000) * j.fps * speed) % j.count;
+        for (const { c, g } of cvs) {
+          g.clearRect(0, 0, c.width, c.height);
+          g.save();
+          if (flip) { g.translate(c.width, 0); g.scale(-1, 1); }
+          g.imageSmoothingQuality = "high";
+          g.drawImage(im, f * j.w, 0, j.w, j.h, 0, 0, c.width, c.height);
+          g.restore();
+        }
+        requestAnimationFrame(draw);
+      };
+      requestAnimationFrame(draw);
+    }).catch(() => { info.textContent = "불러오기 실패"; });
+  }
+</script>
+</body>
+</html>
