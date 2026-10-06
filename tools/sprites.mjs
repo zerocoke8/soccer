@@ -9,8 +9,9 @@
 // 2) 크로마키: 배경색 계열의 정도 (초록 = g − max(r, b), 자홍 = min(r, b) − g) 로 알파 (0.12 ~ 0.42 사이 부드럽게),
 //    반투명 가장자리는 어둡게 (선 그림이라 번짐이 바깥선에 묻힌다). 알파 > 0.5 인 픽셀로 잘라낸 뒤 높이 --height (기본 240 = 화면 64px 의 약 3.75배,
 //    결정 확대 2.2배 · DPR 1.5 에서도 1:1 이하) 로 줄인다.
-// 3) img/sprites/<id>.webp (알파, quality 0.92) · data/sprites.json = { version: 1, height, chars: { id: { w, h, footX, v } } }.
+// 3) img/sprites/<id>.webp (알파, quality 0.92) · data/sprites.json = { version: 1, height, chars: { id: { w, h, footX, v, anim? } } }.
 //    footX = 발 가운데 x / w (아래 6% 줄의 불투명 픽셀 x 평균) — 화면은 이 점을 선수 자리에 맞춘다. v = 출력 sha1 앞 8자 (?v= 캐시 피하기).
+//    다시 만들어도 항목의 다른 필드 (anim — 움직이는 스프라이트 동작 목록, tools/sprite_anim.mjs) 는 그대로 남긴다.
 // Chrome 경로: CHROME_PATH → 기본 설치 경로 (tools/shot.mjs findBrowser). 결과물 (img/sprites · data/sprites.json) 을 커밋한다.
 import fs from "node:fs";
 import path from "node:path";
@@ -96,14 +97,16 @@ async function main() {
   try {
     const page = await browser.newPage();
     await page.goto(`${base}/index.html`, { waitUntil: "domcontentloaded" });
-    const out = { version: 1, height: o.height, chars: {} };
+    const { version: _v, height: _h, chars: _c, ...keep } = old; // 목록 맨 위의 모르는 필드도 남긴다
+    const out = { version: 1, height: o.height, ...keep, chars: {} };
     for (const id of ids) {
       const file = path.join(OUT_DIR, `${id}.webp`);
       if (todo.includes(id) || !old.chars[id] || old.height !== o.height) {
         const r = await page.evaluate(pageCut, `${base}/art/sprites/base/${id}.png`, o.height);
         const bytes = Buffer.from(r.b64, "base64");
         fs.writeFileSync(file, bytes);
-        out.chars[id] = { w: r.w, h: r.h, footX: Math.round(r.footX * 1000) / 1000, v: crypto.createHash("sha1").update(bytes).digest("hex").slice(0, 8) };
+        // 이 도구가 모르는 필드 (예 anim — 움직이는 스프라이트 동작 목록, tools/sprite_anim.mjs · SPRITE_25D_PLAN §13) 는 그대로 둔다
+        out.chars[id] = { ...(old.chars?.[id] || {}), w: r.w, h: r.h, footX: Math.round(r.footX * 1000) / 1000, v: crypto.createHash("sha1").update(bytes).digest("hex").slice(0, 8) };
         console.log(`${id}: ${r.w}×${r.h} footX ${out.chars[id].footX} (배경 ${r.key}) → img/sprites/${id}.webp ${(bytes.length / 1024).toFixed(0)}KB`);
       } else {
         out.chars[id] = old.chars[id];

@@ -13,6 +13,8 @@
 //   cutArt(holder, url, preset)    → 컷인 얼굴 칸 (글자 원)에 그림을 얹는다 (§24.12.4 — 실패하면 글자 원으로 돌아간다)
 //   spriteOf(data, charId)         → 2.5D 경기 화면의 선 그림 { url: './img/sprites/<id>.webp?v=…', w, h, footX } | null
 //                                    (data/sprites.json — docs/SPRITE_25D_PLAN.md §2, 목록에 없으면 null = 얼굴 원 스탠디)
+//   spriteAnimUrl(data, charId)    → 움직이는 스프라이트 동작 목록 주소 './img/sprites/anim/<id>.json' | null (data/sprites.json chars[id].anim —
+//                                    SPRITE_25D_PLAN §13 A1, 정지 스프라이트가 있는 캐릭터만 · 저장소 안 상대 경로 .json 만)
 
 /** 초상 프리셋 (data/portraits.json presets 가 없을 때) */
 export const PORTRAIT_PRESETS = ['face', 'bust', 'half'];
@@ -181,4 +183,21 @@ export function spriteOf(data, charId) {
     url: `./img/sprites/${encodeURIComponent(charId)}.webp?v=${encodeURIComponent(v)}`,
     w, h: hh, footX: Number.isFinite(fx) ? Math.min(1, Math.max(0, fx)) : 0.5,
   };
+}
+
+/**
+ * 움직이는 스프라이트 동작 목록 주소 (docs/SPRITE_25D_PLAN.md §13 — A1): data/sprites.json chars[charId].anim (예 'img/sprites/anim/ch_elf_playmaker.json')
+ * → './img/sprites/anim/ch_elf_playmaker.json'. 정지 스프라이트 (spriteOf) 가 없는 캐릭터 · 필드가 없거나 이상한 값 (절대 주소 · '..' · .json 아님) 은 null
+ * (그 선수는 정지 스프라이트 그대로). 목록 · 시트를 불러오는 것은 js/ui/spriteAnim.js.
+ * @param {object} data 게임 데이터 (data.sprites)
+ * @param {string} charId
+ * @returns {string|null}
+ */
+export function spriteAnimUrl(data, charId) {
+  if (!spriteOf(data, charId)) return null;
+  const a = data.sprites.chars[charId].anim;
+  if (typeof a !== 'string') return null;
+  const p = a.trim().replace(/^\.\//, '');
+  if (!/^[A-Za-z0-9_][A-Za-z0-9_./-]*\.json$/.test(p) || p.split('/').some((s) => s === '..' || s === '.' || s === '')) return null;
+  return `./${p}`;
 }

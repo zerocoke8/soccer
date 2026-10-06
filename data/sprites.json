@@ -6,7 +6,8 @@
       "w": 141,
       "h": 240,
       "footX": 0.461,
-      "v": "cd6118dc"
+      "v": "cd6118dc",
+      "anim": "img/sprites/anim/ch_elf_playmaker.json"
     },
     "ch_elf_regista": {
       "w": 161,

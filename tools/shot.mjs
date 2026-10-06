@@ -493,7 +493,9 @@ async function runScenario(browser, baseUrl, sc, prepared, opts) {
         const huds = [...d25s.querySelectorAll(".mh, .m-banner, .m-track, .m-dock, .m-ctl, .skill-row, .m-exits")].filter(vis).map((el) => ({ el, q: rectOf(el) }));
         const who = (t) => `${t.dataset.side}:${(t.querySelector(".tok-name")?.textContent || t.dataset.id || "").trim()}`;
         for (const t of d25s.querySelectorAll(".tok.role-carrier:not(.gone), .tok.role-defender:not(.gone)")) {
-          const parts = [["그림", t.querySelector(".tok-figure > img.spr-img") || t.querySelector(".tok-figure .tok-face")], ["발밑", t.querySelector(".tok-ground")]];
+          // 그림 = 정지 스프라이트 img · 움직이는 스프라이트 요소 (A1 — 칸 상자) · 스탠디 얼굴
+          const fig = t.querySelector(".tok-figure > img.spr-img") || t.querySelector(".tok-figure > .spr-anim") || t.querySelector(".tok-figure .tok-face");
+          const parts = [["그림", fig], ["발밑", t.querySelector(".tok-ground")]];
           const nm = t.querySelector(".tok-name");
           if (t.classList.contains("named") && nm && vis(nm)) parts.push(["이름표", nm]);
           for (const [kind, el] of parts) {

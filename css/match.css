@@ -834,6 +834,30 @@
   .match-screen.d25 .tok.charge-user .tok-figure { filter: drop-shadow(0 0 6px var(--ult)) drop-shadow(0 0 14px rgba(255, 122, 217, .8)); }
 }
 
+/* ---- 움직이는 스프라이트 (docs/SPRITE_25D_PLAN.md §13 — A1, screens/match.js setAct · js/ui/spriteAnim.js) ----
+   .tok-figure.spr.anim > .spr-anim = 선수마다 요소 하나: 배경 = 지금 동작의 시트 (가로 띠 — 캔버스 · 칸마다 img 없음). 칸 크기 · 앵커 (발 = 0×0 토큰 원점) ·
+   배경 크기 · 반전 기준 (발) 은 JS 가 inline 으로 (s = 1 월드 px — 정지 스프라이트와 같은 배율 72 / 240, 크기는 .tok-figure 의 scale(--ts)).
+   프레임 = steps(--spr-n, jump-none) 로 background-position 0% → 100% (칸 0 … n − 1 을 같은 길이씩). --spr-dur = 반복은 count / fps × 배속,
+   한 번 · 끝 자세는 그 단계 길이 (액션 --t-act · 골 연출) / --spr-iter = infinite | 1 (fill both — 한 번 · 끝 자세는 마지막 칸에 머문다) /
+   --spr-name = spr-play-a · -b 를 번갈아 (동작을 바꾸면 첫 칸부터). 칸이 1 장이면 steps(1, jump-none) 이 무효라 애니메이션 없이 첫 칸. */
+.match-screen.d25 .tok-figure > .spr-anim {
+  position: absolute; display: block; pointer-events: none; background-repeat: no-repeat; background-position: 0 0;
+  animation: var(--spr-name, spr-play-a) var(--spr-dur, 1000ms) steps(var(--spr-n, 2), jump-none) 0s var(--spr-iter, infinite) normal both;
+  transition: transform .14s ease-out;
+}
+.match-screen.d25 .tok.face-l .tok-figure > .spr-anim { transform: scaleX(-1); } /* 발 기준 좌우 반전 (transform-origin = 앵커 — JS) */
+@keyframes spr-play-a { from { background-position: 0% 0; } to { background-position: 100% 0; } }
+@keyframes spr-play-b { from { background-position: 0% 0; } to { background-position: 100% 0; } }
+/* 그림이 이미 자세를 보여 주는 동작에는 CSS 자세를 겹치지 않는다: 넘어짐 (눕기 ±90° — 넘어짐 그림일 때만, 시트를 못 받아 대기면 예전처럼 눕힌다) ·
+   헤더 (뛰어오름 · 1.06배 — 움직이는 스프라이트는 늘 끈다: .header 는 골 연출 · 재배치까지 남아 세리머니 그림이 떠 보였다). 반투명 · 💫 · 작은 크기 맥박 · 빛은 그대로 */
+.match-screen.d25 .tok.fallen .tok-figure[data-act="fall"], .match-screen.d25 .tok.fallen.face-l .tok-figure[data-act="fall"] { rotate: none; }
+.match-screen.d25 .tok.header .tok-figure.anim { translate: none; scale: none; }
+.match-screen.d25.no-anim .spr-anim { transition: none !important; }
+@media (prefers-reduced-motion: reduce) {
+  /* 줄인 움직임: 대기 첫 칸 그대로 (JS 도 늘 idle) */
+  .match-screen.d25 .tok-figure > .spr-anim { animation: none !important; background-position: 0 0 !important; transition: none !important; }
+}
+
 /* ---- 2.5D 카메라 (docs/SPRITE_25D_PLAN.md §5 — D2, screens/match.js setCam · js/ui/view25.js cameraTarget) ----
    .w-cam = translate(W/2 − z·cx, H/2 − z·cy) scale(z) (JS), 하늘 = 이동의 30%. 트랜지션 길이 · 이징 = .pitch 의 --t-cam · --e-cam (JS — 결정 확대 0.35초,
    액션 --t-act, 재배치 --t-move, 화면 열기 · ⏭ · 줄인 움직임 0). --cam-z (.m-field) 는 등록한 숫자라 카메라와 같이 트랜지션 → 글자 · 선 굵기 ÷ z 가

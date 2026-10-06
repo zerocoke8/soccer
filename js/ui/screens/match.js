@@ -104,6 +104,13 @@
 //  슛 (shotPhase): 골 = GK 가 없는 쪽 가장자리 (layout.shotTarget — 2.5D 는 그물 안 낮은 · 높은 구석으로 살짝 뜬 슛), GK 는 그쪽으로 몸을 날리지만 못 미친다.
 //  세이브 = GK 가 옆으로 날아 앞으로 뻗은 손에 공. 슛 미리보기 화살표 · 궤적도 같은 자리 (열쇠 = 경기 seed · 포제션 · 마지막 비트 seq).
 //  골대는 두 층 (뒤 .w-goals · 앞 .w-goals-front — 토큰 층 안, 가까운 기둥 깊이로 화면 y 순 겹침): 골문 안 GK · 그물 안 공은 앞 층 뒤.
+// 2026-10-06 움직이는 스프라이트 (SPRITE_25D_PLAN §13 — A1, 2.5D 만): data/sprites.json chars[id].anim 이 있는 캐릭터 (지금 실루엔) 가 경기에 나오면
+//  화면을 열 때 그 동작 목록을 불러 시트를 내려받기 시작하고 (js/ui/spriteAnim.js — 경기에 없는 캐릭터는 불러오지 않는다, 디코드 · 캔버스 없음),
+//  idle 시트를 받으면 그 선수 그림 (img) 을 요소 하나 (.spr-anim — 배경 = 지금 동작의 시트, CSS steps 애니메이션) 로 바꾼다 (upgradeFigure).
+//  동작 (setAct · playAct): 평소 대기, 재배치로 옮기는 동안 달리기 (공을 가진 선수 = 드리블), 액션 연출 = 공을 가진 선수의 시도 (드리블 · 패스 · 킥 ·
+//  헤더 — spriteAnim.attackerAct) · 듀얼 수비 (태클 · 버티기, 제쳐지면 넘어짐 — defenderAct), 골 연출 = 골 넣은 선수 (+ 가까운 같은 편) 세리머니.
+//  한 번 하는 동작은 그 단계 길이에 맞춰 (액션 --t-act · 골 T.goal), 반복은 count / fps × 배속. ⏭ · 순간 배치 = 대기, 줄인 움직임 = 대기 첫 칸 그대로.
+//  크기 · 발 자리 = 정지 스프라이트와 같은 배율 (72 / 240) · 같은 앵커라 바꿔도 튀지 않는다. 이름표 · 말풍선 자리 상자는 정지 스프라이트 치수 그대로.
 //
 // 가로 전용 (고정 스테이지 1280×720 — js/ui/stage.js, css/match.css). 세로 경기 화면·방향 전환은 없다 (?orient · 저장값은 무시).
 //  - 필드 좌표(layout.js)는 그대로, 픽셀 변환만 가로 (layout.js fieldToScreen 'land' — home 골 왼쪽, away 골 오른쪽, 필드 x 0 = 위).
@@ -116,11 +123,12 @@
 //  - 규칙 영역(.m-field: 구역·선·박스·골문·토큰·공·화살표)은 위 HUD(헤더+트랙)와 아래 HUD(카드 줄) 사이로 줄인다 → HUD 가 토큰·이름표·말풍선·
 //    미리보기를 가리지 않는다. 구역·선과 토큰이 같은 사각형을 쓴다 (화면 위치 = 규칙 위치). 크기는 논리 px 로 잰다 (스테이지 배율과 무관).
 import { h, avatar, openModal, closeOverlays, bar, statBadge, toast, setFaceArt } from '../dom.js';
-import { portraitUrl, portraitUrls, preloadArt, cutArt, spriteOf } from '../art.js';
+import { portraitUrl, portraitUrls, preloadArt, cutArt, spriteOf, spriteAnimUrl } from '../art.js';
 import { saveMatch, isD25, isLayoutJitter } from '../store.js';
 import { computeLayout, resolvePreview, withJosa, ZONES, SHAPE, fieldToScreen, screenToField, shotTarget } from '../layout.js';
 import * as L from '../labels.js';
 import * as V from '../view25.js';
+import * as A from '../spriteAnim.js';
 
 const BEAT_FALLBACK = ['kickoff', 'counter', 'duel', 'turnover', 'save', 'goal', 'penalty', 'distribution'];
 // 액션 연출(공 이동)이 있는 비트. distribution = GK 배급 (짧은 패스 · 롱패스 성공 — 롱패스 실패는 turnover)
@@ -178,6 +186,12 @@ const SHOT25 = Object.freeze({
 });
 /** 2.5D 공 글자 가운데의 땅 점 위 높이 (s = 1 px — css .d25 .m-ball > span: top −19 · 줄 높이 20) */
 const BALL_MID25 = 9;
+/**
+ * 움직이는 스프라이트 (A1 — SPRITE_25D_PLAN §13, [구현 결정]): movePx = 재배치에서 이만큼 (화면 px) 넘게 옮기는 선수만 달린다,
+ * turnPx = 가로로 이만큼 넘게 옮기면 달리는 동안 가는 쪽을 본다 (뒷걸음질 달리기 방지 — 도착하면 배치의 방향으로),
+ * cheerNear = 골 넣은 선수와 이만큼 (필드 %) 안의 같은 편 (움직이는 스프라이트만) 도 세리머니
+ */
+const ANIM25 = Object.freeze({ movePx: 3, turnPx: 6, cheerNear: 20 });
 const STEP_MARKS = ['①', '②', '③', '④'];
 const RECV_ACTIONS = ['pass', 'cross'];
 const ACTION_ORDER = ['dribble', 'pass', 'cross', 'shoot', 'tackle', 'intercept', 'hold', 'save'];
@@ -712,8 +726,10 @@ export function renderMatch(root, ctx) {
     el._bar = barI;
     el._bubble = bubble;
     el._name = nameEl;
+    el._fig = d25 ? el.querySelector(':scope > .tok-figure') : null;
     tokLayer.append(el);
     tokEls.set(key, el);
+    if (animOf.has(key)) upgradeFigure(el); // 동작 목록 · idle 시트를 이미 받은 선수 (A1)
     return el;
   }
 
@@ -733,7 +749,8 @@ export function renderMatch(root, ctx) {
     });
     const fig = h('span', { class: ['tok-figure', 'spr'] }, img);
     img.addEventListener('error', () => {
-      // 그림이 없으면 스탠디 (다음 재배치부터 자리 상자도 스탠디 치수)
+      // 그림이 없으면 스탠디 (다음 재배치부터 자리 상자도 스탠디 치수). 이미 움직이는 스프라이트로 바꿨으면 (A1 — img 를 뗐다) 그대로
+      if (fig.classList.contains('anim')) return;
       spriteCache.set(`${t.side}:${t.id}`, null);
       img.remove();
       fig.classList.remove('spr');
@@ -741,6 +758,138 @@ export function renderMatch(root, ctx) {
       fig.append(face);
     });
     return [ground, fig];
+  }
+
+  /* 움직이는 스프라이트 (SPRITE_25D_PLAN §13 — A1, 2.5D 만) ------------------------------------------------------------ */
+  // 동작 목록을 받고 idle 시트까지 내려받은 선수 키 → 목록 (js/ui/spriteAnim.js parseAnimManifest). 그 전에는 정지 스프라이트 그대로
+  const animOf = new Map();
+  /**
+   * 경기 화면을 열 때 (2.5D): 경기에 나온 선수 (store.match 양 팀 7명 — 교체 없음) 중 동작 목록이 있는 캐릭터 (art.spriteAnimUrl) 의 목록을 불러
+   * (주소마다 한 번 — 모듈 캐시) 그 시트를 내려받기 시작한다 (idle 먼저 · 줄인 움직임이면 idle 만 — 내려받기만, 디코드 · 캔버스 · Image 사본 없음).
+   * idle 시트를 다 받으면 그 선수 그림을 움직이는 요소로 바꾼다 (첫 동작이 빈 칸으로 깜빡이지 않게 — 다른 시트는 받기 전까지 대신 동작).
+   * 목록 · idle 시트가 없거나 못 받으면 정지 스프라이트 그대로 (던지지 않는다 — 콘솔 오류 없음). 경기에 없는 캐릭터는 불러오지 않는다.
+   */
+  function startAnims() {
+    const want = new Map(); // 목록 주소 → [선수 키]
+    for (const side of ['home', 'away']) {
+      for (const p of store.match?.[side]?.players || []) {
+        const url = spriteAnimUrl(data, p?.charId);
+        if (!url) continue;
+        if (!want.has(url)) want.set(url, []);
+        want.get(url).push(`${side}:${p.id}`);
+      }
+    }
+    for (const [url, keys] of want) {
+      A.loadAnimManifest(url).then((m) => {
+        if (!m || !alive()) return null;
+        const loads = A.sheetUrls(m, { onlyIdle: reduced }).map((u) => A.preloadSheet(u));
+        return loads[0].then((ok) => {
+          if (!ok || !alive()) return;
+          for (const key of keys) {
+            animOf.set(key, m);
+            const el = tokEls.get(key);
+            if (el) upgradeFigure(el);
+          }
+        });
+      }).catch(() => { /* 정지 스프라이트 그대로 */ });
+    }
+  }
+  /** 정지 스프라이트 그림 (img) 을 떼고 움직이는 요소 하나 (.spr-anim) 를 단다 (대기). 스탠디 (그림 없음 · 못 불러옴) · 이미 바꾼 선수는 그대로 */
+  function upgradeFigure(el) {
+    const m = animOf.get(`${el.dataset.side}:${el.dataset.id}`);
+    const spr = spriteFor(el.dataset.side, el.dataset.id);
+    const fig = el._fig;
+    if (!m || !spr || !fig || el._anim || !fig.classList.contains('spr')) return;
+    const span = h('span', { class: 'spr-anim', 'aria-hidden': 'true' });
+    fig.querySelector(':scope > .spr-img')?.remove(); // 사본을 남기지 않는다 (정지 그림 · 시트 둘을 함께 그리지 않게)
+    fig.classList.add('anim');
+    fig.append(span);
+    // k = 정지 스프라이트 배율 (s = 1 키 72 / 원본 240) — 동작 시트의 첫 칸 캐릭터 키도 240 이라 같은 크기
+    el._anim = { m, k: V.V25.SPR_H / spr.h, span, fig, act: null, dur: 0, name: 'b', seq: 0, restFace: null };
+    setAct(el, 'idle');
+  }
+  /**
+   * 움직이는 스프라이트의 동작을 바꾼다: want → 보여 줄 동작 (없거나 아직 받지 못한 시트 = 대신 동작 — spriteAnim.pickAct, 줄인 움직임 = 늘 idle).
+   * 요소의 배경 = 그 시트 (?v=), 칸 크기 · 앵커 (발) · 반전 기준 = spriteAnim.animBox, CSS 변수 --spr-n (steps) · --spr-dur (반복 = count / fps × 배속,
+   * 한 번 · 끝 자세 = fitMs) · --spr-iter · --spr-name (바꿀 때마다 spr-play-a / -b 를 번갈아 — 첫 칸부터). 같은 반복 동작이면 다시 시작하지 않는다
+   * (배속이 바뀌었으면 길이만). 부를 때마다 seq 가 늘어 앞서 예약한 "대기로 돌아가기" 를 무효로 한다.
+   * 대기로 돌아가면 달리는 동안 바꿔 둔 방향 (restFace — animOnLayout) 을 배치의 방향으로 되돌린다.
+   * @returns {string|null} 보여 주는 동작 (움직이는 스프라이트가 아니면 null)
+   */
+  function setAct(el, want, { fitMs = 0 } = {}) {
+    const st = el?._anim;
+    if (!st) return null;
+    st.seq += 1;
+    const act = reduced ? 'idle' : A.pickAct(st.m, want, A.sheetReady);
+    if (!act) return null;
+    if (act === 'idle' && st.restFace != null) {
+      el.classList.toggle('face-l', st.restFace);
+      st.restFace = null;
+    }
+    const a = st.m.anims[act];
+    const dur = A.animDuration(a, { speedK: fx(), fitMs });
+    const sp = st.span;
+    if (act === st.act && a.mode === 'loop') {
+      if (dur !== st.dur) { sp.style.setProperty('--spr-dur', `${dur}ms`); st.dur = dur; }
+      return act;
+    }
+    const b = A.animBox(a, { k: st.k });
+    st.name = st.name === 'a' ? 'b' : 'a';
+    Object.assign(sp.style, {
+      width: `${b.width}px`, height: `${b.height}px`, left: `${b.left}px`, top: `${b.top}px`,
+      backgroundImage: `url("${a.url}")`, backgroundSize: `${b.bgW}px ${b.bgH}px`, transformOrigin: `${b.originX}px ${b.originY}px`,
+    });
+    for (const [k2, v] of [['--spr-name', `spr-play-${st.name}`], ['--spr-n', String(b.n)], ['--spr-dur', `${dur}ms`], ['--spr-iter', b.iter]]) {
+      sp.style.setProperty(k2, v);
+    }
+    sp.dataset.act = act;
+    st.fig.dataset.act = act; // css: 그림이 자세를 보여 주는 동작 (넘어짐 · 헤더) 에는 CSS 자세를 겹치지 않는다
+    st.act = act;
+    st.dur = dur;
+    return act;
+  }
+  /** 동작 want 를 ms 동안 — 반복 · 한 번은 그 뒤 대기로, 끝 자세 (hold — 넘어짐 · 세리머니) 는 다음 재배치까지 마지막 칸 */
+  function playAct(el, want, ms) {
+    const act = setAct(el, want, { fitMs: ms });
+    if (!act || act === 'idle' || el._anim.m.anims[act].mode === 'hold') return;
+    const seq = el._anim.seq;
+    later(() => { if (el._anim && el._anim.seq === seq) setAct(el, 'idle'); }, ms);
+  }
+  /**
+   * 재배치의 동작: 화면에서 ANIM25.movePx 넘게 옮기는 선수 = 그 이동 (--t-move) 동안 달리기 — 공을 가진 선수 (킥오프 배치가 아닌 플레이 — 공이 발 앞에
+   * 따라간다) 는 드리블 — 그 뒤 대기. 그대로인 선수 · 순간 배치 (화면 열기 · ⏭ · 탭 다시 그리기) · 줄인 움직임 = 대기 (넘어짐 · 세리머니도 여기서 끝).
+   * 달리는 동안은 가는 쪽을 본다 (가로로 ANIM25.turnPx 넘게 옮길 때 — 공 쪽을 보며 뒷걸음질로 달리지 않게), 대기로 돌아가면 배치의 방향 (공 쪽 ·
+   * 공격 방향 — 이 applyLayout 이 막 정한 .face-l) 으로. 정지 스프라이트 · 스탠디는 예전처럼 늘 배치의 방향.
+   */
+  function animOnLayout(el, t, from, Lay, view, anim) {
+    const st = el._anim;
+    st.restFace = null; // 배치가 방금 방향을 정했다
+    let moved = false;
+    let dx = 0;
+    if (anim && !reduced && from) {
+      const a = toPx(from.x, from.y);
+      const b = toPx(t.x, t.y);
+      dx = b[0] - a[0];
+      moved = Math.hypot(dx, b[1] - a[1]) > ANIM25.movePx;
+    }
+    if (!moved) { setAct(el, 'idle'); return; }
+    const carry = Lay.mode === 'play' && t.side === Lay.attackingSide && t.id === Lay.carrierId && view?.lastBeat?.type !== 'kickoff';
+    playAct(el, carry ? 'dribble' : 'run', T.move * fx());
+    if (Math.abs(dx) > ANIM25.turnPx && st.act !== 'idle') { // (시트를 아직 못 받아 대기면 돌리지 않는다)
+      st.restFace = el.classList.contains('face-l');
+      el.classList.toggle('face-l', dx < 0);
+    }
+  }
+  /** 골 연출: 골 넣은 선수 + ANIM25.cheerNear 안의 같은 편 (움직이는 스프라이트만) = 세리머니 (끝 자세 — 재배치까지) */
+  function celebrate(ev) {
+    const side = ev.side === 'away' ? 'away' : 'home';
+    const scorer = tokEls.get(`${side}:${ev.playerId}`);
+    const at = scorer?._at || null;
+    for (const el of tokEls.values()) {
+      if (!el._anim || el.dataset.side !== side || el.classList.contains('gone')) continue;
+      const near = el === scorer || (at && el._at && Math.hypot(el._at.x - at.x, el._at.y - at.y) <= ANIM25.cheerNear);
+      if (near) playAct(el, 'celebrate', T.goal * fx());
+    }
   }
 
   /* 라벨 · 말풍선 · 결과 한 줄 · 미리보기 글자의 자리 고르기 (픽셀 박스 {l,r,t,b}).
@@ -1036,6 +1185,7 @@ export function renderMatch(root, ctx) {
     if (d25) {
       // 2.5D: 앵커 = 발. 크기 (--ts) · 치수 변수는 자리마다 (tokGeo — 자리 상자와 같은 값), 겹침 = 화면 y 순 (아래 = 가까운 선수가 앞)
       const g = tokGeo({ x, y, side: el.dataset.side, id: el.dataset.id });
+      el._at = { x, y }; // 지금 가는 자리 (필드 %) — 움직이는 스프라이트: 재배치에서 옮기는가 (A1) · 세리머니 거리
       el.style.transform = `translate(${round1(g.sx)}px, ${round1(g.sy)}px)`;
       el.style.zIndex = String(100 + Math.round(round1(g.sy)));
       for (const [k, v] of [['--ts', g.s], ['--ga', g.ga], ['--fh', `${g.fh}px`], ['--fhw', `${g.hw}px`], ['--by', `${g.by}px`], ['--ny', `${g.ny}px`]]) {
@@ -1120,7 +1270,9 @@ export function renderMatch(root, ctx) {
       el.setAttribute('aria-label', `${t.side === 'home' ? '우리' : '상대'} ${t.slot ?? t.position} ${t.name} — ${L.TOKEN_ROLE_LABELS[t.role] ?? t.role}` +
         `${ult ? ` · 필살 게이지 ${Math.round(ult.gauge)}${ult.ready ? ' (준비)' : ''}` : ''}${deciding && t.role === 'receiver' && t.side === atk ? ' · 탭하면 받는 선수로' : ''}` +
         `${calling ? ` · "${ACE_BUBBLE}" ${ace.title}` : ''}`);
+      const from = el._at || null;
       place(el, t.x, t.y);
+      if (el._anim) animOnLayout(el, t, from, Lay, view, anim); // A1: 옮기면 달리기 · 드리블, 아니면 대기
       el._bar.style.width = `${Math.round(clamp01(t.staminaRatio) * 100)}%`;
       const bub = offCam.has(key) ? '' : key === oppKey && ei.bubble ? ei.bubble : calling ? ACE_BUBBLE : '';
       el._bubble.textContent = bub;
@@ -2820,7 +2972,11 @@ export function renderMatch(root, ctx) {
           linkAt = R;
         }
         // 경합에 진 선수는 받는 선수 쪽으로 붙으며 뒤로 처진다 — 이름표가 받는 선수 이름표와 겹치지 않게 잠깐 숨긴다 (tag-off, 2026-09-30)
-        if (Dc && R) { moveTok(def, Dc.id, lerp(Dc, R, 0.35)); addCls(def, Dc.id, 'beaten'); addCls(def, Dc.id, 'tag-off'); }
+        if (Dc && R) {
+          moveTok(def, Dc.id, lerp(Dc, R, 0.35)); addCls(def, Dc.id, 'beaten'); addCls(def, Dc.id, 'tag-off');
+          const dcEl = tokEl2(def, Dc.id);
+          if (dcEl?._anim) playAct(dcEl, 'run', T.act * k); // A1: 따라붙는 동안 달리기
+        }
       } else {
         // 낙하 지점 = 받을 선수와 경합 선수 사이 (경합 선수 쪽) — 공은 거기로 날아가고 상대 MF 가 끊는다
         const to = R || Dc || C;
@@ -2893,6 +3049,16 @@ export function renderMatch(root, ctx) {
       if (ev.header) addCls(atk, C.id, 'header');
     }
     if (ev.ultimate && C?.id) addCls(atk, C.id, 'ult-act');
+    // A1 움직이는 스프라이트 (액션 길이 --t-act): 공을 가진 선수 = 시도한 동작 (드리블 · 패스 · 킥 · 헤더 — 배급 GK 도), 듀얼 수비 = 수비 동작 ·
+    // 제쳐지거나 태클이 빗나가면 넘어짐 (끝 자세 — 다음 재배치까지), 슛을 막으려던 필드 수비 = 버티기. GK 의 세이브 · 다이브는 K1 연출 그대로
+    if (d25) {
+      const cEl = C?.id != null ? tokEl2(atk, C.id) : null;
+      const aAct = cEl?._anim ? A.attackerAct(ev) : null;
+      if (aAct) playAct(cEl, aAct, T.act * k);
+      const dEl = D?.id != null ? tokEl2(def, D.id) : null;
+      const dAct = dEl?._anim ? A.defenderAct(ev, { keeper: D.position === 'GK' }) : null;
+      if (dAct) playAct(dEl, dAct, T.act * k);
+    }
     // 연계 문구 (성공한 비트만): 킬패스! · 원터치! · 헤더! · 침투! · 합체기! — ④ 박스 연결 성공이면 앞에 "컷백!" · "센터링!"
     const ok = ev.type === 'goal' || (ev.type === 'duel' && ev.success) || (ev.type === 'penalty' && ev.success) || (ev.type === 'distribution' && ev.success);
     const links = Array.isArray(ev.links) ? ev.links.map((l) => (typeof l === 'string' ? l : l?.label)).filter(Boolean) : [];
@@ -2956,8 +3122,8 @@ export function renderMatch(root, ctx) {
       else { el.style.setProperty('--dive-r', `${ang}deg`); el.style.setProperty('--dive-up', `${-SHOT25.up}px`); }
       later(() => el.classList.add('dive', ...(kind === 'save' && d25 && ang != null ? ['catching'] : [])), diveAt);
     };
-    // 필드 수비 (③ 중거리 슛을 막으려던 선수) 는 예전 다이브 그대로
-    if (D && D !== K) dive(tokEls.get(`${def}:${D.id}`));
+    // 필드 수비 (③ 중거리 슛을 막으려던 선수) 는 예전 다이브 그대로 — 움직이는 스프라이트 (A1) 는 기울이지 않고 버티기 동작 (actionPhase)
+    if (D && D !== K && !tokEls.get(`${def}:${D.id}`)?._anim) dive(tokEls.get(`${def}:${D.id}`));
     if (!d25) {
       const end = kind === 'goal' ? { x: aim.x, y: aim.y } : lerp(C, kTo || aim, 0.92);
       trail(C, end, atk, ult);
@@ -3132,6 +3298,7 @@ export function renderMatch(root, ctx) {
   function goalFlash(ev, view) {
     const us = ev.side === humanOf(view);
     if (d25) setCam({ cx: W / 2, cy: H / 2, z: 1 }, T.move * fx()); // 2.5D 카메라 (§5 '골 연출'): 풀코트로 (재배치 = 킥오프 배치도 전체)
+    if (d25) celebrate(ev); // A1: 골 넣은 선수 (+ 가까운 같은 편) 세리머니 — 재배치까지
     drawHud(view, isFinished());
     goalFx.textContent = us ? 'GOAL!' : '실점';
     goalFx.className = `goal-fx show ${us ? 'home' : 'away'}`;
@@ -3660,6 +3827,8 @@ export function renderMatch(root, ctx) {
   // 2.5D 카메라 (§5 '경기 시작 · 킥오프 배치'): 킥오프 배치에서 사람이 고를 차례면 T.start 동안 풀코트를 보여 준 뒤 결정 확대 (0.35초)
   if (d25) camStartHold = !!(L0 && v0?.lastBeat?.type === 'kickoff' && paused(v0) && !isFinished());
   applyLayout(L0, v0, { anim: false, camMs: 0 });
+  // 움직이는 스프라이트 (A1): 경기에 나온 캐릭터의 동작 목록 · 시트를 내려받기 시작 (기다리지 않는다 — 받으면 그 선수 그림을 바꾼다)
+  if (d25) startAnims();
   drawPanels(v0);
   updateBanner(L0, v0, true);
   if (camStartHold) later(() => { camStartHold = false; if (!busy) relayout({ anim: false }); }, T.start * fx());
