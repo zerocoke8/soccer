@@ -1,0 +1,107 @@
+{
+  "version": 1,
+  "id": "ch_elf_playmaker",
+  "source": "Seedance 2.5 (dreamina-seedance-2-5-260628) 480p 4s → tools/video2sprite.mjs",
+  "anims": {
+    "idle": {
+      "mode": "loop",
+      "fps": 8,
+      "count": 6,
+      "w": 148,
+      "h": 250,
+      "footX": 75.6,
+      "footY": 247,
+      "v": "e5220952"
+    },
+    "run": {
+      "mode": "loop",
+      "fps": 12,
+      "count": 7,
+      "w": 174,
+      "h": 256,
+      "footX": 83.2,
+      "footY": 253.5,
+      "v": "1b711525"
+    },
+    "dribble": {
+      "mode": "loop",
+      "fps": 12,
+      "count": 13,
+      "w": 153,
+      "h": 248,
+      "footX": 75.2,
+      "footY": 245.2,
+      "v": "4653e75e"
+    },
+    "kick": {
+      "mode": "once",
+      "fps": 12,
+      "count": 12,
+      "w": 242,
+      "h": 248,
+      "footX": 102.6,
+      "footY": 245.2,
+      "v": "d04ff915"
+    },
+    "pass": {
+      "mode": "once",
+      "fps": 12,
+      "count": 12,
+      "w": 180,
+      "h": 250,
+      "footX": 81,
+      "footY": 247,
+      "v": "2daf831e"
+    },
+    "header": {
+      "mode": "once",
+      "fps": 12,
+      "count": 12,
+      "w": 179,
+      "h": 276,
+      "footX": 87.1,
+      "footY": 272.7,
+      "v": "27bb2f54"
+    },
+    "tackle": {
+      "mode": "once",
+      "fps": 12,
+      "count": 12,
+      "w": 253,
+      "h": 244,
+      "footX": 133.5,
+      "footY": 238.8,
+      "v": "7eceded9"
+    },
+    "block": {
+      "mode": "once",
+      "fps": 12,
+      "count": 12,
+      "w": 204,
+      "h": 256,
+      "footX": 97.1,
+      "footY": 241.5,
+      "v": "6f1b6857"
+    },
+    "fall": {
+      "mode": "hold",
+      "fps": 12,
+      "count": 12,
+      "w": 217,
+      "h": 248,
+      "footX": 89.9,
+      "footY": 245.2,
+      "v": "4d9afb4a"
+    },
+    "celebrate": {
+      "mode": "hold",
+      "fps": 12,
+      "count": 12,
+      "w": 230,
+      "h": 282,
+      "footX": 108.7,
+      "footY": 274.5,
+      "v": "43ae64ca"
+    }
+  }
+}

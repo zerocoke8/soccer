@@ -25,16 +25,24 @@
 </head>
 <body>
 <header>
-  <h1>실루엔 동작 시험 — 시댄스 2.5 (480p · 4초 → 12fps)</h1>
-  <p>기준 그림 한 장을 첫 · 끝 프레임으로 넣어 만든 영상을 배경을 빼고 240px 시트로 바꿨다. 왼쪽 = 경기 크기 (64px), 가운데 = 결정 확대 (약 2배), 오른쪽 = 원본 240px.</p>
+  <h1>실루엔 동작 10개 — 시댄스 2.5 → 경기용 시트</h1>
+  <p>기준 그림 한 장 (첫 · 끝 프레임) 으로 만든 4초 영상에서 배경을 빼고, 반복 동작은 한 바퀴만 · 한 번 하는 동작은 움직이는 구간을 12장으로 솎았다 (경기에 들어가는 그대로). 왼쪽 = 경기 크기 64px, 가운데 = 결정 확대 약 2배, 오른쪽 = 원본 240px. 한 번 하는 동작은 끝나고 잠깐 쉰 뒤 다시 보여 준다.</p>
 </header>
 <div class="row" id="rows"></div>
 <script>
   const ACTS = [
-    { id: "idle", name: "대기 (숨쉬기 · 반복)" },
-    { id: "run", name: "제자리 달리기 (반복)" },
-    { id: "kick", name: "킥 (공 없이)" },
+    { id: "idle", name: "대기 (반복)" },
+    { id: "run", name: "달리기 (반복)" },
+    { id: "dribble", name: "드리블 (반복)" },
+    { id: "kick", name: "슛 · 킥" },
+    { id: "pass", name: "패스" },
+    { id: "header", name: "헤더" },
+    { id: "tackle", name: "슬라이딩 태클" },
+    { id: "block", name: "버티기" },
+    { id: "fall", name: "넘어짐 (끝 자세 유지)" },
+    { id: "celebrate", name: "골 세리머니 (끝 자세 유지)" },
   ];
+  const MANIFEST = fetch("img/sprites/anim/ch_elf_playmaker.json").then((r) => r.json());
   const SIZES = [64, 128, 240];
   const rows = document.getElementById("rows");
   for (const a of ACTS) {
@@ -45,8 +53,8 @@
     let speed = 1, flip = false;
     card.querySelectorAll("button[data-s]").forEach((b) => b.onclick = () => { speed = +b.dataset.s; card.querySelectorAll("button[data-s]").forEach((x) => x.classList.toggle("on", x === b)); });
     card.querySelector("button[data-flip]").onclick = (e) => { flip = !flip; e.target.classList.toggle("on", flip); };
-    Promise.all([fetch(`img/sprites/anim/ch_elf_playmaker.${a.id}.json`).then((r) => r.json()), new Promise((ok, no) => { const im = new Image(); im.onload = () => ok(im); im.onerror = no; im.src = `img/sprites/anim/ch_elf_playmaker.${a.id}.webp`; })]).then(([j, im]) => {
-      info.textContent = `${j.count}프레임 · ${j.fps}fps · 칸 ${j.w}×${j.h}`;
+    MANIFEST.then((m) => { const j = m.anims[a.id]; return new Promise((ok, no) => { const im = new Image(); im.onload = () => ok([j, im]); im.onerror = no; im.src = `img/sprites/anim/ch_elf_playmaker.${a.id}.webp?v=${j.v}`; }); }).then(([j, im]) => {
+      info.textContent = `${j.count}프레임 · ${j.fps}fps · ${j.mode === "loop" ? "반복" : j.mode === "hold" ? "끝 자세 유지" : "한 번"} · 칸 ${j.w}×${j.h}`;
       card.querySelector(".tag").textContent = "64px · 128px · 240px";
       const cvs = SIZES.map((hh) => {
         const k = hh / (j.footY), c = document.createElement("canvas");
@@ -58,7 +66,10 @@
       });
       let t0 = performance.now();
       const draw = (now) => {
-        const f = Math.floor(((now - t0) / 1000) * j.fps * speed) % j.count;
+        const raw = Math.floor(((now - t0) / 1000) * j.fps * speed);
+        // 한 번 하는 동작: 끝 장에서 0.8초 쉬고 처음부터
+        const cyc = j.mode === "loop" ? j.count : j.count + Math.round(j.fps * 0.8);
+        const f = Math.min(raw % cyc, j.count - 1);
         for (const { c, g } of cvs) {
           g.clearRect(0, 0, c.width, c.height);
           g.save();

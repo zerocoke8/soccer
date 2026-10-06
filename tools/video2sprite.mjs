@@ -2,7 +2,7 @@
 // tools/video2sprite.mjs — 동작 영상 (시댄스 · 단색 배경) → 스프라이트 시트 (가로 띠 WebP) + 정보 JSON + 검토 그림 (docs/SPRITE_25D_PLAN.md 동작 단계).
 // npm test 에는 넣지 않는다.
 //
-//   node tools/video2sprite.mjs <in.mp4> <outBase> [--fps 12] [--height 240] [--loop] [--from 0] [--to 영상끝]
+//   node tools/video2sprite.mjs <in.mp4> <outBase> [--fps 12] [--height 240] [--loop] [--trim loop|once|hold] [--from 0] [--to 영상끝]
 //
 // 1) ffmpeg 로 --fps 간격 PNG 프레임을 뽑는다 (헤드리스 크롬의 <video> seek 는 첫 프레임만 돌려줘서 쓰지 않는다).
 //    ffmpeg 경로: 환경변수 FFMPEG_PATH → PATH 의 ffmpeg. 프레임은 크롬 캔버스로 읽는다.
@@ -30,6 +30,8 @@ function parseArgs(argv) {
     if (a === "--fps") o.fps = Number(argv[++i]);
     else if (a === "--height") o.height = Number(argv[++i]);
     else if (a === "--loop") o.loop = true;
+    else if (a === "--trim") o.trim = argv[++i];
+    else if (a === "--max") o.max = Number(argv[++i]);
     else if (a === "--from") o.from = Number(argv[++i]);
     else if (a === "--to") o.to = Number(argv[++i]);
     else pos.push(a);
@@ -82,10 +84,62 @@ async function pageRun(srcs, opt) {
   const f0 = good[0];
   const scale = opt.height / (f0.box[3] - f0.box[1] + 1);
   const ground = f0.box[3];
-  // 프레임마다 x 이동 (몸통 가운데를 첫 프레임에 맞춤) 뒤 전체 상자
+  for (const f of good) f.dx = f0.cx - f.cx;
+  // --trim: 작은 그림 (몸통 맞춤 · 어두운 바탕 48²) 끼리의 차이로 쓸 구간만 남긴다
+  //   loop = 첫 프레임과 가장 닮은 뒤 프레임 p (6 ~ 36) 까지 한 바퀴 [0, p)
+  //   once = 첫 프레임 (기본 자세) 과 다른 프레임만 (앞뒤 2장 여유) — 한 번 하고 돌아오는 동작
+  //   hold = 움직이기 시작한 곳부터, 마지막으로 움직인 곳 (+2) 까지 — 끝 자세가 다른 동작 (넘어짐 · 세리머니)
+  const thumb = (f) => {
+    const c2 = document.createElement("canvas"); c2.width = 48; c2.height = 48;
+    const q = c2.getContext("2d"); q.fillStyle = "#000"; q.fillRect(0, 0, 48, 48);
+    q.drawImage(f.canvas, f.dx * 48 / W, 0, 48, 48);
+    return q.getImageData(0, 0, 48, 48).data;
+  };
+  const dif = (a, b) => { let d = 0; for (let i = 0; i < a.length; i += 4) d += Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]); return d / (48 * 48 * 3 * 255); };
+  let trimInfo = null;
+  if (opt.trim && good.length > 6) {
+    const th = good.map(thumb);
+    const n = good.length;
+    if (opt.trim === "loop") {
+      // 처음 (서 있는 자세에서 출발) 은 빼고 가운데 쯤 m 부터: 세 장씩 비교해 가장 닮은 주기 p (6 ~ 24) — [m, m + p) 한 바퀴
+      const m = Math.floor(n / 3);
+      let best = -1, bd = Infinity;
+      for (let q = 6; q <= Math.min(24, n - m - 3); q++) {
+        let d = 0; for (let k = 0; k < 3; k++) d += dif(th[m + k], th[m + k + q]);
+        d /= 3;
+        if (d < bd - 1e-4) { bd = d; best = q; }
+      }
+      if (best < 0) best = Math.min(12, n - m);
+      good.splice(m + best); good.splice(0, m);
+      trimInfo = { mode: "loop", from: m, period: best, diff: +bd.toFixed(4) };
+    } else {
+      const act = th.map((t) => dif(th[0], t));
+      const mx = Math.max(...act);
+      const thr = Math.max(0.02, mx * 0.4);
+      let a0 = act.findIndex((v) => v > thr);
+      if (a0 < 0) a0 = 0;
+      let a1 = n - 1;
+      if (opt.trim === "once") { for (let i = n - 1; i >= 0; i--) if (act[i] > thr) { a1 = i; break; } }
+      else { // hold: 마지막으로 움직인 프레임 (앞 프레임과 차이)
+        const step = th.map((t, i) => (i ? dif(th[i - 1], t) : 0));
+        const sm = Math.max(...step) * 0.15;
+        for (let i = n - 1; i > a0; i--) if (step[i] > sm) { a1 = i; break; }
+      }
+      const st = Math.max(0, a0 - 2), en = Math.min(n - 1, a1 + 2);
+      good.splice(en + 1); good.splice(0, st);
+      trimInfo = { mode: opt.trim, from: st, to: en, thr: +thr.toFixed(4) };
+    }
+  }
+  // --max N: 남긴 프레임을 고르게 N 장까지 솎는다 (한 번 하는 동작을 경기 액션 길이 ~0.8초에 맞추기 — 첫 · 끝 장은 남긴다)
+  if (opt.max && good.length > opt.max) {
+    const n = good.length, keep = [];
+    for (let i = 0; i < opt.max; i++) keep.push(good[Math.round(i * (n - 1) / (opt.max - 1))]);
+    good.splice(0, n, ...keep);
+    if (trimInfo) trimInfo.thinned = `${n}→${opt.max}`;
+  }
+  // 프레임마다 x 이동 (몸통 가운데를 첫 프레임에 맞춤) 뒤 전체 상자 (남긴 프레임만)
   let ux0 = 1e9, uy0 = 1e9, ux1 = -1e9, uy1 = -1e9;
   for (const f of good) {
-    f.dx = f0.cx - f.cx;
     ux0 = Math.min(ux0, f.box[0] + f.dx); ux1 = Math.max(ux1, f.box[2] + f.dx);
     uy0 = Math.min(uy0, f.box[1]); uy1 = Math.max(uy1, f.box[3]);
   }
@@ -94,7 +148,7 @@ async function pageRun(srcs, opt) {
   const fw = Math.ceil((ux1 - ux0 + 1) * scale) + pad * 2, fh = Math.ceil((uy1 - uy0 + 1) * scale) + pad * 2;
   let list = good;
   let loopDiff = null;
-  if (opt.loop && good.length > 3) {
+  if (opt.loop && !opt.trim && good.length > 3) {
     // 끝 프레임 ~ 첫 프레임 차이 (작은 그림으로) — 거의 같으면 끝 한 장을 뺀다
     const small = (f) => { const s = document.createElement("canvas"); s.width = 48; s.height = 48; s.getContext("2d").drawImage(f.canvas, 0, 0, W, H, 0, 0, 48, 48); return s.getContext("2d").getImageData(0, 0, 48, 48).data; };
     const a = small(good[0]), b = small(good[good.length - 1]);
@@ -133,7 +187,7 @@ async function pageRun(srcs, opt) {
   let rs = ""; for (let i = 0; i < rbuf.length; i += 0x8000) rs += String.fromCharCode.apply(null, rbuf.subarray(i, i + 0x8000));
   return {
     webp: btoa(s), review: btoa(rs),
-    info: { fps: opt.fps, count: list.length, w: fw, h: fh, footX: +((f0.cx - ux0) * scale + pad).toFixed(1), footY: +((ground - uy0) * scale + pad).toFixed(1), scale: +scale.toFixed(4), video: { w: W, h: H, duration: +dur.toFixed(3) }, loopDiff: loopDiff == null ? null : +loopDiff.toFixed(4), key: green ? "green" : "magenta" },
+    info: { fps: opt.fps, count: list.length, trim: trimInfo, w: fw, h: fh, footX: +((f0.cx - ux0) * scale + pad).toFixed(1), footY: +((ground - uy0) * scale + pad).toFixed(1), scale: +scale.toFixed(4), video: { w: W, h: H, duration: +dur.toFixed(3) }, loopDiff: loopDiff == null ? null : +loopDiff.toFixed(4), key: green ? "green" : "magenta" },
   };
 }
 
@@ -160,7 +214,7 @@ async function main() {
   try {
     const page = await browser.newPage();
     await page.goto(`${base}/index.html`, { waitUntil: "domcontentloaded" });
-    const res = await page.evaluate(pageRun, srcs, { fps: o.fps, height: o.height, loop: o.loop });
+    const res = await page.evaluate(pageRun, srcs, { fps: o.fps, height: o.height, loop: o.loop, trim: o.trim || null, max: o.max || 0 });
     fs.mkdirSync(path.dirname(path.resolve(o.outBase)), { recursive: true });
     fs.writeFileSync(`${o.outBase}.webp`, Buffer.from(res.webp, "base64"));
     fs.writeFileSync(`${o.outBase}_sheet.png`, Buffer.from(res.review, "base64"));
