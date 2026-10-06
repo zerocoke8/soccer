@@ -2,7 +2,7 @@
 // tools/video2sprite.mjs — 동작 영상 (시댄스 · 단색 배경) → 스프라이트 시트 (가로 띠 WebP) + 정보 JSON + 검토 그림 (docs/SPRITE_25D_PLAN.md 동작 단계).
 // npm test 에는 넣지 않는다.
 //
-//   node tools/video2sprite.mjs <in.mp4> <outBase> [--fps 12] [--height 240] [--loop] [--trim loop|once|hold] [--from 0] [--to 영상끝]
+//   node tools/video2sprite.mjs <in.mp4> <outBase> [--fps 12] [--height 240] [--loop] [--trim loop|once|hold] [--max N] [--despill] [--from 0] [--to 영상끝]
 //
 // 1) ffmpeg 로 --fps 간격 PNG 프레임을 뽑는다 (헤드리스 크롬의 <video> seek 는 첫 프레임만 돌려줘서 쓰지 않는다).
 //    ffmpeg 경로: 환경변수 FFMPEG_PATH → PATH 의 ffmpeg. 프레임은 크롬 캔버스로 읽는다.
@@ -32,6 +32,7 @@ function parseArgs(argv) {
     else if (a === "--loop") o.loop = true;
     else if (a === "--trim") o.trim = argv[++i];
     else if (a === "--max") o.max = Number(argv[++i]);
+    else if (a === "--despill") o.despill = true;
     else if (a === "--from") o.from = Number(argv[++i]);
     else if (a === "--to") o.to = Number(argv[++i]);
     else pos.push(a);
@@ -67,6 +68,11 @@ async function pageRun(srcs, opt) {
       const keyness = green ? (g - Math.max(r, b)) / 255 : (Math.min(r, b) - g) / 255;
       const a = Math.max(0, Math.min(1, 1 - (keyness - 0.12) / 0.3));
       if (a < 1) { p[i] *= 0.45; p[i + 1] *= 0.45; p[i + 2] *= 0.45; }
+      // --despill: 배경색이 번진 픽셀 (흙먼지 · 반투명 머리끝) 의 배경색 기운을 뺀다 — 자홍이면 r · b 를 g 쪽으로, 초록이면 g 를 r · b 쪽으로
+      if (opt.despill && a > 0) {
+        if (green) { const m = Math.max(p[i], p[i + 2]); if (p[i + 1] > m) p[i + 1] = m; }
+        else { const m = Math.min(p[i], p[i + 2]); if (m > p[i + 1]) { const d = m - p[i + 1]; p[i] -= d; p[i + 2] -= d; } }
+      }
       p[i + 3] = Math.round(a * 255);
       if (a > 0.5) { const n = i / 4, xx = n % W, yy = (n / W) | 0; if (xx < x0) x0 = xx; if (xx > x1) x1 = xx; if (yy < y0) y0 = yy; if (yy > y1) y1 = yy; }
     }
@@ -214,7 +220,7 @@ async function main() {
   try {
     const page = await browser.newPage();
     await page.goto(`${base}/index.html`, { waitUntil: "domcontentloaded" });
-    const res = await page.evaluate(pageRun, srcs, { fps: o.fps, height: o.height, loop: o.loop, trim: o.trim || null, max: o.max || 0 });
+    const res = await page.evaluate(pageRun, srcs, { fps: o.fps, height: o.height, loop: o.loop, trim: o.trim || null, max: o.max || 0, despill: !!o.despill });
     fs.mkdirSync(path.dirname(path.resolve(o.outBase)), { recursive: true });
     fs.writeFileSync(`${o.outBase}.webp`, Buffer.from(res.webp, "base64"));
     fs.writeFileSync(`${o.outBase}_sheet.png`, Buffer.from(res.review, "base64"));

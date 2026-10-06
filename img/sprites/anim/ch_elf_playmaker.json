@@ -1,7 +1,7 @@
 {
   "version": 1,
   "id": "ch_elf_playmaker",
-  "source": "Seedance 2.5 (dreamina-seedance-2-5-260628) 480p 4s → tools/video2sprite.mjs",
+  "source": "Seedance 2.5 (dreamina-seedance-2-5-260628) 480p 4s → tools/video2sprite.mjs (tackle = 발 먼저 슬라이딩, 2026-10-06 다시 뽑음)",
   "anims": {
     "idle": {
       "mode": "loop",
@@ -73,12 +73,12 @@
       "mode": "once",
       "fps": 12,
       "count": 12,
-      "w": 253,
-      "h": 244,
-      "footX": 133.5,
-      "footY": 238.8,
-      "foot0X": 124.4,
-      "v": "7eceded9"
+      "w": 302,
+      "h": 245,
+      "footX": 110.7,
+      "footY": 237.9,
+      "foot0X": 98.3,
+      "v": "c2a610df"
     },
     "block": {
       "mode": "once",
