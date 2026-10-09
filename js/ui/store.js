@@ -18,6 +18,9 @@ export const KEYS = {
   // 계정 저장 (LESSON_PROTO_PLAN §24.7 — 런 밖): 본 외출 이야기 · 만난 코치 { version: 1, stories: { [charId]: 1 ~ 3 }, coachMet: { [supportId]: true } }.
   // 런 저장 삭제 · 다시 하기 · clearRunSaves 는 이 키를 지우지 않는다. 엔진 호출마다 app.js engine() 이 런 진행을 합친다 (lessonEvents.accountMerge).
   account: `${STORAGE_PREFIX}account`,
+  // 육각 오토배틀 경기 (H1 — docs/HEX_AUTOBATTLE_PLAN.md §6.4): 런 경기의 육각 엔진 재생 기록 { version: HEX_SAVE_VERSION, seed, steps, skipped? }.
+  //   상태 전체가 아니라 시드 + step 횟수만 남긴다 (H1 은 입력이 없어 같은 셋업으로 다시 돌리면 그대로 되살아난다). clearRunSaves 가 함께 지운다
+  hexMatch: `${STORAGE_PREFIX}hexMatch`,
 };
 /** KEYS.account 저장 형식 버전 */
 export const ACCOUNT_VERSION = 1;
@@ -32,6 +35,8 @@ export const LESSON_RUN_SAVE_VERSIONS = [1, 2, 3, 4, 5];
 export function isLessonRunSave(s) {
   return !!s && typeof s === 'object' && s.kind === LESSON_RUN_KIND && LESSON_RUN_SAVE_VERSIONS.includes(s.version) && typeof s.phase === 'string';
 }
+/** KEYS.hexMatch 저장 형식 버전 (육각 경기 재생 기록 — saveHexMatch · loadHexMatch) */
+export const HEX_SAVE_VERSION = 1;
 /** KEYS.challengeMatch 저장 형식 버전 */
 export const CHALLENGE_MATCH_VERSION = 1;
 /** 등록 팀 저장 개수 상한 (addTeam — 넘친 오래된 팀은 지운다) */
@@ -40,6 +45,8 @@ export const TEAMS_CAP = 50;
 // 경기 화면 URL 파라미터 (테스트·스크린샷용): ?auto=0 → 자동 꺼진 채 시작, ?speed=1|2|4 → 배속. 모듈 로드 시 한 번 읽는다.
 // 2.5D 경기 화면 (docs/SPRITE_25D_PLAN.md §4): ?d25=1 → 켬, ?flat=1 (또는 ?d25=0) → 끔 (?flat 이 이긴다). 없으면 스프라이트 · 육각 시험판 (/sprite/ · /hex/) 만 켬.
 // 배치 흔들림 (§11 — J1): ?jitter=0 → 끔, ?jitter=1 → 켬 (평면에서도). 없으면 2.5D 모드를 따른다 (isLayoutJitter).
+// 육각 경기 화면 (docs/HEX_AUTOBATTLE_PLAN.md §6.2 — H1): ?hex=0 → 끔 (옛 턴제 화면), ?hex=1 → 켬. 없으면 육각 시험판 (/hex/) 만 켬.
+//   ?tick=300 ~ 500 (정수, ms) → 육각 경기 한 턴 길이 (1배속 기준). 범위 밖이면 무시 (기본 400 — hexTickMs).
 function urlMatchPrefs() {
   try {
     const search = globalThis.location && typeof globalThis.location.search === 'string' ? globalThis.location.search : '';
@@ -57,6 +64,12 @@ function urlMatchPrefs() {
     const j = q.get('jitter');
     if (j === '0' || j === 'false' || j === 'off') out.jitter = false;
     else if (j === '1' || j === 'true' || j === 'on') out.jitter = true;
+    const hx = q.get('hex');
+    if (hx === '0' || hx === 'false' || hx === 'off') out.hex = false;
+    else if (hx === '1' || hx === 'true' || hx === 'on') out.hex = true;
+    const tk = q.get('tick');
+    const tickMs = tk != null && /^\d+$/.test(tk) ? Number(tk) : NaN;
+    if (Number.isInteger(tickMs) && tickMs >= 300 && tickMs <= 500) out.tick = tickMs;
     return out;
   } catch (_) {
     return {};
@@ -90,12 +103,30 @@ export function setLayoutJitterForTest(on) {
   jitterForTest = on == null ? null : !!on;
 }
 
+// 육각 오토배틀 경기 화면 (docs/HEX_AUTOBATTLE_PLAN.md §6.2 — H1): 런 경기 (phase match) 를 육각 엔진 (js/engine/hexMatch.js) + Pixi 화면으로.
+// 기본 = 육각 시험판 (/hex/) 만 켬 — 테스트 · 로컬 (주소 없음 · /soccer/) 은 옛 턴제 화면. 도전 경기는 H5 까지 늘 옛 엔진.
+const HEX_MATCH_DEFAULT = URL_PREFS.hex ?? HEX_SITE;
+let hexMatchOn = HEX_MATCH_DEFAULT;
+/** 런 경기를 육각 경기 화면으로 그리는가 (app.js render 가 phase match 마다 읽는다) */
+export function isHexMatch() {
+  return hexMatchOn;
+}
+/** 테스트 전용: 육각 경기 화면을 켜고 끈다 (null = 주소 · 사이트로 정한 기본값으로). 다음 경기 화면부터 */
+export function setHexMatchForTest(on) {
+  hexMatchOn = on == null ? HEX_MATCH_DEFAULT : !!on;
+}
+/** 육각 경기 한 턴 길이 (ms, 1배속 기준) — 주소 ?tick=300 ~ 500, 없으면 400 (경기 시계: 300 턴 = 2:00 → 턴당 0.4 초) */
+export function hexTickMs() {
+  return URL_PREFS.tick ?? 400;
+}
+
 export const store = {
   data: null,          // { config, characters, supports, events, skills, relics, opponents, routes, …, challenge, challenge_sample_team }
   screen: 'start',     // 'start' | 'setup' | 'run' | 'challenge'(도전 목록) | 'challengeMatch'(도전 경기) | 'recollection'(회상 — 시작 화면 [회상])
   run: null,           // RunState (엔진 lessonRun.js 소유, kind "lessonRun")
   match: null,         // MatchState (엔진 소유), 경기 중에만 — 도전 경기 중에는 도전 경기 상태 (런 경기는 KEYS.match 에 그대로 있고 이어하기가 다시 읽는다)
                        //   도전 경기를 떠나면(결과 기록 · 포기 · [나가기] · 처음으로) 늘 null 로 비운다
+  hexMatch: null,      // 육각 경기 상태 (엔진 hexMatch.js 소유, engine "hex") — 런 경기 중에만, 메모리만 (저장은 KEYS.hexMatch 재생 기록 — 화면이 되살린다)
   // 도전 모드 화면 상태 (메모리만 — 진행 기록 · 진행 중인 경기는 위 KEYS.challenge · KEYS.challengeMatch)
   challenge: {
     teamId: null,      // 고른 팀 (엔진 challenge.teamIdOf)
@@ -171,7 +202,22 @@ export function loadRun() {
 }
 export function saveMatch(state) { return lsSet(KEYS.match, state ?? null); }
 export function loadMatch() { return lsGet(KEYS.match); }
-export function clearRunSaves() { lsSet(KEYS.run, null); lsSet(KEYS.match, null); }
+export function clearRunSaves() { lsSet(KEYS.run, null); lsSet(KEYS.match, null); lsSet(KEYS.hexMatch, null); }
+/**
+ * 육각 경기 재생 기록 쓰기 (KEYS.hexMatch). null = 지운다. 모양 = { version: HEX_SAVE_VERSION, seed, steps, skipped? } (화면이 만든다)
+ * @param {{ version: number, seed: string|number, steps: number, skipped?: boolean } | null} save
+ */
+export function saveHexMatch(save) { return lsSet(KEYS.hexMatch, save ?? null); }
+/**
+ * 육각 경기 재생 기록 (없거나 모양 · 버전이 틀리면 null — seed 확인은 화면이 셋업과 맞춰 본다)
+ * @returns {{ version: number, seed: string|number, steps: number, skipped?: boolean } | null}
+ */
+export function loadHexMatch() {
+  const s = lsGet(KEYS.hexMatch);
+  if (!s || typeof s !== 'object' || Array.isArray(s) || s.version !== HEX_SAVE_VERSION) return null;
+  if (!Number.isInteger(s.steps) || s.steps < 0 || s.seed == null) return null;
+  return s;
+}
 
 /**
  * 등록 팀 (최신이 앞 — addTeam). 팀 = lessonRun.finalizeRun().registeredTeam + grade · score · registeredAt

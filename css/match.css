@@ -884,3 +884,66 @@
 @media (prefers-reduced-motion: reduce) {
   .match-screen.d25 .w-cam, .match-screen.d25 .w-sky, .match-screen.d25 .m-field { transition: none !important; }
 }
+
+/* ---- 육각 경기 화면 (H1 — docs/HEX_AUTOBATTLE_PLAN.md §5 · §6, screens/hexMatch.js · hexPixi.js) ----
+   .match-screen.hex-screen 에만 건다 (옛 턴제 · 2.5D 경기 화면은 그대로). 경기장은 Pixi 캔버스 하나 (.hx-canvas — .hx-pitch 전체),
+   필드 영역 (.hx-field = 예전 .m-field 자리: 좌우 --fx · 위 --ft · 아래 --fb) 은 이름표 (.hx-name) 층이자 캔버스 좌표의 기준.
+   HUD 는 예전 클래스 (.mh …) 를 그대로 쓰고 시계 (.hx-clock) · 컨트롤 (.hx-ctl) · 알림 (.hx-banner) 만 새로. 필터 · 배경 흐림 없음 (iPhone)
+   꾸밈 클래스는 모두 hx- 앞머리 (.hx-show · .hx-stage · .hx-goal …) — 전역 .stage (base.css #stage 1280×720 상자) 같은 이름과 겹치지 않게 */
+.match-screen.hex-screen .hx-pitch {
+  position: absolute; inset: var(--pad); z-index: 0; border-radius: 16px; overflow: hidden;
+  user-select: none; -webkit-user-select: none; touch-action: manipulation;
+  background: linear-gradient(180deg, #4f8f3f 0%, #4b893c 100%);
+}
+.match-screen.hex-screen .hx-canvas { position: absolute; inset: 0; pointer-events: none; }
+.match-screen.hex-screen .hx-canvas > canvas { position: absolute; left: 0; top: 0; display: block; }
+.match-screen.hex-screen .hx-field { position: absolute; left: var(--fx); right: var(--fx); top: var(--ft); bottom: var(--fb); pointer-events: none; }
+.match-screen.hex-screen [hidden] { display: none !important; }
+/* 공 가진 선수 이름표: 발 위 머리 점 (JS translate) 에서 가운데 · 위로 */
+.match-screen.hex-screen .hx-name {
+  position: absolute; left: 0; top: 0; z-index: 2; white-space: nowrap; pointer-events: none;
+  font-size: 12px; line-height: 16px; font-weight: 800; color: #fff;
+  padding: 1px 8px; border-radius: 9px; background: rgba(10, 14, 22, .8); border: 1px solid var(--gold);
+}
+.match-screen.hex-screen .hx-name.hx-home { box-shadow: inset 0 -2px 0 var(--home); }
+.match-screen.hex-screen .hx-name.hx-away { box-shadow: inset 0 -2px 0 var(--away); }
+.match-screen.hex-screen .hx-fallback, .match-screen.hex-screen .hx-note {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 3; max-width: 80%;
+  padding: 12px 18px; border-radius: 12px; background: rgba(12, 18, 26, .88); border: 1px solid #34405a;
+  color: var(--text); font-size: 15px; font-weight: 700; text-align: center;
+}
+.match-screen.hex-screen .hx-note { top: auto; bottom: 18px; transform: translateX(-50%); font-size: 13px; padding: 6px 14px; }
+/* 시계: 점수 머리 바로 아래 가운데 */
+.match-screen.hex-screen .hx-clock {
+  position: absolute; z-index: 6; left: 50%; top: 68px; transform: translateX(-50%);
+  min-width: 92px; padding: 2px 14px; border-radius: 12px; text-align: center; white-space: nowrap;
+  background: rgba(15, 20, 29, .92); border: 1px solid #34405a; box-shadow: 0 4px 12px rgba(0, 0, 0, .35);
+  font-size: 22px; line-height: 28px; font-weight: 900; font-variant-numeric: tabular-nums; letter-spacing: .04em; color: var(--text);
+}
+.match-screen.hex-screen .hx-clock.hx-low { color: #ffb45c; border-color: rgba(255, 159, 67, .7); }
+.match-screen.hex-screen .hx-clock.hx-golden { color: var(--gold); border-color: var(--gold); font-size: 18px; }
+/* 컨트롤: 왼쪽 아래 [배속] [⏭] */
+.match-screen.hex-screen .hx-ctl { position: absolute; z-index: 5; left: calc(var(--pad) + 8px); bottom: 10px; display: flex; gap: 6px; }
+.match-screen.hex-screen .hx-ctl .btn {
+  min-height: 0; min-width: 56px; height: 36px; padding: 2px 12px; font-size: 14px; font-weight: 800; white-space: nowrap; border-radius: 10px;
+  background: rgba(21, 27, 38, .94); box-shadow: 0 3px 10px rgba(0, 0, 0, .3); font-variant-numeric: tabular-nums;
+}
+.match-screen.hex-screen .hx-ctl .btn.active { background: rgba(30, 58, 92, .95); }
+/* 알림 (골 · 골든골 · 추가시간 · 승부차기): 필드 가운데 위쪽 큰 글자 */
+.match-screen.hex-screen .hx-banner {
+  position: absolute; z-index: 7; left: 50%; top: 26%; transform: translate(-50%, -50%);
+  display: none; flex-direction: column; align-items: center; gap: 4px; pointer-events: none; text-align: center; white-space: nowrap;
+}
+.match-screen.hex-screen .hx-banner.hx-show { display: flex; animation: hx-banner-in .4s cubic-bezier(.2, 1.4, .4, 1); }
+.match-screen.hex-screen .hx-banner-txt { font-size: 64px; line-height: 70px; font-weight: 900; letter-spacing: .08em; color: #fff; text-shadow: 0 3px 0 rgba(0, 0, 0, .55), 0 0 18px rgba(0, 0, 0, .35); }
+.match-screen.hex-screen .hx-banner-sub:empty { display: none; }
+.match-screen.hex-screen .hx-banner-sub { padding: 3px 14px; border-radius: 10px; background: rgba(12, 18, 26, .82); font-size: 15px; line-height: 20px; font-weight: 800; color: var(--text); }
+.match-screen.hex-screen .hx-banner.hx-goal.hx-home .hx-banner-txt { color: var(--gold); text-shadow: 0 0 22px rgba(255, 209, 102, .8), 0 3px 0 #3a2a00; }
+.match-screen.hex-screen .hx-banner.hx-goal.hx-away .hx-banner-txt { color: #ff8a8a; text-shadow: 0 0 22px rgba(255, 72, 72, .7), 0 3px 0 #3a0000; }
+.match-screen.hex-screen .hx-banner.hx-stage .hx-banner-txt { font-size: 46px; line-height: 54px; color: var(--gold); }
+.match-screen.hex-screen .hx-banner.hx-pk .hx-banner-txt { font-size: 40px; line-height: 48px; }
+.match-screen.hex-screen .hx-banner.hx-pk.hx-miss .hx-banner-txt { color: #c9d2e0; }
+@keyframes hx-banner-in { from { transform: translate(-50%, -50%) scale(.5); opacity: 0; } to { transform: translate(-50%, -50%); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .match-screen.hex-screen .hx-banner.hx-show { animation: none !important; }
+}

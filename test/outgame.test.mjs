@@ -84,7 +84,7 @@ test("저장 키: 'soccer-lesson.' 앞머리 · loadRun 은 레슨 런 저장본
   const st = await import(pathToFileURL(path.join(ROOT, "js/ui/store.js")).href);
   const lr = await import(pathToFileURL(path.join(ROOT, "js/engine/lessonRun.js")).href);
   assert.equal(st.STORAGE_PREFIX, "soccer-lesson.");
-  assert.deepEqual(Object.keys(st.KEYS).sort(), ["account", "challenge", "challengeMatch", "match", "run", "teams"]); // account = 계정 저장 (§24.7 — 본 이야기 · 만난 코치)
+  assert.deepEqual(Object.keys(st.KEYS).sort(), ["account", "challenge", "challengeMatch", "hexMatch", "match", "run", "teams"]); // account = 계정 저장 (§24.7 — 본 이야기 · 만난 코치) · hexMatch = 육각 경기 재생 기록 (HEX H1)
   for (const [k, v] of Object.entries(st.KEYS)) assert.equal(v, `soccer-lesson.${k}`, `KEYS.${k}`);
   assert.equal(st.LESSON_RUN_KIND, lr.RUN_KIND);
   assert.equal(st.LESSON_RUN_VERSION, lr.RUN_VERSION);

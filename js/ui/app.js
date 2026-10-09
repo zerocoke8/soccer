@@ -12,11 +12,14 @@
 //   개발 · 스크린샷용 ?events=on: 불러온 data/lesson.json 의 이벤트 기능 스위치를 모두 켠다 (tools/lesson_scenarios.mjs og_event_* — I1 전에는 데이터가 꺼져 있다).
 // 레전드 · 메모리 카드 (§24.9, U5): startRun 이 편성 화면의 레전드 사본을 createRun({ legends }) 에 넘기고,
 //   registerTeam({ memory }) 이 결과 화면에서 고른 메모리 카드를 등록 팀 memoryCard 로 남긴다 (이번 런 후보 memoryCardOptions 안에서만).
+// 육각 오토배틀 (docs/HEX_AUTOBATTLE_PLAN.md §6.2 — H1): store.isHexMatch() 이면 런 경기 (phase match) 를 육각 경기 화면 (screens/hexMatch.js,
+//   엔진 js/engine/hexMatch.js = ctx.hexMatch) 으로 그린다. 육각 상태 = store.hexMatch (메모리) + KEYS.hexMatch (재생 기록) — 런 경기를 비우는 곳마다 함께 비운다.
+//   Pixi 는 그 화면이 캔버스를 만들 때만 동적 import — 여기서 닿지 않는다. 도전 경기는 H5 까지 옛 엔진 그대로.
 import { mountStage } from './stage.js';
 import {
   store, saveRun, loadRun, saveMatch, loadMatch, clearRunSaves, addTeam, resetMatchUi, resetLessonUi, loadTeams, TEAMS_CAP,
   loadChallengeProgress, saveChallengeProgress, loadChallengeMatch, saveChallengeMatch, CHALLENGE_MATCH_VERSION,
-  loadAccount, saveAccount, SPRITE_SITE, HEX_SITE,
+  loadAccount, saveAccount, SPRITE_SITE, HEX_SITE, isHexMatch, saveHexMatch,
 } from './store.js';
 import { h, toast, closeOverlays } from './dom.js';
 import { renderStart } from './screens/start.js';
@@ -30,6 +33,7 @@ import { renderEventModal, renderEventResult } from './screens/event.js';
 import { renderCardOfferModal } from './screens/cardOffer.js';
 import { renderRecollection } from './screens/recollection.js';
 import { renderMatch } from './screens/match.js';
+import { renderHexMatch, hexViewDebug } from './screens/hexMatch.js';
 import { renderRelicModal } from './screens/relic.js';
 import { renderRoute } from './screens/route.js';
 import { renderResult } from './screens/result.js';
@@ -55,6 +59,7 @@ let manager = null; // js/engine/manager.js (감독 AI — 추천 배지 · 자�
 let challenge = null; // js/engine/challenge.js (도전 모드 — 없으면 도전 모드만 못 연다)
 let lessonEvents = null; // js/engine/lessonEvents.js (회상 — storyList · eventById, §24.7)
 let lessonText = null; // js/engine/lessonText.js (회상 본문 — fillText · pickText)
+let hexMatch = null; // js/engine/hexMatch.js (육각 오토배틀 경기 엔진 — 없으면 런 경기도 옛 화면)
 
 function errMsg(e) {
   if (!e) return '알 수 없는 오류';
@@ -282,6 +287,7 @@ const actions = {
       if (!run.isLessonRun(s)) {
         const oldLesson = s.version === 1;
         clearRunSaves(); // "저장 없음"
+        store.hexMatch = null;
         render();
         return oldLesson ? toast('구역 방식으로 바뀌어 진행 중인 레슨은 이어 할 수 없습니다', 'info', 5000) : toast('저장된 런이 없습니다.');
       }
@@ -293,6 +299,7 @@ const actions = {
     const m = loadMatch();
     const matchOk = m && s.phase === 'match' && (s.pendingMatch?.seed == null || m.seed === s.pendingMatch.seed);
     store.match = matchOk ? m : null;
+    store.hexMatch = null; // 육각 경기는 화면이 자기 재생 기록 (KEYS.hexMatch) 으로 되살린다
     resetMatchUi();
     resetLessonUi();
     store.screen = 'run';
@@ -303,6 +310,7 @@ const actions = {
     clearRunSaves(); // 런 · 경기 저장만 (계정 저장 KEYS.account 는 남는다 — §24.7)
     store.run = null;
     store.match = null;
+    store.hexMatch = null;
     store.final = null;
     store.screen = 'start';
     render();
@@ -331,6 +339,7 @@ const actions = {
     if (!st) return;
     store.run = st;
     store.match = null;
+    store.hexMatch = null;
     store.final = null;
     store.registered = false;
     store.eventUi.resultSeq = null;
@@ -338,6 +347,7 @@ const actions = {
     resetLessonUi();
     saveRun(st);
     saveMatch(null);
+    saveHexMatch(null);
     store.screen = 'run';
     render();
   },
@@ -483,6 +493,8 @@ const actions = {
     if (r === undefined) { render(); return; } // 실패 시 경기 상태 유지 → 다시 시도 가능
     store.match = null;
     saveMatch(null);
+    store.hexMatch = null;
+    saveHexMatch(null);
     resetMatchUi();
     announce(newLogLines(before));
     render();
@@ -523,6 +535,7 @@ const actions = {
     store.eventUi.resultSeq = null;
     store.run = null;
     store.match = null;
+    store.hexMatch = null;
     store.final = null;
     store.registered = false;
     resetMatchUi();
@@ -667,6 +680,7 @@ function makeCtx() {
     data: store.data,
     run,
     match,
+    hexMatch, // 육각 오토배틀 경기 엔진 (H1 — 없으면 null)
     manager,
     challenge,
     lessonEvents, // 회상 (storyList · eventById) — 없으면 null
@@ -764,7 +778,10 @@ export function render() {
       case 'prep': renderPrep(root, ctx); break;
       case 'event': renderBackdrop(root, ctx); renderEventModal(ctx); break;
       case 'cardOffer': renderBackdrop(root, ctx); renderCardOfferModal(ctx); break;
-      case 'match': setStageMode('match'); renderMatch(root, ctx); break;
+      case 'match': setStageMode('match');
+        if (isHexMatch() && hexMatch) renderHexMatch(root, ctx); // 육각 경기 화면 (H1) — 엔진이 없으면 옛 화면
+        else renderMatch(root, ctx);
+        break;
       case 'relic': renderBackdrop(root, ctx); renderRelicModal(ctx); break;
       case 'route': renderRoute(root, ctx); break;
       case 'finished': renderResult(root, ctx); break;
@@ -819,11 +836,20 @@ async function boot() {
     console.warn('도전 모드 모듈 로드 실패', e);
     challenge = null;
   }
+  // 육각 경기 엔진도 따로 (H1): 실패하면 런 경기는 옛 화면으로
+  try {
+    hexMatch = await import('../engine/hexMatch.js');
+  } catch (e) {
+    console.warn('육각 경기 모듈 로드 실패', e);
+    hexMatch = null;
+  }
 
   // 디버깅 편의
   window.__soccer = {
     store, get run() { return run; }, get match() { return match; }, get manager() { return manager; }, get challenge() { return challenge; },
     get lessonEvents() { return lessonEvents; }, get stage() { return stage?.fit ?? null; }, render, actions,
+    // 육각 경기 (H1): 엔진 모듈 · 화면이 내놓는 디버그 { renderer: 'webgl'|'fallback', fps, turn, steps } (육각 경기 화면을 연 적이 없으면 null)
+    get hexMatch() { return hexMatch; }, get hexView() { return hexViewDebug(); },
   };
 
   // 부트는 늘 시작 화면 (런 [이어하기] 와 같다). 진행 중인 도전 경기는 시작 화면 [도전 모드] 가 "이어하기" 로 보여 주고 누르면 복원한다
