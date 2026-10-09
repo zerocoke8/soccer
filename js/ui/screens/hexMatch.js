@@ -10,6 +10,7 @@
 //   ├ .hx-ctl              [1x/2x/4x] (.speed-btn — store.matchUi.speed) · [⏭] (.skip-btn — 결과까지)
 //   ├ .hx-banner           골 · 골든골 · 추가시간 · 승부차기 알림
 //   ├ .hx-ult              필살기 버튼 7개 (H3 — 아래 띠 가운데 · 오른쪽: 사람 쪽 선수, 포메이션 칸 순서) button.hx-ult-btn.ut-<type>.tier-<tier>
+//   ├ .hx-stale            엔진 판이 안 맞을 때 (배포 직후 캐시 섞임) 띠 자리의 안내 + [새로고침] — 평소엔 없음
 //   └ .m-cutin             필살기 컷인 층 (예전 경기 화면과 같은 클래스 · 전역 .cut* CSS — .show 의 배경이 캔버스 위 어두운 판 한 장, 문서 §5.2)
 //   이름표 .hx-name (공 가진 선수 머리 위 — 매 프레임 hexScene.headPoint × 카메라) 는 .hx-field 안.
 //   감정 말풍선 .hx-emote.hx-emote-win|lose > .hx-emote-b (공을 뺏은 · 뺏긴 선수 머리 위 — 이름표와 같은 층, 풀 ≤ 6) 도 .hx-field 안.
@@ -86,6 +87,13 @@
 //   - 말풍선 크기는 처음 보일 때 · 이름표 높이는 처음 한 번만 잰다 (프레임마다 layout 읽지 않게).
 //   - 한 선수 머리 위에는 하나 — 다음 턴 말풍선이 같은 선수에게 뜨면 지난 것을 바로 지운다.
 //   - 움직이는 스프라이트가 낮은 자세 (frame act tackle · fall) 면 선 키 머리 점에서 EMOTE_LOW × 키만큼 내린다 (뜬 말풍선이 옆 선수 것처럼 읽혀서 — 2026-10-10 스크린샷), 자세가 바뀌면 부드럽게.
+
+// 엔진 판 확인 (2026-10-10 기획자 폰 "HM.ultimateList is not a function" — 배포 직후 새 화면 모듈 + 캐시의 옛 엔진 모듈, 루트 sw.js 머리 주석):
+//   - 띄울 때 hexEngineCompat(HM) 로 이 화면이 쓰는 엔진 API (createMatch · step · ultimateList · ultimateStatus 함수, HEX_MATCH_VERSION ≥ HEX_ENGINE_EXPECT) 를 본다.
+//   - 필살기 API 만 안 맞으면: 필살기 띠를 숨기고 (엔진을 부르지 않는다 — 턴마다 토스트 나던 것) 띠 자리에 작은 안내 .hx-stale
+//     "새 버전으로 바뀌는 중이에요 — 잠시 뒤 새로고침해 주세요" + [새로고침] (location.reload). 경기는 그대로 돈다 (필살기 없이).
+//   - createMatch · step 도 없으면: 경기 대신 같은 안내 + [새로고침] · [처음으로] 판.
+//   - 이 화면의 safe() 는 같은 오류 글을 한 번만 토스트한다 (그 뒤는 console.error 만 — 매 턴 · 매 프레임 같은 토스트가 쌓이지 않게).
 
 // [구현 결정] (H3 — 필살기 버튼 · 컷인 · 저장):
 //  - 버튼 글 = 선수 이름 + 상태 한 줄 + 게이지 막대 (스킬 이름 · 유형 · 등급 · 설명 · 대사 · 이유는 title). 얼굴 = 초상 face, 없으면 색 원.
@@ -172,6 +180,55 @@ export function setHexEmotesForTest(fn) {
   emotesOfTest = typeof fn === 'function' ? fn : null;
 }
 
+/** 이 화면이 기대하는 육각 엔진 상태 판 (js/engine/hexMatch.js HEX_MATCH_VERSION — 판 2 = H3 필살기) */
+export const HEX_ENGINE_EXPECT = 2;
+/** 엔진 판이 안 맞을 때 안내 글 (필살기 띠 자리 · 대체 판) */
+export const STALE_MSG = '새 버전으로 바뀌는 중이에요 — 잠시 뒤 새로고침해 주세요';
+
+/**
+ * 엔진 모듈이 이 화면과 맞는지 (머리 주석 "엔진 판 확인").
+ * @param {object} HM 육각 엔진 모듈 (js/engine/hexMatch.js)
+ * @returns {{ step: boolean, ult: boolean, missing: string[] }} step = 경기를 돌릴 수 있다 (createMatch · step) · ult = 필살기 띠를 쓸 수 있다 · missing = 빠진 것
+ */
+export function hexEngineCompat(HM) {
+  const missing = [];
+  const fn = (k) => {
+    const ok = !!HM && typeof HM[k] === 'function';
+    if (!ok) missing.push(k);
+    return ok;
+  };
+  const step = fn('createMatch') & fn('step');
+  const api = fn('ultimateList') & fn('ultimateStatus');
+  const ver = Number(HM?.HEX_MATCH_VERSION);
+  const verOk = Number.isFinite(ver) && ver >= HEX_ENGINE_EXPECT;
+  if (!verOk) missing.push(`HEX_MATCH_VERSION ${HM?.HEX_MATCH_VERSION} < ${HEX_ENGINE_EXPECT}`);
+  return { step: !!step, ult: !!(step && api && verOk), missing };
+}
+
+/**
+ * 장면 모듈 (js/ui/hexScene.js) 판 확인 — 배포 직후 옛 hexScene.js 가 캐시에서 섞이면 새 화면이 부르는 함수가 없다
+ * (2026-10-10: 말풍선 emotesOf). 없으면 말풍선을 끄고 엔진이 안 맞을 때와 같은 새로고침 안내를 띄운다.
+ * @returns {boolean}
+ */
+export function hexSceneCompat(S) {
+  return !!S && typeof S.emotesOf === 'function';
+}
+
+/** 같은 오류 글은 한 번만 넘기는 safe (그 뒤는 console.error 만) — base = ctx.safe (토스트) */
+function onceSafe(base) {
+  const seen = new Set();
+  return (fn) => {
+    try {
+      return fn();
+    } catch (e) {
+      const key = String(e?.message ?? e);
+      if (seen.has(key)) { console.error(e); return undefined; }
+      seen.add(key);
+      return base(() => { throw e; });
+    }
+  };
+}
+
 const isHexState = (s, HM) => !!(s && typeof s === 'object' && s.engine === 'hex' && s.version === HM.HEX_MATCH_VERSION);
 
 /**
@@ -205,7 +262,8 @@ export function hexReplay(HM, st, data, save) {
 export function renderHexMatch(root, ctx) {
   const { store, data, actions } = ctx;
   const HM = ctx.hexMatch;
-  const safe = typeof ctx.safe === 'function' ? ctx.safe : (fn) => { try { return fn(); } catch (e) { console.error(e); return undefined; } };
+  // 같은 오류는 한 번만 토스트 (머리 주석 "엔진 판 확인") — 매 턴 · 매 프레임 부르는 곳이 같은 토스트를 쌓지 않게
+  const safe = onceSafe(typeof ctx.safe === 'function' ? ctx.safe : (fn) => { try { return fn(); } catch (e) { console.error(e); return undefined; } });
   const ui = store.matchUi;
   // 경기 모드 훅 (머리 주석) — 없으면 런 경기: getMatchSetup · store.hexMatch · KEYS.hexMatch · actions.finishMatch · KIND_LABELS
   const mode = ctx.matchMode && typeof ctx.matchMode === 'object' ? ctx.matchMode : null;
@@ -220,6 +278,20 @@ export function renderHexMatch(root, ctx) {
   /* ---- 경기 상태 (만들기 · 이어받기 · 되살리기) ---- */
   const setup = safe(() => (typeof mode?.getSetup === 'function' ? mode.getSetup() : ctx.run.getMatchSetup(store.run, data)));
   if (!setup || !HM) { root.append(errorScreen('경기 정보를 불러올 수 없습니다.', ctx)); return; }
+  // 엔진 판 확인: 경기를 못 돌리면 새로고침 안내 판, 필살기만 안 맞으면 띠 대신 안내 (경기는 그대로)
+  const compat = hexEngineCompat(HM);
+  if (!compat.step) {
+    console.warn('육각 엔진 판이 화면과 맞지 않습니다', compat.missing);
+    root.append(staleScreen(ctx));
+    return;
+  }
+  const ultApi = compat.ult;
+  if (!ultApi) console.warn('육각 엔진 판이 화면과 맞지 않습니다 — 필살기 띠를 숨깁니다', compat.missing);
+  const sceneOk = hexSceneCompat(S);
+  if (!sceneOk) console.warn('육각 장면 모듈 판이 화면과 맞지 않습니다 — 말풍선을 끕니다');
+  const stale = !ultApi || !sceneOk; // 판이 섞임 → 띠 자리에 새로고침 안내
+  /** HM.ultimateList (엔진이 안 맞으면 부르지 않는다 — null) */
+  const ultListOf = (side) => (ultApi ? safe(() => HM.ultimateList(state, data, side)) : null);
   const create = () => HM.createMatch({
     data, seed: setup.seed, home: setup.home, away: setup.away, possessions: setup.possessions, kind: setup.kind,
   });
@@ -288,9 +360,15 @@ export function renderHexMatch(root, ctx) {
   const skipBtn = h('button', { class: 'btn skip-btn', type: 'button', title: '결과까지 스킵', 'aria-label': '결과까지 스킵', onclick: () => skip() }, '⏭');
   const ctl = h('div', { class: 'hx-ctl' }, speedBtn, skipBtn);
   const bannerEl = h('div', { class: 'hx-banner', 'aria-live': 'polite' }, h('b', { class: 'hx-banner-txt' }), h('span', { class: 'hx-banner-sub' }));
-  const ultBar = h('div', { class: 'hx-ult', role: 'group', 'aria-label': '필살기' });
+  const ultBar = h('div', { class: 'hx-ult', role: 'group', 'aria-label': '필살기', hidden: stale });
   const cutLayer = h('div', { class: 'm-cutin', 'aria-live': 'polite' });
   screen.append(pitch, hud, clockEl, ctl, bannerEl, ultBar);
+  // 엔진 판이 안 맞으면 띠 자리에 작은 안내 + [새로고침] (막지 않는다 — 경기는 필살기 없이 그대로)
+  if (stale) {
+    screen.append(h('div', { class: 'hx-stale', role: 'status' },
+      h('span', { class: 'hx-stale-txt' }, STALE_MSG),
+      h('button', { class: 'btn btn-sm hx-stale-btn', type: 'button', onclick: () => reloadPage() }, '새로고침')));
+  }
   // 경기 모드 나가기 버튼들 (연습: [나가기]) — 옛 경기 화면과 같은 .m-exits (오른쪽 위). 런 경기에는 없다
   if (exits.length) {
     screen.append(h('div', { class: 'm-exits' }, exits.map((x) => h('button', {
@@ -399,7 +477,7 @@ export function renderHexMatch(root, ctx) {
   const armedNow = (u) => (queued.has(u.playerId) ? queued.get(u.playerId) === 'arm'
     : hold && hold.sent.has(u.playerId) ? hold.sent.get(u.playerId) === 'arm' : !!u.armed); // 컷인 동안은 방금 보낸 입력도
   function buildUltBar() {
-    ultList = safe(() => HM.ultimateList(state, data, humanSide)) || [];
+    ultList = ultListOf(humanSide) || [];
     ultBar.replaceChildren();
     ultBtns.clear();
     for (const u of ultList) {
@@ -431,7 +509,7 @@ export function renderHexMatch(root, ctx) {
     if (!force && key === ultKey) return;
     ultKey = key;
     // 턴 전 컷인 동안은 step 전 목록 그대로 (게이지 0 · 경기 끝 같은 그 턴 결과를 미리 보이지 않는다) — 입력 줄 표시만 바뀐다
-    if (!hold) ultList = safe(() => HM.ultimateList(state, data, humanSide)) || ultList;
+    if (!hold) ultList = ultListOf(humanSide) || ultList;
     const playing = barPlaying();
     if (!playing) queued.clear();
     const ready = new Set();
@@ -684,7 +762,7 @@ export function renderHexMatch(root, ctx) {
     const holders = [];
     const others = [];
     for (const side of ['home', 'away']) {
-      const list = safe(() => HM.ultimateList(state, data, side)) || [];
+      const list = ultListOf(side) || [];
       for (const u of list) (u.has ? holders : others).push(playerOf(side, u.playerId)?.charId);
     }
     preloadArt([...portraitUrls(data, holders, ['half', 'bust', 'face']), ...portraitUrls(data, others, ['bust'])]);
@@ -796,7 +874,8 @@ export function renderHexMatch(root, ctx) {
     for (const x of list) inputs.push([idx, x.side, String(x.playerId), x.op]);
     steps += 1;
     persist();
-    turnEmotes = safe(() => (emotesOfTest || S.emotesOf)(prevSnap, state)) || []; // 이번 턴 말풍선 (닿는 순간에 drawEmotes 가 띄운다)
+    const emotesFn = emotesOfTest || (sceneOk ? S.emotesOf : null); // 옛 hexScene.js 가 섞이면 말풍선 없이
+    turnEmotes = emotesFn ? safe(() => emotesFn(prevSnap, state)) || [] : []; // 이번 턴 말풍선 (닿는 순간에 drawEmotes 가 띄운다)
     emoteSeen.clear();
     const evs = state.events.slice(n0);
     // 컷인 (그 턴 그림 전) · 역컷인 (그 턴 그림 뒤). 컷인이 있으면 골 · 단계 배너는 컷인 뒤에
@@ -1234,6 +1313,18 @@ export function renderHexMatch(root, ctx) {
 /* ------------------------------------------------------------------ */
 /* 헬퍼                                                                  */
 /* ------------------------------------------------------------------ */
+/** 새로고침 (엔진 판 안내 [새로고침]) */
+function reloadPage() {
+  try { globalThis.location?.reload?.(); } catch (e) { console.warn('새로고침 실패', e); }
+}
+/** 엔진이 경기를 못 돌릴 때 (판이 안 맞음) — 안내 + [새로고침] · [처음으로] */
+function staleScreen(ctx) {
+  return h('div', { class: ['screen', 'match-screen', 'hex-screen'], dataset: { screen: 'match' } },
+    h('div', { class: ['error-panel', 'hx-stale-panel'] }, STALE_MSG),
+    h('div', { class: 'row', style: { gap: '8px', justifyContent: 'center' } },
+      h('button', { class: 'btn btn-primary hx-stale-btn', type: 'button', onclick: () => reloadPage() }, '새로고침'),
+      h('button', { class: 'btn', type: 'button', onclick: () => ctx.actions.resetToStart() }, '처음으로')));
+}
 function errorScreen(msg, ctx) {
   return h('div', { class: ['screen', 'match-screen', 'hex-screen'], dataset: { screen: 'match' } },
     h('div', { class: 'error-panel' }, msg),

@@ -942,6 +942,15 @@
   color: var(--text); font-size: 15px; font-weight: 700; text-align: center;
 }
 .match-screen.hex-screen .hx-note { top: auto; bottom: 92px; transform: translateX(-50%); font-size: 13px; padding: 6px 14px; } /* 필살기 띠 (.hx-ult) 위 */
+/* 엔진 판 안내 (배포 직후 캐시 섞임 — screens/hexMatch.js "엔진 판 확인"): 숨긴 필살기 띠 자리 (컨트롤 오른쪽 아래), 막지 않는 작은 판 */
+.match-screen.hex-screen .hx-stale {
+  position: absolute; z-index: 5; left: 160px; right: calc(var(--pad) + var(--fx)); bottom: 14px; display: flex; align-items: center; justify-content: center; gap: 12px;
+  pointer-events: none;
+}
+.match-screen.hex-screen .hx-stale-txt {
+  padding: 6px 14px; border-radius: 10px; background: rgba(12, 18, 26, .9); border: 1px solid #34405a; color: var(--text); font-size: 15px; font-weight: 700;
+}
+.match-screen.hex-screen .hx-stale .hx-stale-btn { pointer-events: auto; min-height: 0; height: 36px; padding: 2px 14px; font-size: 14px; font-weight: 800; border-radius: 10px; }
 /* 시계: 점수 머리 바로 아래 가운데 */
 .match-screen.hex-screen .hx-clock {
   position: absolute; z-index: 6; left: 50%; top: 68px; transform: translateX(-50%);

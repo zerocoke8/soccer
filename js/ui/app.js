@@ -42,6 +42,7 @@ import { renderRoute } from './screens/route.js';
 import { renderResult } from './screens/result.js';
 import { renderChallenge } from './screens/challenge.js';
 import { practiceSetup } from './practice.js';
+import { registerHexServiceWorker } from './swRegister.js';
 
 // 2차 (LESSON_PROTO_PLAN §24.3.1 · §24.12): 레슨 런 이벤트 7개 (= lessonEvents.EVENT_FILES — test/lessonContent 가 같은 목록인지 본다) · 그림 목록
 // 스프라이트 목록 (sprites — docs/SPRITE_25D_PLAN.md §2): 2.5D 경기 화면의 선 그림 { version, height, chars: { id: { w, h, footX, v } } }
@@ -866,6 +867,9 @@ async function boot() {
   // 스프라이트 시험판 (/soccer/sprite/ — store.SPRITE_SITE) · 육각 시험판 (/soccer/hex/ — store.HEX_SITE): 탭 제목으로 레슨판과 구분한다
   if (HEX_SITE) document.title = '경계전 클럽 — 육각 오토배틀 시험판';
   else if (SPRITE_SITE) document.title = '경계전 클럽 — 스프라이트 시험판';
+  // 육각 시험판만: 서비스 워커 sw.js (스크립트 · 스타일 · JSON 을 매번 서버에 확인 — 배포 직후 새 · 옛 모듈이 섞이지 않게, 2026-10-10).
+  // 기다리지 않는다 · 실패는 console.warn 만 · navigator.serviceWorker 가 없으면 (jsdom · 시험) 아무것도 안 한다 (js/ui/swRegister.js)
+  registerHexServiceWorker();
   // 고정 스테이지: 데이터를 기다리기 전에 창에 맞춘다 (로딩 화면부터 스테이지 안). 화면은 인게임·아웃게임 모두 가로 전용
   stage = mountStage();
   const root = document.getElementById('app');
