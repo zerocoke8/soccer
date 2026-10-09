@@ -5,7 +5,9 @@
 // 스프라이트 시험판 (outgame-sprite 브랜치 → /soccer/sprite/, 2026-10-05): 레슨판 (/soccer/lesson/) 과 같은 origin 이라 주소로 앞머리를 가른다
 // ('soccer-sprite.') — 두 시험판의 저장이 섞이지 않는다. 주소가 /sprite/ 가 아니면 (레슨판 · 로컬 · 테스트) 지금 그대로 'soccer-lesson.'.
 export const SPRITE_SITE = typeof location !== 'undefined' && /\/sprite\//.test(String((location && location.pathname) || ''));
-export const STORAGE_PREFIX = SPRITE_SITE ? 'soccer-sprite.' : 'soccer-lesson.'; // 'soccer.'로 시작하면 안 된다 (본편 키와 섞이지 않게)
+// 육각 오토배틀 시험판 (ingame-hex 브랜치 → /soccer/hex/, 2026-10-09 — docs/HEX_AUTOBATTLE_PLAN.md): 같은 origin 이라 앞머리 'soccer-hex.' 로 가른다
+export const HEX_SITE = typeof location !== 'undefined' && /\/hex\//.test(String((location && location.pathname) || ''));
+export const STORAGE_PREFIX = HEX_SITE ? 'soccer-hex.' : SPRITE_SITE ? 'soccer-sprite.' : 'soccer-lesson.'; // 'soccer.'로 시작하면 안 된다 (본편 키와 섞이지 않게)
 export const KEYS = {
   run: `${STORAGE_PREFIX}run`,
   match: `${STORAGE_PREFIX}match`,
@@ -36,7 +38,7 @@ export const CHALLENGE_MATCH_VERSION = 1;
 export const TEAMS_CAP = 50;
 
 // 경기 화면 URL 파라미터 (테스트·스크린샷용): ?auto=0 → 자동 꺼진 채 시작, ?speed=1|2|4 → 배속. 모듈 로드 시 한 번 읽는다.
-// 2.5D 경기 화면 (docs/SPRITE_25D_PLAN.md §4): ?d25=1 → 켬, ?flat=1 (또는 ?d25=0) → 끔 (?flat 이 이긴다). 없으면 스프라이트 시험판 (/sprite/) 만 켬.
+// 2.5D 경기 화면 (docs/SPRITE_25D_PLAN.md §4): ?d25=1 → 켬, ?flat=1 (또는 ?d25=0) → 끔 (?flat 이 이긴다). 없으면 스프라이트 · 육각 시험판 (/sprite/ · /hex/) 만 켬.
 // 배치 흔들림 (§11 — J1): ?jitter=0 → 끔, ?jitter=1 → 켬 (평면에서도). 없으면 2.5D 모드를 따른다 (isLayoutJitter).
 function urlMatchPrefs() {
   try {
@@ -62,9 +64,9 @@ function urlMatchPrefs() {
 }
 const URL_PREFS = urlMatchPrefs();
 
-// 2.5D 경기 화면 모드 (한 곳에서 판단): 주소 → 스프라이트 시험판. 테스트 · 로컬 (주소 없음 · /soccer/ · /lesson/) 기본 = 평면.
+// 2.5D 경기 화면 모드 (한 곳에서 판단): 주소 → 스프라이트 · 육각 시험판. 테스트 · 로컬 (주소 없음 · /soccer/ · /lesson/) 기본 = 평면.
 // jsdom 테스트는 store.js 를 location 이 없을 때 읽으므로 늘 평면 — 2.5D 를 볼 때만 setD25ForTest(true).
-const D25_DEFAULT = URL_PREFS.d25 ?? SPRITE_SITE;
+const D25_DEFAULT = URL_PREFS.d25 ?? (SPRITE_SITE || HEX_SITE);
 let d25On = D25_DEFAULT;
 /** 2.5D 경기 화면인가 (screens/match.js 가 화면을 만들 때 한 번 읽는다 — 경기 중에는 바뀌지 않는다) */
 export function isD25() {

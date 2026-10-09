@@ -1,0 +1,2 @@
+ingame-hex 브랜치를 /soccer/hex/ 에 올리라는 표시 파일 (main 의 .github/workflows/pages.yml 이 읽는다).
+저장 키는 주소가 /hex/ 일 때 soccer-hex. 앞머리 — 레슨판 (soccer-lesson.) · 스프라이트판 (soccer-sprite.) 과 섞이지 않는다 (js/ui/store.js HEX_SITE).
