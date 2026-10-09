@@ -1,13 +1,14 @@
 /**
- * hexMatch.js — 육각 타일 오토배틀 경기 엔진 (HEX_AUTOBATTLE_PLAN §1 · §2 · §4.2 · §6.3, H0)
+ * hexMatch.js — 육각 타일 오토배틀 경기 엔진 (HEX_AUTOBATTLE_PLAN §1 · §2 · §3 · §4.2 · §6.3, H0 · H3)
  *
  * API (예전 match.js 와 같은 이름 · 같은 뜻): createMatch, step, simulateAuto, isFinished, getResult
- *  (+ HEX_DEFAULTS, 시험용 setHexRollForTest · setHexDecisionForTest)
- * 불러오는 것: ./rng.js · ./hexGrid.js 만. match.js · ai.js 는 (직접이든 간접이든) 불러오지 않는다.
+ *  (+ HEX_DEFAULTS, 필살기 화면용 ultimateStatus · ultimateList · setAutoBoth, 시험용 setHexRollForTest · setHexDecisionForTest)
+ * 불러오는 것: ./rng.js · ./hexGrid.js · ./hexUlt.js (필살기 — 그 안에서 ./skills.js) 만. match.js · ai.js 는 (직접이든 간접이든)
+ * 불러오지 않는다.
  *
  * 진행 규약:
  *  - createMatch 는 홈 킥오프를 준비한 상태 (turn 0) 를 돌려준다. step 한 번 = 한 턴 (승부차기 단계에서는 한 킥).
- *  - 한 턴 순서 (문서 §2.2): (1) 입력 (H3 필살기 자리 — 지금은 받기만 하고 무시) → (2) 공 가진 선수의 선택
+ *  - 한 턴 순서 (문서 §2.2): (1) 필살기 입력 → AI 규칙 (hexUlt.beginTurn — 팀 필살기는 여기서 터짐) → (2) 공 가진 선수의 선택
  *    (슛 / 패스 / 크로스 / 드리블 / 지키기, 드리블 가려는 칸, 태클 정하기 — 모두 턴 시작 칸으로) → (3) 이동 (최대 1칸)
  *    → (4) 겨루기: 태클 → 슛 → 공 비행 (한 턴 3칸, 그 턴에 지난 칸 위 · 옆 수비의 가로채기, 도착 · 크로스 공중볼 · 헤더)
  *    → 흘러나온 공 줍기 (이동 중 먼저 들어간 선수) → (5) 이벤트. 그다음 turn++ 과 단계 확인.
@@ -23,8 +24,12 @@
  *    친선은 무승부로 끝날 수 있다.
  *  - 확률 식은 예전 그대로 p = clamp(공격값 / (공격값 + 수비값), minP, maxP), 겨루기마다 한 번 굴림.
  *    상성 (STYLE_BEATS) · team.conditionMult · 패스 팀워크 항 · bonusOf (공명 + 유물) 만 곱한다.
- *    짝 · 빗나감 (readBonus / missMult / holdVs*) 배수는 뺀다 (문서 §4 짝 · 빗나감). 패시브 · 액티브 · 특성 · 체력 · 텐션 · 빗장 = H4,
- *    필살기 · 게이지 · 컷인 = H3 (아래 `// H3` · `// H4` 자리).
+ *    짝 · 빗나감 (readBonus / missMult / holdVs*) 배수는 뺀다 (문서 §4 짝 · 빗나감). 패시브 · 액티브 · 특성 · 체력 · 텐션 · 빗장 = H4
+ *    (아래 `// H4` 자리). 필살기 배수 (hexUlt) 는 같은 판정 식 안에서 곱한다 — decide() 의 기대값과 굴림이 같다.
+ *  - 필살기 (H3, 문서 §3 · 결정 8): 켠 (armed) 필살기는 그 유형의 첫 상황에서 터진다 — 슛 = 그 선수가 슛할 때 (minLine 3 = 박스 슛만),
+ *    패스 = 패스 · 크로스할 때 (actions), 드리블 = 드리블하다 태클 받을 때, 세이브 = 그 GK 에게 오는 다음 슛, 수비 = 그 선수의 다음
+ *    수비 겨루기 (태클 · 가로채기 굴림 · 공중볼), 팀 = 켜는 턴에 바로. 공격 쪽은 켠 필살기 행동을 그 턴에 고른다 (슛 거리 · 패스 ·
+ *    태클이 오는 드리블). 켠 수비는 앞쪽 3칸이면 먼저 태클하고, 산맥 쐐기 (noMissPenalty) 는 패스 · 슛 턴에도 공이 떠나기 전에 태클한다.
  *  - 이동률 (문서 §2.3): rate = min(1, 0.7 + 0.3·s/1000 (+0.05 스피드)), 매 턴 moveAcc += rate, 1 이상이면 1칸 움직이고 1 을 뺀다.
  *    못 움직인 턴에는 1 에서 멈춘다. 태클 실패로 생기는 두 사람의 1칸은 moveAcc 와 상관없다.
  *  - 넘어짐: restUntil = 넘어진 턴 + 1. turn ≤ restUntil 이면 이동 · 태클 · 가로채기 · 공중볼 · +10% 돕기 어디에도 끼지 않고 칸만 차지한다.
@@ -57,13 +62,22 @@
  *  - 패스가 상대가 선 칸에 떨어졌는데 옆 빈 칸이 하나도 없으면 그 상대 (쉬는 선수여도) 가 공을 갖는다 — looseWon (기록도 +1).
  *  - 선수 id 는 문자열로 맞춘다 (숫자 id 도 받는다 — tactics.kickoffPlayerId 도 같이). 자리 · 기록 키가 문자열이라서.
  *
+ * [구현 결정] (H3 — 필살기, 나머지는 hexUlt.js 맨 위 주석):
+ *  - 상태 판 2 (HEX_MATCH_VERSION): state.aiSides · state.teamUlt · live 의 gauge · armed (+ combo · nextBonus · sureDist).
+ *  - 산맥 쐐기의 패스 · 슛 턴 태클: 패스는 태클 (이동 뒤) 이 실패한 다음 떠난다 — 그 턴 받는 선수는 노린 칸으로 달리지 않았다.
+ *  - 필살 패스를 켠 공 가진 선수는 허용된 패스 (actions) 중 기대값이 가장 큰 것을 고르고, 합체기 짝에게 가는 패스는 기대값 × comboBonus.
+ *  - 확실한 배급 (sureDistribution): 그 세이브 뒤 GK 의 다음 패스는 정확도 1 · 땅 가로채기 굴림 없음 (크로스면 공중볼은 그대로).
+ *  - 필살 크로스가 합체기 짝에게 도착해 바로 헤더를 하면 그 짝은 저절로 합체기로 쏜다 (사람 쪽도 — 턴 경계가 없어 누를 틈이 없다).
+ *
  * 순수 로직. 난수는 state.rngState 로만 (step 마다 createRngFromState → 사용 → getState 저장). 상태는 JSON 만 담는다.
  */
 
 import { createRng, createRngFromState } from "./rng.js";
 import * as G from "./hexGrid.js";
+import * as U from "./hexUlt.js";
 
-export const HEX_MATCH_VERSION = 1;
+/** 상태 판 (2 = H3 필살기 — aiSides · teamUlt · 게이지) */
+export const HEX_MATCH_VERSION = 2;
 /** 정규 시간 턴 수 (2:00 = 300턴 × 0.4초, 결정 17) */
 export const TURNS_REGULAR = 300;
 /** 골든골 턴 수 (0:30, 결정 10) */
@@ -129,6 +143,15 @@ export const HEX_DEFAULTS = Object.freeze({
   gkDepthFar: 1, // 공이 멀 때 GK 가 나오는 거리 (칸)
   chaseLoose: 2, // 흘러나온 공을 쫓는 한 팀 인원
   chaseFlight: 1, // 날아가는 공의 떨어질 칸을 쫓는 한 팀 인원 (받는 선수 빼고)
+  // 필살기 (H3, 문서 §3) — 게이지 시작 · 최대 · 합체기 배수는 config.match.ultimate. 아래 4개는 시뮬로 맞춘 [가정] (AI 양쪽 · 경기당 필살기 선수마다 1 ~ 2번)
+  gaugeDuelWin: 10, // 겨루기 승 (태클 성공 · 태클 버팀 · 가로채기 · 굴림을 살아남은 패스 · 공중볼 · 선방 · 골) 게이지
+  gaugeReceive: 3, // 패스 받기 게이지 (필살 패스면 그 필살기의 receiverGauge)
+  gaugeGoal: 15, // 골 게이지 (겨루기 승에 더해)
+  gaugePerTurn: 0.3, // 경기장에 있는 턴마다 게이지
+  teamUltTurns: 25, // 팀 필살기 지속 턴 (25턴 = 10초) [가정]
+  nextBonusTurns: 3, // 필살 패스 nextDuelBonus 가 받은 선수의 다음 겨루기에 남는 턴 [가정]
+  comboReadyTurns: 3, // 필살 패스를 받은 합체기 짝이 합체기를 쓸 수 있는 턴 (공을 잃으면 끝) [가정]
+  aiUltLastTurns: 50, // AI 가 준비된 필살기를 모두 켜는 정규 시간 마지막 턴 수 (50턴 = 20초, 골든골 · 추가시간은 내내)
 });
 
 const SIDES = ["home", "away"];
@@ -340,45 +363,52 @@ function twTerm(team, m) {
 function coverTerm(m, helpers) {
   return 1 + num(m.coverBonusPerExtraDefender, 0.1) * helpers;
 }
-/** 드리블 · 지키기 vs 태클: 공을 지킬 확률 */
-function pKeep(K, atkTeam, carrier, defTeam, tackler, helpers) {
+/**
+ * 드리블 · 지키기 vs 태클: 공을 지킬 확률. action = 공 가진 선수의 행동 (필살 드리블은 "dribble" 일 때만).
+ * 필살 드리블 extraLine = 태클이 저절로 실패 → 1 (굴림 없음).
+ */
+function pKeep(K, atkTeam, carrier, defTeam, tackler, helpers, action = "hold") {
   const { m, cfg } = K;
-  const att = stat(carrier, "dribble") * coef(m, "dribble", 2.2) * styleMult(carrier.style, tackler.style, m) * condOf(atkTeam);
-  const def = ((stat(tackler, "defense") + stat(tackler, "physical")) / 2) * (cfg.tackleCoef ?? coef(m, "tackle", 0.6)) * coverTerm(m, helpers)
-    * styleMult(tackler.style, carrier.style, m) * condOf(defTeam) * bonusD(defTeam);
+  const um = U.keepMods(K, atkTeam.side, carrier.id, defTeam.side, tackler.id, action);
+  if (um.auto) return 1;
+  const att = stat(carrier, "dribble") * coef(m, "dribble", 2.2) * styleMult(carrier.style, tackler.style, m) * condOf(atkTeam) * um.att;
+  const def = ((stat(tackler, "defense") + stat(tackler, "physical")) / 2) * (cfg.tackleCoef ?? coef(m, "tackle", 0.6)) * coverTerm(m, um.negate ? 0 : helpers)
+    * styleMult(tackler.style, carrier.style, m) * condOf(defTeam) * bonusD(defTeam) * um.def;
   // H4: 패시브 · 액티브 (철의 태클 · 바위 방벽) · 특성 · 체력 배수
   return prob(m, att, def);
 }
-/** 패스 vs 가로채기: 패스가 살아남을 확률 */
-function pPass(K, atkTeam, passer, defTeam, defender, helpers) {
+/** 패스 vs 가로채기: 패스가 살아남을 확률. pm = 공격 배수 { att, negate } (hexUlt passMods · flightMods — negate = 옆 수비 +10% 없음) */
+function pPass(K, atkTeam, passer, defTeam, defender, helpers, pm) {
   const { m, cfg } = K;
   const att = stat(passer, "pass") * coef(m, "pass", 2.2) * twTerm(atkTeam, m) * Math.max(0, 1 + bonusOf(atkTeam, "passAttack"))
-    * styleMult(passer.style, defender.style, m) * condOf(atkTeam);
-  const def = ((stat(defender, "defense") + stat(defender, "pass")) / 2) * (cfg.interceptCoef ?? coef(m, "intercept", 0.6)) * coverTerm(m, helpers)
-    * styleMult(defender.style, passer.style, m) * condOf(defTeam) * bonusD(defTeam);
+    * styleMult(passer.style, defender.style, m) * condOf(atkTeam) * pm.att;
+  const def = ((stat(defender, "defense") + stat(defender, "pass")) / 2) * (cfg.interceptCoef ?? coef(m, "intercept", 0.6)) * coverTerm(m, pm.negate ? 0 : helpers)
+    * styleMult(defender.style, passer.style, m) * condOf(defTeam) * bonusD(defTeam) * U.defMult(K, defTeam.side, defender.id);
   return prob(m, att, def);
 }
-/** 크로스 공중볼: 공격이 이길 확률 */
-function pAerial(K, atkTeam, crosser, defTeam, defender) {
+/** 크로스 공중볼: 공격이 이길 확률. pm = 공격 배수 (필살 크로스 attack 은 여기에 — [구현 결정]) */
+function pAerial(K, atkTeam, crosser, defTeam, defender, pm) {
   const { m } = K;
   const att = ((stat(crosser, "pass") + stat(crosser, "dribble")) / 2) * coef(m, "cross", coef(m, "pass", 2.2)) * twTerm(atkTeam, m)
-    * Math.max(0, 1 + bonusOf(atkTeam, "passAttack")) * styleMult(crosser.style, defender.style, m) * condOf(atkTeam);
+    * Math.max(0, 1 + bonusOf(atkTeam, "passAttack")) * styleMult(crosser.style, defender.style, m) * condOf(atkTeam) * pm.att;
   return prob(m, att, aerialDef(K, defTeam, defender, crosser));
 }
 function aerialDef(K, defTeam, defender, crosser) {
   const { m } = K;
   // H4: 특성 철벽 holdMult
-  return stat(defender, "defense") * num(m.holdMult, 0.6) * styleMult(defender.style, crosser.style, m) * condOf(defTeam) * bonusD(defTeam);
+  return stat(defender, "defense") * num(m.holdMult, 0.6) * styleMult(defender.style, crosser.style, m) * condOf(defTeam) * bonusD(defTeam)
+    * U.defMult(K, defTeam.side, defender.id);
 }
 /** 슛 · 헤더 vs GK: 골 확률. blockers = 슛한 선수 앞쪽 3칸의 쉬지 않는 필드 수비 수 */
 function pShot(K, atkTeam, shooter, defTeam, gk, box, header, blockers) {
   const { m, cfg } = K;
+  // 필살 슛 (shoot · headerMult · gkMult · boxShot) · 필살 세이브 (saveMult) · 팀 필살기 · 다음 겨루기 보너스
+  const um = U.shotMods(K, atkTeam.side, shooter.id, defTeam.side, gk.id, box, header);
   const base = header ? (stat(shooter, "shoot") + stat(shooter, "physical")) / 2 : stat(shooter, "shoot");
-  const c = header ? coef(m, "header", 1.5) : box ? coef(m, "shoot", 1.5) : coef(m, "midrangeShoot", 0.6);
-  const att = base * c * Math.max(0, 1 + bonusOf(atkTeam, "shootPower")) * styleMult(shooter.style, gk.style, m) * condOf(atkTeam);
+  const c = header ? coef(m, "header", 1.5) : box || um.boxShot ? coef(m, "shoot", 1.5) : coef(m, "midrangeShoot", 0.6);
+  const att = base * c * Math.max(0, 1 + bonusOf(atkTeam, "shootPower")) * styleMult(shooter.style, gk.style, m) * condOf(atkTeam) * um.att;
   const def = stat(gk, "defense") * (cfg.saveCoef ?? coef(m, "save", 1)) * coverTerm(m, blockers) * (header ? num(m.oneTouchGk, 0.85) : 1)
-    * styleMult(gk.style, shooter.style, m) * condOf(defTeam) * bonusD(defTeam);
-  // H3: 필살 슛 · 필살 세이브 배수
+    * styleMult(gk.style, shooter.style, m) * condOf(defTeam) * bonusD(defTeam) * um.def;
   return prob(m, att, def);
 }
 /** 패스 정확도 (결정 4: 거리 제한 없음, 멀수록 · 패스가 낮을수록 떨어진다) */
@@ -501,6 +531,8 @@ export function createMatch({ data, seed, home, away, possessions, kind = "frien
     result: null,
   };
   kickoff(state, "home", 0, cfg);
+  // 필살기 (H3): 게이지 (필살기 선수만) · 팀 필살기 자리 · AI 쪽 = 사람이 아닌 쪽 (문서 §3 "안 누르면 안 쓴다")
+  U.initUltState(state, data, [otherSide(humanSide)]);
   return state;
 }
 
@@ -542,6 +574,7 @@ function gainPossession(state, side) {
 function kickoff(state, side, turn, cfg) {
   for (const s of SIDES) {
     const slots = lineSlots(state, s);
+    const prev = state.live[s] || {};
     state.pos[s] = {};
     state.live[s] = {};
     for (const id of state.order[s]) {
@@ -549,6 +582,7 @@ function kickoff(state, side, turn, cfg) {
       const cell = role === "GK" ? ownCell(0, 6, s) : ownCell(cfg.startCols[role], rowsFor(n)[idx], s);
       state.pos[s][id] = cell;
       state.live[s][id] = { moveAcc: 0, restUntil: -1 };
+      U.carryLive(prev[id], state.live[s][id]); // 필살 게이지 · 켬은 골 뒤에도 남는다
     }
   }
   const team = state[side];
@@ -577,6 +611,11 @@ function isResting(state, side, id, T) {
   return state.live[side][id].restUntil >= T;
 }
 
+function isHolder(state, side, id) {
+  const h = state.ball.holder;
+  return !!(h && h.side === side && h.id === id);
+}
+
 /** 칸 → {side, id} 점유 지도 (pos 기준) */
 function occupancy(pos) {
   const occ = new Array(NC).fill(null);
@@ -598,11 +637,12 @@ function movementOrder(state, T) {
 }
 
 /**
- * 한 턴 진행. input 은 H3 필살기 입력 자리 ({ ultimates: [...] }) — 지금은 받기만 하고 쓰지 않는다.
- * 승부차기 단계에서는 한 번에 한 킥.
+ * 한 턴 진행. input = { ultimates: [{ side, playerId, op: "arm" | "disarm" }] } — 필살기 켜기 · 끄기, 이 턴 시작에 순서대로 적용
+ * (문서 §2.2-1 · §6.4: 같은 시드 + 같은 입력 = 같은 경기). 안 되는 입력 (게이지 부족 · 이미 켬 …) 은 조용히 무시.
+ * 승부차기 단계에서는 한 번에 한 킥 (필살기 · 게이지 없음 — 입력 무시).
  * @returns {object} state (제자리 변경)
  */
-export function step(state, data, input = null) { // eslint-disable-line no-unused-vars
+export function step(state, data, input = null) {
   if (!state || state.finished) return state;
   const m = matchCfg(data);
   const cfg = hexCfg(data);
@@ -613,7 +653,9 @@ export function step(state, data, input = null) { // eslint-disable-line no-unus
   const T = state.turn + 1;
   const rng = createRngFromState(state.rngState);
   const ctx = {
-    state, m, cfg, rng, T,
+    state, data, m, cfg, rng, T,
+    uc: U.ultCfg(data),
+    fired: {}, // 이번 턴 필살기를 쓴 선수 ("side:id") — 그 턴 게이지 없음
     start: { home: Object.assign({}, state.pos.home), away: Object.assign({}, state.pos.away) },
     order: movementOrder(state, T),
     goal: null,
@@ -622,7 +664,8 @@ export function step(state, data, input = null) { // eslint-disable-line no-unus
   ctx.occStart = occupancy(ctx.start);
   ctx.orderIdx = {};
   ctx.order.forEach((o, i) => { ctx.orderIdx[o.side + ":" + o.id] = i; });
-  // (1) 입력 — H3 필살기 (지금 쉬는 자리)
+  // (1) 입력 — 필살기 켜기 · 끄기 → AI 규칙 (팀 필살기는 여기서 터진다)
+  U.beginTurn(ctx, input);
   // (2) 공 가진 선수의 선택
   const plan = decide(ctx);
   // (3) 이동
@@ -630,7 +673,13 @@ export function step(state, data, input = null) { // eslint-disable-line no-unus
   // (4) 겨루기
   if (plan.tackle) resolveTackle(ctx, plan);
   else if (plan.action === "shoot") resolveShot(ctx, plan.side, plan.id, false);
+  // 산맥 쐐기 (noMissPenalty): 패스 · 슛 턴 태클을 버티면 그 패스 · 슛이 그대로 나간다 (문서 §4.2)
+  if (plan.wedge && isHolder(state, plan.side, plan.id)) {
+    if (plan.action === "shoot") resolveShot(ctx, plan.side, plan.id, false);
+    else launchPass(ctx, plan.side, plan.id, plan.receiverId, plan.target, plan.action === "cross");
+  }
   if (!ctx.goal && state.ball.flight) advanceFlight(ctx);
+  U.tickGauges(ctx);
   state.rngState = rng.getState();
   state.turn = T;
   afterTurn(ctx);
@@ -673,40 +722,64 @@ function dribbleTarget(ctx, side, cell) {
   return -1;
 }
 
-/**
- * 태클 정하기 (결정 12, 턴 시작 칸): 공 가진 선수 앞쪽 3칸의 쉬지 않는 상대 1명.
- * 순서: 가려는 칸의 수비 → 정면 칸 수비 → 이동 순서. GK 는 미끄러질 칸 (공 가진 선수 칸) 이 자기 구역일 때만 (지키기는 늘).
- * 돕는 수 = 공 가진 선수 이웃 6칸의 다른 쉬지 않는 상대.
- */
-function tackleSetup(ctx, side, cell, action, target) {
+/** 앞쪽 3칸에서 태클할 수 있는 쉬지 않는 상대 (턴 시작 칸). GK 는 미끄러질 칸 (공 가진 선수 칸) 이 자기 구역일 때만 (지키기는 늘) */
+function tacklers(ctx, side, cell, action) {
   const st = ctx.state;
   const opp = otherSide(side);
-  const dir = dirOf(side);
   const cands = [];
-  for (const c of front(cell, dir)) {
+  for (const c of front(cell, dirOf(side))) {
     const o = ctx.occStart[c];
     if (!o || o.side !== opp || isResting(st, opp, o.id, ctx.T)) continue;
     if (st.roles[opp][o.id] === "GK" && action !== "hold" && !ZONE[opp][cell]) continue;
     cands.push({ id: o.id, cell: c });
   }
-  if (!cands.length) return null;
-  const sc = straight(cell, dir);
-  const rank = (x) => (action === "dribble" && x.cell === target ? 0 : x.cell === sc ? 1 : 2);
-  cands.sort((a, b) => rank(a) - rank(b) || ctx.orderIdx[opp + ":" + a.id] - ctx.orderIdx[opp + ":" + b.id]);
-  const t = cands[0];
+  return cands;
+}
+/** 태클 돕는 수 = 공 가진 선수 이웃 6칸의 다른 쉬지 않는 상대 */
+function tackleHelpers(ctx, opp, cell, tid) {
   let helpers = 0;
   for (const nb of NEI[cell]) {
     const o = ctx.occStart[nb];
-    if (o && o.side === opp && o.id !== t.id && !isResting(st, opp, o.id, ctx.T)) helpers++;
+    if (o && o.side === opp && o.id !== tid && !isResting(ctx.state, opp, o.id, ctx.T)) helpers++;
   }
-  // H4: 철의 태클 · 산맥 쐐기 — 패스 · 슛 턴에도 공이 떠나기 전에 태클 (여기서 action 을 보고 연다)
-  return { side: opp, id: t.id, cell: t.cell, helpers };
+  return helpers;
+}
+/**
+ * 태클 정하기 (결정 12, 턴 시작 칸): 공 가진 선수 앞쪽 3칸의 쉬지 않는 상대 1명.
+ * 순서: 필살 수비를 켠 수비 (문서 §3) → 가려는 칸의 수비 → 정면 칸 수비 → 이동 순서.
+ */
+function tackleSetup(ctx, side, cell, action, target) {
+  const opp = otherSide(side);
+  const cands = tacklers(ctx, side, cell, action);
+  if (!cands.length) return null;
+  const sc = straight(cell, dirOf(side));
+  const rank = (x) => (U.armedOf(ctx, opp, x.id, "defense") ? -1 : action === "dribble" && x.cell === target ? 0 : x.cell === sc ? 1 : 2);
+  cands.sort((a, b) => rank(a) - rank(b) || ctx.orderIdx[opp + ":" + a.id] - ctx.orderIdx[opp + ":" + b.id]);
+  const t = cands[0];
+  return { side: opp, id: t.id, cell: t.cell, helpers: tackleHelpers(ctx, opp, cell, t.id) };
+}
+/**
+ * 산맥 쐐기 (필살 수비 noMissPenalty, 문서 §4.2): 패스 · 슛 턴에도 공이 떠나기 전에 태클 — 앞쪽 3칸에 그 필살기를 켠 수비가 있을 때만.
+ * H4: 철의 태클 (액티브) 도 여기서 연다.
+ */
+function wedgeSetup(ctx, side, cell, action) {
+  const opp = otherSide(side);
+  const cands = tacklers(ctx, side, cell, action).filter((x) => {
+    const a = U.armedOf(ctx, opp, x.id, "defense");
+    return !!(a && a.u.noMissPenalty);
+  });
+  if (!cands.length) return null;
+  cands.sort((a, b) => ctx.orderIdx[opp + ":" + a.id] - ctx.orderIdx[opp + ":" + b.id]);
+  const t = cands[0];
+  return { side: opp, id: t.id, cell: t.cell, helpers: tackleHelpers(ctx, opp, cell, t.id) };
 }
 
-/** 패스 성공 추정: 정확도 × Π(가로채기 굴림을 살아남을 확률) — 지금 칸 기준 */
+/** 패스 성공 추정: 정확도 × Π(가로채기 굴림을 살아남을 확률) — 지금 칸 기준. 확실한 배급이면 1 */
 function passEstimate(ctx, side, passer, cell, target) {
   const st = ctx.state;
   const opp = otherSide(side);
+  if (st.live[side][passer.id].sureDist) return 1;
+  const pm = U.passMods(ctx, side, passer.id, "pass");
   const path = lineIds(cell, target, dirOf(side));
   // 상대마다 길까지 가장 가까운 거리: 1 이하 = 지금 굴릴 수 있음, 2 = 이동 한 번이면 닿음 (laneReachWeight 만큼 센다)
   const ints = [];
@@ -719,7 +792,7 @@ function passEstimate(ctx, side, passer, cell, target) {
   }
   let P = passAccuracy(ctx.cfg, passer, dist(cell, target));
   const helpers = Math.max(0, Math.min(2, ints.length - 1)); // 돕는 수비 추정 (그 턴에 지난 칸만 세므로 2 까지만)
-  for (const x of ints) P *= 1 - x.w * (1 - pPass(ctx, st[side], passer, st[opp], findPlayer(st[opp], x.id), helpers));
+  for (const x of ints) P *= 1 - x.w * (1 - pPass(ctx, st[side], passer, st[opp], findPlayer(st[opp], x.id), helpers, pm));
   return P;
 }
 
@@ -751,9 +824,13 @@ function decide(ctx) {
   st.stats[side].carrierTurns += 1;
 
   let best = null;
+  const opts = [];
   const offer = (opt) => {
+    opts.push(opt);
     if (!best || opt.value > best.value) best = opt;
   };
+  // 켠 필살기 행동을 이 턴에 고른다 (문서 §3): 슛 (거리 안 · minLine 3 은 박스) · 패스 (허용된 것 중 최고) · 드리블 (태클이 올 때)
+  let forced = null;
 
   // 슛
   const d = dtg(cell, dir);
@@ -764,6 +841,7 @@ function decide(ctx) {
     const est = p * Math.pow(cfg.shotBlockerEst, blockers);
     const bar = box ? 0 : tactics.shootTiming === "midrange" ? cfg.midrangeBar : cfg.breakAllBar;
     if (est >= bar) offer({ action: "shoot", value: est });
+    if (U.shotUltOf(ctx, side, id, box)) forced = { action: "shoot", value: est };
   }
 
   // 패스 · 크로스
@@ -785,7 +863,7 @@ function decide(ctx) {
       if (cross) {
         const acc = passAccuracy(cfg, carrier, dist(cell, tgt));
         const def = bestAerialDefender(ctx, tgt, opp, carrier, ctx.occStart);
-        const pa = def ? pAerial(ctx, team, carrier, oppTeam, findPlayer(oppTeam, def)) : 1;
+        const pa = def ? pAerial(ctx, team, carrier, oppTeam, findPlayer(oppTeam, def), U.passMods(ctx, side, id, "cross")) : 1;
         const hp = dtg(tgt, dir) <= shotRange(cfg, tm) ? pShot(ctx, team, tm, oppTeam, gkOpp, true, true, 0) : 0;
         const P = acc * pa;
         value = P * Math.max(threatAt(tgt), hp * cfg.crossHeaderEst) - (1 - P) * cost - cfg.passCost;
@@ -802,25 +880,42 @@ function decide(ctx) {
     const dt = dribbleTarget(ctx, side, cell);
     if (dt >= 0) {
       const tk = tackleSetup(ctx, side, cell, "dribble", dt);
-      const P = tk ? pKeep(ctx, team, carrier, oppTeam, findPlayer(oppTeam, tk.id), tk.helpers) : 1;
+      const P = tk ? pKeep(ctx, team, carrier, oppTeam, findPlayer(oppTeam, tk.id), tk.helpers, "dribble") : 1;
       const value = P * threatAt(dt) - (1 - P) * cost;
-      offer({ action: "dribble", value: tmult(value, tactics.attack === "dribble"), target: dt, tackle: tk });
+      const opt = { action: "dribble", value: tmult(value, tactics.attack === "dribble"), target: dt, tackle: tk };
+      offer(opt);
+      if (tk && U.armedOf(ctx, side, id, "dribble")) forced = opt;
     }
     // 지키기
     const tk = tackleSetup(ctx, side, cell, "hold", -1);
-    const P = tk ? pKeep(ctx, team, carrier, oppTeam, findPlayer(oppTeam, tk.id), tk.helpers) : 1;
+    const P = tk ? pKeep(ctx, team, carrier, oppTeam, findPlayer(oppTeam, tk.id), tk.helpers, "hold") : 1;
     offer({ action: "hold", value: P * threatAt(cell) - (1 - P) * cost - cfg.holdPenalty * b.holdStreak, tackle: tk });
   }
+  // 필살 패스: 허용된 패스 (actions) 중 기대값 최고 — 합체기 짝에게 가는 패스는 × comboBonus ([구현 결정])
+  const pu = U.armedOf(ctx, side, id, "pass");
+  if (pu) {
+    const score = (o) => (o.value > 0 && U.comboName(ctx.data, pu.skill.id, (U.ultSkillOf(ctx.data, findPlayer(team, o.receiverId)) || {}).id) ? o.value * ctx.uc.comboBonus : o.value);
+    forced = bestOf(opts.filter((o) => U.passUltOf(ctx, side, id, o.action)), score) || forced;
+  }
+  if (forced) best = forced;
   if (!best) best = { action: "hold", value: 0, tackle: null }; // GK 가 줄 곳이 없을 때 (모두 쉬는 중)
   if (decisionOverride) {
     const f = decisionOverride({ state: st, side, id, cell, turn: ctx.T });
     if (f && f.action) best = forcedOption(ctx, f, side, cell);
   }
 
-  const plan = { side, id, action: best.action, target: best.target ?? -1, tackle: best.tackle || null, receiverId: best.receiverId };
+  const plan = { side, id, action: best.action, target: best.target ?? -1, tackle: best.tackle || null, receiverId: best.receiverId, wedge: false };
+  // 산맥 쐐기: 패스 · 슛 턴에도 공이 떠나기 전에 태클 (문서 §4.2 · 결정 18)
+  if (plan.action === "pass" || plan.action === "cross" || plan.action === "shoot") {
+    const wt = wedgeSetup(ctx, side, cell, plan.action);
+    if (wt) {
+      plan.tackle = wt;
+      plan.wedge = true;
+    }
+  }
   b.holdStreak = plan.action === "hold" ? b.holdStreak + 1 : 0;
   if (plan.action === "hold") st.stats[side].holdTurns += 1;
-  if (plan.action === "pass" || plan.action === "cross") launchPass(ctx, side, id, best.receiverId, best.target, plan.action === "cross");
+  if ((plan.action === "pass" || plan.action === "cross") && !plan.wedge) launchPass(ctx, side, id, best.receiverId, best.target, plan.action === "cross");
   return plan;
 }
 
@@ -864,13 +959,19 @@ function bestAerialDefender(ctx, cell, opp, crosser, occ) {
   return bestOf(cands, (pid) => aerialDef(ctx, st[opp], findPlayer(st[opp], pid), crosser));
 }
 
-/** 패스 · 크로스 출발: 정확도 굴림 (거리 > accFreeDist 일 때만) → 빗나가면 노린 칸 이웃 중 하나 */
+/**
+ * 패스 · 크로스 출발: 정확도 굴림 (거리 > accFreeDist 일 때만) → 빗나가면 노린 칸 이웃 중 하나.
+ * 필살 패스면 여기서 터진다 (컷인 → pass 이벤트). 확실한 배급 (세이브 뒤 GK) = 정확도 1 · 땅 가로채기 없음.
+ */
 function launchPass(ctx, side, id, receiverId, intended, cross) {
   const st = ctx.state;
   const cell = st.pos[side][id];
   const passer = findPlayer(st[side], id);
   const d = dist(cell, intended);
-  const acc = passAccuracy(ctx.cfg, passer, d);
+  const lv = st.live[side][id];
+  const sure = !!lv.sureDist;
+  if (sure) lv.sureDist = false;
+  const acc = sure ? 1 : passAccuracy(ctx.cfg, passer, d);
   let accurate = true;
   if (acc < 1) accurate = roll(ctx.rng, "accuracy", acc, { side, passerId: id, receiverId, target: intended });
   let target = intended;
@@ -879,10 +980,12 @@ function launchPass(ctx, side, id, receiverId, intended, cross) {
     target = nb[ctx.rng.int(0, nb.length - 1)];
   }
   const path = lineIds(cell, target, dirOf(side)).slice(1);
+  const ult = U.launchUlt(ctx, side, id, cross ? "cross" : "pass"); // 필살 패스 (터짐) — 가로채기 · 공중볼 배수는 비행에 싣는다
+  const bonus = U.takeNextBonus(ctx, side, id);
   st.ball.holder = null;
   st.ball.loose = false;
   st.ball.cell = cell;
-  st.ball.flight = { side, passerId: id, receiverId, cross, path, at: 0, target, intendedTarget: intended, rolled: [] };
+  st.ball.flight = { side, passerId: id, receiverId, cross, path, at: 0, target, intendedTarget: intended, rolled: [], ult, bonus, sure };
   st.stats[side].passes += 1;
   if (cross) st.stats[side].crosses += 1;
   pushEvent(st, ctx.T, { type: "pass", side, from: id, to: receiverId, fromCell: cell, target, intended, cross, accurate });
@@ -1204,28 +1307,39 @@ function pickLoose(ctx, side, id, cell) {
 /* (4) 겨루기                                                              */
 /* ------------------------------------------------------------------ */
 
-function addDuelWin(st, side, id) {
+/** 겨루기 승 기록 + 게이지 (noGauge = 그 겨루기에 필살기를 쓴 선수 — 여러 턴 나는 필살 패스) */
+function addDuelWin(ctx, side, id, noGauge = false) {
+  const st = ctx.state;
   st.stats[side].duelsWon += 1;
   incr(st.stats[side].playerDuelWins, id);
+  if (!noGauge) U.gain(ctx, side, id, ctx.cfg.gaugeDuelWin);
 }
 
-/** 태클 (결정 12). 실패: 드리블이고 가려는 칸이 비었거나 태클한 수비 칸이면 둘이 엇갈려 1칸씩, 아니면 수비만 제자리에서 넘어짐 */
+/**
+ * 태클 (결정 12). 실패: 드리블이고 가려는 칸이 비었거나 태클한 수비 칸이면 둘이 엇갈려 1칸씩, 아니면 수비만 제자리에서 넘어짐.
+ * 산맥 쐐기의 패스 · 슛 턴 태클도 여기 (실패하면 공 가진 선수는 제자리 — 그 뒤 step 이 패스 · 슛을 내보낸다).
+ * 필살 드리블 · 필살 수비는 값을 구한 뒤 터진다 (컷인 → tackle 이벤트). 필살 드리블 extraLine = 굴림 없이 태클 실패 [가정].
+ */
 function resolveTackle(ctx, plan) {
   const st = ctx.state;
-  const { m, T } = ctx;
+  const { T } = ctx;
   const aSide = plan.side;
   const dSide = plan.tackle.side;
   const carrier = findPlayer(st[aSide], plan.id);
   const tackler = findPlayer(st[dSide], plan.tackle.id);
   const cFrom = st.pos[aSide][plan.id];
   const tFrom = st.pos[dSide][plan.tackle.id];
-  const pk = pKeep(ctx, st[aSide], carrier, st[dSide], tackler, plan.tackle.helpers);
-  const keep = roll(ctx.rng, "tackle", pk, { carrierId: plan.id, tacklerId: tackler.id, action: plan.action, helpers: plan.tackle.helpers });
+  const um = U.keepMods(ctx, aSide, plan.id, dSide, tackler.id, plan.action);
+  const pk = pKeep(ctx, st[aSide], carrier, st[dSide], tackler, plan.tackle.helpers, plan.action);
+  const keep = um.auto ? true : roll(ctx.rng, "tackle", pk, { carrierId: plan.id, tacklerId: tackler.id, action: plan.action, helpers: plan.tackle.helpers });
+  if (um.drib) U.fire(ctx, aSide, plan.id);
+  if (um.defUlt) U.fire(ctx, dSide, tackler.id);
+  U.takeNextBonus(ctx, aSide, plan.id);
   st.stats[dSide].tackles += 1;
   let cTo = cFrom;
   let tTo = tFrom;
   if (keep) {
-    addDuelWin(st, aSide, plan.id);
+    addDuelWin(ctx, aSide, plan.id);
     if (plan.action === "dribble") {
       const occ = occupancy(st.pos);
       const o = plan.target >= 0 ? occ[plan.target] : null;
@@ -1243,22 +1357,27 @@ function resolveTackle(ctx, plan) {
     // H4: 바위 방벽 (noFailPenalty) — 넘어지지 않음
   } else {
     st.stats[dSide].tacklesWon += 1;
-    addDuelWin(st, dSide, tackler.id);
+    addDuelWin(ctx, dSide, tackler.id);
     st.ball.holder = { side: dSide, id: tackler.id };
     st.ball.cell = tFrom;
     st.ball.holdStreak = 0;
     gainPossession(st, dSide);
   }
-  pushEvent(st, T, {
+  const ev = pushEvent(st, T, {
     type: "tackle", side: dSide, tacklerId: tackler.id, carrierId: plan.id, success: !keep, p: 1 - pk,
     carrierFrom: cFrom, carrierTo: cTo, tacklerFrom: tFrom, tacklerTo: tTo,
   });
+  if (um.auto) ev.extraLine = true; // 필살 드리블 "태클 무시 1번"
+  if (um.drib && !keep) ev.reverseCutin = U.reverseCutin("block", dSide, tackler.id, U.usedOf(um.drib));
 }
 
-/** 슛 · 헤더 판정. 막히면 GK 가 잡는다 */
+/**
+ * 슛 · 헤더 판정. 막히면 GK 가 잡는다. 필살 슛 · 필살 세이브는 값을 구한 뒤 터진다 (컷인 → shot 이벤트).
+ * 필살 슛이 막히면 shot 이벤트에 역컷인 (기적의 세이브!), 확실한 배급 세이브면 GK 의 다음 패스가 확실해진다.
+ */
 function resolveShot(ctx, side, id, header) {
   const st = ctx.state;
-  const { m, T } = ctx;
+  const { T } = ctx;
   const opp = otherSide(side);
   const shooter = findPlayer(st[side], id);
   const gk = findPlayer(st[opp], st.order[opp][0]);
@@ -1267,25 +1386,32 @@ function resolveShot(ctx, side, id, header) {
   const box = d <= G.BOX_DIST;
   // 막는 수비: 슛은 턴 시작 칸 (공이 이동 전에 떠난다), 헤더는 지금 칸 (크로스가 이동 뒤에 도착 — [구현 결정])
   const blockers = shotBlockers(ctx, side, cell, header ? occupancy(st.pos) : ctx.occStart);
+  const um = U.shotMods(ctx, side, id, opp, gk.id, box, header);
   const p = pShot(ctx, st[side], shooter, st[opp], gk, box, header, blockers);
   const goal = roll(ctx.rng, header ? "header" : "shot", p, { side, playerId: id, box, blockers });
+  if (um.shot) U.fire(ctx, side, id);
+  if (um.save) U.fire(ctx, opp, gk.id);
+  U.takeNextBonus(ctx, side, id);
   st.stats[side].shots += 1;
   if (header) st.stats[side].headers += 1;
   ctx.shotBy = side;
   st.ball.holder = null;
   st.ball.flight = null;
   st.ball.loose = false;
-  pushEvent(st, T, { type: "shot", side, playerId: id, cell, dist: d, box, header, blockers, p, success: goal });
+  const ev = pushEvent(st, T, { type: "shot", side, playerId: id, cell, dist: d, box, header, blockers, p, success: goal });
+  if (um.shot && !goal) ev.reverseCutin = U.reverseCutin("save", opp, gk.id, U.usedOf(um.shot));
   if (goal) {
     st.score[side] += 1;
     st.stats[side].goals += 1;
     incr(st.stats[side].playerGoals, id);
-    addDuelWin(st, side, id);
+    addDuelWin(ctx, side, id);
+    U.gain(ctx, side, id, ctx.cfg.gaugeGoal);
     ctx.goal = { side, playerId: id };
     pushEvent(st, T, { type: "goal", side, playerId: id, score: { home: st.score.home, away: st.score.away } });
   } else {
     st.stats[opp].saves += 1;
-    addDuelWin(st, opp, gk.id);
+    addDuelWin(ctx, opp, gk.id);
+    if (um.save && um.save.u.sureDistribution) st.live[opp][gk.id].sureDist = true;
     st.ball.holder = { side: opp, id: gk.id };
     st.ball.cell = st.pos[opp][gk.id];
     st.ball.holdStreak = 0;
@@ -1296,16 +1422,18 @@ function resolveShot(ctx, side, id, header) {
 
 /**
  * 공 비행 (결정 9 · 문서 §2.2-4): 이번 턴에 최대 passSpeed 칸. 그 칸들 위 · 옆의 쉬지 않는 상대가 (한 패스에 한 번씩)
- * 먼저 닿는 칸 → 칸 위 먼저 → 이동 순서로 굴린다. 크로스는 땅 가로채기 없음.
+ * 먼저 닿는 칸 → 칸 위 먼저 → 이동 순서로 굴린다. 크로스 · 확실한 배급은 땅 가로채기 없음.
+ * 필살 패스: 굴림마다 attack (× 합체기 · 다음 겨루기), negateRead = 옆 수비 +10% 없음, extraLine = 첫 가로채기 성공 1번 무시 [가정].
+ * 필살 수비를 켠 수비는 이 굴림에서 터진다.
  */
 function advanceFlight(ctx) {
   const st = ctx.state;
-  const { m, T, cfg } = ctx;
+  const { T, cfg } = ctx;
   const f = st.ball.flight;
   const seg = f.path.slice(f.at, f.at + Math.max(1, Math.round(cfg.passSpeed)));
   const opp = otherSide(f.side);
   const passer = findPlayer(st[f.side], f.passerId);
-  if (!f.cross) {
+  if (!f.cross && !f.sure) {
     const touch = (c) => {
       for (let i = 0; i < seg.length; i++) {
         if (seg[i] === c) return i * 2;
@@ -1326,14 +1454,24 @@ function advanceFlight(ctx) {
     for (const c of cands) {
       const helpers = touching - 1; // 이번 턴 지난 칸 위 · 옆의 다른 쉬지 않는 상대 (이미 굴린 수비 포함)
       const defender = findPlayer(st[opp], c.id);
-      const ps = pPass(ctx, st[f.side], passer, st[opp], defender, helpers);
-      const survived = roll(ctx.rng, "intercept", ps, { passerId: f.passerId, defenderId: c.id, helpers });
+      const defUlt = U.armedOf(ctx, opp, c.id, "defense");
+      const ps = pPass(ctx, st[f.side], passer, st[opp], defender, helpers, U.flightMods(ctx, f));
+      let survived = roll(ctx.rng, "intercept", ps, { passerId: f.passerId, defenderId: c.id, helpers });
+      if (defUlt) U.fire(ctx, opp, c.id);
+      let ignored = false;
+      if (!survived && f.ult && f.ult.extraLeft > 0) {
+        f.ult.extraLeft = 0; // 필살 패스 "가로채기 무시 1번"
+        survived = true;
+        ignored = true;
+      }
       f.rolled.push(c.id);
       const dc = st.pos[opp][c.id];
-      pushEvent(st, T, { type: "intercept", side: opp, defenderId: c.id, cell: dc, success: !survived, p: 1 - ps });
+      const ev = pushEvent(st, T, { type: "intercept", side: opp, defenderId: c.id, cell: dc, success: !survived, p: 1 - ps });
+      if (ignored) ev.extraLine = true;
       if (!survived) {
+        if (f.ult) ev.reverseCutin = U.reverseCutin("passCut", opp, c.id, flightUsed(f));
         st.stats[opp].interceptions += 1;
-        addDuelWin(st, opp, c.id);
+        addDuelWin(ctx, opp, c.id);
         st.ball.flight = null;
         st.ball.holder = { side: opp, id: c.id };
         st.ball.cell = dc;
@@ -1348,8 +1486,15 @@ function advanceFlight(ctx) {
   if (f.at >= f.path.length) arrive(ctx);
 }
 
+/** 날아가는 필살 패스 → 역컷인의 막힌 필살기 */
+function flightUsed(f) {
+  return f.ult ? { skillId: f.ult.skillId, ultimateType: "pass", combo: !!f.ult.combo } : null;
+}
+
 function receive(ctx, side, id) {
   const st = ctx.state;
+  const f = st.ball.flight;
+  U.onReceive(ctx, side, id, f); // 게이지 · 다음 겨루기 보너스 · 합체기 대기 (필살 패스)
   st.ball.flight = null;
   st.ball.loose = false;
   st.ball.holder = { side, id };
@@ -1372,11 +1517,11 @@ function looseAt(ctx, cell) {
 /** 도착 (문서 §2.2 패스): 같은 편 → 받음 (크로스는 공중볼 → 헤더), 상대 → 옆 빈 칸으로 튐, 빈 칸 → 흘러나온 공 */
 function arrive(ctx) {
   const st = ctx.state;
-  const { m, T, cfg } = ctx;
+  const { T, cfg } = ctx;
   const f = st.ball.flight;
   const occ = occupancy(st.pos);
   const o = occ[f.target];
-  if (f.rolled.length) addDuelWin(st, f.side, f.passerId); // 가로채기 굴림을 1번 이상 살아남은 패스
+  if (f.rolled.length) addDuelWin(ctx, f.side, f.passerId, !!f.ult); // 가로채기 굴림을 1번 이상 살아남은 패스 (필살 패스는 게이지 없음)
   if (o && o.side === f.side) {
     if (f.cross) {
       const opp = otherSide(f.side);
@@ -1384,11 +1529,14 @@ function arrive(ctx) {
       const defId = bestAerialDefender(ctx, f.target, opp, crosser, occ);
       if (defId) {
         const defender = findPlayer(st[opp], defId);
-        const pa = pAerial(ctx, st[f.side], crosser, st[opp], defender);
+        const defUlt = U.armedOf(ctx, opp, defId, "defense");
+        const pa = pAerial(ctx, st[f.side], crosser, st[opp], defender, U.flightMods(ctx, f));
         const win = roll(ctx.rng, "aerial", pa, { crosserId: f.passerId, receiverId: o.id, defenderId: defId });
-        pushEvent(st, T, { type: "aerial", side: f.side, attackerId: o.id, defenderId: defId, success: win, p: pa });
+        if (defUlt) U.fire(ctx, opp, defId);
+        const ev = pushEvent(st, T, { type: "aerial", side: f.side, attackerId: o.id, defenderId: defId, success: win, p: pa });
+        if (!win && f.ult) ev.reverseCutin = U.reverseCutin("passCut", opp, defId, flightUsed(f));
         if (!win) {
-          addDuelWin(st, opp, defId);
+          addDuelWin(ctx, opp, defId);
           st.ball.flight = null;
           st.ball.holder = { side: opp, id: defId };
           st.ball.cell = st.pos[opp][defId];
@@ -1396,11 +1544,14 @@ function arrive(ctx) {
           gainPossession(st, opp);
           return;
         }
-        addDuelWin(st, f.side, f.passerId);
+        addDuelWin(ctx, f.side, f.passerId, !!f.ult);
       }
       receive(ctx, o.side, o.id);
       const rp = findPlayer(st[o.side], o.id);
-      if (st.roles[o.side][o.id] !== "GK" && dtg(f.target, dirOf(o.side)) <= shotRange(cfg, rp)) resolveShot(ctx, o.side, o.id, true);
+      if (st.roles[o.side][o.id] !== "GK" && dtg(f.target, dirOf(o.side)) <= shotRange(cfg, rp)) {
+        U.autoComboHeader(ctx, o.side, o.id); // 필살 크로스로 합체기 대기가 생긴 받는 선수 — 켤 턴 경계가 없어 저절로 (hexUlt [구현 결정])
+        resolveShot(ctx, o.side, o.id, true);
+      }
       return;
     }
     receive(ctx, o.side, o.id);
@@ -1623,11 +1774,21 @@ function finishMatch(state, turn) {
 }
 
 /**
- * 끝날 때까지 step (안전 상한 HEX_DEFAULTS.autoCap — 넘으면 throw).
+ * 이 경기의 남은 시간 동안 양쪽 모두 AI 규칙으로 필살기를 켠다 (문서 §3 — ⏭ 건너뛰기 · 시뮬 · 아웃게임 자동 진행).
+ * @returns {object} state
+ */
+export function setAutoBoth(state) {
+  if (state && Array.isArray(state.aiSides)) state.aiSides = SIDES.slice();
+  return state;
+}
+
+/**
+ * 끝날 때까지 step (안전 상한 HEX_DEFAULTS.autoCap — 넘으면 throw). 양쪽 모두 AI (setAutoBoth).
  * @returns {object} state
  */
 export function simulateAuto(state, data) {
   if (!state) return state; // 예전 엔진처럼 null 은 그대로
+  setAutoBoth(state);
   const cap = Math.max(1, Math.round(hexCfg(data).autoCap));
   let n = 0;
   while (!state.finished) {
@@ -1635,6 +1796,71 @@ export function simulateAuto(state, data) {
     step(state, data, null);
   }
   return state;
+}
+
+/* ------------------------------------------------------------------ */
+/* 필살기 버튼 상태 (화면용, 순수)                                           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * "지금 쓰기" 상황 (문서 §3): 다음 step 이 이 판 그대로 시작하면 그 턴에 터지나. 슛 = 공을 갖고 슛 거리 안 (minLine 3 은 박스) ·
+ * 패스 = 공을 가짐 (허용된 패스 · 크로스) · 드리블 = 공을 갖고 앞쪽 3칸에 태클할 수 있는 수비 · 수비 = 공 가진 상대의 앞쪽 3칸에
+ * 쉬지 않고 섬 · 세이브 = 늘 예약 · 팀 = 바로.
+ */
+function ultSituation(state, data, side, id, u) {
+  const cfg = hexCfg(data);
+  const T = state.turn + 1;
+  const holding = isHolder(state, side, id);
+  const cell = state.pos[side][id];
+  const K = { state, cfg, T, occStart: occupancy(state.pos) };
+  switch (u.type) {
+    case "shot": {
+      if (!holding) return { ok: false, reason: "공을 가지면" };
+      const d = dtg(cell, dirOf(side));
+      if (state.roles[side][id] === "GK" || d > shotRange(cfg, findPlayer(state[side], id))) return { ok: false, reason: "슛 거리에서" };
+      if (num(u.minLine, 2) >= 3 && d > G.BOX_DIST) return { ok: false, reason: "박스 안에서" };
+      return { ok: true, reason: "" };
+    }
+    case "pass": {
+      if (!holding) return { ok: false, reason: "공을 가지면" };
+      const acts = (Array.isArray(u.actions) && u.actions.length ? u.actions : ["pass", "cross"]);
+      if (!acts.includes("pass") && !isWide(cell, side)) return { ok: false, reason: "크로스 자리에서" };
+      return { ok: true, reason: "" };
+    }
+    case "dribble": {
+      if (!holding) return { ok: false, reason: "공을 가지면" };
+      if (state.roles[side][id] === "GK" || !tacklers(K, side, cell, "dribble").length) return { ok: false, reason: "태클이 오면" };
+      return { ok: true, reason: "" };
+    }
+    case "defense": {
+      const h = state.ball.holder;
+      if (!h || h.side === side) return { ok: false, reason: "상대가 공을 가지면" };
+      if (isResting(state, side, id, T)) return { ok: false, reason: "일어나면" };
+      const hc = state.pos[h.side][h.id];
+      if (!front(hc, dirOf(h.side)).includes(cell)) return { ok: false, reason: "공 가진 상대 앞에 서면" };
+      if (state.roles[side][id] === "GK" && !ZONE[side][hc]) return { ok: false, reason: "공 가진 상대 앞에 서면" };
+      return { ok: true, reason: "" };
+    }
+    case "save":
+      return { ok: false, reason: "다음 슛에서" };
+    case "team":
+      return { ok: true, reason: "" };
+    default:
+      return { ok: false, reason: "" };
+  }
+}
+
+/**
+ * 필살기 버튼 하나의 상태 (화면용) — hexUlt.ultimateStatus + 판 기하로 정한 canNow.
+ * @returns {{ has, skillId, name, type, tier, line, description, gauge, max, ready, armed, comboReady, comboName, canNow, reason }}
+ */
+export function ultimateStatus(state, data, side, playerId) {
+  return U.ultimateStatus(state, data, side, playerId, ultSituation);
+}
+
+/** 한 팀 7명의 필살기 상태 (포메이션 칸 순서 — 필살기가 없는 선수도 has: false 로). 항목마다 playerId */
+export function ultimateList(state, data, side) {
+  return U.ultimateList(state, data, side, ultSituation);
 }
 
 /** @returns {boolean} */

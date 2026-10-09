@@ -107,11 +107,13 @@ const firstTurn = (choice) => {
   };
 };
 
-test("hexMatch.js 는 rng.js · hexGrid.js 만 불러온다 (match.js · ai.js 없음)", () => {
-  const src = fs.readFileSync(fileURLToPath(new URL("../js/engine/hexMatch.js", import.meta.url)), "utf8");
-  const imports = [...src.matchAll(/^\s*import[^;]*?from\s+"([^"]+)"/gm)].map((m) => m[1]).sort();
-  assert.deepEqual(imports, ["./hexGrid.js", "./rng.js"]);
-  assert.ok(!/Math\.random|Date\.now|new Date/.test(src), "Math.random · Date 금지");
+test("hexMatch.js 는 rng.js · hexGrid.js · hexUlt.js (→ skills.js) 만 불러온다 (match.js · ai.js 없음, 간접도)", () => {
+  const read = (f) => fs.readFileSync(fileURLToPath(new URL(`../js/engine/${f}`, import.meta.url)), "utf8");
+  const importsOf = (f) => [...read(f).matchAll(/^\s*import[^;]*?from\s+"([^"]+)"/gm)].map((m) => m[1]).sort();
+  assert.deepEqual(importsOf("hexMatch.js"), ["./hexGrid.js", "./hexUlt.js", "./rng.js"]);
+  assert.deepEqual(importsOf("hexUlt.js"), ["./hexGrid.js", "./skills.js"]);
+  for (const f of ["skills.js", "hexGrid.js", "rng.js"]) assert.deepEqual(importsOf(f), [], `${f} 는 아무것도 불러오지 않는다`);
+  for (const f of ["hexMatch.js", "hexUlt.js"]) assert.ok(!/Math\.random|Date\.now|new Date/.test(read(f)), `${f}: Math.random · Date 금지`);
 });
 
 test("실제 스냅샷 (런 · 레슨 런 · 도전) 으로 만들어 끝까지: 결과 모양 그대로, possessions 는 무시", () => {
@@ -221,7 +223,7 @@ test("결정성: 같은 시드 = 같은 JSON, 매 step clone 해도 같은 결�
   const b = hex.simulateAuto(mk("det"), data);
   assert.equal(JSON.stringify(a), JSON.stringify(b));
   assert.deepEqual(hex.getResult(a), hex.getResult(b));
-  let c = mk("det");
+  let c = hex.setAutoBoth(mk("det")); // simulateAuto 는 양쪽 AI (H3)
   let guard = 0;
   while (!hex.isFinished(c)) {
     hex.step(c, data);
@@ -539,7 +541,9 @@ test("결과 · 기록: 골 = 점수 (승부차기 제외), 슛 ≥ 골, 패스 
         assert.equal(score(s.mvpId), best);
       }
       assert.equal(ms.stats[side].mvpId, s.mvpId);
-      assert.equal(s.skillsUsed + s.ultimatesUsed + s.combos + s.gaanpaUsed, 0, "H3 · H4 전에는 0");
+      assert.equal(s.skillsUsed + s.gaanpaUsed, 0, "H4 전에는 0");
+      assert.equal(s.ultimatesUsed, ms.events.filter((e) => e.type === "cutin" && e.side === side).length, "필살기 = 컷인 수");
+      assert.equal(s.combos, ms.events.filter((e) => e.type === "combo" && e.side === side).length, "합체기 = combo 이벤트 수");
     }
     // 골 뒤 킥오프는 골 먹은 쪽 (같은 턴) — 골든골 골은 경기 끝
     for (const g of evs(ms, "goal")) {
@@ -874,7 +878,14 @@ function viewOf(ms, flip, dt) {
   const swapSide = flip ? swapSideReal : (s) => s;
   const pos = { home: {}, away: {} };
   for (const s of ["home", "away"]) for (const [pid, c] of Object.entries(ms.pos[s])) pos[swapSide(s)][pid] = m(c);
-  const shift = (L) => Object.fromEntries(Object.entries(L).map(([pid, v]) => [pid, { moveAcc: v.moveAcc, restUntil: v.restUntil >= 0 ? v.restUntil + dt : v.restUntil }]));
+  // live 전체 (H3 게이지 · 켬 · 합체기 대기 · 다음 겨루기 보너스 포함) — 턴 값은 dt 만큼 민다
+  const shiftUntil = (o) => (o ? { ...o, until: o.until + dt } : o);
+  const shift = (L) => Object.fromEntries(Object.entries(L).map(([pid, v]) => {
+    const o = { ...v, restUntil: v.restUntil >= 0 ? v.restUntil + dt : v.restUntil };
+    if ("combo" in v) o.combo = shiftUntil(v.combo);
+    if ("nextBonus" in v) o.nextBonus = shiftUntil(v.nextBonus);
+    return [pid, o];
+  }));
   const b = ms.ball;
   return {
     turn: ms.turn + dt,
@@ -890,9 +901,12 @@ function viewOf(ms, flip, dt) {
     score: { [swapSide("home")]: ms.score.home, [swapSide("away")]: ms.score.away },
     possessions: ms.possessions,
     rngState: ms.rngState,
+    aiSides: ms.aiSides.map(swapSide).sort(),
+    teamUlt: { [swapSide("home")]: shiftUntil(ms.teamUlt.home), [swapSide("away")]: shiftUntil(ms.teamUlt.away) },
     events: ms.events.map((e) => {
       const o = { ...e, turn: e.turn + dt };
       if (o.side) o.side = swapSide(o.side);
+      if (o.reverseCutin) o.reverseCutin = { ...o.reverseCutin, side: swapSide(o.reverseCutin.side) };
       for (const k of EVENT_CELL_KEYS) if (typeof o[k] === "number") o[k] = m(o[k]);
       if (o.score) o.score = { [swapSide("home")]: o.score.home, [swapSide("away")]: o.score.away };
       return o;
@@ -913,6 +927,8 @@ function mirrorMatch(A, homeSnap, awaySnap) {
   B.ball = clone(v.ball);
   B.events = clone(v.events);
   B.score = clone(v.score);
+  B.aiSides = clone(v.aiSides);
+  B.teamUlt = clone(v.teamUlt);
   B.turn = v.turn;
   B.possessions = A.possessions;
   B.possessionSide = A.possessionSide ? swapSideReal(A.possessionSide) : null;
@@ -924,6 +940,7 @@ test("좌우 대칭 (판 + 엔진): 거울 장면은 같은 주사위로 매 턴
   let goals = 0;
   let passes = 0;
   let tackles = 0;
+  let cutins = 0;
   for (let k = 0; k < 4; k++) {
     const awaySnap = k % 2 ? mirror(HOME) : oppSnapshot(k);
     const A = hex.createMatch({ data, seed: `sym-${k}`, home: HOME, away: awaySnap, kind: "friendly" });
@@ -937,8 +954,10 @@ test("좌우 대칭 (판 + 엔진): 거울 장면은 같은 주사위로 매 턴
     goals += A.score.home + A.score.away;
     passes += evs(A, "pass").length;
     tackles += evs(A, "tackle").length;
+    cutins += evs(A, "cutin").length;
   }
   assert.ok(goals > 0 && passes > 0 && tackles > 0, "골 · 패스 · 태클이 나오는 구간을 비교했다");
+  assert.ok(cutins > 0, "필살기 (AI 쪽) 가 터지는 구간도 비교했다 (H3)");
 });
 
 test("좌우 대칭 (장면): 공 가진 선수의 선택 · 가려는 칸 · 패스 칸과 동률 이웃 고르기가 거울 장면에서 거울상", () => {

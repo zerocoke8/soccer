@@ -74,6 +74,8 @@ const TEAM = {
   away: { ring: 0xff5d5d, body: 0xff5d5d, dark: 0x8c2626 },
 };
 const GOLD = 0xffd166;
+/** 필살기 분홍 (css --ult #ff7ad9) — 쓰는 턴의 바닥 고리 · 빛, 사람 쪽 준비된 선수의 가는 고리 (H3, 캔버스에 글자 없음) */
+const ULT = 0xff7ad9;
 /** 한 번 동작의 가장 짧은 길이 (ms — 4배속 0.1 초 턴에서도 읽히게, 문서 §5.3) */
 export const ONE_SHOT_MIN = 150;
 /** 정지 그림 선수가 달릴 때 통통 높이 (화면 px × s) */
@@ -495,7 +497,17 @@ async function buildView(PIXI, app, host, { W, H, width, origin, data, onContext
       const ring = new Graphics().circle(0, 0, 18).stroke({ width: 2, color: team.ring, alpha: 0.9 });
       const gold = new Graphics().circle(0, 0, 19).stroke({ width: 3.5, color: GOLD, alpha: 1 });
       gold.visible = false;
-      ground.addChild(shade, ring, gold);
+      // 필살기 (H3): 준비 = 가는 분홍 고리 (사람 쪽 · 게이지 가득 · 합체기 대기), 쓰는 턴 = 굵은 분홍 고리 + 바깥으로 옅어지는 빛 (필터 없음 — 겹친 원)
+      const ultReady = new Graphics().circle(0, 0, 23).stroke({ width: 2.5, color: ULT, alpha: 1 });
+      ultReady.visible = false;
+      const ultFire = new Graphics()
+        .circle(0, 0, 34).fill({ color: ULT, alpha: 0.10 })
+        .circle(0, 0, 29).fill({ color: ULT, alpha: 0.14 })
+        .circle(0, 0, 24).fill({ color: ULT, alpha: 0.18 })
+        .circle(0, 0, 21).stroke({ width: 4, color: ULT, alpha: 1 })
+        .circle(0, 0, 26).stroke({ width: 1.5, color: 0xffffff, alpha: 0.75 });
+      ultFire.visible = false;
+      ground.addChild(shade, ultFire, ring, gold, ultReady);
       const figure = new Container();
       const body = new Graphics()
         .roundRect(-14, -26, 28, 26, 8).fill({ color: team.body })
@@ -521,7 +533,7 @@ async function buildView(PIXI, app, host, { W, H, width, origin, data, onContext
       node.addChild(ground, figure, sprBox);
       actors.addChild(node);
       const n = {
-        node, ground, figure, faceRing, gold, ring, sprBox, side: p.side, resting: null, carrier: null,
+        node, ground, figure, faceRing, gold, ring, ultReady, ultFire, sprBox, side: p.side, resting: null, carrier: null, ult: null,
         spr: null, sprKind: null, cur: null, // 스프라이트 · 종류 ('anim' | 'static') · 지금 동작 { act, key, start, mode, dur, count }
       };
       nodes.set(p.key, n);
@@ -716,6 +728,12 @@ async function buildView(PIXI, app, host, { W, H, width, origin, data, onContext
           n.carrier = p.carrier;
           n.gold.visible = !!p.carrier;
           n.ring.visible = !p.carrier;
+        }
+        const ultKey = p.ult ? 2 : p.ultReady ? 1 : 0;
+        if (n.ult !== ultKey) {
+          n.ult = ultKey;
+          n.ultFire.visible = ultKey === 2;
+          n.ultReady.visible = ultKey === 1;
         }
         if (n.resting !== p.resting) {
           n.resting = p.resting;

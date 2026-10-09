@@ -20,6 +20,9 @@
 //     차는 선수가 같은 턴에 칸을 옮기면 공은 그 보간된 발 앞을 따라가다 release 순간 자리에서 떠난다 (예전 자리에 공만 남지 않게).
 //     frame.release = 이번 턴에 쓴 release (차는 턴이 아니면 0) — 화면이 공 가진 선수 표시를 넘기는 때를 이만큼 미룬다.
 //
+// 필살기 (H3): frame.players[i].ult = 이번 턴 (next.turn) cutin 이벤트의 선수 (쓰는 턴 — Pixi 분홍 바닥 고리 · 빛),
+//   .ultReady = opts.ultReady (화면이 넘기는 'side:id' 묶음 — 사람 쪽 준비 · 켬 선수, Pixi 가는 분홍 고리). 캔버스에 글자 없음.
+//
 // [구현 결정] (H1):
 //  - 공 가진 선수의 공 = 발에서 공격 방향 (골 축) 으로 46 · 0.35 · s 화면 px, 깊이 쪽 (가까운 쪽) 4 · s 화면 px — 예전 ballPx 와 같은 크기를 판 px 로 바꿔 둔다.
 //  - 쉬는 선수 (resting) = restUntil ≥ next.turn — 넘어진 턴 · 그다음 턴 동안 넘어진 모습.
@@ -310,21 +313,26 @@ function sameFlight(a, b) {
  * @param {{ W: number, H: number, sprite?: (charId: string) => ({ w: number, h: number, footX: number }|null), goalScene?: boolean, release?: number }} size
  *   필드 영역 크기 + sprite (그 캐릭터의 정지 스프라이트 크기 — art.spriteOf, 있으면 figure 가 스프라이트 키 72 · s) · goalScene (골 장면 — 득점자 celebrate)
  *   · release (차는 턴에 공이 발을 떠나는 진행도, 기본 BALL_RELEASE — 머리 주석 "공")
+ *   · ultReady (H3 — 필살기 준비 고리를 그릴 선수 key 'side:id' 묶음 · 화면이 사람 쪽만 넘긴다). p.ult = 이번 턴 (next.turn) cutin 이벤트의 선수
+ *     (필살기를 쓴 턴 — 분홍 바닥 고리 · 빛)
  * @returns {{
  *   turn: number, alpha: number, kickoff: boolean, goal: null|{ side: string, playerId: string },
  *   players: Array<{ key: string, side: 'home'|'away', id: string, name: string, role: string, u: number, v: number,
  *     sx: number, sy: number, s: number, ga: number, figure: { fh: number, hw: number }, ground: { w: number, h: number },
- *     color: string, charId: string|null, carrier: boolean, resting: boolean, z: number,
+ *     color: string, charId: string|null, carrier: boolean, resting: boolean, z: number, ult: boolean, ultReady: boolean,
  *     act: string, actKey: string, facing: 'r'|'l', actSpan: null|number[] }>,
  *   ball: { u: number, v: number, sx: number, sy: number, s: number, d: number, lift: number,
  *     shadow: { sx: number, sy: number, w: number, h: number } },
  *   focus: { x: number, y: number }, attackRight: boolean, carrierKey: string|null, release: number
  * }}
  */
-export function frameAt(prev, next, alpha, { W, H, sprite = null, goalScene = false, release = BALL_RELEASE }) {
+export function frameAt(prev, next, alpha, { W, H, sprite = null, goalScene = false, release = BALL_RELEASE, ultReady = null }) {
   const a = clamp01(Number(alpha) || 0);
   const e = easeOut(a);
   const evs = eventsOfTurn(next);
+  // 이번 턴에 필살기를 쓴 선수 (cutin 이벤트 — H3)
+  const ultKeys = new Set(evs.filter((x) => x.type === 'cutin').map((x) => `${x.side}:${x.playerId}`));
+  const readyHas = (k) => !!(ultReady && typeof ultReady.has === 'function' && ultReady.has(k));
   const kickoff = evs.some((x) => x.type === 'kickoff');
   const goalEv = evs.find((x) => x.type === 'goal') || null;
   const goalReset = !!(prev && goalEv && kickoff); // 골 → 킥오프: 선수는 prev 자리 그대로, 공만 골망으로
@@ -371,6 +379,8 @@ export function frameAt(prev, next, alpha, { W, H, sprite = null, goalScene = fa
         carrier: !!(holder && holder.side === side && holder.id === id),
         resting: Number.isFinite(restUntil) && restUntil >= next.turn,
         z: pr.sy,
+        ult: ultKeys.has(`${side}:${id}`),
+        ultReady: readyHas(`${side}:${id}`),
       });
     }
   }

@@ -75,7 +75,7 @@ test("육각 경기 한 턴 길이: 기본 400ms · ?tick=300 ~ 500 만 받는�
 test("육각 경기 저장 키: KEYS.hexMatch 도 'soccer-hex.' 앞머리 · 저장/읽기 · clearRunSaves 가 함께 지운다", async () => {
   const hx = await storeAt("/soccer/hex/", "", "hexkeys");
   assert.equal(hx.KEYS.hexMatch, "soccer-hex.hexMatch");
-  assert.equal(hx.HEX_SAVE_VERSION, 1);
+  assert.equal(hx.HEX_SAVE_VERSION, 2, "판 2 = H3 필살기 입력 기록");
   assert.equal(hx.store.hexMatch, null);
   const ls = await storeAt("/soccer/lesson/", "", "hexkeyslesson");
   assert.equal(ls.KEYS.hexMatch, "soccer-lesson.hexMatch");
@@ -89,9 +89,18 @@ test("육각 경기 저장 키: KEYS.hexMatch 도 'soccer-hex.' 앞머리 · 저
   });
   try {
     assert.equal(hx.loadHexMatch(), null);
-    const save = { version: hx.HEX_SAVE_VERSION, seed: "s1", steps: 37 };
+    const save = { version: hx.HEX_SAVE_VERSION, seed: "s1", steps: 37, inputs: [[3, "home", "p7", "arm"], [9, "home", "p7", "disarm"]] };
     hx.saveHexMatch(save);
     assert.deepEqual(hx.loadHexMatch(), save);
+    // 판 1 (H1 · H2 — 입력 없음) · inputs 없는 판 2 → inputs: [] 판 2 모양
+    mem.set(hx.KEYS.hexMatch, JSON.stringify({ version: 1, seed: "s1", steps: 12, skipped: true }));
+    assert.deepEqual(hx.loadHexMatch(), { version: 2, seed: "s1", steps: 12, skipped: true, inputs: [] }, "판 1 = 입력 없음");
+    mem.set(hx.KEYS.hexMatch, JSON.stringify({ version: 2, seed: "s1", steps: 4 }));
+    assert.deepEqual(hx.loadHexMatch(), { version: 2, seed: "s1", steps: 4, inputs: [] }, "inputs 없음 = 입력 없음");
+    for (const bad of [[[-1, "home", "p1", "arm"]], [[1.5, "home", "p1", "arm"]], [[1, "both", "p1", "arm"]], [[1, "home", "", "arm"]], [[1, "home", "p1", "fire"]], [[1, "home", "p1"]], "x"]) {
+      mem.set(hx.KEYS.hexMatch, JSON.stringify({ version: 2, seed: "s1", steps: 4, inputs: bad }));
+      assert.equal(hx.loadHexMatch(), null, `입력 모양이 틀리면 없음: ${JSON.stringify(bad)}`);
+    }
     mem.set(hx.KEYS.hexMatch, JSON.stringify({ version: 99, seed: "s1", steps: 3 }));
     assert.equal(hx.loadHexMatch(), null, "버전이 다르면 없음");
     mem.set(hx.KEYS.hexMatch, JSON.stringify({ version: 1, seed: "s1", steps: -1 }));

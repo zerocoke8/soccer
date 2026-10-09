@@ -912,7 +912,7 @@
   padding: 12px 18px; border-radius: 12px; background: rgba(12, 18, 26, .88); border: 1px solid #34405a;
   color: var(--text); font-size: 15px; font-weight: 700; text-align: center;
 }
-.match-screen.hex-screen .hx-note { top: auto; bottom: 18px; transform: translateX(-50%); font-size: 13px; padding: 6px 14px; }
+.match-screen.hex-screen .hx-note { top: auto; bottom: 92px; transform: translateX(-50%); font-size: 13px; padding: 6px 14px; } /* 필살기 띠 (.hx-ult) 위 */
 /* 시계: 점수 머리 바로 아래 가운데 */
 .match-screen.hex-screen .hx-clock {
   position: absolute; z-index: 6; left: 50%; top: 68px; transform: translateX(-50%);
@@ -929,6 +929,65 @@
   background: rgba(21, 27, 38, .94); box-shadow: 0 3px 10px rgba(0, 0, 0, .3); font-variant-numeric: tabular-nums;
 }
 .match-screen.hex-screen .hx-ctl .btn.active { background: rgba(30, 58, 92, .95); }
+/* 필살기 버튼 7개 (H3 — 문서 §3 · 결정 8, screens/hexMatch.js buildUltBar · drawUlt): 아래 띠 (스테이지 y 612 ~ 714) 의 컨트롤 오른쪽
+   x 140 ~ 1262 를 7칸으로 (칸 ≈ 155 × 76 — 915×412 폰에서 ≈ 89 × 43 CSS px: 손가락 칸 44 px 가까이 · 글자 ≥ 9 CSS px). 칸 = 얼굴 원 · 선수 이름 · 상태 한 줄 · 아래 게이지 막대 (--g 0 ~ 1).
+   상태 클래스: hx-ready (게이지 가득 — 분홍 테 숨쉬기) · hx-now (지금 쓰면 그 턴에 터짐) · hx-armed (예약 — 채운 분홍) · hx-combo (합체기 대기 — 금색) ·
+   hx-on (팀 필살기 발동 중) · hx-pending (다음 턴 입력 줄에 있음) · hx-wait (아직 못 누름) · hx-none (필살기 없음 — 꺼진 칸).
+   필터 · 배경 흐림 없음 (box-shadow 만 — 작은 버튼) */
+.match-screen.hex-screen .hx-ult {
+  position: absolute; z-index: 5; left: 140px; right: calc(var(--pad) + var(--fx)); bottom: 10px; height: 76px;
+  display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; pointer-events: none;
+}
+.match-screen.hex-screen .hx-ult-btn {
+  --uc: rgba(255, 122, 217, .35);
+  position: relative; min-width: 0; min-height: 0; height: 76px; padding: 6px 6px 13px 6px; margin: 0; pointer-events: auto;
+  display: flex; align-items: center; gap: 7px; text-align: left; color: var(--text); cursor: pointer;
+  border: 2px solid var(--uc); border-radius: 12px; background: rgba(21, 27, 38, .94); box-shadow: 0 3px 10px rgba(0, 0, 0, .3);
+  font: inherit; -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+}
+.match-screen.hex-screen .hx-ult-face {
+  position: relative; flex: none; width: 48px; height: 48px; border-radius: 50%; overflow: hidden;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, .55);
+}
+.match-screen.hex-screen .hx-ult-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.match-screen.hex-screen .hx-ult-txt { min-width: 0; flex: 1 1 auto; display: flex; flex-direction: column; gap: 1px; }
+.match-screen.hex-screen .hx-ult-nm { font-size: 18px; line-height: 22px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.match-screen.hex-screen .hx-ult-st {
+  align-self: flex-start; max-width: 100%; font-size: 16px; line-height: 20px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  color: var(--muted); font-variant-numeric: tabular-nums;
+}
+.match-screen.hex-screen .hx-ult-g { position: absolute; left: 8px; right: 8px; bottom: 5px; height: 6px; border-radius: 3px; background: rgba(255, 255, 255, .12); overflow: hidden; }
+.match-screen.hex-screen .hx-ult-g > i { display: block; height: 100%; width: calc(var(--g, 0) * 100%); background: var(--ult); border-radius: 3px; }
+/* 유형 색 (컷인 .cut-type 과 같은 색) — 얼굴 테 */
+.match-screen.hex-screen .hx-ult-btn.ut-shot .hx-ult-face { box-shadow: 0 0 0 2px #ffb199; }
+.match-screen.hex-screen .hx-ult-btn.ut-pass .hx-ult-face { box-shadow: 0 0 0 2px #9df0c8; }
+.match-screen.hex-screen .hx-ult-btn.ut-save .hx-ult-face { box-shadow: 0 0 0 2px #a9d6ff; }
+.match-screen.hex-screen .hx-ult-btn.ut-dribble .hx-ult-face { box-shadow: 0 0 0 2px #ffe680; }
+.match-screen.hex-screen .hx-ult-btn.ut-defense .hx-ult-face { box-shadow: 0 0 0 2px #d5dde8; }
+.match-screen.hex-screen .hx-ult-btn.ut-team .hx-ult-face { box-shadow: 0 0 0 2px #ffd166; }
+.match-screen.hex-screen .hx-ult-btn.hx-wait { cursor: default; }
+.match-screen.hex-screen .hx-ult-btn.hx-ready { --uc: var(--ult); animation: ult-btn 1.2s ease-in-out infinite; }
+.match-screen.hex-screen .hx-ult-btn.hx-ready .hx-ult-st { color: #ffd6f3; }
+.match-screen.hex-screen .hx-ult-btn.hx-now .hx-ult-st { padding: 0 6px; border-radius: 6px; background: var(--ult); color: #2a0b22; }
+.match-screen.hex-screen .hx-ult-btn.hx-armed { --uc: #fff; background: rgba(122, 40, 100, .96); animation: none; }
+.match-screen.hex-screen .hx-ult-btn.hx-armed .hx-ult-st { color: #fff; }
+.match-screen.hex-screen .hx-ult-btn.hx-armed .hx-ult-g > i { background: #fff; }
+.match-screen.hex-screen .hx-ult-btn.hx-combo { --uc: var(--gold); box-shadow: 0 0 10px rgba(255, 209, 102, .6); }
+.match-screen.hex-screen .hx-ult-btn.hx-combo .hx-ult-st { color: var(--gold); }
+.match-screen.hex-screen .hx-ult-btn.hx-combo.hx-armed { background: rgba(110, 86, 20, .96); }
+/* 합체기 대기 = 금색 숨쉬기 (hx-ready 의 분홍 ult-btn 애니메이션이 금색 그림자를 덮지 않게 — 애니메이션 값은 보통 선언보다 앞선다) */
+.match-screen.hex-screen .hx-ult-btn.hx-combo.hx-ready { animation: hx-ult-gold 1.2s ease-in-out infinite; }
+@keyframes hx-ult-gold { 0%, 100% { box-shadow: 0 0 4px rgba(255, 209, 102, .4); } 50% { box-shadow: 0 0 14px rgba(255, 209, 102, .9); } }
+.match-screen.hex-screen .hx-ult-btn.hx-on { --uc: var(--gold); }
+.match-screen.hex-screen .hx-ult-btn.hx-on .hx-ult-st { color: var(--gold); }
+.match-screen.hex-screen .hx-ult-btn.hx-pending { border-style: dashed; }
+.match-screen.hex-screen .hx-ult-btn:disabled { cursor: default; opacity: .55; animation: none; }
+.match-screen.hex-screen .hx-ult-btn.hx-none { opacity: .35; }
+.match-screen.hex-screen .hx-ult-btn.hx-none .hx-ult-g { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .match-screen.hex-screen .hx-ult-btn.hx-ready { animation: none !important; box-shadow: 0 0 10px rgba(255, 122, 217, .7); }
+  .match-screen.hex-screen .hx-ult-btn.hx-combo.hx-ready { box-shadow: 0 0 10px rgba(255, 209, 102, .7); }
+}
 /* 알림 (골 · 골든골 · 추가시간 · 승부차기): 필드 가운데 위쪽 큰 글자 */
 .match-screen.hex-screen .hx-banner {
   position: absolute; z-index: 7; left: 50%; top: 26%; transform: translate(-50%, -50%);

@@ -123,7 +123,7 @@ test("jsdom: 육각 경기 화면 — 골격 · 대체 화면 · 가짜 view 프
   const setup = S.run.getMatchSetup(S.store.run, S.store.data);
   assert.equal(hm.seed, setup.seed, "셋업 seed");
   assert.equal(hm.kind, "friendly");
-  assert.deepEqual(JSON.parse(window.localStorage.getItem(ST.KEYS.hexMatch)), { version: ST.HEX_SAVE_VERSION, seed: setup.seed, steps: 0 }, "재생 기록 저장");
+  assert.deepEqual(JSON.parse(window.localStorage.getItem(ST.KEYS.hexMatch)), { version: ST.HEX_SAVE_VERSION, seed: setup.seed, steps: 0, inputs: [] }, "재생 기록 저장");
   for (const sel of [".hx-pitch", ".mh", ".hx-clock", ".hx-ctl", ".hx-banner"]) assert.ok(scr.querySelector(`:scope > ${sel}`), `화면 바로 아래 ${sel}`);
   assert.ok(scr.querySelector(".hx-pitch > .hx-field > .hx-name"), "이름표 층 = 필드 영역");
   assert.ok(scr.querySelector(".mh > .mh-team.home > .nm") && scr.querySelector(".mh > .mh-team.away > .nm"), "팀 이름 (예전 클래스)");
@@ -235,17 +235,20 @@ test("jsdom: 육각 경기 화면 — 골격 · 대체 화면 · 가짜 view 프
     S.render();
     assert.equal(S.store.hexMatch.seed, setup.seed, "다른 seed 의 상태는 버린다");
     assert.equal(S.store.hexMatch.turn, 0, "새 경기");
-    assert.deepEqual(savedHex(), { version: ST.HEX_SAVE_VERSION, seed: setup.seed, steps: 0 }, "새 재생 기록");
+    assert.deepEqual(savedHex(), { version: ST.HEX_SAVE_VERSION, seed: setup.seed, steps: 0, inputs: [] }, "새 재생 기록");
   }
   {
-    // ⏭ 했던 재생 기록 (skipped) → simulateAuto 로 되살리고 열자마자 결과 · 다시 그려도 결과 모달은 하나
+    // ⏭ 했던 재생 기록 (skipped) → steps 만큼 (입력대로) 돌린 뒤 simulateAuto 로 되살리고 열자마자 결과 · 다시 그려도 결과 모달은 하나
+    //   (H3: ⏭ 전까지는 사람 쪽이 필살기를 안 켰으므로 처음부터 simulateAuto 와 다르다 — 양쪽 AI 는 ⏭ 부터)
     S.store.hexMatch = null;
     ST.saveHexMatch({ version: ST.HEX_SAVE_VERSION, seed: setup.seed, steps: 5, skipped: true });
     S.render();
     const want = freshMatch();
+    for (let i = 0; i < 5; i++) S.hexMatch.step(want, S.store.data);
     S.hexMatch.simulateAuto(want, S.store.data);
     assert.ok(S.store.hexMatch.finished, "skipped → 끝까지");
     assert.deepEqual(S.store.hexMatch.score, want.score, "같은 결과 (재생이 정확)");
+    assert.equal(JSON.stringify(S.store.hexMatch), JSON.stringify(want), "상태 전체가 같다");
     assert.equal(modals(), 1, "결과 모달");
     S.render();
     S.render();
@@ -295,7 +298,7 @@ test("jsdom: 육각 경기 화면 — 골격 · 대체 화면 · 가짜 view 프
   assert.equal(modal.textContent, `${res.homeGoals} : ${res.awayGoals}`);
   assert.equal(doc.querySelector("#modal-root h2").textContent, "친선전 결과");
   const rows = [...doc.querySelectorAll("#modal-root .stats-table tbody tr")].map((tr) => tr.firstElementChild.textContent);
-  assert.deepEqual(rows, ["슛", "겨루기 승", "골", "패스 (성공/시도)", "가로채기", "태클 성공", "MVP"], "결과 표");
+  assert.deepEqual(rows, ["슛", "겨루기 승", "골", "패스 (성공/시도)", "가로채기", "태클 성공", "필살기", "합체기", "MVP"], "결과 표");
   assert.ok(doc.querySelector("#modal-root .result-verdict"));
   assert.equal(scrSkip.querySelector(".skip-btn").disabled, true, "끝나면 ⏭ 비활성");
   assert.equal(scrSkip.querySelector(".hx-clock").textContent, "경기 종료");

@@ -18,8 +18,8 @@ export const KEYS = {
   // 계정 저장 (LESSON_PROTO_PLAN §24.7 — 런 밖): 본 외출 이야기 · 만난 코치 { version: 1, stories: { [charId]: 1 ~ 3 }, coachMet: { [supportId]: true } }.
   // 런 저장 삭제 · 다시 하기 · clearRunSaves 는 이 키를 지우지 않는다. 엔진 호출마다 app.js engine() 이 런 진행을 합친다 (lessonEvents.accountMerge).
   account: `${STORAGE_PREFIX}account`,
-  // 육각 오토배틀 경기 (H1 — docs/HEX_AUTOBATTLE_PLAN.md §6.4): 런 경기의 육각 엔진 재생 기록 { version: HEX_SAVE_VERSION, seed, steps, skipped? }.
-  //   상태 전체가 아니라 시드 + step 횟수만 남긴다 (H1 은 입력이 없어 같은 셋업으로 다시 돌리면 그대로 되살아난다). clearRunSaves 가 함께 지운다
+  // 육각 오토배틀 경기 (H1 · H3 — docs/HEX_AUTOBATTLE_PLAN.md §6.4): 런 경기의 육각 엔진 재생 기록 { version: HEX_SAVE_VERSION, seed, steps, inputs, skipped? }.
+  //   상태 전체가 아니라 시드 + step 횟수 + 필살기 입력 기록만 남긴다 (같은 셋업으로 다시 돌리며 입력을 그 step 에 넣으면 그대로 되살아난다). clearRunSaves 가 함께 지운다
   hexMatch: `${STORAGE_PREFIX}hexMatch`,
 };
 /** KEYS.account 저장 형식 버전 */
@@ -35,8 +35,10 @@ export const LESSON_RUN_SAVE_VERSIONS = [1, 2, 3, 4, 5];
 export function isLessonRunSave(s) {
   return !!s && typeof s === 'object' && s.kind === LESSON_RUN_KIND && LESSON_RUN_SAVE_VERSIONS.includes(s.version) && typeof s.phase === 'string';
 }
-/** KEYS.hexMatch 저장 형식 버전 (육각 경기 재생 기록 — saveHexMatch · loadHexMatch) */
-export const HEX_SAVE_VERSION = 1;
+/** KEYS.hexMatch 저장 형식 버전 (육각 경기 재생 기록 — saveHexMatch · loadHexMatch). 2 = H3 필살기 입력 기록 inputs (1 은 inputs: [] 로 읽는다) */
+export const HEX_SAVE_VERSION = 2;
+/** 육각 재생 기록의 필살기 입력 op */
+const HEX_INPUT_OPS = ['arm', 'disarm'];
 /** KEYS.challengeMatch 저장 형식 버전 */
 export const CHALLENGE_MATCH_VERSION = 1;
 /** 등록 팀 저장 개수 상한 (addTeam — 넘친 오래된 팀은 지운다) */
@@ -207,18 +209,28 @@ export function saveMatch(state) { return lsSet(KEYS.match, state ?? null); }
 export function loadMatch() { return lsGet(KEYS.match); }
 export function clearRunSaves() { lsSet(KEYS.run, null); lsSet(KEYS.match, null); lsSet(KEYS.hexMatch, null); }
 /**
- * 육각 경기 재생 기록 쓰기 (KEYS.hexMatch). null = 지운다. 모양 = { version: HEX_SAVE_VERSION, seed, steps, skipped? } (화면이 만든다)
- * @param {{ version: number, seed: string|number, steps: number, skipped?: boolean } | null} save
+ * 육각 경기 재생 기록 쓰기 (KEYS.hexMatch). null = 지운다. 모양 = { version: HEX_SAVE_VERSION, seed, steps, inputs, skipped? } (화면이 만든다)
+ *   inputs = [[stepIndex, side, playerId, op], …] — stepIndex 번째 (0 부터) step 에 넣은 필살기 입력 (op 'arm' | 'disarm', 넣은 순서대로)
+ * @param {{ version: number, seed: string|number, steps: number, inputs?: Array<[number, string, string, string]>, skipped?: boolean } | null} save
  */
 export function saveHexMatch(save) { return lsSet(KEYS.hexMatch, save ?? null); }
+/** 재생 기록 입력 한 줄이 맞는 모양인가 ([0 이상 정수, 'home'|'away', 선수 id, 'arm'|'disarm']) */
+function isHexInput(x) {
+  return Array.isArray(x) && x.length === 4 && Number.isInteger(x[0]) && x[0] >= 0 && (x[1] === 'home' || x[1] === 'away')
+    && (typeof x[2] === 'string' || typeof x[2] === 'number') && String(x[2]) !== '' && HEX_INPUT_OPS.includes(x[3]);
+}
 /**
- * 육각 경기 재생 기록 (없거나 모양 · 버전이 틀리면 null — seed 확인은 화면이 셋업과 맞춰 본다)
- * @returns {{ version: number, seed: string|number, steps: number, skipped?: boolean } | null}
+ * 육각 경기 재생 기록 (없거나 모양 · 버전이 틀리면 null — seed 확인은 화면이 셋업과 맞춰 본다).
+ * 판 1 (H1 · H2 — 입력 없음) · inputs 가 없는 판 2 는 inputs: [] 로 읽어 판 2 모양으로 돌려준다.
+ * 입력 한 줄이라도 모양이 틀리면 null (다른 경기가 되살아나지 않게).
+ * @returns {{ version: number, seed: string|number, steps: number, inputs: Array<[number, string, string, string]>, skipped?: boolean } | null}
  */
 export function loadHexMatch() {
   const s = lsGet(KEYS.hexMatch);
-  if (!s || typeof s !== 'object' || Array.isArray(s) || s.version !== HEX_SAVE_VERSION) return null;
+  if (!s || typeof s !== 'object' || Array.isArray(s) || (s.version !== HEX_SAVE_VERSION && s.version !== 1)) return null;
   if (!Number.isInteger(s.steps) || s.steps < 0 || s.seed == null) return null;
+  if (s.version === 1 || s.inputs === undefined) return { ...s, version: HEX_SAVE_VERSION, inputs: [] };
+  if (!Array.isArray(s.inputs) || !s.inputs.every(isHexInput)) return null;
   return s;
 }
 
