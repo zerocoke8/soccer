@@ -15,12 +15,35 @@
 //     frameAt(null, next, 1) 로 킥오프 자리를 그린다. 골든골 결승골 (kickoff 없음) 은 선수도 평소처럼 움직인다.
 //   공: 같은 선수가 계속 가지면 그 선수 (보간된 자리) 발 앞, 아니면 prev 공 자리 → next 공 자리 (판 위 직선 — 비행 길은 육각 직선이라 같다).
 //     크로스는 비행 전체 진행도 t 로 호 높이 4t(1 − t) · arcLift. 한 턴 안에 뜨고 내려앉은 크로스 (이번 턴 pass 이벤트 cross) 는 t = alpha.
+//     차는 턴 (H2): 이번 턴 pass · shot 이벤트의 차는 선수가 턴 시작에 공을 가졌으면 공은 alpha < release 동안 그 발 앞에 머물고
+//     (스프라이트 pass · kick 의 발이 공에 닿는 칸까지 — 차기 전에 공이 먼저 떠나지 않게) 나머지 (1 − release) 동안 날아간다.
+//     차는 선수가 같은 턴에 칸을 옮기면 공은 그 보간된 발 앞을 따라가다 release 순간 자리에서 떠난다 (예전 자리에 공만 남지 않게).
+//     frame.release = 이번 턴에 쓴 release (차는 턴이 아니면 0) — 화면이 공 가진 선수 표시를 넘기는 때를 이만큼 미룬다.
 //
 // [구현 결정] (H1):
 //  - 공 가진 선수의 공 = 발에서 공격 방향 (골 축) 으로 46 · 0.35 · s 화면 px, 깊이 쪽 (가까운 쪽) 4 · s 화면 px — 예전 ballPx 와 같은 크기를 판 px 로 바꿔 둔다.
 //  - 쉬는 선수 (resting) = restUntil ≥ next.turn — 넘어진 턴 · 그다음 턴 동안 넘어진 모습.
 //  - 슛 (골) 의 공은 골라인 너머 GOAL_DEPTH / 2 · 슛 칸 깊이를 골 행 5 ~ 7 안으로 자른 곳, 얕은 호 (크로스 호의 0.35).
 //  - 시계는 경기 시간 (턴 × 0.4 초, 결정 16) — 재생 속도 (tick ms · 배속) 와 상관없다. 남은 초는 올림.
+//
+// 동작 (H2 — 문서 §5.3 · §7 H2, frame.players[i].act · actKey · facing — Pixi 층이 스프라이트 시트를 고른다):
+//   act = spriteAnim ANIM_ACTIONS 하나. 보여 주는 턴 (next.turn) 의 이벤트와 prev → next 이동으로 정한다 (위가 먼저):
+//    1) 킥오프 자리 그림 (next 에 kickoff, 골 턴 연출 아님) → 모두 idle.
+//    2) 승부차기 → 마지막 킥의 키커 kick · 그 GK block, 나머지 idle.
+//    3) 골 장면 (opts.goalScene) 의 득점자 → celebrate (끝 자세).
+//    4) 이번 턴 이벤트: 패스한 선수 pass (크로스 · 노린 칸까지 LONG_PASS 칸 이상 = kick) · 슛 kick (헤더 = header) ·
+//       태클한 선수 tackle (성공 · 실패 모두 — 실패면 다음 턴이 넘어짐) · 가로채기 성공 tackle · 공중볼 수비 block · 선방한 GK block.
+//    5) 쉬는 선수 (넘어져 1턴 쉼 — resting) → fall (끝 자세). 골 턴 (골 → 킥오프) 은 엔진 킥오프가 restUntil 을 지우므로
+//       지난 턴 태클에 실패한 선수를 이벤트로 찾아 fall (FALL_AFTER_SLIDE) · resting = true 로 둔다.
+//    6) 칸을 옮겼다 (보간 중인 1칸) → run, 그중 턴 시작과 끝에 공을 가진 선수 → dribble. 그 밖 → idle.
+//   actKey = 한 번 · 끝 자세 동작은 `${turn}:${act}` (넘어짐은 `${restUntil}:fall` — 쉬는 턴 내내 같은 키, 승부차기는 킥 번호까지),
+//     반복 동작 (idle · run · dribble) 은 act 그대로 — 턴이 바뀌어도 이어 돈다. 키가 바뀌면 화면이 그 동작을 처음부터.
+//   actSpan = null | [from, to] — 시트의 그 구간 (0 ~ 1, 칸 비율) 만 재생 (태클 실패 연출 — 결정 12, 문서 §2.2):
+//     태클 실패 턴의 태클 = FAIL_SLIDE_SPAN (뛰어들어 미끄러진 데까지 — 일어서는 끝 칸은 빼고 누운 칸에서 멈춤),
+//     그다음 쉬는 턴의 넘어짐 = FALL_AFTER_SLIDE (주저앉은 칸부터 — 미끄러져 누운 뒤 다시 서서 넘어지지 않게).
+//   facing 'r' | 'l' (그림은 오른쪽이 기본): 반복 동작 = V.facing (공 가진 선수는 공격 방향, 나머지는 공 쪽).
+//     한 번 동작은 동작 방향으로 고정 (턴 도중 공이 지나가도 돌아서지 않게): 패스 = 노린 칸 쪽, 슛 · 헤더 · 세리머니 = 공격 방향,
+//     태클 = 뛰어든 칸 (공 가진 선수가 있던 칸) 쪽, 넘어짐 = 그 태클과 같은 쪽. 가로 차이가 2px 아래면 V.facing.
 
 import * as G from '../engine/hexGrid.js';
 import * as V from './view25.js';
@@ -49,6 +72,16 @@ const SHADOW_W = 18;
 const SHADOW_H = 7;
 /** 슛 호 높이 = 크로스 호의 이 비율 */
 const SHOT_ARC = 0.35;
+
+/** 패스 → kick 으로 보는 거리 (칸, 노린 칸까지 — 이보다 짧으면 pass) */
+export const LONG_PASS = 5;
+/** 태클 실패 턴의 태클 구간 · 그다음 쉬는 턴의 넘어짐 구간 (시트 칸 비율 — 실루엔 시트: 태클 12칸 중 0 ~ 8 이 뛰어들어 미끄러짐, 넘어짐 8 ~ 11 이 주저앉음) */
+export const FAIL_SLIDE_SPAN = Object.freeze([0, 0.75]);
+export const FALL_AFTER_SLIDE = Object.freeze([0.67, 1]);
+/** 반복 동작 (actKey = act — 턴이 바뀌어도 이어 돈다) */
+export const LOOP_ACTS = Object.freeze(['idle', 'run', 'dribble']);
+/** 차는 턴에 공이 발을 떠나는 진행도 (0 ~ 1 — 실루엔 pass 시트 발이 공에 닿는 칸 5/12 · kick 4/12 사이). 화면이 배속 따라 늘인다 (frameAt opts.release) */
+export const BALL_RELEASE = 0.38;
 
 const clamp01 = (t) => (t <= 0 ? 0 : t >= 1 ? 1 : t);
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -246,10 +279,10 @@ function ballPlane(state, playerUV, W) {
   return cell == null ? { u: RU + FL / 2, v: RV + FD / 2 } : cellPlane(cell);
 }
 
-/** 발 (u, v) → 공격 방향으로 발 앞 공 자리 (판 px) — 화면 px 크기를 가까운 터치라인 배율 (W / FL) 로 나눠 판 px 로 */
-function aheadOf(p, side, W) {
+/** 발 (u, v) → 공격 방향 (dirX 가 있으면 그쪽 — −1 ~ 1) 으로 발 앞 공 자리 (판 px) — 화면 px 크기를 가까운 터치라인 배율 (W / FL) 로 나눠 판 px 로 */
+function aheadOf(p, side, W, dirX = null) {
   const kNear = W / FL;
-  const dir = attackRightOf(side) ? 1 : -1;
+  const dir = Number.isFinite(dirX) ? dirX : attackRightOf(side) ? 1 : -1;
   return { u: p.u + (dir * BALL_AHEAD) / kNear, v: p.v + BALL_DOWN / (kNear * 0.55) };
 }
 
@@ -274,18 +307,21 @@ function sameFlight(a, b) {
  * @param {object|null} prev 이전 턴 상태 또는 sceneSnap(이전 상태) — null 이면 next 그대로
  * @param {object} next 지금 엔진 상태 (이벤트 목록 포함)
  * @param {number} alpha 0 (prev) → 1 (next)
- * @param {{ W: number, H: number }} size 필드 영역 크기
+ * @param {{ W: number, H: number, sprite?: (charId: string) => ({ w: number, h: number, footX: number }|null), goalScene?: boolean, release?: number }} size
+ *   필드 영역 크기 + sprite (그 캐릭터의 정지 스프라이트 크기 — art.spriteOf, 있으면 figure 가 스프라이트 키 72 · s) · goalScene (골 장면 — 득점자 celebrate)
+ *   · release (차는 턴에 공이 발을 떠나는 진행도, 기본 BALL_RELEASE — 머리 주석 "공")
  * @returns {{
  *   turn: number, alpha: number, kickoff: boolean, goal: null|{ side: string, playerId: string },
  *   players: Array<{ key: string, side: 'home'|'away', id: string, name: string, role: string, u: number, v: number,
  *     sx: number, sy: number, s: number, ga: number, figure: { fh: number, hw: number }, ground: { w: number, h: number },
- *     color: string, charId: string|null, carrier: boolean, resting: boolean, z: number }>,
+ *     color: string, charId: string|null, carrier: boolean, resting: boolean, z: number,
+ *     act: string, actKey: string, facing: 'r'|'l', actSpan: null|number[] }>,
  *   ball: { u: number, v: number, sx: number, sy: number, s: number, d: number, lift: number,
  *     shadow: { sx: number, sy: number, w: number, h: number } },
- *   focus: { x: number, y: number }, attackRight: boolean, carrierKey: string|null
+ *   focus: { x: number, y: number }, attackRight: boolean, carrierKey: string|null, release: number
  * }}
  */
-export function frameAt(prev, next, alpha, { W, H }) {
+export function frameAt(prev, next, alpha, { W, H, sprite = null, goalScene = false, release = BALL_RELEASE }) {
   const a = clamp01(Number(alpha) || 0);
   const e = easeOut(a);
   const evs = eventsOfTurn(next);
@@ -295,19 +331,21 @@ export function frameAt(prev, next, alpha, { W, H }) {
   const base = prev && !(kickoff && !goalReset) ? prev : null; // null = 바로 next 자리
   const holder = next.ball?.holder || null;
 
-  // 선수 판 자리
+  // 선수 판 자리 (ee = 보간 진행도 easeOut(alpha) — 차는 턴의 공이 떠나는 순간 자리도 같은 식으로)
+  const uvAt = (side, id, ee) => {
+    const nc = next.pos[side]?.[id];
+    if (!G.isCell(nc)) return null;
+    const pc = base?.pos?.[side]?.[id];
+    const np = cellPlane(nc);
+    if (pc == null || !G.isCell(pc)) return np;
+    const pp = cellPlane(pc);
+    if (goalReset) return pp;
+    if (G.distance(pc, nc) >= 2) return np;
+    return { u: lerp(pp.u, np.u, ee), v: lerp(pp.v, np.v, ee) };
+  };
   const uv = { home: {}, away: {} };
   for (const side of ['home', 'away']) {
-    for (const id of Object.keys(next.pos[side])) {
-      const nc = next.pos[side][id];
-      const pc = base?.pos?.[side]?.[id];
-      const np = cellPlane(nc);
-      if (pc == null || !G.isCell(pc)) { uv[side][id] = np; continue; }
-      const pp = cellPlane(pc);
-      if (goalReset) { uv[side][id] = pp; continue; }
-      if (G.distance(pc, nc) >= 2) { uv[side][id] = np; continue; }
-      uv[side][id] = { u: lerp(pp.u, np.u, e), v: lerp(pp.v, np.v, e) };
-    }
+    for (const id of Object.keys(next.pos[side])) uv[side][id] = uvAt(side, id, e) || cellPlane(next.pos[side][id]);
   }
 
   const players = [];
@@ -321,7 +359,8 @@ export function frameAt(prev, next, alpha, { W, H }) {
       const pr = V.projectPlane(p.u, p.v, W, H);
       const f = V.planeToField(p.u, p.v);
       const ga = V.groundAspect(f.x, f.y, W, H);
-      const fig = V.figureSize(pr.s);
+      const spr = typeof sprite === 'function' && pl.charId ? sprite(pl.charId) : null;
+      const fig = V.figureSize(pr.s, spr || undefined);
       const gw = V.V25.GROUND_W * pr.s;
       const restUntil = next.live?.[side]?.[id]?.restUntil;
       players.push({
@@ -343,35 +382,53 @@ export function frameAt(prev, next, alpha, { W, H }) {
   const pb = base?.ball || null;
   const nf = next.ball?.flight || null;
   const pf = pb?.flight || null;
+  // 차는 턴: 턴 시작에 공을 가진 선수가 이번 턴 패스 · 슛 → 공은 release 까지 발 앞, 그 뒤 날아간다 (ta = 비행 진행도)
+  const kh = (goalEv && prev ? prev.ball?.holder : pb?.holder) || null;
+  const kicks = !!(kh && base !== null && evs.some((x) => (x.type === 'pass' && x.side === kh.side && String(x.from) === String(kh.id))
+    || (x.type === 'shot' && x.side === kh.side && String(x.playerId) === String(kh.id))));
+  const rel = kicks ? Math.min(0.9, Math.max(0, Number(release) || 0)) : 0;
+  const ta = rel > 0 ? clamp01((a - rel) / (1 - rel)) : a;
+  // 차는 선수가 이번 턴에 칸도 옮기면 (패스하고 비키기) 공은 그 선수의 보간된 발 앞에 머물다 떠나는 순간 자리에서 날아간다
+  // 공은 발 앞 (공격 방향) 에서 차는 쪽 발 앞으로 굴려 놓고 떠난다 (뒤로 주는 패스가 등 뒤에서 출발하지 않게)
+  const kp = rel > 0 ? uvAt(kh.side, String(kh.id), easeOut(rel)) : null;
+  let kickFrom = null;
+  let kickHold = null;
+  if (kp) {
+    const atkDir = attackRightOf(kh.side) ? 1 : -1;
+    const kt = goalEv && prev ? goalMouth(goalEv.side, evs) : ballPlane(next, nextUV, W);
+    const kickDir = Math.abs(kt.u - kp.u) < 1 ? atkDir : Math.sign(kt.u - kp.u);
+    kickFrom = aheadOf(kp, kh.side, W, kickDir);
+    if (a < rel) kickHold = aheadOf(uv[kh.side][String(kh.id)] || kp, kh.side, W, lerp(atkDir, kickDir, easeOut(a / rel)));
+  }
   let gp; // 공 땅 자리 (판 px)
   let lift = 0;
   if (goalEv && prev) {
     // 골: prev 공 자리 → 골망 (골라인 너머 GOAL_DEPTH / 2, 슛 칸 깊이를 골 행 안으로)
-    const from = ballPlane(prev, prevUVOf(prev), W);
+    const from = kickFrom || ballPlane(prev, prevUVOf(prev), W);
     const to = goalMouth(goalEv.side, evs);
-    gp = { u: lerp(from.u, to.u, a), v: lerp(from.v, to.v, a) };
-    lift = arcAt(from, to, a, W, H) * SHOT_ARC;
+    gp = kickHold || { u: lerp(from.u, to.u, ta), v: lerp(from.v, to.v, ta) };
+    lift = arcAt(from, to, ta, W, H) * SHOT_ARC;
   } else if (!base) {
     gp = ballPlane(next, nowUV, W);
   } else if (holder && pb?.holder && pb.holder.side === holder.side && pb.holder.id === holder.id) {
     gp = ballPlane(next, nowUV, W); // 같은 선수가 계속 — 보간된 발 앞
   } else {
-    const from = ballPlane(pb ? base : next, prevUV, W);
+    const from = kickFrom || ballPlane(pb ? base : next, prevUV, W);
     const to = ballPlane(next, nextUV, W);
-    gp = { u: lerp(from.u, to.u, a), v: lerp(from.v, to.v, a) };
+    gp = kickHold || { u: lerp(from.u, to.u, ta), v: lerp(from.v, to.v, ta) };
     const cf = nf?.cross ? nf : pf?.cross ? pf : null; // 이번 턴 날고 있는 (또는 막 끝난) 크로스
     if (cf) {
       const n = cf.path.length || 1;
       const p0 = sameFlight(pf, cf) ? pf.at / n : 0;
       const p1 = nf && cf === nf ? nf.at / n : 1;
-      const t = lerp(p0, p1, a);
+      const t = lerp(p0, p1, ta);
       const start = cellPlane(flightFrom(cf, next.events));
       const end = cellPlane(cf.target);
       lift = 4 * t * (1 - t) * peakLift(start, end, W, H);
     } else {
       // 이번 턴에 떠서 이번 턴에 내려앉은 짧은 크로스 (prev · next 둘 다 비행 없음): 비행 전체 = 이번 턴 → t = alpha
       const ce = evs.find((x) => x.type === 'pass' && x.cross && G.isCell(x.fromCell) && G.isCell(x.target));
-      if (ce) lift = 4 * a * (1 - a) * peakLift(cellPlane(ce.fromCell), cellPlane(ce.target), W, H);
+      if (ce) lift = 4 * ta * (1 - ta) * peakLift(cellPlane(ce.fromCell), cellPlane(ce.target), W, H);
     }
   }
   const g = V.projectPlane(gp.u, gp.v, W, H);
@@ -380,13 +437,127 @@ export function frameAt(prev, next, alpha, { W, H }) {
     shadow: { sx: g.sx, sy: g.sy, w: SHADOW_W * g.s * (1 - 0.3 * Math.min(1, lift / (V.V25.BALL_LIFT * g.s || 1))), h: SHADOW_H * g.s },
   };
 
+  assignActs(players, { base, next, evs, kickoff, goalReset, goalEv, goalScene, holder, ballSx: ball.sx, W, H });
+
   const side = possessionOf(next);
   return {
     turn: next.turn, alpha: a, kickoff, goal: goalEv ? { side: goalEv.side, playerId: goalEv.playerId } : null,
     players, ball,
     focus: V.planeToField(gp.u, gp.v), attackRight: attackRightOf(side || 'home'),
     carrierKey: holder ? `${holder.side}:${holder.id}` : null,
+    release: rel,
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* 동작 (H2)                                                              */
+/* ------------------------------------------------------------------ */
+
+const otherSide = (side) => (side === 'home' ? 'away' : 'home');
+
+/** 칸 a → 칸 b 의 화면 가로 방향 'r' | 'l' (차이가 2px 아래거나 칸이 아니면 null) */
+function cellFacing(a, b, W, H) {
+  if (!G.isCell(a) || !G.isCell(b)) return null;
+  const pa = cellPlane(a);
+  const pb = cellPlane(b);
+  const dx = V.projectPlane(pb.u, pb.v, W, H).sx - V.projectPlane(pa.u, pa.v, W, H).sx;
+  return Math.abs(dx) < 2 ? null : dx > 0 ? 'r' : 'l';
+}
+
+/**
+ * 이번 턴 이벤트 → 선수 key → { act, key?, face?: 'attack' | [칸, 칸] } (한 번 동작 — 머리 주석 4).
+ * 같은 선수가 여러 이벤트에 나오면 뒤 이벤트 (예: 공중볼을 이긴 뒤 헤더 슛).
+ */
+function eventActs(evs) {
+  const out = new Map();
+  const set = (side, id, act, face = null) => { if (side && id != null) out.set(`${side}:${id}`, { act, face }); };
+  for (const e of evs) {
+    switch (e.type) {
+      case 'pass': {
+        const to = G.isCell(e.intended) ? e.intended : e.target;
+        const far = !!e.cross || (G.isCell(e.fromCell) && G.isCell(to) && G.distance(e.fromCell, to) >= LONG_PASS);
+        set(e.side, e.from, far ? 'kick' : 'pass', [e.fromCell, to]);
+        break;
+      }
+      case 'shot': set(e.side, e.playerId, e.header ? 'header' : 'kick', 'attack'); break;
+      case 'tackle': {
+        set(e.side, e.tacklerId, 'tackle', [e.tacklerFrom, e.carrierFrom]);
+        if (!e.success) out.get(`${e.side}:${e.tacklerId}`).span = FAIL_SLIDE_SPAN;
+        break;
+      }
+      case 'intercept': if (e.success) set(e.side, e.defenderId, 'tackle'); break;
+      case 'aerial': set(otherSide(e.side), e.defenderId, 'block'); break;
+      case 'save': set(e.side, e.gkId, 'block'); break;
+      default: break;
+    }
+  }
+  return out;
+}
+
+/** frame.players 에 act · actKey · facing 을 붙인다 (머리 주석 "동작") */
+function assignActs(players, { base, next, evs, kickoff, goalReset, goalEv, goalScene, holder, ballSx, W, H }) {
+  const turn = next.turn;
+  const snap = kickoff && !goalReset; // 킥오프 자리 그림
+  const pens = next.stage === 'penalties' ? evs.filter((e) => e.type === 'penalty') : [];
+  const pk = pens.length ? pens[pens.length - 1] : null;
+  const pkN = next.penalties?.kicks?.length ?? pens.length;
+  const once = snap || pk ? new Map() : eventActs(evs);
+  const ph = base?.ball?.holder || null;
+  const held = (p) => !!(ph && ph.side === p.side && String(ph.id) === p.id);
+  const holds = (p) => !!(holder && holder.side === p.side && String(holder.id) === p.id);
+  for (const p of players) {
+    const atk = attackRightOf(p.side) ? 'r' : 'l';
+    const loopFacing = () => V.facing({ carrier: holds(p), attackRight: attackRightOf(p.side), sx: p.sx, ballSx, side: p.side });
+    const faceOf = (face) => (face === 'attack' ? atk : Array.isArray(face) ? cellFacing(face[0], face[1], W, H) : null) || loopFacing();
+    let act = 'idle';
+    let key = null;
+    let face = null;
+    let span = null;
+    let failTk = null;
+    const restUntil = next.live?.[p.side]?.[p.id]?.restUntil;
+    const ev = once.get(p.key);
+    if (snap) {
+      act = 'idle';
+    } else if (pk) {
+      if (pk.side === p.side && String(pk.playerId) === p.id) { act = 'kick'; key = `${turn}:pk${pkN}:kick`; face = 'attack'; }
+      else if (pk.side !== p.side && String(pk.defenderId) === p.id) { act = 'block'; key = `${turn}:pk${pkN}:block`; }
+    } else if (goalScene && goalEv && goalEv.side === p.side && String(goalEv.playerId) === p.id) {
+      act = 'celebrate';
+      face = 'attack';
+    } else if (ev) {
+      act = ev.act;
+      face = ev.face;
+      span = ev.span || null;
+    } else if (p.resting) {
+      act = 'fall';
+      key = `${restUntil}:fall`;
+      // 넘어진 쪽 = 그 태클의 방향 (태클 턴 = restUntil − 1)
+      const tk = eventsOfTurn(next, restUntil - 1).find((e) => e.type === 'tackle' && e.side === p.side && String(e.tacklerId) === p.id);
+      face = tk ? [tk.tacklerFrom, tk.carrierFrom] : null;
+      if (tk && !tk.success) span = FALL_AFTER_SLIDE;
+    } else if (goalReset && (failTk = failedTackleBefore(next, p))) {
+      // 골 턴 (골 → 킥오프): 엔진 킥오프가 restUntil 을 모두 지워 resting 이 꺼지지만, 지난 턴 태클에 실패한 선수는 (그 자리 그대로)
+      // 골 장면 동안 넘어져 있다 — 결정 12 연출이 "제치고 골" 장면에서 끊기지 않게. 스탠디 · 정지 그림도 눕힌다 (resting).
+      act = 'fall';
+      key = `${turn}:fall`;
+      face = [failTk.tacklerFrom, failTk.carrierFrom];
+      span = FALL_AFTER_SLIDE;
+      p.resting = true;
+    } else if (base && !goalReset) {
+      const pc = base.pos?.[p.side]?.[p.id];
+      const nc = next.pos?.[p.side]?.[p.id];
+      if (G.isCell(pc) && G.isCell(nc) && pc !== nc && G.distance(pc, nc) === 1) act = held(p) && holds(p) ? 'dribble' : 'run';
+    }
+    p.act = act;
+    p.actKey = key || (LOOP_ACTS.includes(act) ? act : `${turn}:${act}`);
+    p.facing = face ? faceOf(face) : loopFacing();
+    p.actSpan = span;
+  }
+}
+
+/** 지난 턴 (next.turn − 1) 에 그 선수가 실패한 태클 이벤트 | null (골 턴의 넘어짐 — assignActs) */
+function failedTackleBefore(next, p) {
+  return eventsOfTurn(next, next.turn - 1).find((e) => e.type === 'tackle' && !e.success && e.side === p.side && String(e.tacklerId) === p.id) || null;
 }
 
 function prevUVOf(state) {

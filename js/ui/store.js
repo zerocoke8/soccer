@@ -123,10 +123,13 @@ export function hexTickMs() {
 export const store = {
   data: null,          // { config, characters, supports, events, skills, relics, opponents, routes, …, challenge, challenge_sample_team }
   screen: 'start',     // 'start' | 'setup' | 'run' | 'challenge'(도전 목록) | 'challengeMatch'(도전 경기) | 'recollection'(회상 — 시작 화면 [회상])
+                       //   | 'practice'(연습 경기 — 시작 화면 [⚽ 연습 경기], 늘 육각 경기 화면)
   run: null,           // RunState (엔진 lessonRun.js 소유, kind "lessonRun")
   match: null,         // MatchState (엔진 소유), 경기 중에만 — 도전 경기 중에는 도전 경기 상태 (런 경기는 KEYS.match 에 그대로 있고 이어하기가 다시 읽는다)
                        //   도전 경기를 떠나면(결과 기록 · 포기 · [나가기] · 처음으로) 늘 null 로 비운다
   hexMatch: null,      // 육각 경기 상태 (엔진 hexMatch.js 소유, engine "hex") — 런 경기 중에만, 메모리만 (저장은 KEYS.hexMatch 재생 기록 — 화면이 되살린다)
+  practiceMatch: null, // 연습 경기 육각 상태 (화면 'practice' 에서만, 메모리만 — 저장 없음. 런 경기 store.hexMatch 와 따로)
+  practiceSeed: null,  // 연습 경기 시드 (시작 · [다시 하기] 마다 새로 — 같은 연습 안에서 다시 그려도 같은 경기)
   // 도전 모드 화면 상태 (메모리만 — 진행 기록 · 진행 중인 경기는 위 KEYS.challenge · KEYS.challengeMatch)
   challenge: {
     teamId: null,      // 고른 팀 (엔진 challenge.teamIdOf)

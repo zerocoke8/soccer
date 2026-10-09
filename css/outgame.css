@@ -703,6 +703,9 @@ html.lu-grabbing, html.lu-grabbing * { cursor: grabbing !important; }
 /* ================================================================== */
 .start-menu .recollection-btn { min-height: 52px; font-size: 16px; border-color: rgba(179, 136, 255, .45); background: linear-gradient(180deg, rgba(179, 136, 255, .1), var(--panel-2)); }
 .start-menu .recollection-btn:hover:not(:disabled) { border-color: var(--purple); }
+/* 연습 경기 (시작 화면 [⚽ 연습 경기] — 회상 바로 아래, 같은 높이 · 잔디색) */
+.start-menu .practice-btn { min-height: 52px; font-size: 16px; border-color: rgba(76, 175, 80, .45); background: linear-gradient(180deg, rgba(76, 175, 80, .1), var(--panel-2)); }
+.start-menu .practice-btn:hover:not(:disabled) { border-color: #4caf50; }
 .recollection-screen { display: flex; flex-direction: column; }
 .rc-head { gap: 14px; }
 .rc-total b { color: var(--purple); }

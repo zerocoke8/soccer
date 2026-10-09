@@ -1,4 +1,5 @@
 // js/ui/screens/hexMatch.js — 육각 오토배틀 경기 화면 (store.isHexMatch() 일 때 런 경기 phase match — docs/HEX_AUTOBATTLE_PLAN.md §5 · §6, H1 SPEC §5)
+//   + 경기 모드 훅 ctx.matchMode (연습 경기 — app.js practiceMatchMode, H5 도전 경기도 이 자리). 없으면 런 경기 그대로.
 //
 // 화면 골격 (스테이지 1280×720 — .match-screen 의 --pad · --fx · --ft · --fb 를 그대로 쓴다):
 //   .screen.match-screen.hex-screen[data-screen=match]
@@ -10,8 +11,17 @@
 //   └ .hx-banner           골 · 골든골 · 추가시간 · 승부차기 알림
 //   이름표 .hx-name (공 가진 선수 머리 위 — 매 프레임 hexScene.headPoint × 카메라) 는 .hx-field 안.
 //
+// 경기 모드 훅 ctx.matchMode (없으면 런 경기 — 괄호 안이 런 경기 기본값):
+//   { label?: HUD 아랫줄 · 결과 제목의 경기 종류 글자 (KIND_LABELS[kind]),
+//     getSetup?(): 셋업 { home, away, possessions, seed, kind } (ctx.run.getMatchSetup(store.run, data)),
+//     stateKey?: 엔진 상태를 두는 store 칸 이름 ('hexMatch' — 연습 경기 'practiceMatch'),
+//     save?: null 이면 저장 없음 — KEYS.hexMatch 를 읽지도 쓰지도 않는다 (그 밖 = KEYS.hexMatch 재생 기록),
+//     onFinish?(result): 결과 [확인] (actions.finishMatch),
+//     exits?: [{ label, title?, danger?, onClick() }] — 오른쪽 위 .m-exits 버튼들 (옛 경기 화면과 같은 클래스 — 런 경기에는 없다),
+//     again?: { label, onClick() } — 결과 모달 [확인] 옆 버튼 (연습: [다시 하기]) }
+//
 // 경기 진행 (H1 은 입력이 없다 — 보기만):
-//   - 상태: store.hexMatch (엔진 상태, 메모리) + KEYS.hexMatch 재생 기록 { version, seed, steps, skipped? } (step 마다 저장).
+//   - 상태: store[stateKey] (store.hexMatch — 엔진 상태, 메모리) + KEYS.hexMatch 재생 기록 { version, seed, steps, skipped? } (step 마다 저장, save: null 이면 없음).
 //     같은 seed 의 store.hexMatch → 그대로, 아니면 재생 기록 → createMatch + step × steps (skipped 면 simulateAuto), 아니면 새 경기.
 //   - 루프: requestAnimationFrame 하나 (setTimeout 없음 — 스크린샷 도구가 100 ms 이상 타이머를 묶고, 배경 탭은 rAF 가 멈춰 그대로 일시정지).
 //     dt (프레임마다 최대 100 ms) 를 모아 한 턴 = hexTickMs() / 배속 이 차면 step. 그 사이는 hexScene.frameAt(이전, 지금, 진행도) 로 보간.
@@ -36,13 +46,27 @@
 //  - WebGL 문맥을 잃으면 1 초 뒤 다시 만든다. 다시 만든 view 가 5 초 버티면 횟수를 0 으로 — 연달아 4번째 잃으면 이 경기는 대체 화면.
 //  - 만드는 도중 문맥을 잃은 view (lostWhileCreating · view.isLost()) 는 받지 않고 지운 뒤 다시 만들기를 기다린다.
 //  - 화면 꾸밈 클래스는 모두 hx- 앞머리 (전역 .stage · .goal 등과 겹치지 않게).
+// [구현 결정] (연습 경기 — 경기 모드 훅):
+//  - 저장 없는 모드 (save: null) 의 ⏭ 여부는 모듈 WeakSet 에 둔다 — 다시 그려도 결과를 바로 다시 연다 (재생 기록 skipped 대신).
+//  - [다시 하기] 와 [확인] 은 합쳐 한 번만 누를 수 있다 (먼저 누른 쪽).
+//  - 나가기 버튼은 옛 경기 화면과 같은 .m-exits (css/match.css) 를 그대로 쓴다.
+// [구현 결정] (H2 — 스프라이트):
+//  - 그릴 목록에 정지 스프라이트 크기 (art.spriteOf — 이름표 높이 = 스프라이트 키, view.spriteKind 가 그 캐릭터를 스프라이트로 그린다고 할 때만 —
+//    아니면 스탠디 키) 와 골 장면 여부 (공이 골망에 닿은 뒤 · 킥오프 자리 전 —
+//    득점자 세리머니) 를 넘긴다. 동작 · 얼굴 방향은 hexScene, 시트 재생은 hexPixi.
+//  - 스프라이트 시계 = 이 화면의 루프 시간 (dt 합 — 배경 탭에서 멈춘다). draw 에 { clock, speed, turnMs } 를 넘긴다.
+//  - view.animating 이면 보간 · 카메라가 멈춰 있어도 다시 그린다 (대기 동작이 계속 돈다).
+//  - 차는 턴의 공이 발을 떠나는 진행도 = hexScene.BALL_RELEASE × max(ONE_SHOT_MIN, 턴 ms) / 턴 ms (4배속은 한 번 동작이 늘어난 만큼 늦게, 최대 0.75).
+//    공 가진 선수 표시 (금색 고리 · 이름표) 를 넘기는 때도 그 뒤 비행의 CARRIER_SWITCH 로 미룬다.
+//  - 디버그 HEX_DEBUG.sprites = view.playing() (스프라이트 선수의 지금 동작 · 칸 · 화면 상자 — tools/hex_shot.mjs --practice 동작 사냥).
 
 import { h, openModal, closeOverlays } from '../dom.js';
 import { saveHexMatch, loadHexMatch, HEX_SAVE_VERSION, hexTickMs } from '../store.js';
 import * as L from '../labels.js';
 import * as V from '../view25.js';
 import * as S from '../hexScene.js';
-import { createHexView, hexResolution } from '../hexPixi.js';
+import { createHexView, hexResolution, ONE_SHOT_MIN } from '../hexPixi.js';
+import { spriteOf } from '../art.js';
 
 const SPEEDS = [1, 2, 4];
 /** 시간 (ms, 1배속 — 배속으로 나눈다) */
@@ -70,6 +94,8 @@ let HEX_GEN = 0;
 let HEX_DEBUG = null;
 // 엔진 상태 → 지금까지 step 횟수 (store.hexMatch 를 그대로 이어받을 때)
 const STEPS = new WeakMap();
+// ⏭ 한 엔진 상태 (저장 없는 모드 — 재생 기록 skipped 대신. 다시 그려도 카메라가 ⏭ 장면 그대로)
+const SKIPPED = new WeakSet();
 
 /** 육각 경기 화면 디버그 값 (app.js window.__soccer.hexView 가 읽는다) — 화면을 연 적이 없으면 null */
 export function hexViewDebug() {
@@ -79,18 +105,27 @@ export function hexViewDebug() {
 const isHexState = (s, HM) => !!(s && typeof s === 'object' && s.engine === 'hex' && s.version === HM.HEX_MATCH_VERSION);
 
 /**
- * 육각 경기 화면을 root 에 그린다 (런 경기 — app.js render 의 phase match).
+ * 육각 경기 화면을 root 에 그린다 (런 경기 — app.js render 의 phase match · 연습 경기 — screen 'practice').
  * @param {HTMLElement} root  #app
- * @param {object} ctx  app.js makeCtx() — ctx.hexMatch = 육각 경기 엔진 (js/engine/hexMatch.js)
+ * @param {object} ctx  app.js makeCtx() — ctx.hexMatch = 육각 경기 엔진 (js/engine/hexMatch.js), ctx.matchMode = 경기 모드 훅 (머리 주석, 없으면 런 경기)
  */
 export function renderHexMatch(root, ctx) {
   const { store, data, actions } = ctx;
   const HM = ctx.hexMatch;
   const safe = typeof ctx.safe === 'function' ? ctx.safe : (fn) => { try { return fn(); } catch (e) { console.error(e); return undefined; } };
   const ui = store.matchUi;
+  // 경기 모드 훅 (머리 주석) — 없으면 런 경기: getMatchSetup · store.hexMatch · KEYS.hexMatch · actions.finishMatch · KIND_LABELS
+  const mode = ctx.matchMode && typeof ctx.matchMode === 'object' ? ctx.matchMode : null;
+  const stateKey = typeof mode?.stateKey === 'string' && mode.stateKey ? mode.stateKey : 'hexMatch';
+  const saveOn = !(mode && mode.save === null);
+  const loadSave = () => (saveOn ? loadHexMatch() : null);
+  const writeSave = (sv) => { if (saveOn) saveHexMatch(sv); };
+  const onFinish = typeof mode?.onFinish === 'function' ? mode.onFinish : (r) => actions.finishMatch(r);
+  const exits = (Array.isArray(mode?.exits) ? mode.exits : []).filter((x) => x && typeof x.onClick === 'function');
+  const again = mode?.again && typeof mode.again.onClick === 'function' ? mode.again : null;
 
   /* ---- 경기 상태 (만들기 · 이어받기 · 되살리기) ---- */
-  const setup = safe(() => ctx.run.getMatchSetup(store.run, data));
+  const setup = safe(() => (typeof mode?.getSetup === 'function' ? mode.getSetup() : ctx.run.getMatchSetup(store.run, data)));
   if (!setup || !HM) { root.append(errorScreen('경기 정보를 불러올 수 없습니다.', ctx)); return; }
   const create = () => HM.createMatch({
     data, seed: setup.seed, home: setup.home, away: setup.away, possessions: setup.possessions, kind: setup.kind,
@@ -98,14 +133,14 @@ export function renderHexMatch(root, ctx) {
   let state = null;
   let steps = 0;
   let skipped = false;
-  const live = store.hexMatch;
+  const live = store[stateKey];
   if (isHexState(live, HM) && live.seed === setup.seed) {
     state = live;
-    const sv = loadHexMatch();
+    const sv = loadSave();
     steps = STEPS.get(live) ?? (sv && sv.seed === setup.seed ? sv.steps : 0);
-    skipped = !!(sv && sv.seed === setup.seed && sv.skipped);
+    skipped = saveOn ? !!(sv && sv.seed === setup.seed && sv.skipped) : SKIPPED.has(live);
   } else {
-    const sv = loadHexMatch();
+    const sv = loadSave();
     if (sv && sv.seed === setup.seed) {
       state = safe(() => {
         const st = create();
@@ -120,14 +155,15 @@ export function renderHexMatch(root, ctx) {
       if (!state) { root.append(errorScreen('경기를 생성할 수 없습니다.', ctx)); return; }
       steps = 0;
       skipped = false;
-      saveHexMatch({ version: HEX_SAVE_VERSION, seed: setup.seed, steps: 0 });
+      writeSave({ version: HEX_SAVE_VERSION, seed: setup.seed, steps: 0 });
     }
   }
-  store.hexMatch = state;
+  store[stateKey] = state;
   STEPS.set(state, steps);
   const persist = () => {
     STEPS.set(state, steps);
-    saveHexMatch(skipped
+    if (skipped) SKIPPED.add(state);
+    writeSave(skipped
       ? { version: HEX_SAVE_VERSION, seed: state.seed, steps, skipped: true }
       : { version: HEX_SAVE_VERSION, seed: state.seed, steps });
   };
@@ -135,7 +171,7 @@ export function renderHexMatch(root, ctx) {
   const gen = ++HEX_GEN;
   const speedOf = () => (SPEEDS.includes(Number(ui.speed)) ? Number(ui.speed) : 1);
   const clockCfg = { turnsRegular: Number(HM.TURNS_REGULAR) || 300, goldenTurns: Number(HM.GOLDEN_TURNS) || 75 };
-  const kindLabel = L.KIND_LABELS[state.kind] ?? state.kind ?? '';
+  const kindLabel = mode?.label ?? L.KIND_LABELS[state.kind] ?? state.kind ?? '';
   const nameOf = (side, id) => state[side]?.players?.find((p) => String(p.id) === String(id))?.name ?? '';
 
   /* ---- DOM ---- */
@@ -157,6 +193,12 @@ export function renderHexMatch(root, ctx) {
   const ctl = h('div', { class: 'hx-ctl' }, speedBtn, skipBtn);
   const bannerEl = h('div', { class: 'hx-banner', 'aria-live': 'polite' }, h('b', { class: 'hx-banner-txt' }), h('span', { class: 'hx-banner-sub' }));
   screen.append(pitch, hud, clockEl, ctl, bannerEl);
+  // 경기 모드 나가기 버튼들 (연습: [나가기]) — 옛 경기 화면과 같은 .m-exits (오른쪽 위). 런 경기에는 없다
+  if (exits.length) {
+    screen.append(h('div', { class: 'm-exits' }, exits.map((x) => h('button', {
+      class: ['btn', 'btn-sm', 'm-exit', x.danger ? 'danger' : ''], type: 'button', title: x.title || '', onclick: () => x.onClick(),
+    }, x.label || '나가기'))));
+  }
   root.appendChild(screen);
   const alive = () => gen === HEX_GEN && screen.isConnected;
 
@@ -167,6 +209,14 @@ export function renderHexMatch(root, ctx) {
   const PH = pitch.clientHeight > 40 ? pitch.clientHeight : 708;
   const origin = { x: field.offsetLeft || (pitch.clientWidth > 40 ? 0 : 12), y: field.offsetTop || (pitch.clientHeight > 40 ? 0 : 78) };
   const world = V.worldRect(W, H);
+  // 정지 스프라이트 크기 (charId 마다 한 번 — hexScene figure 키 · 이름표 높이). view 가 그 캐릭터를 지금 스프라이트로 그릴 때만
+  // (그림이 아직 안 왔거나 실패해 스탠디로 그리는 동안은 null — 이름표가 스탠디 머리 위에 붙게)
+  const sprCache = new Map();
+  const spriteSize = (charId) => {
+    if (!view || typeof view.spriteKind !== 'function' || !view.spriteKind(charId)) return null;
+    if (!sprCache.has(charId)) sprCache.set(charId, spriteOf(data, charId));
+    return sprCache.get(charId);
+  };
 
   /* ---- HUD ---- */
   let hudKey = '';
@@ -404,8 +454,20 @@ export function renderHexMatch(root, ctx) {
       ['태클 성공', (s) => num(s, 'tacklesWon')],
     ];
     const mvp = (side) => nameOf(side, st[side]?.mvpId) || '-';
+    // [확인] · [다시 하기] 는 합쳐 정확히 1회 (런: run.finishMatch 가 실패하면 app.js 가 render() — 이 화면이 다시 그려지며 결과를 다시 연다)
+    const once = (fn) => (e) => {
+      if (finishing) return;
+      finishing = true;
+      if (e?.currentTarget) e.currentTarget.disabled = true;
+      closeOverlays();
+      ui.resultShown = false;
+      fn();
+    };
+    const okBtn = h('button', { class: 'btn btn-primary btn-block', type: 'button', onclick: once(() => onFinish(result)) }, '확인');
+    // 경기 모드 [다시 하기] (연습): [확인] 옆
+    const againBtn = again ? h('button', { class: 'btn btn-block again-btn', type: 'button', onclick: once(() => again.onClick()) }, again.label || '다시 하기') : null;
     openModal(h('div', { class: 'col', style: { gap: '12px' } },
-      h('h2', { class: 'center' }, `${L.KIND_LABELS[result.kind ?? state.kind] ?? ''} 결과`),
+      h('h2', { class: 'center' }, `${mode?.label ?? L.KIND_LABELS[result.kind ?? state.kind] ?? ''} 결과`),
       h('div', { class: 'row between small muted' }, h('span', { class: 'ellipsis' }, home.name ?? '우리 클럽'), h('span', { class: 'ellipsis' }, away.name ?? '상대')),
       h('div', { class: 'score-big' }, `${hg} : ${ag}`),
       h('div', { class: ['result-verdict', winner === 'home' ? 'good' : winner === 'away' ? 'bad' : 'muted'] }, verdict),
@@ -415,19 +477,7 @@ export function renderHexMatch(root, ctx) {
         h('tbody', {},
           rows.map(([lbl, f]) => h('tr', {}, h('td', {}, lbl), h('td', {}, f('home')), h('td', {}, f('away')))),
           h('tr', {}, h('td', {}, 'MVP'), h('td', {}, mvp('home')), h('td', {}, mvp('away'))))),
-      h('button', {
-        class: 'btn btn-primary btn-block',
-        type: 'button',
-        onclick: (e) => {
-          // run.finishMatch 는 정확히 1회 (실패하면 app.js 가 render() — 이 화면이 다시 그려지며 결과를 다시 연다)
-          if (finishing) return;
-          finishing = true;
-          if (e?.currentTarget) e.currentTarget.disabled = true;
-          closeOverlays();
-          ui.resultShown = false;
-          actions.finishMatch(result);
-        },
-      }, '확인'),
+      againBtn ? h('div', { class: 'row hx-result-btns', style: { gap: '8px' } }, againBtn, okBtn) : okBtn,
     ), { closable: false });
   }
 
@@ -471,6 +521,8 @@ export function renderHexMatch(root, ctx) {
   let fps = 0;
   let frames = 0;
   let drawSig = '';
+  let animClock = 0; // 스프라이트 시계 (ms — 루프 dt 합, 배경 탭에서 멈춘다)
+  let texStats = null; // view.stats() (30 프레임마다 — 디버그 · 메모리 재기)
   let rafId = null;
   const raf = (fn) => {
     const w = globalThis.window;
@@ -523,14 +575,17 @@ export function renderHexMatch(root, ctx) {
 
   function currentFrame() {
     const tm = turnMs();
-    if (goal && goal.kickoff && acc >= goal.scene) return S.frameAt(null, state, 1, { W, H }); // 골 뒤 킥오프 자리 (골든골 결승골은 없음 — 공은 골망에)
+    if (goal && goal.kickoff && acc >= goal.scene) return S.frameAt(null, state, 1, { W, H, sprite: spriteSize }); // 골 뒤 킥오프 자리 (골든골 결승골은 없음 — 공은 골망에)
     const alpha = startHold || !prevSnap ? 1 : Math.min(1, acc / tm);
-    const f = S.frameAt(prevSnap, state, alpha, { W, H });
+    // 골 장면 = 공이 골망에 닿은 뒤 (득점자 세리머니 — 골든골 결승골은 끝까지).
+    // 공이 발을 떠나는 진행도: 한 번 동작은 최소 ONE_SHOT_MIN ms 로 늘어나므로 (4배속) 발이 닿는 때도 그만큼 늦다
+    const release = Math.min(0.75, S.BALL_RELEASE * Math.max(ONE_SHOT_MIN, tm) / tm);
+    const f = S.frameAt(prevSnap, state, alpha, { W, H, sprite: spriteSize, goalScene: !!(goal && acc >= tm), release });
     // 공 가진 선수가 이번 턴에 바뀌었으면 (패스 받기 · 가로채기 · 태클) 공이 거의 도착할 때까지 새 선수 표시 (금색 고리 · 이름표) 를 미룬다
     // — 공이 아직 앞 선수 발밑에 있는데 고리 · 이름표만 먼저 건너가 보이지 않게.
     const ph = prevSnap?.ball?.holder || null;
     const nh = state.ball?.holder || null;
-    const handover = !!(prevSnap && nh && !f.kickoff && (!ph || ph.side !== nh.side || ph.id !== nh.id) && alpha < CARRIER_SWITCH);
+    const handover = !!(prevSnap && nh && !f.kickoff && (!ph || ph.side !== nh.side || ph.id !== nh.id) && alpha < f.release + CARRIER_SWITCH * (1 - f.release));
     if (goal || state.stage === 'penalties' || state.finished || handover) {
       // 골 장면 (공은 골망 안 — 다음 킥오프 선수 표시는 킥오프 자리에서만) · 승부차기 · 끝 · 공이 건너가는 중: 공 가진 선수 표시 없음
       f.carrierKey = null;
@@ -546,6 +601,7 @@ export function renderHexMatch(root, ctx) {
     const dt = lastT == null || hidden ? 0 : Math.min(DT_CAP, Math.max(0, now - lastT));
     lastT = hidden ? null : now;
     if (dt > 0) {
+      animClock += dt;
       fps = fps ? fps * 0.9 + (1000 / dt) * 0.1 : 1000 / dt;
       advance(dt);
       tickBanner(dt);
@@ -565,11 +621,12 @@ export function renderHexMatch(root, ctx) {
     drawName(frame);
     if (view) {
       const sig = `${frame.turn}|${frame.alpha.toFixed(3)}|${goal && goal.kickoff && acc >= goal.scene ? 'k' : ''}|${cam.cx.toFixed(1)}|${cam.cy.toFixed(1)}|${cam.z.toFixed(3)}`;
-      if (sig !== drawSig || view.dirty) {
+      if (sig !== drawSig || view.dirty || view.animating) {
         drawSig = sig;
         try {
-          view.draw(frame, cam);
+          view.draw(frame, cam, { clock: animClock, speed: speedOf(), turnMs: turnMs() });
           frames += 1;
+          if (frames % 30 === 1 && typeof view.stats === 'function') texStats = view.stats();
         } catch (e) {
           console.warn('육각 경기장 그리기 실패', e);
         }
@@ -577,7 +634,8 @@ export function renderHexMatch(root, ctx) {
     }
     HEX_DEBUG = {
       renderer: viewState, fps: Math.round(fps), turn: state.turn, steps, stage: state.stage, finished: !!state.finished,
-      frames, speed: speedOf(), cam: { ...cam }, score: { ...state.score }, resultShown,
+      frames, speed: speedOf(), cam: { ...cam }, score: { ...state.score }, resultShown, tex: texStats,
+      sprites: view && typeof view.playing === 'function' ? view.playing() : null,
     };
     rafId = raf(loop);
   }

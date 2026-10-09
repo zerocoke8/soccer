@@ -4,6 +4,7 @@
 // 키 아트 (§24.13 U3): .hero 792×688 = 배경 'title' (노을 경기장, img/scenes) + 선수 반신 5명을 비스듬한 칸으로 겹친다 (CSS — 그림은 뒤집지 않는다).
 //   그림 목록 (data/portraits.json) 이 없으면 지금처럼 CSS 경기장 + ⚽. 글 (제목 · 배지 · 흐름 3단계) 은 그림 위 어두운 그라데이션 위에.
 // [📖 회상] (§24.7): 본 외출 이야기 n/48 → 회상 화면 (actions.openRecollection). 이야기 데이터가 없으면 숨긴다.
+// [⚽ 연습 경기] (2026-10-09): 회상 바로 아래 (회상이 없으면 도전 모드 뒤 같은 자리) — 기본 선수단끼리 육각 경기 (actions.openPractice, 기록 없음). 늘 보인다.
 import { h, gradeBadge, fmtDate, panel } from '../dom.js';
 import { loadRun, loadTeams, loadAccount } from '../store.js';
 import { PHASE_LABELS } from '../labels.js';
@@ -114,6 +115,9 @@ export function renderStart(root, ctx) {
         h('span', {}, '📖 회상'),
         h('span', { class: 'btn-sub' }, `본 외출 이야기 ${rp.seen}/${rp.total}화 다시 읽기`))
       : null,
+    h('button', { class: 'btn btn-block btn-col practice-btn', onclick: () => actions.openPractice() },
+      h('span', {}, '⚽ 연습 경기'),
+      h('span', { class: 'btn-sub' }, '기본 선수단끼리 바로 경기 · 기록 안 남음')),
   );
 
   // ---- 등록 팀 (오른쪽 아래, 목록만 스크롤) ----

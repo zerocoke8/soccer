@@ -15,6 +15,9 @@
 // 육각 오토배틀 (docs/HEX_AUTOBATTLE_PLAN.md §6.2 — H1): store.isHexMatch() 이면 런 경기 (phase match) 를 육각 경기 화면 (screens/hexMatch.js,
 //   엔진 js/engine/hexMatch.js = ctx.hexMatch) 으로 그린다. 육각 상태 = store.hexMatch (메모리) + KEYS.hexMatch (재생 기록) — 런 경기를 비우는 곳마다 함께 비운다.
 //   Pixi 는 그 화면이 캔버스를 만들 때만 동적 import — 여기서 닿지 않는다. 도전 경기는 H5 까지 옛 엔진 그대로.
+// 연습 경기 (2026-10-09 사용자 요청): 화면 'practice' (시작 화면 [⚽ 연습 경기]) = 기본 선수단 vs 그 거울 사본 (js/ui/practice.js) 을 늘 육각 경기 화면으로
+//   (경기 모드 훅 practiceMatchMode — 상태 store.practiceMatch, 저장 없음). 런 · 도전 상태와 저장 (store.run · store.match · store.hexMatch · KEYS.*) 은 건드리지 않는다.
+//   [나가기] · 결과 [확인] = 시작 화면, [다시 하기] = 새 시드로 새 경기. 새로고침하면 시작 화면 (기록 없음).
 import { mountStage } from './stage.js';
 import {
   store, saveRun, loadRun, saveMatch, loadMatch, clearRunSaves, addTeam, resetMatchUi, resetLessonUi, loadTeams, TEAMS_CAP,
@@ -38,6 +41,7 @@ import { renderRelicModal } from './screens/relic.js';
 import { renderRoute } from './screens/route.js';
 import { renderResult } from './screens/result.js';
 import { renderChallenge } from './screens/challenge.js';
+import { practiceSetup } from './practice.js';
 
 // 2차 (LESSON_PROTO_PLAN §24.3.1 · §24.12): 레슨 런 이벤트 7개 (= lessonEvents.EVENT_FILES — test/lessonContent 가 같은 목록인지 본다) · 그림 목록
 // 스프라이트 목록 (sprites — docs/SPRITE_25D_PLAN.md §2): 2.5D 경기 화면의 선 그림 { version, height, chars: { id: { w, h, footX, v } } }
@@ -227,6 +231,34 @@ function challengeMatchMode() {
   };
 }
 
+/** 연습 경기 시드 (연습마다 새로 — 재현할 일이 없는 화면 전용 시드) */
+function newPracticeSeed() {
+  return `practice-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+}
+
+/** 연습 경기를 비우고 시작 화면으로 ([나가기] · 결과 [확인] · 처음으로) */
+function leavePractice() {
+  store.practiceMatch = null;
+  store.practiceSeed = null;
+  store.matchUi.resultShown = false;
+  store.screen = 'start';
+}
+
+/** 연습 경기 화면의 경기 모드 훅 (js/ui/screens/hexMatch.js 머리 주석) — 저장 없음, 상태 = store.practiceMatch */
+function practiceMatchMode() {
+  if (!store.practiceSeed) store.practiceSeed = newPracticeSeed();
+  const seed = store.practiceSeed;
+  return {
+    label: '연습 경기',
+    getSetup: () => practiceSetup(run, store.data, seed),
+    stateKey: 'practiceMatch',
+    save: null,
+    onFinish: () => actions.leavePractice(),
+    exits: [{ label: '나가기', title: '연습 경기를 끝내고 시작 화면으로 (기록 없음)', onClick: () => actions.leavePractice() }],
+    again: { label: '다시 하기', onClick: () => actions.againPractice() },
+  };
+}
+
 /**
  * 도전 경기를 정리하고 화면 전환 (store.match 는 도전 경기였다 — 런 경기는 KEYS.match 에 그대로, 이어하기가 다시 읽는다).
  * keepSave = true 면 KEYS.challengeMatch 를 남긴다 ([나가기] · 처음으로 — [도전 모드] 가 이어서 한다).
@@ -319,6 +351,7 @@ const actions = {
   resetToStart() {
     // 도전 경기 화면(오류 화면 [처음으로])에서: 도전 경기 메모리만 비우고 저장본은 남긴다 ([도전 모드] 가 이어서 한다)
     if (store.screen === 'challengeMatch') leaveChallengeMatch('start', true);
+    if (store.screen === 'practice') leavePractice();
     store.screen = 'start';
     render();
   },
@@ -470,6 +503,27 @@ const actions = {
   /** 시작 화면 [회상] → 회상 화면 (외출 이야기 다시 읽기, §24.7) */
   openRecollection() {
     store.screen = 'recollection';
+    render();
+  },
+
+  // ---- 연습 경기 (런 · 도전 상태와 저장은 건드리지 않는다) ----
+  /** 시작 화면 [⚽ 연습 경기] → 새 시드로 기본 선수단 vs 거울 사본 육각 경기 */
+  openPractice() {
+    store.practiceSeed = newPracticeSeed();
+    store.practiceMatch = null;
+    store.matchUi.resultShown = false;
+    store.screen = 'practice';
+    render();
+  },
+
+  /** 연습 경기 결과 [다시 하기]: 새 시드 · 새 경기 */
+  againPractice() {
+    actions.openPractice();
+  },
+
+  /** 연습 경기 [나가기] · 결과 [확인]: 상태를 비우고 시작 화면 */
+  leavePractice() {
+    leavePractice();
     render();
   },
 
@@ -758,6 +812,16 @@ export function render() {
       store.screen = 'challenge';
     }
     if (store.screen === 'challenge') { renderChallenge(root, ctx); return; }
+    // 연습 경기: 늘 육각 경기 화면 (이 시험판은 육각을 보려고 있다 — WebGL 이 없으면 화면의 HTML 대체). 엔진이 없으면 시작 화면
+    if (store.screen === 'practice') {
+      if (hexMatch && run) {
+        setStageMode('match');
+        renderHexMatch(root, { ...ctx, matchMode: practiceMatchMode() });
+        return;
+      }
+      toast('연습 경기 엔진 모듈을 불러오지 못했습니다.');
+      leavePractice();
+    }
     if (store.screen === 'recollection') { renderRecollection(root, ctx); return; }
     if (store.screen !== 'run' || !store.run) { renderStart(root, ctx); return; }
     if (!run || !match) { root.append(errorPanel(new Error('엔진 모듈이 로드되지 않아 런을 진행할 수 없습니다.'))); return; }

@@ -29,10 +29,33 @@
 //    그림자는 선수 아래 따로 한 층.
 //  - 만드는 도중 (app.init 뒤) 실패하면 (2D 캔버스를 못 얻음 — iOS 캔버스 메모리 한도 등) 앱 · WebGL 문맥 · 캔버스 · 구운 텍스처를 지우고
 //    null (대체 화면) — 마운트마다 문맥 · 전역 리스너 · ticker 가 새지 않게. 얼굴 텍스처만 못 구우면 색 원으로 계속 그린다.
+//
+// 스프라이트 (H2 — 문서 §5.2 · §5.3 · §5.4, 결정 15):
+//  - data/sprites.json 의 캐릭터만: 움직이는 시트가 있으면 (art.spriteAnimUrl — 지금 실루엔 ch_elf_playmaker) AnimatedSprite,
+//    정지 그림만 있으면 (art.spriteOf) Sprite, 둘 다 없으면 H1 스탠디 (몸 + 얼굴 원). 발밑 그림자 · 고리는 모두 그대로.
+//  - 텍스처는 경기장에 선 캐릭터 것만, charId 마다 한 벌 (bank) — 두 팀에 같은 캐릭터가 있어도 (연습 경기 거울 팀) 같은 텍스처를 나눠 쓴다.
+//    시트 (가로 띠 webp) 하나 = 소스 텍스처 하나, 칸 i = Rectangle(i · w, 0, w, h) 로 자른 텍스처 (소스를 나눠 쓴다).
+//    idle 시트를 먼저, 그다음 나머지 9장을 함께 불러온다. 아직 안 온 동작은 spriteAnim.pickAct 의 대신 동작.
+//    목록 · idle 시트를 못 불러오면 그 선수는 스탠디 그대로 (오류 없음 — 다른 동작 시트가 실패하면 대신 동작).
+//  - 떠날 때 (destroy) 칸 텍스처 → 시트 소스 텍스처를 모두 지운다 (만드는 도중 실패 · 문맥 잃음 다시 만들기도 같은 길). 늦게 도착한 그림은 버린다.
+//  - 크기: 키 = V.spriteHeight(s) (72 · s) — 시트 첫 칸 캐릭터 키 = 정지 그림 키 (240) 라 배율 k = SPR_H / 240 (예전 화면 그대로).
+//    앵커 = 발 (spriteAnim.animBox 의 ax · footY), 정지 그림 = (footX, 아래 끝). 'l' 이면 x 반전.
+//  - 재생 (draw 의 timing = { clock: 화면 시계 ms, speed, turnMs: 한 턴 ms (배속 반영) }): 반복 (idle · run · dribble) = 목록 fps × 배속,
+//    한 번 (kick · pass · header · tackle · block) · 넘어짐 = 그 턴 길이에 맞춤 (animDuration fitMs — 4배속 0.1 초 턴은 최소 ONE_SHOT_MIN ms),
+//    세리머니 = 목록 길이 / 배속 (골 장면 ~1.1 초 동안 끝 자세까지). 끝 자세 (hold) 는 마지막 칸에 머문다.
+//    [구현 결정] 한 번 동작은 끝까지 보여 준다 — 다음 턴의 반복 동작 (달리기 등) 이 끊지 않고, 다른 한 번 · 끝 자세 동작만 끊는다
+//    (4배속 · 패스 뒤 바로 달리기에서도 동작이 읽히게). 동작 키 (actKey) 가 바뀌면 처음부터. frame 의 actSpan 이 있으면 그 칸 구간만.
+//  - 정지 그림 선수는 달리는 동안 살짝 통통 (2.5 · s px, 한 턴에 한 번), 넘어지면 스탠디처럼 눕힌다. 움직이는 시트 선수는 fall 동작 (눕히지 않음).
+//  - 얼굴 방향: 반복 동작은 frame 의 facing 그대로, 한 번 · 끝 자세 동작은 시작할 때 (actKey 가 바뀐 첫 그림) 의 방향으로 그 동작 내내 고정
+//    (block · 가로채기 · 세로 패스처럼 hexScene 이 공 쪽 V.facing 을 주는 동작이 턴 도중 공이 지나가며 뒤집히지 않게 — 정지 그림도 같다).
+//  - view.spriteKind(charId) = 그 캐릭터를 지금 스프라이트로 그리는가 ('anim' | 'static' | null — 아직 안 왔거나 실패 = 스탠디). 화면이 이름표 높이에 쓴다.
+//  - view.animating = 지난 draw 에 아직 재생 중인 스프라이트가 있었다 → 화면이 그림이 멈춰 있어도 다시 그린다.
+//  - 메모리: hexPixiMemory() = 모든 view 에서 살아 있는 소스 텍스처 수 · 바이트 (w · h · 4, 종류별), view.stats() 는 그 view 것만.
 
 import * as V from './view25.js';
-import { FIELD_RECT, quadScreen, gridCells } from './hexScene.js';
-import { portraitUrl } from './art.js';
+import { FIELD_RECT, quadScreen, gridCells, LOOP_ACTS } from './hexScene.js';
+import { portraitUrl, spriteOf, spriteAnimUrl } from './art.js';
+import { loadAnimManifest, pickAct, sheetUrls, animDuration, animBox } from './spriteAnim.js';
 
 const PIXI_URL = '../../vendor/pixi.min.mjs';
 const GRASS_URL = './img/sprites/grass_top.webp';
@@ -51,9 +74,42 @@ const TEAM = {
   away: { ring: 0xff5d5d, body: 0xff5d5d, dark: 0x8c2626 },
 };
 const GOLD = 0xffd166;
+/** 한 번 동작의 가장 짧은 길이 (ms — 4배속 0.1 초 턴에서도 읽히게, 문서 §5.3) */
+export const ONE_SHOT_MIN = 150;
+/** 정지 그림 선수가 달릴 때 통통 높이 (화면 px × s) */
+const BOB_PX = 2.5;
 
 let factoryForTest = null;
 let pixiForTest = null;
+let imageLoaderForTest = null;
+
+/** 살아 있는 소스 텍스처 (모든 view) → { bytes, kind: 'scene' | 'face' | 'sprite' } — hexPixiMemory */
+const LIVE = new Map();
+let liveViews = 0;
+
+/**
+ * 지금 살아 있는 텍스처 (모든 육각 view 합계 — 화면을 떠나면 0 이어야 한다): { views, textures, bytes, byKind: { kind: { textures, bytes } } }.
+ * bytes = 소스 w · h · 4 (GPU 에 올린 크기 — 브라우저가 디코드한 그림 사본은 따로).
+ */
+export function hexPixiMemory() {
+  const byKind = {};
+  let bytes = 0;
+  for (const { bytes: b, kind } of LIVE.values()) {
+    bytes += b;
+    const k = (byKind[kind] ||= { textures: 0, bytes: 0 });
+    k.textures += 1;
+    k.bytes += b;
+  }
+  return { views: liveViews, textures: LIVE.size, bytes, byKind };
+}
+
+/**
+ * 테스트 이음매: 그림 불러오기 fn(url) → Promise<Image | {width, height} | null> (null = 원래대로 new Image). jsdom 은 그림을 불러오지 않는다.
+ * @param {((url: string) => Promise<any>) | null} fn
+ */
+export function setHexImageLoaderForTest(fn) {
+  imageLoaderForTest = typeof fn === 'function' ? fn : null;
+}
 
 /**
  * 테스트 이음매: fn(host, opts) 이 view 를 돌려주게 한다 (null = 원래대로). jsdom 시험이 가짜 view 로 draw 호출을 센다.
@@ -85,6 +141,7 @@ export function hexResolution() {
 }
 
 function loadImg(url) {
+  if (imageLoaderForTest) return Promise.resolve().then(() => imageLoaderForTest(url)).catch(() => null);
   return new Promise((resolve) => {
     try {
       const img = new Image();
@@ -245,7 +302,9 @@ const hexColor = (css, fallback = 0x4b5563) => {
  * @param {{ W: number, H: number, width: number, height: number, origin: { x: number, y: number }, data: object,
  *   resolution?: number, onContextLost?: () => void }} opts
  *   W × H = 필드 영역 (frame 좌표), width × height = 캔버스 (= .hx-pitch), origin = 캔버스 안 필드 영역 왼쪽 위
- * @returns {Promise<null | { renderer: 'webgl', canvas: HTMLCanvasElement, draw: (frame: object, cam: {cx: number, cy: number, z: number}) => void, destroy: () => void }>}
+ * @returns {Promise<null | { renderer: 'webgl', canvas: HTMLCanvasElement,
+ *   draw: (frame: object, cam: {cx: number, cy: number, z: number}, timing?: { clock: number, speed: number, turnMs: number }) => void,
+ *   destroy: () => void, stats: () => object, dirty: boolean, animating: boolean }>}
  */
 export async function createHexView(host, opts = {}) {
   if (factoryForTest) return factoryForTest(host, opts);
@@ -289,18 +348,25 @@ export async function createHexView(host, opts = {}) {
 }
 
 async function buildView(PIXI, app, host, { W, H, width, origin, data, onContextLost, resolution }) {
-  const { Container, Sprite, Graphics, Texture, PerspectiveMesh, CanvasSource, ImageSource } = PIXI;
+  const { Container, Sprite, Graphics, Texture, PerspectiveMesh, CanvasSource, ImageSource, AnimatedSprite, Rectangle } = PIXI;
   const owned = []; // 내가 만든 텍스처 (destroy 때 소스까지 지운다 — Pixi 전역 캐시를 거치지 않게 소스를 직접 만든다)
-  const own = (resource) => {
+  const cuts = []; // 시트에서 잘라낸 칸 텍스처 (소스는 owned 의 시트 — destroy 때 칸 먼저, 소스는 owned 로)
+  const own = (resource, kind = 'scene') => {
     const source = resource instanceof HTMLCanvasElement ? new CanvasSource({ resource }) : new ImageSource({ resource });
     const t = new Texture({ source });
     owned.push(t);
+    const w = Number(resource?.naturalWidth || resource?.width) || 0;
+    const hh = Number(resource?.naturalHeight || resource?.height) || 0;
+    LIVE.set(t, { bytes: w * hh * 4, kind });
     return t;
   };
   let dead = false;
-  let dirty = true; // 그림이 늦게 도착 (얼굴) → 화면이 다음 프레임에 다시 그린다
+  let dirty = true; // 그림이 늦게 도착 (얼굴 · 스프라이트) → 화면이 다음 프레임에 다시 그린다
+  let animating = false; // 지난 draw 에 재생 중인 스프라이트가 있었다
   const nodes = new Map(); // 선수 key → 노드
   const blankFaces = new Map(); // portraitColor → 초상 없는 얼굴 텍스처 (같은 색끼리 나눠 쓴다)
+  const bank = new Map(); // charId → 스프라이트 묶음 (두 팀이 나눠 쓴다)
+  liveViews += 1;
 
   const canvas = app.canvas;
   const onLost = (e) => {
@@ -314,12 +380,19 @@ async function buildView(PIXI, app, host, { W, H, width, origin, data, onContext
     dead = true;
     try { canvas.removeEventListener('webglcontextlost', onLost); } catch (_) { /* 이미 떨어짐 */ }
     try { app.destroy(true, { children: true, texture: false }); } catch (e) { console.warn('Pixi 정리 실패', e); }
+    for (const t of cuts) {
+      try { t.destroy(false); } catch (_) { /* 이미 지움 */ }
+    }
+    cuts.length = 0;
     for (const t of owned) {
       try { t.destroy(true); } catch (_) { /* 이미 지움 */ }
+      LIVE.delete(t);
     }
     owned.length = 0;
+    liveViews = Math.max(0, liveViews - 1);
     nodes.clear();
     blankFaces.clear();
+    bank.clear();
     try { if (canvas.parentNode) canvas.parentNode.removeChild(canvas); } catch (_) { /* 없음 */ }
   }
 
@@ -408,7 +481,7 @@ async function buildView(PIXI, app, host, { W, H, width, origin, data, onContext
     const faceLoads = new Set();
     const blankFace = (color) => {
       const k = String(color || '');
-      if (!blankFaces.has(k)) blankFaces.set(k, own(bakeBlankFace(color)));
+      if (!blankFaces.has(k)) blankFaces.set(k, own(bakeBlankFace(color), 'face'));
       return blankFaces.get(k);
     };
     function makePlayer(p) {
@@ -443,9 +516,14 @@ async function buildView(PIXI, app, host, { W, H, width, origin, data, onContext
         figure.addChild(blank);
       }
       figure.addChild(faceRing);
-      node.addChild(ground, figure);
+      const sprBox = new Container(); // 스프라이트 (있으면 figure 대신 — 발 = 원점, 배율 s)
+      sprBox.visible = false;
+      node.addChild(ground, figure, sprBox);
       actors.addChild(node);
-      const n = { node, ground, figure, faceRing, gold, ring, side: p.side, resting: null, carrier: null };
+      const n = {
+        node, ground, figure, faceRing, gold, ring, sprBox, side: p.side, resting: null, carrier: null,
+        spr: null, sprKind: null, cur: null, // 스프라이트 · 종류 ('anim' | 'static') · 지금 동작 { act, key, start, mode, dur, count }
+      };
       nodes.set(p.key, n);
       loadFace(n, p);
       return n;
@@ -457,7 +535,7 @@ async function buildView(PIXI, app, host, { W, H, width, origin, data, onContext
       loadImg(url).then((img) => {
         if (dead || !img) return;
         try {
-          const tex = own(bakeFace(img, p.color));
+          const tex = own(bakeFace(img, p.color), 'face');
           const face = new Sprite(tex);
           face.position.set(-20, -58);
           face.width = 40;
@@ -470,9 +548,151 @@ async function buildView(PIXI, app, host, { W, H, width, origin, data, onContext
       });
     }
 
-    function draw(frame, cam) {
+    /* ---- 스프라이트 (H2) ---- */
+    /** charId → 묶음 { kind: null | 'anim' | 'static', m, acts: { 동작: 칸 텍스처[] }, ready: Set<시트 주소>, stat, k, st } — 처음 볼 때 불러오기 시작 */
+    function bankOf(charId) {
+      if (!charId) return null;
+      let b = bank.get(charId);
+      if (b) return b;
+      const st = spriteOf(data, charId);
+      b = { kind: null, m: null, acts: {}, ready: new Set(), stat: null, k: st ? V.V25.SPR_H / st.h : 0, st };
+      bank.set(charId, b);
+      if (!st) return b;
+      const animUrl = spriteAnimUrl(data, charId);
+      if (animUrl) {
+        loadAnimManifest(animUrl).then((m) => {
+          if (dead || !m) return; // 목록 실패 → 스탠디 그대로
+          b.m = m;
+          const urls = sheetUrls(m);
+          const actOf = (url) => Object.keys(m.anims).find((a) => m.anims[a].url === url);
+          // idle 먼저 (못 오면 동작으로 바꾸지 않는다), 그다음 나머지를 함께
+          return loadSheet(b, actOf(urls[0])).then((ok) => {
+            if (!ok || dead) return;
+            for (const url of urls.slice(1)) loadSheet(b, actOf(url));
+          });
+        }).catch((e) => console.warn('스프라이트 목록을 불러오지 못했습니다', e));
+      } else {
+        loadImg(st.url).then((img) => {
+          if (dead || !img) return;
+          try {
+            b.stat = own(img, 'sprite');
+            b.kind = 'static';
+            dirty = true;
+          } catch (e) {
+            console.warn('정지 스프라이트를 올리지 못했습니다', e);
+          }
+        });
+      }
+      return b;
+    }
+    /** 시트 하나 → 소스 텍스처 + 칸 텍스처 count 개. 실패 · 크기가 모자라면 false (그 동작은 대신 동작) */
+    async function loadSheet(b, act) {
+      const a = act && b.m?.anims?.[act];
+      if (!a) return false;
+      const img = await loadImg(a.url);
+      if (dead || !img) return false;
+      const iw = Number(img.naturalWidth || img.width) || 0;
+      const ih = Number(img.naturalHeight || img.height) || 0;
+      if (iw + 1 < a.w * a.count || ih + 1 < a.h) return false;
+      try {
+        const sheet = own(img, 'sprite');
+        const frames = [];
+        for (let i = 0; i < a.count; i++) {
+          const t = new Texture({ source: sheet.source, frame: new Rectangle(i * a.w, 0, a.w, a.h) });
+          cuts.push(t);
+          frames.push(t);
+        }
+        b.acts[act] = frames;
+        b.ready.add(a.url);
+        if (act === 'idle') b.kind = 'anim';
+        dirty = true;
+        return true;
+      } catch (e) {
+        console.warn('스프라이트 시트를 올리지 못했습니다', act, e);
+        return false;
+      }
+    }
+    /** 한 선수의 스프라이트를 frame 동작에 맞춘다. 스프라이트가 (아직) 없으면 false (스탠디) */
+    function drawSprite(n, p, tm) {
+      const b = bankOf(p.charId);
+      if (!b || !b.kind) return false;
+      const flip = p.facing === 'l' ? -1 : 1;
+      n.charId = p.charId;
+      n.want = p.act;
+      if (b.kind === 'static') {
+        n.cur = null;
+        if (n.sprKind !== 'static') {
+          n.sprBox.removeChildren();
+          n.spr = new Sprite(b.stat);
+          n.spr.anchor.set(b.st.footX, 1);
+          n.sprBox.addChild(n.spr);
+          n.sprKind = 'static';
+        }
+        // 한 번 · 끝 자세 동작은 시작할 때 방향으로 고정 (머리 주석 "얼굴 방향")
+        if (LOOP_ACTS.includes(p.act)) n.statLock = null;
+        else if (!n.statLock || n.statLock.key !== p.actKey) n.statLock = { key: p.actKey, flip };
+        n.spr.scale.set((n.statLock ? n.statLock.flip : flip) * b.k, b.k);
+        const runs = (p.act === 'run' || p.act === 'dribble') && !p.resting;
+        n.sprBox.y = runs ? -Math.abs(Math.sin((tm.clock / Math.max(1, tm.turnMs)) * Math.PI)) * BOB_PX * p.s : 0;
+        if (runs) animating = true;
+        n.sprBox.rotation = p.resting ? (p.side === 'away' ? 1 : -1) * 1.43 : 0;
+        n.sprBox.alpha = p.resting ? 0.85 : 1;
+        return true;
+      }
+      if (n.sprKind !== 'anim') {
+        n.sprBox.removeChildren();
+        n.spr = new AnimatedSprite({ textures: b.acts.idle, autoUpdate: false });
+        n.sprBox.addChild(n.spr);
+        n.sprKind = 'anim';
+        n.cur = null;
+      }
+      const want = pickAct(b.m, p.act, (url) => b.ready.has(url)) || 'idle';
+      const a = b.m.anims[want];
+      const cur = n.cur;
+      const curDone = !cur || cur.mode === 'loop' || tm.clock - cur.start >= cur.dur;
+      let change;
+      if (!cur) change = true;
+      else if (want === cur.act) change = a.mode !== 'loop' && p.actKey !== cur.key; // 같은 반복 = 이어서, 같은 한 번 동작은 키가 바뀔 때만 처음부터
+      else change = !(a.mode === 'loop' && !curDone); // 한 번 동작은 끝까지 (반복 동작이 끊지 않는다)
+      if (change) {
+        const box = animBox(a, { k: 1 });
+        n.spr.textures = b.acts[want];
+        n.spr.anchor.set(-box.left / box.width, -box.top / box.height);
+        // 구간 (actSpan — 태클 실패 연출): 칸 first ~ last 만 (원하는 동작 그대로일 때만 — 대신 동작이면 전체)
+        const sp = want === p.act && Array.isArray(p.actSpan) ? p.actSpan : null;
+        const first = sp ? Math.min(a.count - 1, Math.max(0, Math.floor(sp[0] * a.count))) : 0;
+        const last = sp ? Math.min(a.count - 1, Math.max(first, Math.ceil(sp[1] * a.count) - 1)) : a.count - 1;
+        n.cur = {
+          act: want, key: p.actKey, start: tm.clock, mode: a.mode, count: last - first + 1, first, flip,
+          // 한 번 · 넘어짐 = 시작한 턴 길이에 맞춤 (최소 ONE_SHOT_MIN). 반복 · 세리머니는 아래에서 배속으로 매번
+          dur: animDuration(a, { fitMs: Math.max(ONE_SHOT_MIN, tm.turnMs) }),
+        };
+      }
+      const c = n.cur; // 지금 재생 중인 동작 (한 번 동작을 끝까지 보여 주는 중이면 want 와 다르다)
+      if (c.mode === 'loop' || c.act === 'celebrate') c.dur = animDuration(b.m.anims[c.act], { speedK: 1 / tm.speed });
+      const t = Math.max(0, tm.clock - c.start);
+      const i = c.first + (c.mode === 'loop' ? Math.floor((t / c.dur) * c.count) % c.count : Math.min(c.count - 1, Math.floor((t / c.dur) * c.count)));
+      if (n.spr.currentFrame !== i) n.spr.gotoAndStop(i);
+      c.t = t;
+      if (c.mode === 'loop' || t < c.dur) animating = true;
+      // 한 번 · 끝 자세 동작은 시작할 때 방향 그대로 (끝까지 보여 주는 중이든 frame 동작 그대로든) — 동작 도중 뒤집히지 않게.
+      // 반복 동작만 frame 방향을 따른다
+      n.spr.scale.set((c.mode === 'loop' ? flip : c.flip) * b.k, b.k);
+      n.sprBox.y = 0;
+      n.sprBox.rotation = 0;
+      n.sprBox.alpha = 1;
+      return true;
+    }
+
+    function draw(frame, cam, timing) {
       if (dead || !frame) return;
       dirty = false;
+      animating = false;
+      const tm = {
+        clock: Number.isFinite(timing?.clock) ? timing.clock : (globalThis.performance?.now?.() ?? Date.now()),
+        speed: Number(timing?.speed) > 0 ? Number(timing.speed) : 1,
+        turnMs: Number(timing?.turnMs) > 0 ? Number(timing.turnMs) : 400,
+      };
       const c = cam || { cx: W / 2, cy: H / 2, z: 1 };
       const { tx, ty } = V.camTranslate(c, W, H);
       world.position.set(tx, ty);
@@ -487,6 +707,11 @@ async function buildView(PIXI, app, host, { W, H, width, origin, data, onContext
         n.node.zIndex = p.z;
         n.ground.scale.set(p.s, p.s * p.ga);
         n.figure.scale.set(p.s);
+        n.sprBox.scale.set(p.s);
+        let sprite = false;
+        try { sprite = drawSprite(n, p, tm); } catch (e) { console.warn('스프라이트 그리기 실패', e); }
+        n.figure.visible = !sprite;
+        n.sprBox.visible = sprite;
         if (n.carrier !== p.carrier) {
           n.carrier = p.carrier;
           n.gold.visible = !!p.carrier;
@@ -517,7 +742,49 @@ async function buildView(PIXI, app, host, { W, H, width, origin, data, onContext
       renderer: 'webgl', canvas, resolution, draw, destroy,
       /** 늦게 온 그림 (얼굴) 때문에 다시 그려야 하는가 */
       get dirty() { return dirty; },
+      /** 그 캐릭터를 지금 스프라이트로 그리는가: 'anim' | 'static' | null (스프라이트 없음 · 아직 안 옴 · 실패 = 스탠디) */
+      spriteKind(charId) {
+        return (charId && bank.get(charId)?.kind) || null;
+      },
+      /** 지난 draw 에 아직 재생 중인 스프라이트가 있었다 (그림이 멈춰 있어도 다시 그려야 한다) */
+      get animating() { return animating && !dead; },
       get destroyed() { return dead; },
+      /** 지금 스프라이트로 그린 선수 (디버그 · 스크린샷 도구 hex_shot --practice): [{ key, charId, kind, act (재생 중), want (frame 동작), frame, t (ms), dur, flip }] */
+      playing() {
+        const out = [];
+        for (const [key, n] of nodes) {
+          if (!n.node.visible || !n.sprBox.visible || !n.sprKind) continue;
+          const c = n.cur;
+          out.push({
+            key, charId: n.charId, kind: n.sprKind, act: c ? c.act : n.want, want: n.want,
+            frame: n.spr?.currentFrame ?? 0, t: c ? Math.round(c.t || 0) : 0, dur: c ? Math.round(c.dur) : 0,
+            flip: (n.spr?.scale?.x ?? 1) < 0 ? 'l' : 'r',
+            box: (() => { // 화면 (캔버스 CSS px) 위 스프라이트 상자
+              try {
+                const r = n.spr.getBounds();
+                return [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)];
+              } catch (_) { return null; }
+            })(),
+          });
+        }
+        return out;
+      },
+      /** 이 view 의 텍스처: 소스 수 · 바이트 (w · h · 4) · 종류별 · 칸 텍스처 수 · 캐릭터별 스프라이트 (종류 · 올린 동작) */
+      stats() {
+        const byKind = {};
+        let bytes = 0;
+        for (const t of owned) {
+          const e = LIVE.get(t);
+          if (!e) continue;
+          bytes += e.bytes;
+          const k = (byKind[e.kind] ||= { textures: 0, bytes: 0 });
+          k.textures += 1;
+          k.bytes += e.bytes;
+        }
+        const chars = {};
+        for (const [id, b] of bank) chars[id] = { kind: b.kind, acts: Object.keys(b.acts) };
+        return { textures: owned.length, bytes, byKind, cuts: cuts.length, chars };
+      },
       /** WebGL 문맥을 이미 잃었는가 (만드는 도중 잃은 view 를 화면이 받지 않게) */
       isLost() {
         try { return !!app.renderer?.gl?.isContextLost?.(); } catch (_) { return false; }
