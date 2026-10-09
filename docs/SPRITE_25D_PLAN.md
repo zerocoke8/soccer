@@ -36,7 +36,7 @@
 
 | 파일 | 내용 | 만드는 법 |
 |---|---|---|
-| `art/sprites/base/<캐릭터 id>.png` | 한 방향 기준 그림 (단색 배경, 1254²) — 지금 3명: `ch_elf_playmaker` 실루엔 · `ch_human_captain` 아델린 · `ch_elf_regista` 나엘리스 | Codex 이미지 생성 (art/sprites/README.md) |
+| `art/sprites/base/<캐릭터 id>.png` | 한 방향 기준 그림 (단색 배경, 1254²) — 지금 4명: `ch_elf_playmaker` 실루엔 · `ch_human_captain` 아델린 · `ch_elf_regista` 나엘리스 · `ch_spirit_keeper` 네리아 (2026-10-10) | Codex 이미지 생성 (art/sprites/README.md) |
 | `img/sprites/<캐릭터 id>.webp` | 크로마키 · 잘라냄 · 높이 240 투명 WebP (약 16KB) | `node tools/sprites.mjs` |
 | `data/sprites.json` | `{ version: 1, height: 240, chars: { id: { w, h, footX, v } } }` — footX = 발 가운데 / 폭 (0 ~ 1), v = sha1 앞 8자 (`?v=`) | 같은 도구 |
 | `img/sprites/far_strip.webp` | 1672×174, 먼 쪽 배경 띠 (아래 끝 = 잔디 끝) | C 배경 (`art/sprites/scenery/pitch_c.png`) 위쪽 18.5% 를 잘랐다 |
@@ -370,7 +370,7 @@
 
 | 파일 | 내용 |
 |---|---|
-| `data/sprites.json` | 캐릭터 항목에 선택 필드 `anim: 'img/sprites/anim/<id>.json'` (지금 `ch_elf_playmaker` 하나). 저장소 안 상대 경로 `.json` 만 (`art.spriteAnimUrl` — 절대 주소 · `..` 는 null). 정지 스프라이트 항목 (w · h · footX · v) 이 있어야 한다. `tools/sprites.mjs` 로 다시 만들어도 남는다 |
+| `data/sprites.json` | 캐릭터 항목에 선택 필드 `anim: 'img/sprites/anim/<id>.json'` (지금 `ch_elf_playmaker` · `ch_human_captain` · `ch_spirit_keeper` — §13.9). 저장소 안 상대 경로 `.json` 만 (`art.spriteAnimUrl` — 절대 주소 · `..` 는 null). 정지 스프라이트 항목 (w · h · footX · v) 이 있어야 한다. `tools/sprites.mjs` 로 다시 만들어도 남는다 |
 | `img/sprites/anim/<id>.json` | `{ version: 1, id, source, anims: { <동작>: { mode, fps, count, w, h, footX, footY, foot0X, v } } }` — mode `loop` (반복 한 바퀴) · `once` (준비 자세에서 시작해 준비 자세 쯤으로 끝 — 12장) · `hold` (끝 자세가 다르다 — 마지막 칸에 머문다). `foot0X` 는 A1 에서 더했다 (아래) |
 | `img/sprites/anim/<id>.<동작>.webp` | 가로 띠 (칸 `count` 개, 칸 `w × h`), 칸 안의 발 = (`footX`, `footY`) — footX 는 `tools/video2sprite.mjs` 가 프레임끼리 맞춘 몸통 가운데, footY = 첫 칸의 땅 (발 아래 끝). 첫 칸 캐릭터 키 = 240 (정지 스프라이트와 같은 배율), 오른쪽을 본다. `v` = 시트 sha1 앞 8자 (`?v=`) |
 
@@ -451,7 +451,7 @@
 |---|---|---|
 | 재배치 달리기 문턱 | 화면 3px (`ANIM25.movePx`) | 흔들림 (§11) 으로 조금만 옮겨도 달린다 |
 | 달리는 동안 가는 쪽 보기 | 가로 6px 넘게 (`turnPx`) | 세로로만 옮기면 배치의 방향 그대로 |
-| 세리머니 같은 편 | 골 넣은 선수에서 필드 20 안 (`cheerNear`) | 움직이는 스프라이트만 (지금 실루엔) |
+| 세리머니 같은 편 | 골 넣은 선수에서 필드 20 안 (`cheerNear`) | 움직이는 스프라이트만 (지금 실루엔 · 아델린 · 네리아) |
 | 인터셉트 | 태클 그림 | 계획의 "태클 또는 버티기" 중 |
 | 제쳐짐 · 태클 실패 | 넘어짐 (끝 자세) | 드리블에 진 수비는 수비 액션과 상관없이 |
 | 공을 가진 선수의 재배치 | 드리블 (킥오프 배치 빼고) | 계획 "드리블한 선수" 보다 넓다 — 패스 받은 · 뺏은 새 공 가진 선수도 |
@@ -473,3 +473,13 @@
   - GK 동작 그림 없음 (다이브 · 잡기는 CSS 기울기 그대로). 헤더 공 출발 높이는 CSS 뛰어오름 식 그대로 (그림의 머리와 몇 px 차이).
   - 넓은 동작 칸 (태클 · 킥) 은 액션 동안 옆 이름표에 걸칠 수 있다 (자리 상자 = 정지 치수).
   - `sprite-lab.html` 은 실루엔 고정.
+
+### 13.9 아델린 · 네리아 동작 (2026-10-10 — 기획자 요청 "실루엔과 같은 프로세스")
+
+- 네리아 정지 스프라이트: `art/sprites/base/ch_spirit_keeper.png` (자홍 배경 — 골키퍼 준비 자세) → `node tools/sprites.mjs --only ch_spirit_keeper` → `img/sprites/ch_spirit_keeper.webp` 172 × 240 · footX 0.381 · 18 KB.
+- 시트: §13.6 그대로 (시댄스 2.5 480p 4초 → `tools/video2sprite.mjs`). 고른 영상 — 아델린 kick = kick2 · tackle = tackle2 · fall = fall2, 네리아 header = header2 · tackle = tackle2a. **드리블은 둘 다 뺐다** (아델린 = 제자리 걸음, 네리아 = 약함) → 화면은 `ANIM_FALLBACK` 으로 달리기를 보인다.
+  `tools/sprite_anim.mjs` 는 `--from` 폴더에 있는 동작을 다 가져가므로, 쓸 시트만 (드리블 빼고) 스크래치 폴더에 복사해 `--from` 으로 줬다:
+  `node tools/sprite_anim.mjs ch_human_captain --from <복사본> --map kick=kick2,tackle=tackle2,fall=fall2 --source "…"` · `node tools/sprite_anim.mjs ch_spirit_keeper --from <복사본> --map header=header2,tackle=tackle2a --source "…"` (ffmpeg 필요 없음).
+- 한 벌 크기: 아델린 9 동작 내려받기 1.33 MB · 디코드 23.9 MB (idle 17칸 · run 12칸), 네리아 1.57 MB · 24.4 MB (idle 18칸 · run 10칸). `foot0X − footX` (시트 px): 아델린 대기 −4.7 · 한 번 동작 −6 ~ −9, 네리아 대기 −19 · 한 번 동작 −19 ~ −21 (긴 머리가 뒤로 흘러 몸통 가운데가 발보다 뒤 — 앵커 규칙 §13.1 이 그대로 맞춘다).
+- 그림 확인 (시트를 칸 격자로 펼쳐 봄): 테두리 키잉 깨끗 (자홍 · 초록 테두리 없음). 단 네리아 tackle2a 는 반투명 연하늘 덧치마로 자홍 배경이 비쳐 4 · 5칸 엉덩이 뒤에 연보라 얼룩 (170 · 42 px) 이 남았다 → `tools/video2sprite.mjs … --trim once --max 12 --despill` 로 다시 뽑아 (`out/tackle2a_despill`, 보라 색조 픽셀 0 — 남은 자리는 덧치마 그늘 같은 푸른 회색) `--map tackle=tackle2a_despill` 로 바꿨다. 아델린 태클 · 킥 · 넘어짐 · 달리기 몇 칸은 휘날리는 머리 끝이 칸 왼쪽 끝에서 잘린다 (영상 → 시트 자르기 폭 — 64px 화면에서는 거의 안 보임, 거슬리면 video2sprite 여백을 넓혀 다시 뽑을 것). 아델린 태클 칸에 반투명 먼지 자국.
+- 육각 경기 메모리 (HEX_AUTOBATTLE_PLAN §5.4 결정 15 — 연습 경기, 셋이 양 팀에, 915 × 412 · DPR 2.625 헤드리스 크롬): 텍스처 53장 · 87.2 MB (스프라이트 28장 70.5 MB — 양 팀이 한 벌을 나눠 씀, 잔디 · 배경 15.5 MB, 얼굴 1.1 MB), 칸 텍스처 335. 나가기 / 다시 열기 12번 모두 텍스처 0 · 노드 · 리스너 그대로.

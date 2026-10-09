@@ -23,6 +23,8 @@
 // 필살기 (H3): frame.players[i].ult = 이번 턴 (next.turn) cutin 이벤트의 선수 (쓰는 턴 — Pixi 분홍 바닥 고리 · 빛),
 //   .ultReady = opts.ultReady (화면이 넘기는 'side:id' 묶음 — 사람 쪽 준비 · 켬 선수, Pixi 가는 분홍 고리). 캔버스에 글자 없음.
 //
+// 감정 말풍선 (기획자 요청 2026-10-10): emotesOf(prev, next) = 이번 턴 공 뺏기 (win) · 뺏기기 (lose) 선수 목록 — 화면이 HTML 말풍선으로 (함수 주석).
+//
 // [구현 결정] (H1):
 //  - 공 가진 선수의 공 = 발에서 공격 방향 (골 축) 으로 46 · 0.35 · s 화면 px, 깊이 쪽 (가까운 쪽) 4 · s 화면 px — 예전 ballPx 와 같은 크기를 판 px 로 바꿔 둔다.
 //  - 쉬는 선수 (resting) = restUntil ≥ next.turn — 넘어진 턴 · 그다음 턴 동안 넘어진 모습.
@@ -568,6 +570,98 @@ function assignActs(players, { base, next, evs, kickoff, goalReset, goalEv, goal
 /** 지난 턴 (next.turn − 1) 에 그 선수가 실패한 태클 이벤트 | null (골 턴의 넘어짐 — assignActs) */
 function failedTackleBefore(next, p) {
   return eventsOfTurn(next, next.turn - 1).find((e) => e.type === 'tackle' && !e.success && e.side === p.side && String(e.tacklerId) === p.id) || null;
+}
+
+/* ------------------------------------------------------------------ */
+/* 감정 말풍선 (기획자 요청 2026-10-10 — 공을 뺏을 때 · 뺏길 때 머리 위)       */
+/* ------------------------------------------------------------------ */
+
+/** 한 턴 말풍선 최대 수 (화면 풀 크기와 같다) */
+export const EMOTE_MAX = 6;
+
+/**
+ * 말풍선 자리 (꼬리 끝 — 아래 가운데) 를 필드 영역 안으로 자른다: 위 = top + 말풍선 높이 (시계 · 점수 머리를 덮지 않게), 아래 = H − 2,
+ * 옆 = 말풍선 반폭 + 2 (화면 밖으로 잘리지 않게). 화면 (screens/hexMatch.js drawEmotes) 이 프레임마다 머리 점으로 부른다.
+ * @param {{ x: number, y: number }} pt 머리 점 (화면 px — 이름표 · 낮은 자세 몫을 더한 뒤)
+ * @returns {{ x: number, y: number }}
+ */
+export function emoteSpot(pt, bw, bh, W, H, top) {
+  return {
+    x: Math.min(W - bw / 2 - 2, Math.max(bw / 2 + 2, pt.x)),
+    y: Math.min(H - 2, Math.max(top + bh, pt.y)),
+  };
+}
+
+/** 이벤트 → 그 뒤 공을 가진 (또는 막 찬) 선수 { side, id } | null (말풍선의 "마지막으로 가진 선수" 추적) */
+function holderOfEvent(e) {
+  switch (e.type) {
+    case 'pass': return { side: e.side, id: e.from };
+    case 'receive': case 'looseWon': case 'kickoff': case 'shot': return { side: e.side, id: e.playerId };
+    case 'tackle': return e.success ? { side: e.side, id: e.tacklerId } : null;
+    case 'intercept': return e.success ? { side: e.side, id: e.defenderId } : null;
+    case 'aerial': return e.success ? null : { side: otherSide(e.side), id: e.defenderId };
+    case 'save': return { side: e.side, id: e.gkId };
+    default: return null;
+  }
+}
+
+/**
+ * 이번 턴 (next.turn) 의 공 뺏기 · 뺏기기 → 말풍선 목록 [{ side, id, kind: 'win'|'lose', cause, key }] (화면 hexMatch.js 가 HTML 로 그린다).
+ *   win (공을 땄다): 태클 성공 (태클한 선수 — cause 'tackle', 화면 "!!") · 가로채기 성공 (가로챈 선수 'intercept') ·
+ *     공중볼을 이긴 수비 ('aerial') · 선방한 GK ('save') · 흘러나온 공을 그 전에 공이 없던 쪽이 주움 ('loose').
+ *   lose (뺏겼다): 태클당한 선수 · 가로채인 패스를 찬 선수 · 공중볼에 진 크로스를 찬 선수 · 막힌 슛을 찬 선수 ·
+ *     흘러나온 공을 상대가 주웠을 때 마지막으로 가졌던 선수.
+ *   없음: prev 가 없을 때 (시작 · 이어하기 · ⏭ 뒤 그림) · 골이 난 턴 (골 장면이 이미 기뻐한다) · 킥오프 턴 · 승부차기.
+ *   key = `${turn}:${side}:${id}:${kind}` (같은 일을 프레임마다 다시 띄우지 않게). 한 선수는 한 턴에 하나 (뒤 이벤트), 최대 EMOTE_MAX (뒤에서부터).
+ * "그 전에 공이 없던 쪽" = 턴 시작 포제션 (possessionOf(prev)) 에서 이번 턴 이벤트를 차례로 따라간 쪽,
+ * "마지막으로 가진 선수" = 이번 턴 전 이벤트 목록의 마지막 공 가진 (찬) 선수부터 이번 턴 이벤트를 차례로 따라간 선수.
+ * @param {object|null} prev 이전 턴 상태 또는 sceneSnap
+ * @param {object} next 지금 엔진 상태 (이벤트 목록 포함)
+ * @returns {Array<{ side: 'home'|'away', id: string, kind: 'win'|'lose', cause: string, key: string }>}
+ */
+export function emotesOf(prev, next) {
+  if (!prev || !next || next.stage === 'penalties') return [];
+  const turn = next.turn;
+  const evs = eventsOfTurn(next);
+  if (!evs.length || evs.some((e) => e.type === 'goal' || e.type === 'kickoff' || e.type === 'penalty' || e.type === 'penalties')) return [];
+  // 이번 턴 전의 마지막 공 가진 선수 (이벤트 목록을 뒤에서 — 이번 턴 이벤트 수만큼 건너뛰고, 최대 400개)
+  const all = Array.isArray(next.events) ? next.events : [];
+  let last = null;
+  for (let i = all.length - evs.length - 1, n = 0; i >= 0 && n < 400 && !last; i--, n++) last = holderOfEvent(all[i]);
+  if (!last && prev.ball?.holder) last = { side: prev.ball.holder.side, id: prev.ball.holder.id };
+  let owner = possessionOf(prev) ?? last?.side ?? null;
+  const out = new Map(); // 'side:id' → 항목 (한 선수 한 턴 하나 — 뒤 이벤트)
+  const put = (side, id, kind, cause) => {
+    if ((side !== 'home' && side !== 'away') || id == null) return;
+    const k = `${side}:${id}`;
+    out.delete(k);
+    out.set(k, { side, id: String(id), kind, cause, key: `${turn}:${k}:${kind}` });
+  };
+  const loseLast = (side, cause) => { if (last && last.side === side) put(last.side, last.id, 'lose', cause); };
+  for (const e of evs) {
+    switch (e.type) {
+      case 'tackle':
+        if (e.success) { put(e.side, e.tacklerId, 'win', 'tackle'); put(otherSide(e.side), e.carrierId, 'lose', 'tackle'); }
+        break;
+      case 'intercept':
+        if (e.success) { put(e.side, e.defenderId, 'win', 'intercept'); loseLast(otherSide(e.side), 'intercept'); }
+        break;
+      case 'aerial':
+        if (!e.success) { put(otherSide(e.side), e.defenderId, 'win', 'aerial'); loseLast(e.side, 'aerial'); }
+        break;
+      case 'save':
+        put(e.side, e.gkId, 'win', 'save');
+        loseLast(otherSide(e.side), 'save');
+        break;
+      case 'looseWon':
+        if (owner && owner !== e.side) { put(e.side, e.playerId, 'win', 'loose'); loseLast(otherSide(e.side), 'loose'); }
+        break;
+      default: break;
+    }
+    const hd = holderOfEvent(e);
+    if (hd) { last = hd; owner = hd.side; }
+  }
+  return [...out.values()].slice(-EMOTE_MAX);
 }
 
 function prevUVOf(state) {

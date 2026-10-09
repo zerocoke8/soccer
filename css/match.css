@@ -907,6 +907,35 @@
 }
 .match-screen.hex-screen .hx-name.hx-home { box-shadow: inset 0 -2px 0 var(--home); }
 .match-screen.hex-screen .hx-name.hx-away { box-shadow: inset 0 -2px 0 var(--away); }
+/* 감정 말풍선 (공을 뺏은 · 뺏긴 선수 머리 위 — screens/hexMatch.js drawEmotes): .hx-emote = 자리 (JS translate — 꼬리 끝이 머리 점),
+   .hx-emote-b = 흰 말풍선 + 아래 꼬리 (::after). win = 금색 "!" (태클로 뺏으면 "!!" — .hx-emote-steal), lose = "💦".
+   팝 (0 → 1.15 → 1, 길이의 20 %) · 유지 · 끝 28 % 페이드 = 한 애니메이션 (--hx-emo = 길이 ms). .hx-paused = 컷인 동안 숨기고 멈춤. 필터 없음 (box-shadow 만) */
+.match-screen.hex-screen .hx-emote { position: absolute; left: 0; top: 0; z-index: 3; pointer-events: none; padding-bottom: 7px; }
+.match-screen.hex-screen .hx-emote.hx-paused { visibility: hidden; }
+.match-screen.hex-screen .hx-emote-b {
+  position: relative; display: block; min-width: 30px; height: 30px; padding: 0 8px; border-radius: 15px; box-sizing: border-box;
+  background: #fff; color: #1b2230; box-shadow: 0 2px 0 rgba(0, 0, 0, .28), 0 0 0 1px rgba(0, 0, 0, .18);
+  font-size: 22px; line-height: 30px; font-weight: 900; text-align: center; white-space: nowrap; letter-spacing: -.02em;
+  transform-origin: 50% calc(100% + 7px);
+  animation: hx-emote var(--hx-emo, 900ms) linear both;
+}
+.match-screen.hex-screen .hx-emote-b::after {
+  content: ''; position: absolute; left: 50%; bottom: -7px; margin-left: -6px; width: 0; height: 0;
+  border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 8px solid #fff;
+}
+.match-screen.hex-screen .hx-emote.hx-paused .hx-emote-b { animation-play-state: paused; }
+.match-screen.hex-screen .hx-emote-win .hx-emote-b { color: #f2a900; text-shadow: 0 1px 0 #8a5a00; }
+.match-screen.hex-screen .hx-emote-lose .hx-emote-b { font-size: 18px; }
+@keyframes hx-emote {
+  0% { transform: scale(0); opacity: 1; animation-timing-function: ease-out; }
+  13% { transform: scale(1.15); animation-timing-function: ease-in-out; }
+  20% { transform: scale(1); opacity: 1; }
+  72% { transform: scale(1); opacity: 1; }
+  100% { transform: scale(1); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .match-screen.hex-screen .hx-emote-b { animation: none !important; }
+}
 .match-screen.hex-screen .hx-fallback, .match-screen.hex-screen .hx-note {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 3; max-width: 80%;
   padding: 12px 18px; border-radius: 12px; background: rgba(12, 18, 26, .88); border: 1px solid #34405a;

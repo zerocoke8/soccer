@@ -1,0 +1,106 @@
+{
+  "version": 1,
+  "id": "ch_human_captain",
+  "source": "Seedance 2.5 (dreamina-seedance-2-5-260628) 480p 4s → tools/video2sprite.mjs, 2026-10-10 — kick = kick2 · tackle = tackle2 · fall = fall2, dribble 은 뺌 (제자리 걸음이라 run 으로 대신)",
+  "anims": {
+    "idle": {
+      "mode": "loop",
+      "fps": 8,
+      "count": 17,
+      "w": 139,
+      "h": 249,
+      "footX": 64.1,
+      "footY": 245.9,
+      "foot0X": 59.4,
+      "v": "538515a4"
+    },
+    "run": {
+      "mode": "loop",
+      "fps": 12,
+      "count": 12,
+      "w": 185,
+      "h": 253,
+      "footX": 95.7,
+      "footY": 250.1,
+      "foot0X": 111.6,
+      "v": "d950deae"
+    },
+    "kick": {
+      "mode": "once",
+      "fps": 12,
+      "count": 12,
+      "w": 265,
+      "h": 259,
+      "footX": 141.2,
+      "footY": 256.1,
+      "foot0X": 132.2,
+      "v": "36eeddbf"
+    },
+    "pass": {
+      "mode": "once",
+      "fps": 12,
+      "count": 12,
+      "w": 186,
+      "h": 251,
+      "footX": 81.1,
+      "footY": 248.4,
+      "foot0X": 73.2,
+      "v": "bc1e2a26"
+    },
+    "header": {
+      "mode": "once",
+      "fps": 12,
+      "count": 12,
+      "w": 216,
+      "h": 264,
+      "footX": 132.3,
+      "footY": 261.3,
+      "foot0X": 125.4,
+      "v": "a58f8129"
+    },
+    "tackle": {
+      "mode": "once",
+      "fps": 12,
+      "count": 12,
+      "w": 297,
+      "h": 245,
+      "footX": 103.3,
+      "footY": 242.4,
+      "foot0X": 94.9,
+      "v": "a6973bba"
+    },
+    "block": {
+      "mode": "once",
+      "fps": 12,
+      "count": 12,
+      "w": 210,
+      "h": 244,
+      "footX": 97.7,
+      "footY": 240.7,
+      "foot0X": 90.4,
+      "v": "912af048"
+    },
+    "fall": {
+      "mode": "hold",
+      "fps": 12,
+      "count": 12,
+      "w": 284,
+      "h": 258,
+      "footX": 119.7,
+      "footY": 255.3,
+      "foot0X": 113.9,
+      "v": "328fd230"
+    },
+    "celebrate": {
+      "mode": "hold",
+      "fps": 12,
+      "count": 12,
+      "w": 214,
+      "h": 268,
+      "footX": 120.3,
+      "footY": 261.3,
+      "foot0X": 113.9,
+      "v": "ca16d955"
+    }
+  }
+}

@@ -12,6 +12,7 @@
 //   ├ .hx-ult              필살기 버튼 7개 (H3 — 아래 띠 가운데 · 오른쪽: 사람 쪽 선수, 포메이션 칸 순서) button.hx-ult-btn.ut-<type>.tier-<tier>
 //   └ .m-cutin             필살기 컷인 층 (예전 경기 화면과 같은 클래스 · 전역 .cut* CSS — .show 의 배경이 캔버스 위 어두운 판 한 장, 문서 §5.2)
 //   이름표 .hx-name (공 가진 선수 머리 위 — 매 프레임 hexScene.headPoint × 카메라) 는 .hx-field 안.
+//   감정 말풍선 .hx-emote.hx-emote-win|lose > .hx-emote-b (공을 뺏은 · 뺏긴 선수 머리 위 — 이름표와 같은 층, 풀 ≤ 6) 도 .hx-field 안.
 //
 // 경기 모드 훅 ctx.matchMode (없으면 런 경기 — 괄호 안이 런 경기 기본값):
 //   { label?: HUD 아랫줄 · 결과 제목의 경기 종류 글자 (KIND_LABELS[kind]),
@@ -71,6 +72,21 @@
 //  - 차는 턴의 공이 발을 떠나는 진행도 = hexScene.BALL_RELEASE × max(ONE_SHOT_MIN, 턴 ms) / 턴 ms (4배속은 한 번 동작이 늘어난 만큼 늦게, 최대 0.75).
 //    공 가진 선수 표시 (금색 고리 · 이름표) 를 넘기는 때도 그 뒤 비행의 CARRIER_SWITCH 로 미룬다.
 //  - 디버그 HEX_DEBUG.sprites = view.playing() (스프라이트 선수의 지금 동작 · 칸 · 화면 상자 — tools/hex_shot.mjs --practice 동작 사냥).
+// 감정 말풍선 (기획자 요청 2026-10-10 — 공을 뺏을 때 · 뺏길 때 머리 위):
+//   - 누구 · 무엇 = hexScene.emotesOf(step 전 sceneSnap, step 뒤 상태) — step 마다 한 번. win = 금색 "!" (태클로 뺏으면 "!!"), lose = "💦".
+//   - 그 턴 그림의 닿는 순간 (보간 진행도 ≥ 공이 발을 떠나는 진행도 — 화면 release 와 같은 식, 태클 턴도 같은 때) 에 띄우고
+//     매 프레임 머리 점 (headPoint × 카메라) 을 따라간다. 길이 = max(EMOTE.min, EMOTE.ms ÷ 배속) — 띄울 때 정한다.
+//   - 팝 (0 → 1.15 → 1, 길이의 20 % ≈ 180 ms) · 유지 · 끝 28 % 페이드는 CSS 애니메이션 (--hx-emo = 길이). 움직임 줄이기 = 애니메이션 없이 보였다 사라짐.
+//   - 컷인 · 차지 · 역컷인 동안 (cutCur · hold) 은 숨기고 시간 · 애니메이션을 멈춘다 → 끝나면 남은 시간만큼 다시. ⏭ · 캔버스 없음 (대체 화면 ·
+//     다시 그리는 중) · 승부차기 · 골 턴 ("골!" 배너가 뜨는 때부터 — 지난 턴에 띄운 말풍선도) 은 모두 지운다.
+//   - 필드 영역 안으로 자른다 (위 EMOTE.top — 시계 · 점수 머리 밑, 아래 = 필드 바닥 — 필살기 띠 위). 공 가진 선수 이름표가 같은 선수 위에 있으면 그 위로 올린다:
+//     띄운 턴에 그 턴 끝 공 가진 선수면 처음부터 올린다 (이름표는 넘기는 때 ≈ 0.81 뒤에 뜬다 — 그때 22px 뛰지 않게, 2026-10-10 리뷰), 그 뒤로는
+//     이름표가 그 선수 위에 보이는 동안만. 올리기 · 낮은 자세 내림은 한 목표로 부드럽게 (EMOTE_LOW_TAU) — 이름표가 떠나면 머리 위로 미끄러져 내려온다.
+//   - 닿는 순간 창 [at, 1) 에 프레임이 하나도 없었던 턴 (4배속 · 20 fps) 의 말풍선은 다음 step 직전에 띄운다 (빠지지 않게).
+//   - 말풍선 크기는 처음 보일 때 · 이름표 높이는 처음 한 번만 잰다 (프레임마다 layout 읽지 않게).
+//   - 한 선수 머리 위에는 하나 — 다음 턴 말풍선이 같은 선수에게 뜨면 지난 것을 바로 지운다.
+//   - 움직이는 스프라이트가 낮은 자세 (frame act tackle · fall) 면 선 키 머리 점에서 EMOTE_LOW × 키만큼 내린다 (뜬 말풍선이 옆 선수 것처럼 읽혀서 — 2026-10-10 스크린샷), 자세가 바뀌면 부드럽게.
+
 // [구현 결정] (H3 — 필살기 버튼 · 컷인 · 저장):
 //  - 버튼 글 = 선수 이름 + 상태 한 줄 + 게이지 막대 (스킬 이름 · 유형 · 등급 · 설명 · 대사 · 이유는 title). 얼굴 = 초상 face, 없으면 색 원.
 //  - 켠 버튼은 지금 상황이어도 "예약" (다음 턴 시작에 들어가 그 턴에 터진다) — "지금!" 은 아직 안 켠 준비 버튼에만.
@@ -125,6 +141,12 @@ const CUT_TIER = Object.freeze({
 const CUT_T = Object.freeze({ comboCut: 1000, comboName: 1100, revCut: 800, revCutShort: 700 });
 /** 배속을 나눈 뒤의 바닥 (ms — 4배속에서도 읽히게, 예전 CUT_MIN) */
 const CUT_MIN = Object.freeze({ charge: 30, card: 120 });
+/** 감정 말풍선: 길이 (ms, 1배속 — 배속으로 나누고 min 바닥) · 필드 영역 위 여백 (시계 밑) · 크기를 못 잴 때 (jsdom) 의 말풍선 크기 */
+const EMOTE = Object.freeze({ ms: 900, min: 450, top: 16, w: 34, h: 38 });
+const EMOTE_TEXT = Object.freeze({ win: '!', steal: '!!', lose: '💦' });
+/** 낮은 자세 (움직이는 스프라이트의 태클 슬라이딩 · 넘어짐) 에서 말풍선을 내리는 몫 (선 키 figure.fh 기준 — 시트에서 잰 머리 높이 ≈ 65 · 75 %) · 따라가는 시간 상수 (ms) */
+const EMOTE_LOW = Object.freeze({ tackle: 0.33, fall: 0.25 });
+const EMOTE_LOW_TAU = 90;
 /** 역컷인 글 (엔진 이벤트 reverseCutin.text 가 먼저 — 없을 때) */
 const REVERSE_FALLBACK = Object.freeze({ save: '기적의 세이브!', block: '철벽 블록!', passCut: '필살 패스 차단!' });
 
@@ -141,6 +163,13 @@ const INPUTS = new WeakMap();
 /** 육각 경기 화면 디버그 값 (app.js window.__soccer.hexView 가 읽는다) — 화면을 연 적이 없으면 null */
 export function hexViewDebug() {
   return HEX_DEBUG;
+}
+
+// 시험 전용: 턴마다 말풍선 목록을 hexScene.emotesOf 대신 이 함수로 (풀 상한 · 다시 쓰기 시험 — 한 턴 6개를 여러 턴 이어서). null = 원래대로
+let emotesOfTest = null;
+/** 시험 전용 — fn(prevSnap, state) → [{ side, id, kind, cause, key }] 또는 null (원래 hexScene.emotesOf) */
+export function setHexEmotesForTest(fn) {
+  emotesOfTest = typeof fn === 'function' ? fn : null;
 }
 
 const isHexState = (s, HM) => !!(s && typeof s === 'object' && s.engine === 'hex' && s.version === HM.HEX_MATCH_VERSION);
@@ -752,6 +781,7 @@ export function renderHexMatch(root, ctx) {
   }
 
   function doStep() {
+    flushEmotes(); // 지난 턴의 닿는 순간 프레임을 못 만났으면 (4배속 · 낮은 fps) 그 말풍선을 지금 — 조용히 빠지지 않게
     prevSnap = S.sceneSnap(state);
     const n0 = state.events.length;
     const playingBefore = ultPlaying();
@@ -766,6 +796,8 @@ export function renderHexMatch(root, ctx) {
     for (const x of list) inputs.push([idx, x.side, String(x.playerId), x.op]);
     steps += 1;
     persist();
+    turnEmotes = safe(() => (emotesOfTest || S.emotesOf)(prevSnap, state)) || []; // 이번 턴 말풍선 (닿는 순간에 drawEmotes 가 띄운다)
+    emoteSeen.clear();
     const evs = state.events.slice(n0);
     // 컷인 (그 턴 그림 전) · 역컷인 (그 턴 그림 뒤). 컷인이 있으면 골 · 단계 배너는 컷인 뒤에
     goal = null;
@@ -821,6 +853,8 @@ export function renderHexMatch(root, ctx) {
     if (!alive()) return;
     queued.clear();
     clearCuts(); // ⏭ 은 컷인을 닫는다
+    turnEmotes = [];
+    clearEmotes(); // ⏭ 뒤에는 말풍선 없음
     endComboWait();
     if (state.finished) { showResult(); return; }
     const r = safe(() => HM.simulateAuto(state, data));
@@ -924,6 +958,106 @@ export function renderHexMatch(root, ctx) {
     const pt = S.camPoint(S.headPoint(p), cam, W, H);
     nameEl.style.transform = `translate(${Math.round(pt.x * 10) / 10}px, ${Math.round(pt.y * 10) / 10}px) translate(-50%, -100%)`;
     if (nameEl.hidden) nameEl.hidden = false;
+  }
+
+  /* ---- 감정 말풍선 (공을 뺏은 · 뺏긴 선수 — 머리 주석) ---- */
+  let turnEmotes = []; // 이번 턴 hexScene.emotesOf
+  const emoteSeen = new Set(); // 이번 턴 이미 띄운 key (프레임마다 다시 띄우지 않게)
+  const emotes = []; // 보이는 말풍선 { el, b, key, side, id, kind, text, left, dur, x, y, drop, lift, bw, bh } (최대 S.EMOTE_MAX — 넘치면 남은 시간이 가장 짧은 것을 다시 쓴다)
+  const emotePool = []; // 쉬는 .hx-emote 칸
+  let nameH = 0; // 이름표 높이 (처음 보일 때 한 번 잰다 — 글꼴 고정)
+  function clearEmotes() {
+    while (emotes.length) {
+      const m = emotes.pop();
+      m.el.hidden = true;
+      m.el.replaceChildren();
+      emotePool.push(m.el);
+    }
+  }
+  function dropEmote(m) {
+    const i = emotes.indexOf(m);
+    if (i >= 0) emotes.splice(i, 1);
+    m.el.hidden = true;
+    m.el.replaceChildren();
+    emotePool.push(m.el);
+  }
+  function spawnEmote(e) {
+    // 같은 선수의 지난 턴 말풍선은 새것으로 바꾼다 (공이 연달아 오가면 "!!" 와 "💦" 가 한 머리 위에 겹쳐서)
+    for (const m of emotes.filter((x) => x.side === e.side && x.id === e.id)) dropEmote(m);
+    if (emotes.length >= S.EMOTE_MAX) dropEmote(emotes.reduce((a, b) => (b.left < a.left ? b : a)));
+    const el = emotePool.pop() || field.appendChild(h('div', { class: 'hx-emote', 'aria-hidden': 'true', hidden: true }));
+    const text = e.kind === 'win' ? (e.cause === 'tackle' ? EMOTE_TEXT.steal : EMOTE_TEXT.win) : EMOTE_TEXT.lose;
+    const dur = Math.max(EMOTE.min, EMOTE.ms / speedOf());
+    // 안쪽 말풍선은 띄울 때마다 새로 (CSS 팝 애니메이션이 처음부터)
+    const b = h('span', { class: 'hx-emote-b' }, text);
+    b.style.setProperty('--hx-emo', `${Math.round(dur)}ms`);
+    el.className = `hx-emote hx-emote-${e.kind} hx-${e.side}${text === EMOTE_TEXT.steal ? ' hx-emote-steal' : ''}`;
+    el.dataset.key = e.key;
+    el.replaceChildren(b);
+    // 이번 턴 끝에 공을 가질 선수 (뺏은 선수) 면 그 턴 동안은 처음부터 이름표 위 — 이름표는 넘기는 때 (진행도 ≈ 0.81) 뒤에야 뜨므로 미리 비워 둔다
+    const h0 = state.ball?.holder;
+    const holds = !state.finished && !!h0 && h0.side === e.side && String(h0.id) === String(e.id);
+    emotes.push({ el, b, key: e.key, side: e.side, id: e.id, kind: e.kind, text, left: dur, dur, x: 0, y: 0, drop: null, turn: state.turn, holds, lift: false, bw: 0, bh: 0 });
+  }
+  function spawnTurnEmotes() {
+    for (const e of turnEmotes) {
+      if (emoteSeen.has(e.key)) continue;
+      emoteSeen.add(e.key);
+      spawnEmote(e);
+    }
+  }
+  /** step 직전: 이번 턴 말풍선 중 아직 못 띄운 것 (닿는 순간 창 [at, 1) 에 프레임이 하나도 안 떨어짐 — 4배속 · 20 fps) 을 띄운다 */
+  function flushEmotes() {
+    if (!turnEmotes.length || !view || skipped || state.stage === 'penalties' || goal || cutCur || hold) return;
+    spawnTurnEmotes();
+  }
+  /** 매 프레임: 닿는 순간이면 이번 턴 말풍선을 띄우고, 보이는 것은 시간을 줄이고 머리 위로 옮긴다 */
+  function drawEmotes(frame, dt) {
+    // 캔버스가 없거나 (대체 화면 · 다시 그리는 중) ⏭ 뒤 · 승부차기 · 골 턴 (골 배너 · 골 장면 — 지난 턴 말풍선도) → 모두 지운다
+    if (!view || skipped || state.stage === 'penalties' || goal) {
+      if (emotes.length) clearEmotes();
+      return;
+    }
+    const paused = !!(cutCur || hold); // 컷인 · 차지 · 역컷인 동안: 숨기고 멈춤
+    if (!paused) {
+      for (const m of emotes.slice()) {
+        m.left -= dt;
+        if (m.left <= 0) dropEmote(m);
+      }
+      const tm = turnMs();
+      const at = Math.min(0.75, S.BALL_RELEASE * Math.max(ONE_SHOT_MIN, tm) / tm); // 닿는 순간 (currentFrame 의 release 와 같은 식)
+      if (prevSnap && frame.alpha >= at) spawnTurnEmotes();
+    }
+    if (!emotes.length) return;
+    if (!nameH && !nameEl.hidden) nameH = nameEl.offsetHeight; // 한 번만 (jsdom = 0 → 18)
+    const tagLift = (nameH || 18) + 2;
+    for (const m of emotes) {
+      m.el.classList.toggle('hx-paused', paused);
+      const p = frame.players.find((x) => x.key === `${m.side}:${m.id}`);
+      if (!p) { m.el.hidden = true; continue; }
+      const pt = S.camPoint(S.headPoint(p), cam, W, H);
+      // 같은 선수 위 이름표 (공 가진 선수) 가 보이거나 곧 뜰 때 (띄운 턴 · 그 턴 끝에 공을 가짐) 는 그 위로. 이름표가 떠나면 (다음 턴 패스) 머리 위로 내려온다 —
+      // 올리고 내리기는 한 번에 뛰지 않고 아래 목표로 부드럽게 (이름표가 붙었다 떨어질 때마다 22px 뛰던 것 — 2026-10-10 리뷰)
+      m.lift = (!nameEl.hidden && nameKey === p.key) || (m.holds && m.turn === state.turn);
+      // 움직이는 스프라이트가 태클 · 넘어짐 (낮은 자세) 이면 머리 점이 선 키라 말풍선이 떠 보인다 (옆 선수 것처럼) → 그만큼 내린다.
+      // 올린 말풍선의 목표는 이름표 위 (이름표가 선 키 머리 점이라 낮은 자세여도) — 낮은 자세에서 띄우면 그 머리에서 솟아올라 이름표 위로 간다.
+      // 목표가 바뀌면 (자세 · 올리기) 부드럽게 (EMOTE_LOW_TAU)
+      const low = p.charId && view.spriteKind?.(p.charId) === 'anim' ? (EMOTE_LOW[p.act] || 0) * p.figure.fh * cam.z : 0;
+      const target = m.lift ? -tagLift : low;
+      m.drop = m.drop == null ? (low > 0 ? low : target) : m.drop + (target - m.drop) * (1 - Math.exp(-(paused ? 0 : dt || 16) / EMOTE_LOW_TAU));
+      pt.y += m.drop;
+      if (!m.bw) { // 크기는 글자를 넣은 뒤 그대로 → 처음 보일 때 한 번 잰다 (프레임마다 layout 읽지 않게)
+        if (m.el.hidden) m.el.hidden = false;
+        m.bw = m.el.offsetWidth || EMOTE.w;
+        m.bh = m.el.offsetHeight || EMOTE.h;
+      }
+      // 필드 영역 안 (위 = 시계 · 점수 머리 밑, 아래 = 필드 바닥 — 필살기 띠 위). 말풍선 자리 = 아래 가운데 (꼬리 끝)
+      const spot = S.emoteSpot(pt, m.bw, m.bh, W, H, EMOTE.top);
+      m.x = spot.x;
+      m.y = spot.y;
+      m.el.style.transform = `translate(${Math.round(m.x * 10) / 10}px, ${Math.round(m.y * 10) / 10}px) translate(-50%, -100%)`;
+      if (m.el.hidden) m.el.hidden = false;
+    }
   }
 
   /* ---- 한 프레임 ---- */
@@ -1052,6 +1186,7 @@ export function renderHexMatch(root, ctx) {
     if (!hold) camStep(frame, dt || 16); // 턴 전 컷인 동안 카메라는 step 전 자리 (골 턴의 전체 화면으로 미리 빠지지 않게)
     drawHud();
     drawName(frame);
+    drawEmotes(frame, dt);
     if (view) {
       const sig = `${frame.turn}|${frame.alpha.toFixed(3)}|${goal && goal.kickoff && acc >= goal.scene ? 'k' : ''}|${cam.cx.toFixed(1)}|${cam.cy.toFixed(1)}|${cam.z.toFixed(3)}|${[...readySet].join(',')}`;
       if (sig !== drawSig || view.dirty || view.animating) {
@@ -1070,6 +1205,7 @@ export function renderHexMatch(root, ctx) {
       frames, speed: speedOf(), cam: { ...cam }, score: { ...state.score }, resultShown, tex: texStats,
       sprites: view && typeof view.playing === 'function' ? view.playing() : null,
       ult: ultDebug(),
+      emotes: emotes.map((m) => ({ key: m.key, side: m.side, id: m.id, kind: m.kind, text: m.text, left: Math.round(m.left), dur: Math.round(m.dur), x: m.x, y: m.y, drop: Math.round((m.drop || 0) * 10) / 10, lift: m.lift, paused: m.el.classList.contains('hx-paused') })),
     };
     rafId = raf(loop);
   }

@@ -1,0 +1,106 @@
+{
+  "version": 1,
+  "id": "ch_spirit_keeper",
+  "source": "Seedance 2.5 (dreamina-seedance-2-5-260628) 480p 4s → tools/video2sprite.mjs, 2026-10-10 — header = header2 · tackle = tackle2a (--despill: 반투명 덧치마로 비친 자홍 빼기), dribble 은 뺌 (약해서 run 으로 대신)",
+  "anims": {
+    "idle": {
+      "mode": "loop",
+      "fps": 8,
+      "count": 18,
+      "w": 180,
+      "h": 249,
+      "footX": 88.7,
+      "footY": 245.8,
+      "foot0X": 69.7,
+      "v": "b70f6786"
+    },
+    "run": {
+      "mode": "loop",
+      "fps": 12,
+      "count": 10,
+      "w": 173,
+      "h": 264,
+      "footX": 91.1,
+      "footY": 261.1,
+      "foot0X": 116.1,
+      "v": "7f50c227"
+    },
+    "kick": {
+      "mode": "once",
+      "fps": 12,
+      "count": 12,
+      "w": 262,
+      "h": 260,
+      "footX": 116.6,
+      "footY": 256.9,
+      "foot0X": 97.5,
+      "v": "37bc46bb"
+    },
+    "pass": {
+      "mode": "once",
+      "fps": 12,
+      "count": 12,
+      "w": 207,
+      "h": 263,
+      "footX": 94.7,
+      "footY": 260.3,
+      "foot0X": 74.5,
+      "v": "6f5e10bd"
+    },
+    "header": {
+      "mode": "once",
+      "fps": 12,
+      "count": 12,
+      "w": 221,
+      "h": 264,
+      "footX": 105,
+      "footY": 261.1,
+      "foot0X": 86,
+      "v": "dfd1c255"
+    },
+    "tackle": {
+      "mode": "once",
+      "fps": 12,
+      "count": 12,
+      "w": 242,
+      "h": 257,
+      "footX": 111.1,
+      "footY": 251.8,
+      "foot0X": 91.8,
+      "v": "630ee379"
+    },
+    "block": {
+      "mode": "once",
+      "fps": 12,
+      "count": 12,
+      "w": 217,
+      "h": 266,
+      "footX": 103.3,
+      "footY": 261.1,
+      "foot0X": 84,
+      "v": "ff6de4b3"
+    },
+    "fall": {
+      "mode": "hold",
+      "fps": 12,
+      "count": 12,
+      "w": 267,
+      "h": 261,
+      "footX": 97.9,
+      "footY": 257.7,
+      "foot0X": 76.5,
+      "v": "696c6c45"
+    },
+    "celebrate": {
+      "mode": "hold",
+      "fps": 12,
+      "count": 12,
+      "w": 213,
+      "h": 267,
+      "footX": 104.9,
+      "footY": 261.1,
+      "foot0X": 84.7,
+      "v": "17cbaf2f"
+    }
+  }
+}

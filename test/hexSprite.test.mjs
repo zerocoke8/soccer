@@ -4,6 +4,7 @@
 //   승부차기 (마지막 킥) · 쉬는 선수 fall · actKey (반복 = 그대로 이어서, 한 번 동작 = 턴마다 새 키) · 얼굴 방향 (반복 = V.facing,
 //   한 번 동작 = 동작 방향 고정 — 턴 도중 뒤집히지 않음) · 스프라이트 키 (figure 72 · s) · 한 경기 내내 ANIM_ACTIONS 안.
 //   hexPixi 스프라이트 길 (가짜 Pixi — setPixiModuleForTest + setHexImageLoaderForTest): 경기장 캐릭터만 · 두 팀 같은 캐릭터 = 같은 텍스처 ·
+//   움직이는 캐릭터 셋 (실루엔 시트 10 · 아델린 · 네리아 시트 9 — dribble 없음 → run 으로 대신) + 정지 그림 나엘리스 (시험용으로 p2 자리에) ·
 //   시트 칸 자르기 · 동작 바꾸기 · 반복 / 한 번 / 끝 자세 · 한 번 동작은 끝까지 · 반전 · 떠나면 모두 지움 (hexPixiMemory 0) ·
 //   idle 시트 · 목록 실패 = 스탠디 그대로 (오류 없음) · 다른 시트 실패 = 대신 동작.
 // jsdom 이 없으면 hexPixi 부분만 건너뛴다.
@@ -30,6 +31,9 @@ const W = 1244;
 const H = 528;
 const SETUP = practiceSetup(lessonRun, data, "hex-sprite");
 const SIL = "ch_elf_playmaker";
+const ADE = "ch_human_captain";
+const NER = "ch_spirit_keeper";
+const NAE = "ch_elf_regista"; // 정지 그림 (동작 목록 없음)
 const create = (seed = SETUP.seed, kind = "friendly") => hex.createMatch({ data, seed, home: SETUP.home, away: SETUP.away, kind });
 
 let JSDOM = null;
@@ -421,7 +425,7 @@ function fakePixi(doc) {
   return { mod, log };
 }
 
-test("hexPixi 스프라이트: 두 팀 실루엔이 시트를 나눠 쓴다 · 칸 자르기 · 동작 · 반전 · 한 번 동작은 끝까지 · 떠나면 모두 지움 · 실패는 스탠디", { skip: !JSDOM && "jsdom 미설치" }, async (t) => {
+test("hexPixi 스프라이트: 두 팀 실루엔 · 아델린 · 네리아가 시트를 나눠 쓴다 · 칸 자르기 · 동작 · 반전 · 한 번 동작은 끝까지 · 떠나면 모두 지움 · 실패는 스탠디", { skip: !JSDOM && "jsdom 미설치" }, async (t) => {
   const dom = new JSDOM("<!doctype html><body></body>", { url: "http://localhost/soccer/", pretendToBeVisual: true });
   const { window } = dom;
   const g = globalThis;
@@ -445,18 +449,24 @@ test("hexPixi 스프라이트: 두 팀 실루엔이 시트를 나눠 쓴다 · �
   proto.getContext = function (type) { return type === "2d" ? g2d : null; };
   const PX = await import(pathToFileURL(path.join(ROOT, "js/ui/hexPixi.js")).href);
   const SA = await import(pathToFileURL(path.join(ROOT, "js/ui/spriteAnim.js")).href);
-  const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, "img/sprites/anim/ch_elf_playmaker.json"), "utf8"));
-  // 그림: 시트는 w · count × h, 정지 그림은 sprites.json 크기, 나머지 (잔디 · 초상) 는 아무 크기
+  const MANS = Object.fromEntries([SIL, ADE, NER].map((id) => [id, JSON.parse(fs.readFileSync(path.join(ROOT, `img/sprites/anim/${id}.json`), "utf8"))]));
+  const manifest = MANS[SIL];
+  const ANIMATED = Object.keys(MANS);
+  assert.ok(ANIMATED.every((id) => data.sprites.chars[id]?.anim === `img/sprites/anim/${id}.json`), "실루엔 · 아델린 · 네리아 = 움직이는 스프라이트");
+  assert.ok(data.sprites.chars[NAE] && !data.sprites.chars[NAE].anim, "나엘리스 = 정지 그림");
+  const sheetsOf = (id) => Object.values(MANS[id].anims);
+  const allSheets = ANIMATED.flatMap(sheetsOf);
+  // 그림: 시트는 w · count × h, 정지 그림은 sprites.json 크기, 나머지 (잔디 · 초상) 는 아무 크기. url 을 달아 둔다 (어느 캐릭터 · 동작인지)
   const failUrls = new Set();
   const imgLoads = [];
   PX.setHexImageLoaderForTest(async (url) => {
     imgLoads.push(url);
     if ([...failUrls].some((f) => url.includes(f))) return null;
-    const m = /anim\/ch_elf_playmaker\.(\w+)\.webp/.exec(url);
-    if (m) { const a = manifest.anims[m[1]]; return { width: a.w * a.count, height: a.h, naturalWidth: a.w * a.count, naturalHeight: a.h }; }
+    const m = /anim\/(ch_\w+)\.(\w+)\.webp/.exec(url);
+    if (m) { const a = MANS[m[1]].anims[m[2]]; return { url, width: a.w * a.count, height: a.h, naturalWidth: a.w * a.count, naturalHeight: a.h }; }
     const s = /sprites\/(ch_\w+)\.webp/.exec(url);
-    if (s) { const e = data.sprites.chars[s[1]]; return { width: e.w, height: e.h, naturalWidth: e.w, naturalHeight: e.h }; }
-    return { width: 64, height: 64, naturalWidth: 64, naturalHeight: 64 };
+    if (s) { const e = data.sprites.chars[s[1]]; return { url, width: e.w, height: e.h, naturalWidth: e.w, naturalHeight: e.h }; }
+    return { url, width: 64, height: 64, naturalWidth: 64, naturalHeight: 64 };
   });
   const warns = [];
   const errs = [];
@@ -476,8 +486,13 @@ test("hexPixi 스프라이트: 두 팀 실루엔이 시트를 나눠 쓴다 · �
   });
   const settle = async () => { for (let i = 0; i < 30; i++) await new Promise((r) => setTimeout(r, 0)); };
 
-  const ms = create();
+  // 기본 선수단 거울 경기 + 정지 그림 길을 보려고 양쪽 p2 (드워프 — 스프라이트 없음) 자리에 나엘리스
+  const MIX = clone(SETUP);
+  for (const team of [MIX.home, MIX.away]) team.players.find((p) => /p2$/.test(p.id)).charId = NAE;
+  const ms = hex.createMatch({ data, seed: SETUP.seed, home: MIX.home, away: MIX.away, kind: "friendly" });
   const sprite = (id) => spriteOf(data, id);
+  const urlOf = (spr) => spr?.texture?.source?.resource?.url || "";
+  const animsOf = (log, id) => log.anims.filter((a) => urlOf(a).includes(`anim/${id}.`));
   const baseFrame = () => HS.frameAt(null, ms, 1, { W, H, sprite });
   const mk = async () => {
     const fk = fakePixi(window.document);
@@ -490,32 +505,53 @@ test("hexPixi 스프라이트: 두 팀 실루엔이 시트를 나눠 쓴다 · �
   };
   const tm = (clock, speed = 1) => ({ clock, speed, turnMs: 400 / speed });
 
-  // ---- 1) 정상: 두 팀 실루엔 (p4 · m_p4) · 아델린 (p3 · m_p3) ----
+  // ---- 1) 정상: 두 팀 실루엔 (p4 · m_p4) · 아델린 (p3 · m_p3) · 네리아 (p1 · m_p1) = 시트, 나엘리스 (p2 · m_p2 — 시험용) = 정지 그림 ----
   SA.resetAnimCacheForTest();
   {
     const { v, log, host } = await mk();
     v.draw(baseFrame(), null, tm(0));
     await settle();
     const st = v.stats();
-    assert.equal(st.chars[SIL].kind, "anim");
-    assert.deepEqual([...st.chars[SIL].acts].sort(), [...ANIM_ACTIONS].sort(), "시트 10장");
-    assert.equal(st.chars.ch_human_captain.kind, "static", "아델린 = 정지 그림");
-    assert.equal(st.chars.ch_spirit_keeper.kind, null, "스프라이트 없는 캐릭터 = 스탠디");
-    assert.equal(v.spriteKind(SIL), "anim", "spriteKind: 움직이는 시트");
-    assert.equal(v.spriteKind("ch_human_captain"), "static", "spriteKind: 정지 그림");
-    assert.equal(v.spriteKind("ch_spirit_keeper"), null, "spriteKind: 스탠디");
+    for (const id of ANIMATED) {
+      assert.equal(st.chars[id].kind, "anim", `${id} = 움직이는 시트`);
+      assert.deepEqual([...st.chars[id].acts].sort(), Object.keys(MANS[id].anims).sort(), `${id} 시트 = 목록의 동작 전부`);
+      assert.equal(v.spriteKind(id), "anim", `spriteKind ${id}: 움직이는 시트`);
+    }
+    assert.deepEqual([...st.chars[SIL].acts].sort(), [...ANIM_ACTIONS].sort(), "실루엔 시트 10장");
+    for (const id of [ADE, NER]) {
+      assert.deepEqual([...st.chars[id].acts].sort(), ANIM_ACTIONS.filter((a) => a !== "dribble").sort(), `${id} 시트 9장 (dribble 없음 → run 으로 대신)`);
+    }
+    assert.equal(st.chars[NAE].kind, "static", "나엘리스 = 정지 그림");
+    assert.equal(st.chars.ch_dwarf_wall, undefined, "자리를 내준 캐릭터는 경기장에 없다");
+    assert.equal(st.chars.ch_human_runner.kind, null, "스프라이트 없는 캐릭터 = 스탠디");
+    assert.equal(v.spriteKind(NAE), "static", "spriteKind: 정지 그림");
+    assert.equal(v.spriteKind("ch_human_runner"), null, "spriteKind: 스탠디");
     assert.equal(v.spriteKind(null), null);
-    assert.equal(st.byKind.sprite.textures, 11, "시트 10 + 아델린 1 — 두 팀이 나눠 쓴다 (22 아님)");
-    const sheetBytes = Object.values(manifest.anims).reduce((s, a) => s + a.w * a.count * a.h * 4, 0);
-    const adel = data.sprites.chars.ch_human_captain;
-    assert.equal(st.byKind.sprite.bytes, sheetBytes + adel.w * adel.h * 4, "바이트 = w · h · 4 합");
-    assert.equal(st.cuts, Object.values(manifest.anims).reduce((s, a) => s + a.count, 0), "칸 텍스처 = 칸 수 합 (한 벌)");
-    assert.equal(imgLoads.filter((u) => u.includes("anim/")).length, 10, "시트는 한 번씩만 불러온다");
-    assert.ok(imgLoads.every((u) => !/ch_elf_regista/.test(u)), "경기장에 없는 캐릭터 (레지스타) 는 불러오지 않는다");
+    assert.equal(st.byKind.sprite.textures, allSheets.length + 1, `시트 ${allSheets.length} (10 + 9 + 9) + 나엘리스 1 — 두 팀이 나눠 쓴다 (두 배 아님)`);
+    const sheetBytes = allSheets.reduce((s, a) => s + a.w * a.count * a.h * 4, 0);
+    const nae = data.sprites.chars[NAE];
+    assert.equal(st.byKind.sprite.bytes, sheetBytes + nae.w * nae.h * 4, "바이트 = w · h · 4 합");
+    assert.equal(st.cuts, allSheets.reduce((s, a) => s + a.count, 0), "칸 텍스처 = 칸 수 합 (캐릭터마다 한 벌)");
+    assert.equal(imgLoads.filter((u) => u.includes("anim/")).length, allSheets.length, "시트는 한 번씩만 불러온다");
+    assert.equal(imgLoads.filter((u) => u.includes(".dribble.")).length, 1, "드리블 시트는 실루엔 것만");
+    const onPitch = new Set(baseFrame().players.map((p) => p.charId).filter(Boolean));
+    for (const u of imgLoads.filter((x) => /sprites\/(anim\/)?ch_/.test(x))) {
+      assert.ok(onPitch.has(/(ch_[a-z_]+?)(\.[a-z]+)?\.webp/.exec(u)[1]), `경기장에 선 캐릭터 것만 불러온다 (${u})`);
+    }
+    assert.ok(imgLoads.every((u) => !/sprites\/ch_(elf_playmaker|human_captain|spirit_keeper)\.webp/.test(u)), "움직이는 캐릭터는 정지 그림을 부르지 않는다");
 
     v.draw(baseFrame(), null, tm(16));
-    assert.equal(log.anims.length, 2, "실루엔 둘 = AnimatedSprite 둘");
-    const [a1, a2] = log.anims;
+    assert.equal(log.anims.length, 6, "셋 × 두 팀 = AnimatedSprite 여섯");
+    for (const id of ANIMATED) {
+      const [x1, x2] = animsOf(log, id);
+      assert.ok(x1 && x2 && x1 !== x2, `${id} 둘`);
+      assert.equal(x1.textures, x2.textures, `${id}: 두 팀이 같은 칸 텍스처 배열`);
+      const idl = MANS[id].anims.idle;
+      assert.equal(x1.textures.length, idl.count, `${id}: idle`);
+      near(x1.anchor.x, idl.foot0X / idl.w, `${id}: 앵커 x = 발 (idle 은 foot0X)`, 1e-6);
+      near(Math.abs(x1.scale.y), V.V25.SPR_H / data.sprites.chars[id].h, `${id}: 배율 = 72 / 정지 그림 h`);
+    }
+    const [a1, a2] = animsOf(log, SIL);
     assert.equal(a1.textures, a2.textures, "같은 칸 텍스처 배열 (같은 시트)");
     const idle = manifest.anims.idle;
     const fr = a1.textures[3].frame;
@@ -525,10 +561,10 @@ test("hexPixi 스프라이트: 두 팀 실루엔이 시트를 나눠 쓴다 · �
     near(a1.anchor.y, idle.footY / idle.h, "앵커 y = footY", 1e-6);
     assert.equal(a1.parent.visible, true, "스프라이트 보임");
     near(Math.abs(a1.scale.y), V.V25.SPR_H / data.sprites.chars[SIL].h, "배율 = 72 / 240");
-    const statics = log.sprites.filter((s) => !log.anims.includes(s) && s.texture?.source?.resource?.width === adel.w);
-    assert.equal(statics.length, 2, "아델린 정지 그림 둘");
+    const statics = log.sprites.filter((s) => !log.anims.includes(s) && urlOf(s).includes(`sprites/${NAE}.webp`));
+    assert.equal(statics.length, 2, "나엘리스 정지 그림 둘");
     assert.equal(statics[0].texture, statics[1].texture, "정지 그림도 한 텍스처");
-    near(statics[0].anchor.x, adel.footX, "정지 그림 앵커 = footX");
+    near(statics[0].anchor.x, nae.footX, "정지 그림 앵커 = footX");
     assert.equal(statics[0].anchor.y, 1);
 
     // 동작 바꾸기 · 반전 · 한 번 동작은 끝까지 · 반복 동작 칸 진행
@@ -538,7 +574,7 @@ test("hexPixi 스프라이트: 두 팀 실루엔이 시트를 나눠 쓴다 · �
       Object.assign(p, { act, actKey, facing, actSpan: span });
       return f;
     };
-    const home = log.anims.find((a) => a.parent && log.anims.indexOf(a) === 0);
+    const home = a1; // 홈 실루엔 (홈 선수부터 그린다)
     v.draw(withAct("home:p4", "run", "run"), null, tm(100));
     assert.equal(home.textures.length, manifest.anims.run.count, "run 시트");
     v.draw(withAct("home:p4", "run", "run"), null, tm(100 + 1000 / 12 * 2 + 1));
@@ -592,10 +628,19 @@ test("hexPixi 스프라이트: 두 팀 실루엔이 시트를 나눠 쓴다 · �
     assert.ok(home.scale.x < 0, "반복 동작은 frame 방향");
     v.draw(withAct("home:p4", "run", "run", "r"), null, tm(22050));
     assert.ok(home.scale.x > 0, "반복 동작은 frame 방향 (매 그림)");
-    // 정지 그림 (아델린 둘) 도 같다
+    // 아델린 · 네리아: 드리블 시트가 없다 → run 시트 (ANIM_FALLBACK), 그 밖 동작은 자기 시트
+    for (const [key, id] of [["home:p3", ADE], ["home:p1", NER]]) {
+      const x = animsOf(log, id)[0];
+      v.draw(withAct(key, "dribble", "dribble"), null, tm(22100));
+      assert.equal(x.textures.length, MANS[id].anims.run.count, `${id}: dribble → run 시트`);
+      assert.ok(urlOf(x).includes(`anim/${id}.run.webp`), `${id}: run 시트 텍스처`);
+      v.draw(withAct(key, "tackle", "65:tackle"), null, tm(22200));
+      assert.ok(urlOf(x).includes(`anim/${id}.tackle.webp`), `${id}: 자기 tackle 시트`);
+    }
+    // 정지 그림 (나엘리스 둘) 도 같다
     const both = (act, actKey, facing) => {
       const f = baseFrame();
-      for (const k of ["home:p3", "away:m_p3"]) Object.assign(f.players.find((x) => x.key === k), { act, actKey, facing, actSpan: null });
+      for (const k of ["home:p2", "away:m_p2"]) Object.assign(f.players.find((x) => x.key === k), { act, actKey, facing, actSpan: null });
       return f;
     };
     v.draw(both("tackle", "70:tackle", "l"), null, tm(23000));
@@ -608,11 +653,11 @@ test("hexPixi 스프라이트: 두 팀 실루엔이 시트를 나눠 쓴다 · �
     // 떠나기: 모든 텍스처 (칸 · 시트 · 정지 그림 · 잔디 · 얼굴) 를 지운다
     const mem = PX.hexPixiMemory();
     assert.equal(mem.views, 1);
-    assert.equal(mem.byKind.sprite.textures, 11);
+    assert.equal(mem.byKind.sprite.textures, allSheets.length + 1);
     v.destroy();
     for (const tex of log.textures) assert.equal(log.destroyed.get(tex), 1, "텍스처마다 정확히 한 번");
     const cutsDestroyed = log.textures.filter((x) => x.frame);
-    assert.ok(cutsDestroyed.length >= 110 && cutsDestroyed.every((x) => x.destroyedSource === false), "칸 텍스처는 소스를 남기고 (시트가 지운다)");
+    assert.ok(cutsDestroyed.length === st.cuts && cutsDestroyed.every((x) => x.destroyedSource === false), "칸 텍스처는 소스를 남기고 (시트가 지운다)");
     assert.deepEqual(PX.hexPixiMemory(), { views: 0, textures: 0, bytes: 0, byKind: {} }, "살아 있는 텍스처 0");
     v.draw(baseFrame(), null, tm(30000)); // 지운 뒤 그리기 = 무시
     host.remove();
@@ -628,7 +673,7 @@ test("hexPixi 스프라이트: 두 팀 실루엔이 시트를 나눠 쓴다 · �
     assert.deepEqual(PX.hexPixiMemory(), { views: 0, textures: 0, bytes: 0, byKind: {} }, "떠난 뒤 도착한 그림은 버린다");
   }
 
-  // ---- 3) idle 시트 실패 → 실루엔은 스탠디 그대로 (다른 시트도 안 부른다), kick 시트 실패 → pass 로 대신 ----
+  // ---- 3) idle 시트 실패 → 실루엔은 스탠디 그대로 (실루엔 다른 시트도 안 부른다 — 다른 캐릭터는 그대로), kick 시트 실패 → pass 로 대신 ----
   SA.resetAnimCacheForTest();
   failUrls.add("ch_elf_playmaker.idle.webp");
   imgLoads.length = 0;
@@ -639,8 +684,10 @@ test("hexPixi 스프라이트: 두 팀 실루엔이 시트를 나눠 쓴다 · �
     v.draw(baseFrame(), null, tm(16));
     assert.equal(v.stats().chars[SIL].kind, null);
     assert.equal(v.spriteKind(SIL), null, "spriteKind: 실패 = 스탠디 (화면 이름표는 스탠디 키)");
-    assert.equal(log.anims.length, 0, "AnimatedSprite 없음 — 스탠디");
-    assert.equal(imgLoads.filter((u) => u.includes("anim/")).length, 1, "idle 이 안 오면 다른 시트는 부르지 않는다");
+    assert.equal(animsOf(log, SIL).length, 0, "실루엔 AnimatedSprite 없음 — 스탠디");
+    assert.equal(log.anims.length, 4, "아델린 · 네리아는 그대로 움직인다 (둘 × 두 팀)");
+    assert.equal(v.stats().chars[ADE].kind, "anim");
+    assert.equal(imgLoads.filter((u) => u.includes(`anim/${SIL}.`)).length, 1, "idle 이 안 오면 실루엔 다른 시트는 부르지 않는다");
     v.destroy();
   }
   failUrls.clear();
@@ -654,7 +701,9 @@ test("hexPixi 스프라이트: 두 팀 실루엔이 시트를 나눠 쓴다 · �
     const f = baseFrame();
     Object.assign(f.players.find((x) => x.key === "home:p4"), { act: "kick", actKey: "9:kick" });
     v.draw(f, null, tm(100));
-    assert.equal(log.anims[0].textures.length, manifest.anims.pass.count, "kick 대신 pass (ANIM_FALLBACK)");
+    const homeSil = animsOf(log, SIL)[0];
+    assert.equal(homeSil.textures.length, manifest.anims.pass.count, "kick 대신 pass (ANIM_FALLBACK)");
+    assert.ok(urlOf(homeSil).includes(`anim/${SIL}.pass.webp`));
     v.destroy();
   }
   failUrls.clear();
@@ -666,8 +715,9 @@ test("hexPixi 스프라이트: 두 팀 실루엔이 시트를 나눠 쓴다 · �
     v.draw(baseFrame(), null, tm(0));
     await settle();
     v.draw(baseFrame(), null, tm(16));
-    assert.equal(log.anims.length, 0);
-    assert.equal(v.stats().chars.ch_human_captain.kind, "static", "정지 그림 선수는 그대로");
+    assert.equal(log.anims.length, 0, "목록이 없으면 셋 다 스탠디");
+    for (const id of ANIMATED) assert.equal(v.stats().chars[id].kind, null);
+    assert.equal(v.stats().chars[NAE].kind, "static", "정지 그림 선수는 그대로");
     v.destroy();
   }
   failManifest = false;

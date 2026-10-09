@@ -9,24 +9,32 @@
 // 3) 크기마다 새 브라우저 문맥으로 /index.html?hex=1&auto=1 을 연다 (915×412 는 휴대폰처럼 isMobile · hasTouch · DPR 2.625).
 //    [새 런 시작] → [기본 편성으로 시작] → window.__soccer 의 manager.autoStep 으로 친선전을 고를 수 있는 주까지 → actions.weekAction(friendly)
 //    → .hex-screen canvas 와 window.__soccer.hexView.renderer === 'webgl' 을 기다린다.
-//    --practice: 런 대신 시작 화면 [⚽ 연습 경기] (회상 바로 아래인지 검사) → 기본 선수단 vs 거울 사본 (실루엔 · 아델린이 양쪽에).
-//      스프라이트 (실루엔 시트 10장 · 아델린 정지 그림) 가 다 올라올 때까지 기다리고 양쪽 실루엔이 스프라이트로 그려지는지 본다.
+//    --practice: 런 대신 시작 화면 [⚽ 연습 경기] (회상 바로 아래인지 검사) → 기본 선수단 vs 거울 사본 (실루엔 · 아델린 · 네리아가 양쪽에).
+//      스프라이트 (실루엔 시트 10장 · 아델린 · 네리아 시트 9장 — dribble 없음 → run) 가 다 올라올 때까지 기다리고 양쪽 셋이 움직이는 스프라이트로
+//      그려지는지 본다. 텍스처 수 · 바이트 (view.stats) 를 요약에 적는다 (HEX_AUTOBATTLE_PLAN §5.4 결정 15 — 휴대폰 예산).
 //      경기 시드는 --seed (기본 h2-7 — 4턴 원정 실루엔 태클 실패 · 67턴 홈 실루엔 골: 동작이 일찍 다 나온다, 'random' = 화면이 고른 시드).
 //      연습 경기는 동작 사냥 (아래) 을 먼저 하고 그다음 프레임 N 장 · 골 장면을 찍는다.
 // 4) 프레임 N 장을 ~gap ms 간격으로 찍는다 (<outDir>/<size>-<n>.png). 장마다 hexView 디버그 (turn · cam · score) 를 적고
 //    시계가 흐르는지 (turn 증가) · 캔버스 크기 = .hx-pitch · HUD 요소가 화면 안에 보이는지 검사한다.
-//    --goal: 4배속으로 첫 골까지 돌려 골 장면을 몇 장 더 찍는다 (<size>-goal-<n>.png).
+//    --goal: 4배속으로 첫 골까지 돌려 "골!" 배너가 뜬 뒤 (필살 슛 컷인이 있으면 그 뒤) 골 장면을 몇 장 더 찍는다 (<size>-goal-<n>.png).
 //    배너 검사: 배너 (.hx-banner) 에 골 · 단계 · 승부차기 꾸밈 클래스를 잠깐 붙여 크기 · 자리 · 배경을 잰다 — 화면 안 · 경기장보다 작게 · 배경 없음
 //    (전역 클래스와 겹쳐 배너가 큰 상자로 바뀌는 일을 잡는다 — 예: 예전 'stage' 꾸밈 = base.css .stage 1280×720).
-//    --practice 동작 사냥: 실루엔 동작 (run · dribble · pass · kick · tackle · fall · celebrate · header · block) 마다 처음 보이는 순간
-//      (한 번 동작은 재생이 40 % 넘게 간 칸) 에 화면 루프 시계를 멈추고 (rAF 가상 시간 배율 0) 찍는다 → <size>-act-<동작>.png.
-//      그 장면의 실루엔을 카메라 좌표로 잘라 확대한 사진도 → <size>-act-<동작>-zoom.png. 못 본 동작은 요약에 적는다 (실패 아님 — 경기마다 다르다).
+//    --practice 동작 사냥: 움직이는 스프라이트 캐릭터 (실루엔 · 아델린 · 네리아) 의 동작 (idle · run · dribble · pass · kick · tackle · fall ·
+//      celebrate · header · block) 마다 처음 보이는 순간 (한 번 동작은 재생이 40 % 넘게 간 칸) 에 화면 루프 시계를 멈추고 (rAF 가상 시간 배율 0) 찍는다
+//      → 실루엔 <size>-act-<동작>.png · 아델린 <size>-act-adeline-<동작>.png · 네리아 <size>-act-neria-<동작>.png (+ 그 선수를 카메라 좌표로 잘라 확대한 -zoom.png).
+//      아델린 · 네리아의 dribble 은 시트가 없어 run 으로 대신 그린다 (ANIM_FALLBACK) — frame 동작 dribble 인데 run 이 재생 중인 칸을 'dribble' 로 찍는다.
+//      실루엔 기본 동작 (HUNT_NEED) 을 못 보면 NOTE, 아델린 · 네리아 동작은 찍은 것 · 못 본 것을 적는다 (실패 아님 — 경기마다 다르다).
+//      사냥은 정한 턴 (ACT_TURN_CAP — 뒤 프레임 · 골 · ⏭ 가 정규 시간 안에 되게) 에서 끝난다. --ult 에서는 필살기 흐름 앞에 짧게 (ult 턴 상한) 한다.
 //    --ult (H3 — 연습 경기로 간다, 동작 사냥 대신): 사람 쪽 (홈) 게이지를 window.__soccer (store.practiceMatch.live) 로 가득 채우고
 //      필살기 띠 (.hx-ult) 를 찍는다 (<size>-ult-bar.png · 띠만 확대 -ult-bar-zoom.png): 버튼 7개 · 화면 안 · 이름 안 잘림 · 칸 크기 (CSS px).
 //      시계를 멈추고 준비된 버튼을 다 눌러 "예약" 을 찍는다 (-ult-armed.png). 그다음 컷인 사냥 (1배속 · 가상 시간 2배): 홈 · 원정 게이지를
 //      계속 채우고 준비 버튼을 계속 누르며, 컷인 카드 CSS 애니메이션이 30 % 넘게 간 순간 시계 · 카드 애니메이션을 멈추고 찍는다 →
 //      -cut-own.png (우리) · -cut-opp.png (상대 — "상대" 글) · -cut-combo.png (합체기 이름 카드 — 나면) · -cut-rev.png (역컷인 — 나면).
 //      우리 · 상대 컷인은 꼭 봐야 하고 (못 보면 실패), 합체기 · 역컷인은 못 보면 NOTE.
+//    --practice 말풍선 사냥 (동작 사냥 · --ult 뒤): 감정 말풍선 (.hx-emote — 공을 뺏은 · 뺏긴 선수 머리 위) 이 팝을 끝낸 순간 (애니메이션 25 ~ 60 %)
+//      시계 · 말풍선 애니메이션을 멈추고 찍는다 → <size>-emote-steal.png (태클 "!!") · -emote-win.png ("!") · -emote-lose.png ("💦"), 말풍선 둘레 확대 -zoom.
+//      검사: 경기장 (.hx-pitch) 안 · HUD (점수 머리 · 시계 · 필살기 띠 · 컨트롤 · 나가기) 와 안 겹침 · 글 있음. 이름표와 겹치면 NOTE (넓이 %).
+//      steal · lose 는 꼭 봐야 하고 (태클 · 가로채기는 흔하다), "!" 하나 (가로채기 · 선방 · 공중볼 · 흘러나온 공) 는 못 보면 NOTE.
 // 5) [⏭] → 결과 모달 캡처 (<size>-result.png) → [확인] → 런이 match phase 를 떠났는지 · store.hexMatch null · KEYS.hexMatch 비었는지 · 캔버스가 사라졌는지.
 //    --practice: [다시 하기] → 새 경기 (시드가 바뀌고 turn 0) → [⏭] → [확인] → 시작 화면 · store.practiceMatch null · 런 없음 · KEYS.hexMatch 비었는지 · 캔버스 정리.
 // 6) pageerror · console.error · 실패한 요청 · 400 이상 응답을 모아 요약을 찍는다. 하나라도 있거나 검사가 실패하면 exit 1.
@@ -52,7 +60,7 @@ function usage() {
     "  --gap MS           프레임 간격 (기본 1500)",
     "  --sizes WxH,…      뷰포트 (기본 1280x720,915x412 — 915×412 는 휴대폰: isMobile · hasTouch · DPR 2.625)",
     "  --goal             첫 골까지 4배속으로 돌려 골 장면도 찍는다 (<size>-goal-<n>.png)",
-    "  --practice         런 대신 시작 화면 [⚽ 연습 경기] (실루엔 · 아델린이 양쪽) — 동작마다 멈춰 찍기 (<size>-act-<동작>.png)",
+    "  --practice         런 대신 시작 화면 [⚽ 연습 경기] (실루엔 · 아델린 · 네리아가 양쪽) — 동작마다 멈춰 찍기 (<size>-act-<동작>.png)",
     "  --ult              연습 경기에서 필살기 띠 · 예약 · 컷인 (우리 · 상대 · 합체기 · 역컷인) 을 찍는다 (<size>-ult-*.png · -cut-*.png)",
     "  --seed S           --practice 경기 시드 (기본 h2-7, random = 화면이 고른 시드)",
     "  --hunt-ms MS       --practice 동작 사냥 최대 시간 (화면 시계 기준, 기본 90000)",
@@ -123,12 +131,19 @@ async function enterFriendly(page) {
 
 /* ---- --practice ---- */
 
-/** 실루엔 (움직이는 스프라이트) · 아델린 (정지 스프라이트) */
-const ANIM_CHAR = "ch_elf_playmaker";
-const STATIC_CHAR = "ch_human_captain";
-/** 동작 사냥: 꼭 볼 동작 · 보이면 찍는 동작 */
+/** 연습 경기 양쪽의 움직이는 스프라이트: 캐릭터 → 시트 수 (아델린 · 네리아는 dribble 없음 → run 으로 대신). 나엘리스 (정지 그림) 는 기본 선수단에 없다 */
+const ANIM_CHARS = { ch_elf_playmaker: 10, ch_human_captain: 9, ch_spirit_keeper: 9 };
+/** 동작 사냥: 실루엔이 꼭 볼 동작 · 보이면 찍는 동작 */
 const HUNT_NEED = ["run", "dribble", "pass", "kick", "tackle", "fall", "celebrate"];
 const HUNT_EXTRA = ["header", "block"];
+/** 동작 사냥 캐릭터: 파일 이름 앞붙이 (실루엔은 예전 이름 그대로 '') · 이름 · 찾을 동작 (아델린 · 네리아는 idle 도 — 시트가 새것이라 다 본다) */
+const HUNT_CHARS = {
+  ch_elf_playmaker: { tag: "", name: "실루엔", acts: [...HUNT_NEED, ...HUNT_EXTRA] },
+  ch_human_captain: { tag: "adeline-", name: "아델린", acts: ["idle", ...HUNT_NEED, ...HUNT_EXTRA] },
+  ch_spirit_keeper: { tag: "neria-", name: "네리아", acts: ["idle", ...HUNT_NEED, ...HUNT_EXTRA] },
+};
+/** 동작 사냥을 끝내는 턴 (보통 · --ult 는 필살기 흐름 앞이라 짧게) */
+const ACT_TURN_CAP = { plain: 140, ult: 60 };
 /** 가상 시간 배율 — '멈춤' (0 이 아니라 아주 작게: 화면 루프 dt > 0 이라 카메라도 그 자리) */
 const FREEZE = 1e-6;
 /** 동작 사냥 중 가상 시간 배율 (1배속 경기를 두 배 빨리 — 화면 루프 dt 상한 100 ms 안) */
@@ -142,11 +157,11 @@ function actLine(d) {
 
 /**
  * rAF 가상 시간 (문서마다 처음에): window.__hexClock.scale 배로 시간이 흐른다 (1 = 그대로).
- * 동작 사냥 window.__hunt = { on, want: [동작], seen: {}, hit: null } 이 켜져 있으면 매 프레임 (화면 루프 뒤) hexView.sprites 를 보고
- * 실루엔이 아직 못 본 동작을 충분히 (반복 150 ms · 한 번 동작 40 % · 넘어짐 · 세리머니 60 %) 재생 중이고 화면 안이면 시간을 멈추고 hit 에 적는다.
+ * 동작 사냥 window.__hunt = { on, want: { charId: [동작] }, seen: {}, hit: null } 이 켜져 있으면 매 프레임 (화면 루프 뒤) hexView.sprites 를 보고
+ * 사냥 캐릭터 (want = { charId: [동작] }) 가 아직 못 본 동작 (seen 키 'charId:동작') 을 충분히 (반복 150 ms · 한 번 동작 40 % · 넘어짐 · 세리머니 60 %) 재생 중이고 화면 안이면 시간을 멈추고 hit 에 적는다.
  */
 function installClock(page) {
-  return page.evaluateOnNewDocument((animChar, freeze) => {
+  return page.evaluateOnNewDocument((freeze) => {
     const real = window.requestAnimationFrame.bind(window);
     const clock = { scale: 1, virt: 0, last: null };
     window.__hexClock = clock;
@@ -161,7 +176,9 @@ function installClock(page) {
       const W = cv.clientWidth;
       const H = cv.clientHeight;
       for (const sp of list) {
-        if (sp.charId !== animChar || sp.kind !== "anim" || hu.seen[sp.act] || !hu.want.includes(sp.act)) continue;
+        // 이름표 = 재생 중 동작, 단 frame 은 dribble 인데 시트가 없어 run 을 그리는 칸 (아델린 · 네리아) 은 'dribble'
+        const label = sp.want === "dribble" && sp.act === "run" ? "dribble" : sp.act;
+        if (sp.kind !== "anim" || !hu.want[sp.charId]?.includes(label) || hu.seen[`${sp.charId}:${label}`]) continue;
         const hold = sp.act === "fall" || sp.act === "celebrate";
         const loop = sp.act === "run" || sp.act === "dribble" || sp.act === "idle";
         const ready = loop ? sp.t >= 150 : sp.dur > 0 && sp.t / sp.dur >= (hold ? 0.6 : 0.4);
@@ -169,7 +186,7 @@ function installClock(page) {
         const inView = b && b[2] > 4 && b[0] >= 0 && b[1] >= 0 && b[0] + b[2] <= W && b[1] + b[3] <= H;
         if (!ready || !inView) continue;
         clock.scale = freeze;
-        hu.hit = { ...sp, turn: d.turn, speed: d.speed, score: d.score, W, H };
+        hu.hit = { ...sp, label, turn: d.turn, speed: d.speed, score: d.score, W, H };
         return;
       }
     };
@@ -191,6 +208,34 @@ function installClock(page) {
       for (const x of document.querySelector(".hex-screen .m-cutin").getAnimations({ subtree: true })) x.pause();
       ch.hit = { kind, cls: el.className, small: (el.querySelector(".cut-txt small")?.textContent || "").trim(), text: (el.querySelector(".cut-txt")?.textContent || "").replace(/\s+/g, " ").trim(), dur: Math.round(dur), ult: window.__soccer?.hexView?.ult };
     };
+    // 말풍선 사냥: window.__emoteHunt = { on, want: [종류], seen: {}, hit: null } — 보이는 말풍선의 팝이 끝난 (애니메이션 25 %) 것 중
+    //   아직 못 본 종류 (steal "!!" · win "!" · lose "💦") 가 있으면 시계 · 말풍선 애니메이션을 멈추고 hit 에 자리 (화면 px) 를 적는다
+    const emoteCheck = () => {
+      const eh = window.__emoteHunt;
+      if (!eh || !eh.on || eh.hit) return;
+      const els = [...document.querySelectorAll(".hex-screen .hx-field > .hx-emote")].filter((el) => !el.hidden && !el.classList.contains("hx-paused"));
+      if (!els.length) return;
+      const kindOf = (el) => (el.classList.contains("hx-emote-steal") ? "steal" : el.classList.contains("hx-emote-win") ? "win" : "lose");
+      const popped = (el) => {
+        const a = (el.querySelector(".hx-emote-b")?.getAnimations?.() || [])[0];
+        if (!a) return true; // 움직임 줄이기 — 애니메이션 없음
+        const dur = Number(a.effect?.getComputedTiming?.().duration) || 0;
+        return dur > 0 && Number(a.currentTime) >= dur * 0.25 && Number(a.currentTime) <= dur * 0.6; // 팝 끝 ~ 페이드 전
+      };
+      if (!els.some((el) => popped(el) && eh.want.includes(kindOf(el)) && !eh.seen[kindOf(el)])) return;
+      clock.scale = freeze;
+      for (const el of els) for (const a of el.getAnimations({ subtree: true })) a.pause();
+      const rect = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return [r.left, r.top, r.width, r.height]; };
+      const q = (sel) => rect(document.querySelector(sel));
+      const name = document.querySelector(".hex-screen .hx-name:not([hidden])");
+      eh.hit = {
+        kinds: [...new Set(els.filter(popped).map(kindOf))],
+        list: els.map((el) => ({ kind: kindOf(el), key: el.dataset.key, text: el.textContent, rect: rect(el.querySelector(".hx-emote-b")), font: getComputedStyle(el.querySelector(".hx-emote-b")).fontSize })),
+        name: name ? { text: name.textContent, rect: rect(name) } : null,
+        hud: { mh: q(".hex-screen .mh"), clock: q(".hex-screen .hx-clock"), ult: q(".hex-screen .hx-ult"), ctl: q(".hex-screen .hx-ctl"), exits: q(".hex-screen .m-exits") },
+        pitch: q(".hex-screen .hx-pitch"), turn: window.__soccer?.hexView?.turn, emotes: window.__soccer?.hexView?.emotes,
+      };
+    };
     window.requestAnimationFrame = (cb) => real((t) => {
       if (clock.last == null) clock.last = t;
       clock.virt += (t - clock.last) * clock.scale;
@@ -198,8 +243,9 @@ function installClock(page) {
       cb(clock.virt);
       try { check(); } catch (_) { /* 디버그 값이 아직 없다 */ }
       try { cutCheck(); } catch (_) { /* 화면이 아직 없다 */ }
+      try { emoteCheck(); } catch (_) { /* 화면이 아직 없다 */ }
     });
-  }, ANIM_CHAR, FREEZE);
+  }, FREEZE);
 }
 
 /** localStorage 전부 (키 순서대로) — 연습 경기가 아무것도 쓰지 않았는지 비교 */
@@ -237,72 +283,79 @@ async function enterPractice(page, out, pass, fail, seed) {
   out.practice = { seed: hud.seed };
   if (hud.sub.includes("연습 경기") && hud.away.includes("연습 상대") && hud.exits.includes("나가기")) pass(`연습 경기 HUD (${hud.home} vs ${hud.away} · ${hud.sub.trim()} · [${hud.exits.join("·")}])`);
   else fail(`연습 경기 HUD: ${JSON.stringify(hud)}`);
-  // 스프라이트: 실루엔 시트 전부 · 아델린 정지 그림이 양쪽에 (view.stats 는 30 프레임마다)
-  const ready = await page.waitForFunction((ac, sc) => {
+  // 스프라이트: 실루엔 · 아델린 · 네리아 시트 전부가 양쪽에 (view.stats 는 30 프레임마다)
+  const ready = await page.waitForFunction((want) => {
     const d = window.__soccer.hexView;
     const c = d?.tex?.chars;
     const sp = d?.sprites || [];
-    return !!(c && c[ac]?.kind === "anim" && c[ac].acts.length >= 10 && c[sc]?.kind === "static"
-      && sp.filter((x) => x.charId === ac && x.kind === "anim").length === 2 && sp.filter((x) => x.charId === sc && x.kind === "static").length === 2);
-  }, { timeout: 25000, polling: 100 }, ANIM_CHAR, STATIC_CHAR).then(() => true, () => false);
+    return !!c && Object.entries(want).every(([id, n]) => c[id]?.kind === "anim" && c[id].acts.length >= n
+      && sp.filter((x) => x.charId === id && x.kind === "anim").length === 2);
+  }, { timeout: 30000, polling: 100 }, ANIM_CHARS).then(() => true, () => false);
   const st = await page.evaluate(() => ({ tex: window.__soccer.hexView?.tex, sprites: window.__soccer.hexView?.sprites }));
   out.tex = st.tex;
   const keys = (st.sprites || []).map((x) => `${x.key}=${x.kind}`);
-  if (ready) pass(`스프라이트: 실루엔 양쪽 움직임 (시트 ${st.tex.chars[ANIM_CHAR].acts.length}장) · 아델린 양쪽 정지 그림 [${keys.join(", ")}] · 텍스처 ${st.tex.textures}개 ${(st.tex.bytes / 1048576).toFixed(1)} MB`);
+  const MB = (b) => (b / 1048576).toFixed(1);
+  const spr = st.tex?.byKind?.sprite;
+  if (ready) pass(`스프라이트: 실루엔 · 아델린 · 네리아 양쪽 움직임 (시트 ${Object.keys(ANIM_CHARS).map((id) => st.tex.chars[id].acts.length).join(" + ")}장) [${keys.join(", ")}] · 텍스처 ${st.tex.textures}개 ${MB(st.tex.bytes)} MB (스프라이트 ${spr?.textures ?? 0}개 ${MB(spr?.bytes ?? 0)} MB · 칸 ${st.tex.cuts ?? "?"})`);
   else fail(`스프라이트가 다 올라오지 않았다: ${JSON.stringify(st.tex?.chars)} [${keys.join(", ")}]`);
 }
 
-/** 동작 사냥 (머리 주석 4 --practice) — 못 본 동작은 note (경기마다 다르다) */
-async function huntActs(page, size, opts, out, pass) {
-  const want = [...HUNT_NEED, ...HUNT_EXTRA];
-  const seen = {};
+/** 동작 사냥 (머리 주석 4 --practice) — 못 본 동작은 note (경기마다 다르다). turnCap 턴에서 끝 */
+async function huntActs(page, size, opts, out, pass, turnCap) {
+  const want = Object.fromEntries(Object.entries(HUNT_CHARS).map(([id, c]) => [id, c.acts]));
+  const seen = {}; // 'charId:동작' → true
+  const has = (id, act) => !!seen[`${id}:${act}`];
+  const allSeen = () => Object.entries(want).every(([id, acts]) => acts.every((x) => has(id, x)));
   await page.evaluate((w, k) => {
     window.__soccer.store.matchUi.speed = 1;
     window.__hunt = { on: true, want: w, seen: {}, hit: null };
     window.__hexClock.scale = k;
   }, want, HUNT_SCALE);
   const t0 = await page.evaluate(() => window.__hexClock.virt);
-  let fast = false;
   for (;;) {
-    const st = await page.evaluate(() => ({ hit: window.__hunt.hit, virt: window.__hexClock.virt, fin: !!window.__soccer.hexView?.finished }));
+    const st = await page.evaluate(() => ({ hit: window.__hunt.hit, virt: window.__hexClock.virt, fin: !!window.__soccer.hexView?.finished, turn: window.__soccer.hexView?.turn ?? 0 }));
     if (st.hit) {
       const hit = st.hit;
+      const ch = HUNT_CHARS[hit.charId];
       await sleep(150); // 멈춘 그림이 한 번 더 그려지게
-      const file = path.join(opts.outDir, `${size}-act-${hit.act}.png`);
+      const file = path.join(opts.outDir, `${size}-act-${ch.tag}${hit.label}.png`);
       await page.screenshot({ path: file });
       out.files.push(file);
       // 그 선수를 잘라 확대 (발밑 · 공 · 방향을 자세히)
       // 상자는 캔버스 CSS px (변환 전) — 휴대폰은 스테이지 전체를 CSS 로 줄이므로 화면 px = 상자 × (보이는 폭 / clientWidth)
       const cr = await page.evaluate(() => { const c = document.querySelector(".hex-screen .hx-pitch canvas"); const r = c.getBoundingClientRect(); return [r.left, r.top, r.width, r.height, r.width / (c.clientWidth || r.width)]; });
       const now = await page.evaluate((k) => (window.__soccer.hexView?.sprites || []).find((x) => x.key === k), hit.key);
-      const b = ((now && now.box) || hit.box).map((v) => v * cr[4]);
-      const zw = Math.min(cr[2], Math.max(b[3] * 2.2, 160));
+      const bx = ((now && now.box) || hit.box).map((v) => v * cr[4]);
+      const zw = Math.min(cr[2], Math.max(bx[3] * 2.2, 160));
       const zh = Math.min(cr[3], zw * 0.75);
-      const zx = Math.min(cr[0] + cr[2] - zw, Math.max(cr[0], cr[0] + b[0] + b[2] / 2 - zw / 2));
-      const zy = Math.min(cr[1] + cr[3] - zh, Math.max(cr[1], cr[1] + b[1] + b[3] * 0.6 - zh / 2));
-      const zfile = path.join(opts.outDir, `${size}-act-${hit.act}-zoom.png`);
+      const zx = Math.min(cr[0] + cr[2] - zw, Math.max(cr[0], cr[0] + bx[0] + bx[2] / 2 - zw / 2));
+      const zy = Math.min(cr[1] + cr[3] - zh, Math.max(cr[1], cr[1] + bx[1] + bx[3] * 0.6 - zh / 2));
+      const zfile = path.join(opts.outDir, `${size}-act-${ch.tag}${hit.label}-zoom.png`);
       await page.screenshot({ path: zfile, clip: { x: zx, y: zy, width: zw, height: zh, scale: 2 } });
       out.files.push(zfile);
-      seen[hit.act] = true;
-      out.frames.push({ file, hunt: true, turn: hit.turn, score: hit.score, act: `${hit.act} ${hit.key} 칸 ${hit.frame} · ${hit.t}/${hit.dur} ms · 얼굴 ${hit.flip}${hit.want !== hit.act ? ` (frame 동작 ${hit.want})` : ""}` });
-      await page.evaluate((a, k) => { window.__hunt.seen[a] = true; window.__hunt.hit = null; window.__hexClock.scale = k; }, hit.act, HUNT_SCALE);
+      seen[`${hit.charId}:${hit.label}`] = true;
+      const shown = hit.label !== hit.act ? `${hit.label} (→ ${hit.act} 시트)` : hit.act;
+      out.frames.push({ file, hunt: true, turn: hit.turn, score: hit.score, act: `${ch.name} ${shown} ${hit.key} 칸 ${hit.frame} · ${hit.t}/${hit.dur} ms · 얼굴 ${hit.flip} · 상자 ${Math.round(bx[2])}×${Math.round(bx[3])}px${hit.want !== hit.act && hit.want !== hit.label ? ` (frame 동작 ${hit.want})` : ""}` });
+      await page.evaluate((key, k) => { window.__hunt.seen[key] = true; window.__hunt.hit = null; window.__hexClock.scale = k; }, `${hit.charId}:${hit.label}`, HUNT_SCALE);
       continue;
     }
-    if (HUNT_NEED.every((a) => seen[a])) break;
-    if (st.fin || st.virt - t0 > opts.huntMs) break;
-    // 세리머니만 남으면 2배속 (다음 골까지 빨리)
-    if (!fast && HUNT_NEED.every((a) => seen[a] || a === "celebrate")) {
-      fast = true;
-      await page.evaluate(() => { window.__soccer.store.matchUi.speed = 2; });
-    }
+    if (allSeen()) break;
+    if (st.fin || st.turn >= turnCap || st.virt - t0 > opts.huntMs) break;
     await sleep(40);
   }
   await page.evaluate(() => { window.__hunt.on = false; window.__hexClock.scale = 1; window.__soccer.store.matchUi.speed = 1; });
   out.hunt = Object.keys(seen);
-  const miss = HUNT_NEED.filter((a) => !seen[a]);
-  const extra = HUNT_EXTRA.filter((a) => seen[a]);
+  const ME = "ch_elf_playmaker";
+  const miss = HUNT_NEED.filter((x) => !has(ME, x));
+  const extra = HUNT_EXTRA.filter((x) => has(ME, x));
   if (!miss.length) pass(`실루엔 동작 ${HUNT_NEED.length}가지 다 찍음${extra.length ? ` (+ ${extra.join(" · ")})` : ""}`);
-  else out.notes.push(`실루엔 동작 못 봄: ${miss.join(" · ")} (이 경기에서는 — 실패 아님)${extra.length ? ` · 덤 ${extra.join(" · ")}` : ""}`);
+  else out.notes.push(`실루엔 동작 못 봄: ${miss.join(" · ")} (턴 ${turnCap} 까지 — 실패 아님)${extra.length ? ` · 덤 ${extra.join(" · ")}` : ""}`);
+  for (const [id, c] of Object.entries(HUNT_CHARS)) {
+    if (id === ME) continue;
+    const got = c.acts.filter((x) => has(id, x));
+    const no = c.acts.filter((x) => !has(id, x));
+    out.notes.push(`${c.name} 동작 찍음: ${got.join(" · ") || "없음"}${no.length ? ` · 못 봄: ${no.join(" · ")}` : ""}`);
+  }
 }
 
 /** 필살기 띠 재기: 버튼 수 · 화면 안 · 이름 · 상태 글 잘림 · 칸 크기 (CSS px) · 띠 상자 */
@@ -417,6 +470,81 @@ async function ultFlow(page, size, opts, out, pass, fail) {
   else fail(`상대 컷인을 못 봤다 (또는 "상대" 글 없음): ${JSON.stringify(opp || null)}`);
   if (seen.combo) pass(`합체기 이름 카드 "${seen.combo.text}"`); else out.notes.push("합체기는 이 경기에서 나지 않았다 (실패 아님)");
   if (seen.rev) pass(`역컷인 (${seen.rev.cls}) "${seen.rev.text}"`); else out.notes.push("역컷인은 이 경기에서 나지 않았다 (실패 아님)");
+}
+
+/** 감정 말풍선 사냥 (머리 주석 4 — 말풍선 사냥): 1배속 · 가상 시간 2배, 최대 opts.huntMs 의 절반 */
+async function huntEmotes(page, size, opts, out, pass, fail) {
+  const want = ["steal", "win", "lose"];
+  const need = ["steal", "lose"];
+  await page.evaluate((w, k) => {
+    window.__soccer.store.matchUi.speed = 1;
+    window.__emoteHunt = { on: true, want: w, seen: {}, hit: null };
+    window.__hexClock.scale = k;
+  }, want, HUNT_SCALE);
+  const t0 = await page.evaluate(() => window.__hexClock.virt);
+  const seen = {};
+  const area = (r) => Math.max(0, r[2]) * Math.max(0, r[3]);
+  const inter = (a, b) => (a && b ? area([Math.max(a[0], b[0]), Math.max(a[1], b[1]), Math.min(a[0] + a[2], b[0] + b[2]) - Math.max(a[0], b[0]), Math.min(a[1] + a[3], b[1] + b[3]) - Math.max(a[1], b[1])]) : 0);
+  const bad = [];
+  const notes = [];
+  for (;;) {
+    const st = await page.evaluate(() => ({ hit: window.__emoteHunt.hit, virt: window.__hexClock.virt, fin: !!window.__soccer.hexView?.finished, turn: window.__soccer.hexView?.turn ?? 0 }));
+    if (st.hit) {
+      const hit = st.hit;
+      await sleep(150);
+      const fresh = hit.kinds.filter((k) => !seen[k]);
+      const tag = fresh[0] || hit.kinds[0];
+      const file = path.join(opts.outDir, `${size}-emote-${tag}.png`);
+      await page.screenshot({ path: file });
+      out.files.push(file);
+      // 말풍선들 + 그 아래 선수까지 잘라 확대
+      const rs = hit.list.map((x) => x.rect);
+      const x0 = Math.min(...rs.map((r) => r[0]));
+      const y0 = Math.min(...rs.map((r) => r[1]));
+      const x1 = Math.max(...rs.map((r) => r[0] + r[2]));
+      const bh = Math.max(...rs.map((r) => r[3]));
+      const vw = await page.evaluate(() => [innerWidth, innerHeight]);
+      const zx = Math.max(0, x0 - 50);
+      const zy = Math.max(0, y0 - 16);
+      const zfile = path.join(opts.outDir, `${size}-emote-${tag}-zoom.png`);
+      await page.screenshot({ path: zfile, clip: { x: zx, y: zy, width: Math.min(vw[0] - zx, x1 - x0 + 100), height: Math.min(vw[1] - zy, bh * 5 + 16), scale: 2 } });
+      out.files.push(zfile);
+      for (const k of hit.kinds) seen[k] = true;
+      // 검사: 경기장 안 · HUD 와 안 겹침 · 글 · 이름표 겹침
+      const p = hit.pitch;
+      for (const m of hit.list) {
+        const r = m.rect;
+        if (!(r[0] >= p[0] - 1 && r[1] >= p[1] - 1 && r[0] + r[2] <= p[0] + p[2] + 1 && r[1] + r[3] <= p[1] + p[3] + 1)) bad.push(`${m.key} 경기장 밖 ${JSON.stringify(r.map(Math.round))}`);
+        for (const [k, hr] of Object.entries(hit.hud)) if (inter(r, hr) > 0.5) bad.push(`${m.key} 가 HUD ${k} 와 겹침`);
+        if (!m.text.trim()) bad.push(`${m.key} 글 없음`);
+        if (hit.name) {
+          const ov = inter(r, hit.name.rect) / Math.max(1, area(r));
+          if (ov > 0.01) notes.push(`${m.key} 이 이름표 '${hit.name.text}' 와 ${Math.round(ov * 100)}% 겹침`);
+        }
+      }
+      const desc = hit.list.map((m) => `${m.kind} '${m.text}' ${m.key} ${Math.round(m.rect[2])}×${Math.round(m.rect[3])}px 글 ${m.font}`).join(" · ");
+      out.frames.push({ file, hunt: true, turn: hit.turn, act: `말풍선 ${desc}${hit.name ? ` · 이름표 ${hit.name.text}` : ""}` });
+      await page.evaluate((ks, k) => {
+        for (const el of document.querySelectorAll(".hex-screen .hx-emote")) for (const a of el.getAnimations({ subtree: true })) a.play();
+        for (const x of ks) window.__emoteHunt.seen[x] = true;
+        window.__emoteHunt.hit = null;
+        window.__hexClock.scale = k;
+      }, hit.kinds, HUNT_SCALE);
+      continue;
+    }
+    // 뒤 프레임 · 골 · ⏭ 가 정규 시간 (300 턴) 안에 되게 220 턴에서 끝
+    if (want.every((k) => seen[k]) || st.fin || st.turn >= 220 || st.virt - t0 > opts.huntMs / 2) break;
+    await sleep(40);
+  }
+  await page.evaluate(() => { window.__emoteHunt.on = false; window.__hexClock.scale = 1; });
+  out.emotes = Object.keys(seen);
+  const miss = need.filter((k) => !seen[k]);
+  if (miss.length) fail(`말풍선 못 봄: ${miss.join(" · ")}`);
+  else pass(`말풍선 찍음: ${Object.keys(seen).join(" · ")}`);
+  if (!seen.win) out.notes.push("말풍선 '!' (가로채기 · 선방 · 공중볼 · 흘러나온 공) 은 이 구간에서 못 봄 (실패 아님)");
+  if (bad.length) fail(`말풍선 자리: ${bad.join("; ")}`);
+  else if (Object.keys(seen).length) pass("말풍선: 경기장 안 · HUD 와 안 겹침 · 글 있음");
+  for (const n of notes) out.notes.push(n);
 }
 
 /** 연습 경기 끝: [⏭] → 결과 → [다시 하기] → 새 경기 → [⏭] → [확인] → 시작 화면 */
@@ -572,8 +700,9 @@ async function runSize(browser, baseUrl, size, opts) {
     await page.goto(`${baseUrl}/index.html?hex=1&auto=1`, { waitUntil: "load" });
     if (opts.practice) {
       await enterPractice(page, out, pass, fail, opts.seed);
+      await huntActs(page, size, opts, out, pass, opts.ult ? ACT_TURN_CAP.ult : ACT_TURN_CAP.plain);
       if (opts.ult) await ultFlow(page, size, opts, out, pass, fail);
-      else await huntActs(page, size, opts, out, pass);
+      await huntEmotes(page, size, opts, out, pass, fail);
     }
     else {
       await page.waitForFunction(() => [...document.querySelectorAll("button")].some((b) => b.textContent.includes("새 런 시작")), { timeout: 15000 });
@@ -668,6 +797,8 @@ async function runSize(browser, baseUrl, size, opts) {
     if (opts.goal) {
       const g0 = await page.evaluate(() => { const d = window.__soccer.hexView; window.__soccer.store.matchUi.speed = 4; return d.score.home + d.score.away; });
       const ok = await page.waitForFunction((n) => { const d = window.__soccer.hexView; return d && (d.score.home + d.score.away > n || d.finished); }, { timeout: 120000, polling: 16 }, g0).then(() => true, () => false);
+      // 골 턴에 컷인 (필살 슛) 이 있으면 엔진 점수가 먼저 바뀌고 그림은 컷인 뒤 — "골!" 배너가 뜰 때부터 찍는다 (못 보면 그대로)
+      if (ok) await page.waitForFunction(() => document.querySelector(".hex-screen .hx-banner.hx-show.hx-goal") || window.__soccer.hexView?.finished, { timeout: 8000, polling: 16 }).catch(() => out.notes.push("골 배너를 못 봤다 (--goal)"));
       if (ok) {
         for (const [i, ms] of [[0, 60], [1, 250], [2, 400], [3, 500]]) {
           await sleep(ms);

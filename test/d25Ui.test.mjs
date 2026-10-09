@@ -131,7 +131,7 @@ test("jsdom: 2.5D 경기 화면 — 판 · 카메라 층 · 세운 선수 (스�
     assert.equal(toks.length, 14);
     const charOf = (el) => S.store.match[el.dataset.side].players.find((p) => p.id === el.dataset.id)?.charId;
     const sprited = toks.filter((el) => SPRITES.chars[charOf(el)]);
-    assert.deepEqual(sprited.map(charOf).sort(), ["ch_elf_playmaker", "ch_elf_regista", "ch_human_captain"], "스프라이트 셋");
+    assert.deepEqual(sprited.map(charOf).sort(), ["ch_elf_playmaker", "ch_elf_regista", "ch_human_captain", "ch_spirit_keeper"], "스프라이트 셋 (네리아 — GK — 포함)");
     for (const el of sprited) {
       const id = charOf(el);
       const img = el.querySelector(".tok-figure.spr > img.spr-img");

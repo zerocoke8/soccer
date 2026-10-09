@@ -19,7 +19,15 @@
       "w": 131,
       "h": 240,
       "footX": 0.417,
-      "v": "21a66243"
+      "v": "21a66243",
+      "anim": "img/sprites/anim/ch_human_captain.json"
+    },
+    "ch_spirit_keeper": {
+      "w": 172,
+      "h": 240,
+      "footX": 0.381,
+      "v": "712df15c",
+      "anim": "img/sprites/anim/ch_spirit_keeper.json"
     }
   }
 }
