@@ -14,7 +14,8 @@
 //   골 턴 (이번 턴 goal + kickoff): 선수는 prev 자리 그대로 두고 공만 골망으로 — 화면이 골 연출 (배너 · 시계 멈춤) 뒤
 //     frameAt(null, next, 1) 로 킥오프 자리를 그린다. 골든골 결승골 (kickoff 없음) 은 선수도 평소처럼 움직인다.
 //   공: 같은 선수가 계속 가지면 그 선수 (보간된 자리) 발 앞, 아니면 prev 공 자리 → next 공 자리 (판 위 직선 — 비행 길은 육각 직선이라 같다).
-//     크로스는 비행 전체 진행도 t 로 호 높이 4t(1 − t) · arcLift. 한 턴 안에 뜨고 내려앉은 크로스 (이번 턴 pass 이벤트 cross) 는 t = alpha.
+//     크로스 · 띄운 공 (flight.lofted — 긴 패스, 기획 2026-10-10) 은 비행 전체 진행도 t 로 호 높이 4t(1 − t) · arcLift (그림자는 땅에 남는다).
+//     한 턴 안에 뜨고 내려앉은 크로스 · 띄운 공 (이번 턴 pass 이벤트 cross · lofted) 은 t = alpha.
 //     차는 턴 (H2): 이번 턴 pass · shot 이벤트의 차는 선수가 턴 시작에 공을 가졌으면 공은 alpha < release 동안 그 발 앞에 머물고
 //     (스프라이트 pass · kick 의 발이 공에 닿는 칸까지 — 차기 전에 공이 먼저 떠나지 않게) 나머지 (1 − release) 동안 날아간다.
 //     차는 선수가 같은 턴에 칸을 옮기면 공은 그 보간된 발 앞을 따라가다 release 순간 자리에서 떠난다 (예전 자리에 공만 남지 않게).
@@ -28,7 +29,7 @@
 // [구현 결정] (H1):
 //  - 공 가진 선수의 공 = 발에서 공격 방향 (골 축) 으로 46 · 0.35 · s 화면 px, 깊이 쪽 (가까운 쪽) 4 · s 화면 px — 예전 ballPx 와 같은 크기를 판 px 로 바꿔 둔다.
 //  - 쉬는 선수 (resting) = restUntil ≥ next.turn — 넘어진 턴 · 그다음 턴 동안 넘어진 모습.
-//  - 슛 (골) 의 공은 골라인 너머 GOAL_DEPTH / 2 · 슛 칸 깊이를 골 행 5 ~ 7 안으로 자른 곳, 얕은 호 (크로스 호의 0.35).
+//  - 슛 (골) 의 공은 골라인 너머 GOAL_DEPTH / 2 · 슛 칸 깊이를 골 행 5 ~ 7 안으로 자른 곳, 얕은 호 (크로스 호의 0.35). 막힌 슛도 GK 품까지 같은 호.
 //  - 시계는 경기 시간 (턴 × 0.4 초, 결정 16) — 재생 속도 (tick ms · 배속) 와 상관없다. 남은 초는 올림.
 //
 // 동작 (H2 — 문서 §5.3 · §7 H2, frame.players[i].act · actKey · facing — Pixi 층이 스프라이트 시트를 고른다):
@@ -302,6 +303,11 @@ function flightFrom(f, events) {
   return f.path[0];
 }
 
+/** 공중으로 나는 비행 (크로스 · 띄운 공) */
+function aerialFlight(f) {
+  return !!(f && (f.cross || f.lofted));
+}
+
 function sameFlight(a, b) {
   return !!(a && b && a.side === b.side && a.passerId === b.passerId && a.target === b.target
     && a.path.length === b.path.length && a.path.every((c, i) => c === b.path[i]) && b.at >= a.at);
@@ -428,7 +434,7 @@ export function frameAt(prev, next, alpha, { W, H, sprite = null, goalScene = fa
     const from = kickFrom || ballPlane(pb ? base : next, prevUV, W);
     const to = ballPlane(next, nextUV, W);
     gp = kickHold || { u: lerp(from.u, to.u, ta), v: lerp(from.v, to.v, ta) };
-    const cf = nf?.cross ? nf : pf?.cross ? pf : null; // 이번 턴 날고 있는 (또는 막 끝난) 크로스
+    const cf = aerialFlight(nf) ? nf : aerialFlight(pf) ? pf : null; // 이번 턴 날고 있는 (또는 막 끝난) 크로스 · 띄운 공
     if (cf) {
       const n = cf.path.length || 1;
       const p0 = sameFlight(pf, cf) ? pf.at / n : 0;
@@ -438,9 +444,11 @@ export function frameAt(prev, next, alpha, { W, H, sprite = null, goalScene = fa
       const end = cellPlane(cf.target);
       lift = 4 * t * (1 - t) * peakLift(start, end, W, H);
     } else {
-      // 이번 턴에 떠서 이번 턴에 내려앉은 짧은 크로스 (prev · next 둘 다 비행 없음): 비행 전체 = 이번 턴 → t = alpha
-      const ce = evs.find((x) => x.type === 'pass' && x.cross && G.isCell(x.fromCell) && G.isCell(x.target));
+      // 이번 턴에 떠서 이번 턴에 내려앉은 짧은 크로스 · 띄운 공 (prev · next 둘 다 비행 없음): 비행 전체 = 이번 턴 → t = alpha
+      const ce = evs.find((x) => x.type === 'pass' && (x.cross || x.lofted) && G.isCell(x.fromCell) && G.isCell(x.target));
       if (ce) lift = 4 * ta * (1 - ta) * peakLift(cellPlane(ce.fromCell), cellPlane(ce.target), W, H);
+      // 막힌 슛 (헤더 빼고): 슛 칸 → GK 품까지 골 슛과 같은 얕은 호 (중거리 슛이 땅볼로 굴러가 보이지 않게)
+      else if (evs.some((x) => x.type === 'shot' && !x.header && !x.success)) lift = arcAt(from, to, ta, W, H) * SHOT_ARC;
     }
   }
   const g = V.projectPlane(gp.u, gp.v, W, H);

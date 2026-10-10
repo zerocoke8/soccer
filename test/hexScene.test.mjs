@@ -307,10 +307,11 @@ test("frameAt 공: 가진 선수 발 앞 (공격 방향) · 같은 선수면 그
   assert.ok(n > 100, `가진 선수 확인 ${n}`);
 });
 
-test("frameAt 공: 비행 — alpha 0 = prev 공 칸 (또는 패스한 선수 발 앞), alpha 1 = 이번 턴 도착 칸, 크로스는 호", () => {
+test("frameAt 공: 비행 — alpha 0 = prev 공 칸 (또는 패스한 선수 발 앞), alpha 1 = 이번 턴 도착 칸, 크로스 · 띄운 공은 호", () => {
   let cont = 0;
   let launch = 0;
   let cross = 0;
+  let lofted = 0;
   for (const { prev, next } of ALL_TURNS) {
     const nf = next.ball.flight;
     if (!nf || evOf(next, "kickoff").length) continue;
@@ -329,11 +330,12 @@ test("frameAt 공: 비행 — alpha 0 = prev 공 칸 (또는 패스한 선수 �
       assert.ok(Math.abs(f0.ball.shadow.sx - proj(pc).sx) < 30, "패스한 선수 발 앞에서 출발");
       launch++;
     }
-    if (nf.cross) {
+    if (nf.cross || nf.lofted) {
       const fm = HS.frameAt(prev, next, 0.5, { W, H });
-      assert.ok(fm.ball.lift > 0, "크로스 공중");
+      assert.ok(fm.ball.lift > 0, "크로스 · 띄운 공 공중");
       assert.ok(fm.ball.sy < fm.ball.shadow.sy, "공이 그림자 위");
-      cross++;
+      if (nf.cross) cross++;
+      else lofted++;
     } else {
       assert.equal(HS.frameAt(prev, next, 0.5, { W, H }).ball.lift, 0, "땅볼 패스");
     }
@@ -341,6 +343,7 @@ test("frameAt 공: 비행 — alpha 0 = prev 공 칸 (또는 패스한 선수 �
   assert.ok(launch > 10, `새 비행 ${launch}`);
   assert.ok(cont + launch > 10, `비행 ${cont} + ${launch}`);
   assert.ok(cross > 0, `크로스 ${cross}`);
+  assert.ok(lofted > 0, `띄운 공 ${lofted}`);
   // 도착 턴 (prev 비행 → next 비행 끝): alpha 0 = prev 공 칸, 크로스면 가운데에서 공중 · 끝에서 땅
   let arrive = 0;
   for (const { prev, next } of ALL_TURNS) {
@@ -350,7 +353,7 @@ test("frameAt 공: 비행 — alpha 0 = prev 공 칸 (또는 패스한 선수 �
     near(f0.ball.shadow.sx, proj(prev.ball.cell).sx, 1e-9, "도착 턴 alpha 0");
     const f1 = HS.frameAt(prev, next, 1, { W, H });
     near(f1.ball.lift, 0, 1e-9, "도착하면 땅");
-    if (pf.cross) assert.ok(HS.frameAt(prev, next, 0.5, { W, H }).ball.lift > 0, "도착 턴 크로스 공중");
+    if (pf.cross || pf.lofted) assert.ok(HS.frameAt(prev, next, 0.5, { W, H }).ball.lift > 0, "도착 턴 크로스 · 띄운 공 공중");
     arrive++;
   }
   assert.ok(arrive > 10, `도착 턴 ${arrive}`);

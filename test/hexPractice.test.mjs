@@ -1,5 +1,6 @@
 // test/hexPractice.test.mjs — 연습 경기 (시작 화면 [⚽ 연습 경기], 2026-10-09 사용자 요청 — js/ui/practice.js · app.js practiceMatchMode · screens/hexMatch.js 경기 모드 훅).
-//   순수: 기본 선수단 스냅샷 = 새 런 (lessonRun.createRun) 의 buildTeamSnapshot 그대로 · 거울 상대 (side away · '연습 상대' · id 'm_' · charId 그대로).
+//   순수: 기본 선수단 스냅샷 = 새 런 (lessonRun.createRun) + config.practice 스탯 · 팀워크 (시즌 3 잘 키운 팀, 2026-10-10) 의 buildTeamSnapshot ·
+//   practice 블록이 없으면 새 런 시작 스탯 그대로 · 거울 상대 (side away · '연습 상대' · id 'm_' · charId 그대로).
 //   jsdom: 버튼이 [📖 회상] 바로 아래 · 누르면 육각 경기 화면 (육각 런 경기가 꺼져 있어도) · HUD "연습 경기" · 선수 14명 (7 + 7) · 상대 id m_* · 이름 같음 ·
 //   localStorage 를 한 글자도 쓰지 않는다 · 다시 그려도 같은 경기 · ⏭ → "연습 경기 결과" → [다시 하기] = 새 시드 · 턴 0 → ⏭ → [확인] = 시작 화면 ·
 //   경기 phase 에 멈춘 런 (육각 · 재생 기록) 이 연습 → [나가기] 뒤에도 그대로 (store.run · store.hexMatch · KEYS 모두) · [이어하기] 로 런 경기를 끝까지.
@@ -15,25 +16,49 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { dataFetch, loadData } from "./helpers.mjs";
 import * as lessonRun from "../js/engine/lessonRun.js";
 import * as hexMatch from "../js/engine/hexMatch.js";
-import { practiceSetup, defaultSquadSnapshot, mirrorTeam, PRACTICE_AWAY_NAME, PRACTICE_ID_PREFIX } from "../js/ui/practice.js";
+import { practiceSetup, defaultSquadSnapshot, mirrorTeam, applyPracticeStats, PRACTICE_AWAY_NAME, PRACTICE_ID_PREFIX } from "../js/ui/practice.js";
 import * as V from "../js/ui/view25.js";
 import { BALL_RELEASE } from "../js/ui/hexScene.js";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 
-test("연습 경기 셋업: 기본 선수단 = 새 런 스냅샷 그대로 · 거울 상대 · 육각 경기가 끝까지 돈다", () => {
+test("연습 경기 셋업: 기본 선수단 = 새 런 + config.practice (시즌 3 스탯 · 팀워크) · 블록 없으면 시작 스탯 · 거울 상대 · 육각 경기가 끝까지 돈다", () => {
   const data = loadData();
   const cfg = data.config;
   const setup = practiceSetup(lessonRun, data, "practice-unit-1");
   assert.equal(setup.seed, "practice-unit-1");
   assert.equal(setup.kind, "friendly");
   assert.equal(setup.possessions, cfg.friendly.possessions);
-  // 우리 팀 = 기본 편성으로 만든 새 런의 스냅샷 (스탯을 따로 만들지 않는다)
-  const st = lessonRun.createRun({
+  // 우리 팀 = 기본 편성으로 만든 새 런 + config.practice 스탯 · 팀워크의 스냅샷
+  const freshRun = () => lessonRun.createRun({
     data, seed: "other-seed", squad: { ...cfg.defaultSquad.slots }, formation: cfg.defaultSquad.formation,
     supportIds: [...cfg.defaultSupports], tactics: { ...cfg.defaultTactics },
   });
-  assert.deepEqual(setup.home, lessonRun.buildTeamSnapshot(st, data), "새 런 buildTeamSnapshot 과 같다 (시드와 상관없음)");
+  const st = applyPracticeStats(freshRun(), cfg.practice);
+  assert.deepEqual(setup.home, lessonRun.buildTeamSnapshot(st, data), "새 런 + practice 의 buildTeamSnapshot 과 같다 (시드와 상관없음)");
+  // 스탯 · 팀워크 = config.practice 블록 그대로 (기본 편성은 모두 기질 A — 배수 1)
+  const P = cfg.practice;
+  assert.ok(P && P.stats && P.label && P.source, "config.practice 블록 (label · teamwork · stats · source)");
+  assert.equal(setup.home.teamwork, P.teamwork, "팀워크 = practice.teamwork");
+  assert.equal(setup.away.teamwork, P.teamwork, "상대 팀워크도 같다");
+  for (const p of setup.home.players) {
+    assert.deepEqual(p.stats, P.stats[p.charId], `${p.name} 스탯 = practice.stats.${p.charId}`);
+  }
+  assert.deepEqual(Object.keys(P.stats).sort(), Object.values(cfg.defaultSquad.slots).sort(), "practice.stats = 기본 편성 7명");
+  // practice 블록이 없으면 새 런 시작 스탯 · 팀워크 그대로
+  const noP = { ...data, config: { ...cfg } };
+  delete noP.config.practice;
+  const plain = defaultSquadSnapshot(lessonRun, noP);
+  assert.deepEqual(plain, lessonRun.buildTeamSnapshot(freshRun(), noP), "블록 없음 = 새 런 스냅샷");
+  assert.notDeepEqual(plain.players.map((p) => p.stats), setup.home.players.map((p) => p.stats), "블록이 스탯을 바꾼다");
+  // 블록에 없는 캐릭터 · 값이 아닌 칸은 시작 스탯 그대로
+  const part = applyPracticeStats(freshRun(), { teamwork: "x", stats: { ch_giant_striker: { shoot: 999, pass: null } } });
+  const start = freshRun();
+  const g = (s, id) => s.players.find((p) => p.charId === id).stats;
+  assert.equal(g(part, "ch_giant_striker").shoot, 999);
+  assert.equal(g(part, "ch_giant_striker").pass, g(start, "ch_giant_striker").pass, "null 칸 = 시작 스탯");
+  assert.deepEqual(g(part, "ch_elf_playmaker"), g(start, "ch_elf_playmaker"), "줄 없는 캐릭터 = 시작 스탯");
+  assert.equal(part.teamwork, start.teamwork, "팀워크 값이 아니면 그대로");
   assert.equal(setup.home.side, "home");
   assert.equal(setup.home.formation, "2-2-2");
   const bySlot = Object.fromEntries(setup.home.players.map((p) => [p.slot, p.charId]));
@@ -374,4 +399,32 @@ test("jsdom: [⚽ 연습 경기] — 회상 아래 버튼 · 육각 화면 · �
   // ---- 소음 없음 ----
   assert.deepEqual(errors, [], "console.error 없음");
   assert.deepEqual(noise, [], "jsdom 오류 없음");
+});
+
+test("tools/lesson_sim.mjs --final-stats: 인자 · 고르기 규칙 (top25 · goal3 · all) · 캐릭터별 평균 (반올림) · 팀워크", async () => {
+  const LS = await import("../tools/lesson_sim.mjs");
+  assert.equal(LS.parseArgs([]).finalStats, null);
+  assert.equal(LS.parseArgs(["--final-stats"]).finalStats, "top25");
+  assert.equal(LS.parseArgs(["--final-stats", "goal3", "--runs", "3"]).finalStats, "goal3");
+  assert.equal(LS.parseArgs(["--final-stats", "--runs", "3"]).runs, 3, "규칙이 아닌 다음 인자는 그대로 읽는다");
+  const row = (policy, sum, teamwork, goal3, v) => ({ policy, sum, teamwork, goal3, stats: { a: { shoot: v, dribble: v, pass: v, defense: v, physical: v } } });
+  const finals = [row("team", 10, 80, false, 1), row("ace", 40, 100, true, 4), row("ace", 30, 90, true, 3), row("press", 20, 70, false, 2),
+    row("team", 5, 60, true, 0), row("poss", 25, 50, false, 2), row("poss", 35, 100, false, 3), row("press", 15, 40, false, 1)];
+  const top = LS.finalStatsReport(finals, "top25");
+  assert.equal(top.selected, 2, "8런의 25 % = 2런 (합 40 · 35)");
+  assert.equal(top.stats.a.shoot, 4, "(4 + 3) / 2 = 3.5 → 4");
+  assert.equal(top.teamwork, 100);
+  assert.deepEqual(top.byPolicy, { ace: 1, poss: 1 });
+  assert.equal(top.goal3Rate, 0.5);
+  const g3 = LS.finalStatsReport(finals, "goal3");
+  assert.equal(g3.selected, 3);
+  assert.equal(g3.stats.a.pass, Math.round(7 / 3));
+  assert.equal(LS.finalStatsReport(finals, "all").selected, 8);
+  // 실제 시뮬 1런 (경기 없음): finals 줄이 기본 편성 7명 · 스탯 5개
+  const data = LS.loadData();
+  const sum = LS.summarize(data, LS.parseArgs(["--runs", "1", "--seed", "fs", "--no-match", "--final-stats"]), "team");
+  assert.equal(sum.finals.length, 1);
+  assert.deepEqual(Object.keys(sum.finals[0].stats).sort(), Object.values(data.config.defaultSquad.slots).sort());
+  for (const st of Object.values(sum.finals[0].stats)) assert.deepEqual(Object.keys(st), ["shoot", "dribble", "pass", "defense", "physical"]);
+  assert.equal(LS.summarize(data, LS.parseArgs(["--runs", "1", "--seed", "fs", "--no-match"]), "team").finals, undefined, "플래그 없으면 finals 없음");
 });

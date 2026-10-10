@@ -508,6 +508,13 @@ function findHumanCombo() {
       HM.step(st, data);
       const lv = st.live.home.p7;
       if (lv?.combo && !lv.armed && st.ball.holder?.side === "home" && st.ball.holder.id === "p7" && st.stage === "regular" && st.turn < 280) {
+        // 뒤 4턴 (입력 없음 · 상대만 AI) 이 조용한 장면만 — 컷인 · 골 · 킥오프 연출이 끼면 "comboHold 뒤 TICK × 3 에 3턴" 을 잴 수 없다
+        //   (연습 스탯이 시즌 3 으로 바뀐 뒤 (2026-10-10) 첫 장면 바로 뒤에 상대 컷인 · 골이 끼었다)
+        const probe = clone(st);
+        probe.aiSides = ["away"];
+        const e0 = probe.events.length;
+        for (let i = 0; i < 4 && !probe.finished; i++) HM.step(probe, data);
+        if (probe.events.slice(e0).some((e) => ["cutin", "combo", "goal", "kickoff"].includes(e.type))) continue;
         st.aiSides = ["away"];
         return { setup: su, st, n: n + 1 };
       }

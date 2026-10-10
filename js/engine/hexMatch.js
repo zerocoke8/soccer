@@ -10,7 +10,8 @@
  *  - createMatch 는 홈 킥오프를 준비한 상태 (turn 0) 를 돌려준다. step 한 번 = 한 턴 (승부차기 단계에서는 한 킥).
  *  - 한 턴 순서 (문서 §2.2): (1) 필살기 입력 → AI 규칙 (hexUlt.beginTurn — 팀 필살기는 여기서 터짐) → (2) 공 가진 선수의 선택
  *    (슛 / 패스 / 크로스 / 드리블 / 지키기, 드리블 가려는 칸, 태클 정하기 — 모두 턴 시작 칸으로) → (3) 이동 (최대 1칸)
- *    → (4) 겨루기: 태클 → 슛 → 공 비행 (한 턴 3칸, 그 턴에 지난 칸 위 · 옆 수비의 가로채기, 도착 · 크로스 공중볼 · 헤더)
+ *    → (4) 겨루기: 태클 → 슛 → 공 비행 (한 턴 3칸, 그 턴에 지난 칸 위 · 옆 수비의 가로채기, 도착 · 크로스 공중볼 · 헤더 /
+ *    띄운 공은 한 턴 loftSpeed 칸 · 땅 가로채기 없이 떨어지는 칸 공중볼)
  *    → 흘러나온 공 줍기 (이동 중 먼저 들어간 선수) → (5) 이벤트. 그다음 turn++ 과 단계 확인.
  *  - 판 · 방향은 hexGrid.js: 홈 dir +1 (오른쪽 골 공격), 원정 dir −1. 판은 짝수 행 15칸 · 홀수 행 14칸 (189칸) 으로 정확히 좌우 대칭.
  *    자기 진영 열 oc = 홈 c · 원정 거울 열 (mirrorCR — 짝수 행 14 − c · 홀수 행 13 − c). GK 구역 = 자기 골의 박스 (inBox(칸, −dir), 양쪽 12칸).
@@ -49,10 +50,12 @@
  *  - 겨루기 계수: 태클 2.4 · GK 선방 2.8 (HEX_DEFAULTS.tackleCoef · saveCoef — config.match.actionCoef 의 0.6 · 1.0 대신).
  *    짝 배수를 빼고 겨루기가 경기당 수백 번이라 (문서 §2.2 · §4) 시뮬로 골 · 슛이 말이 되는 범위에 맞춘 값. 가로채기는 0.6 그대로.
  *  - 슛 사거리 = 2 + 슛/400 (문서 안 3 + 슛/250 은 15칸 판의 절반이라 줄였다). breakAll 의 박스 밖 슛 기준 = 골 기대 0.55.
+ *    → 경기 흐름 2026-10-10 에서 바뀜 (사거리 3 + 슛/350 · 기준 0.12 × 슛 배수 — 아래 블록).
  *  - 수비 자리: 공 → 자기 골 가운데 선 위에 줄을 세운다 (행 간격 0.6 배). DF 는 마크하지 않고 그 줄을 지키고 (zonalDF),
  *    MF · FW 가 마크 (태클 · 균형) · 패스길 (인터셉트) 을 맡는다. 수비 팀 목표 열은 자기 진영 9 까지만.
  *  - 공 가진 상대가 자기 골 앞 (자기 진영 열 < 3, GK 포함) 에서 빌드업하면 압박 · 마크하지 않는다 (pressLine · deepPressers).
  *  - 공격 팀: 상대 진영에서 바깥 MF 는 측면 (행 2 · 10), FW 는 박스 쪽으로 좁힌다. 측면 크로스 자리의 위협값은 최소 0.3.
+ *    → 경기 흐름 2026-10-10 에서 바뀜 (공 열 ≥ 6 · 행 1 · 11 · 최소 위협 0.2 · 포스트 · edgeColMF — 아래 블록).
  *  - 판: 짝수 행 15칸 · 홀수 행 14칸 (189칸, 정확히 좌우 대칭 — 양쪽 박스 12칸). 방향이 걸린 동률은 그 팀 공격 방향 기준
  *    (정면 → 앞 대각 위 · 아래 → 뒤 대각 위 · 아래 → 바로 뒤, 원정은 거울상) 으로 깬다. 패스 직선도 찬 팀 방향 기준 (line(…, dir)).
  *  - 시험용 이음매 setHexDecisionForTest (공 가진 선수의 선택만 덮어씀 — H3 필살기 "켠 행동을 그 턴에 고른다" 자리).
@@ -68,6 +71,37 @@
  *  - 필살 패스를 켠 공 가진 선수는 허용된 패스 (actions) 중 기대값이 가장 큰 것을 고르고, 합체기 짝에게 가는 패스는 기대값 × comboBonus.
  *  - 확실한 배급 (sureDistribution): 그 세이브 뒤 GK 의 다음 패스는 정확도 1 · 땅 가로채기 굴림 없음 (크로스면 공중볼은 그대로).
  *  - 필살 크로스가 합체기 짝에게 도착해 바로 헤더를 하면 그 짝은 저절로 합체기로 쏜다 (사람 쪽도 — 턴 경계가 없어 누를 틈이 없다).
+ *
+ * [구현 결정] (경기 흐름 2026-10-10 — 기획 "롱패스 · 롱슛 · 크로스가 없고 골대 앞에서 허우적거린다", 기획 확인 필요):
+ *  - 띄운 공 (lofted): 노린 칸까지 loftMin(6) 칸 이상인 크로스 아닌 패스. 땅 가로채기가 없고 (결정 9 의 크로스처럼 공중), 한 턴 loftSpeed(5) 칸,
+ *    떨어지는 칸에 같은 편이 있으면 그 칸 위 · 옆의 쉬지 않는 상대 중 버티기 최고와 공중볼 (크로스와 같은 pAerial — 공격값 = 찬 선수).
+ *    지면 그 수비가 공을 갖는다. 정확도는 땅볼과 같은 곡선 (× loftAccMult). 같은 편이 없으면 땅볼 도착과 같다 (빈 칸 → 흘러나온 공, 상대 → 튐).
+ *    pass 이벤트 · 비행에 lofted, 기록 stats.lofted.
+ *  - 필살 패스 + 띄운 공: 공격 배수는 떨어지는 칸 공중볼에 곱하고, extraLine (가로채기 무시 1번) = 그 공중볼에 진 것을 1번 무시 (aerial 이벤트 extraLine).
+ *    확실한 배급 (세이브 뒤 GK) 이 띄운 공이면 정확도 1, 공중볼은 그대로 (크로스와 같다). 필살 수비는 그 공중볼에서 터진다.
+ *  - 띄운 공 고르기: 값 = 성공 추정 × (받는 칸 위협 − 받자마자 잃을 손해) − 잃을 때 손해 (떨어지는 칸의 상대 위협) − passCost − loftCost.
+ *    받는 선수가 뛰어가야 하는 칸 (앞 칸 · 수비 뒤 2칸 앞) 은 둘레 throughFree 칸 안에 상대가 없을 때만 노린다.
+ *  - GK 백패스는 압박받을 때만, GK 가 방금 준 공 (ball.from) 이면 안 된다. 비용 backPassPenalty 0.08 (예전 0.03).
+ *  - 되돌려주기: 자기 진영 열 < returnPassOc(6) 에서 방금 나에게 패스한 같은 편 (ball.from — 찰 때 남기고, 같은 편이 흘러나온 공을 주워도 그대로)
+ *    에게 되돌려주는 패스는 returnPassPenalty 0.04 더 비싸다 (화면 확인: 자기 박스 앞 DF ↔ DF 핑퐁이 GK ↔ DF 핑퐁 자리를 대신했다).
+ *  - 상대는 패스한 팀 자기 진영 열 < chaseFlightMinOc 에 떨어지는 짧은 빌드업 패스를 쫓지 않는다 (pressLine 과 같은 뜻 — GK ↔ DF 압박 우리 방지).
+ *  - 슛 사거리 = round(3 + 슛/350). 박스 밖 슛 골 확률은 (minP 로 자른 뒤) 박스 바로 밖보다 한 칸마다 × longShotDecay (헤더 · 필살 boxShot 빼고).
+ *    박스 밖 슛 기준 = 전술 기준 × (1 − barShootScale · 슛/1000). 슛한 선수와 골 사이 상대 필드 선수 ≥ crowdShotN 이면 고르기 값 =
+ *    골 확률 × (1 + crowdShotBonus) (막는 수비 깎임 shotBlockerEst 대신 — 같은 수비를 두 번 세지 않는다), 기준과는 이 값으로 비교한다.
+ *  - 박스 밖 드리블 값 = max(가려는 칸 위협값, 그 칸에서 쏠 슛 고르기 값 × lookShotMult) — 사거리 끝에서 바로 쏘지 않고 다가갈 수 있으면 다가간다.
+ *  - 켠 필살 슛은 ultShotRange = round(2 + 슛/400) (예전 슛 사거리) 안에서만 터진다 (밖에서 보통 슛을 쏘면 안 터지고 켠 채로) · 고르기도 그 거리에서 ·
+ *    "지금!" (canNow) 도 그 거리. boxShot 필살 슛은 먼 슛 깎임이 없다 (문서 §14.2 "박스 밖에서도 박스 슛 계수" 그대로).
+ *  - 띄운 공 비용: 찬 선수 자기 진영 열 loftMidOc(5) ~ loftMidMax(10) 미만 (미드필드) 이면 loftCostMid, 아니면 loftCost.
+ *    미드필드에서 행을 switchRows(6) 이상 옮기고 떨어질 칸 둘레가 빈 띄운 공 (전환) 은 + switchBonus.
+ *    비어 있는 짧은 패스 (GK 아닌 같은 편, 받는 칸 shortFreeDist(2) 칸 안에 상대 없음, 성공 추정 ≥ shortFreeP) 가 있으면
+ *    GK · 압박받지 않는 DF 의 띄운 공은 loftCostFree 더 (걷어내기 대신 짧게 — 압박받는 DF 는 그대로 걷어낸다).
+ *  - 막은 뒤 GK 는 gkSaveHold(1) 턴 공을 쥐고 기다린다 (지키기 · 태클 없음 — 기획 확인 필요). 선방 → 바로 롱킥 → 혼자 받은 FW 의 슛 → 선방이
+ *    되풀이돼서 (화면 확인), 그 한 턴 동안 슛한 팀이 물러나고 우리 팀이 자리를 잡는다. state.ball.saveHold = 쥐는 마지막 턴.
+ *  - 박스 안 지키기 · 드리블 값 × boxKeepMult. 위협값 threatMax 0.3 · threatDecay 2.8 (예전 0.42 · 3.2).
+ *  - 크로스 자리 = 자기 진영 열 ≥ crossFromOc(8) · 측면 행. 크로스는 받는 선수가 떨어질 때까지 뛰어 들어갈 수 있는 박스 칸 (옆 1칸) 도 노린다.
+ *    공 가진 선수가 크로스 자리면 FW 는 가까운 · 먼 포스트 (postCols) 로, 공격 MF 는 열 edgeColMF(11) 까지만 (박스 밖 컷백 자리).
+ *  - 수비 팀 줄별 목표 열 하한 defendLineMin (DF 1 · MF 3 · FW 5) — 공이 골 앞이어도 MF · FW 는 박스 밖에 줄을 지킨다.
+ *  - 경기를 끝내는 골 (정규 · 추가시간 마지막) 뒤에는 킥오프를 하지 않는다 (골든골 결승골과 같다 — goalEndsMatch).
  *
  * 순수 로직. 난수는 state.rngState 로만 (step 마다 createRngFromState → 사용 → getState 저장). 상태는 JSON 만 담는다.
  */
@@ -97,29 +131,58 @@ export const HEX_DEFAULTS = Object.freeze({
   moveBase: 0.7, // 이동률 기본값 (문서 §2.3)
   moveStatScale: 0.3, // 이동률에 더하는 능력치 몫 (× s/1000)
   speedStyleBonus: 0.05, // 스타일 "speed" 이동률 보너스
-  passSpeed: 3, // 공이 한 턴에 나는 칸 수
+  passSpeed: 3, // 땅볼 패스 · 크로스가 한 턴에 나는 칸 수
+  loftMin: 6, // 노린 칸까지 이 거리 이상인 (크로스 아닌) 패스는 띄운 공 — 땅 가로채기 없음, 떨어지는 칸에서만 공중볼 (기획 2026-10-10)
+  loftSpeed: 5, // 띄운 공이 한 턴에 나는 칸 수
+  loftAccMult: 1, // 띄운 공의 정확도 깎임 배수 (× accDropPerCell — 1 = 땅볼과 같은 곡선)
+  loftReachWeight: 0.5, // 띄운 공 추정: 지금은 떨어질 칸 옆이 아니지만 떨어질 때까지 닿을 수 있는 상대를 공중볼 상대로 세는 비율
+  loftCost: 0.08, // 띄운 공 한 번의 고정 비용 (passCost 에 더함 — 짧게 줄 곳이 막혔을 때 · 수비 뒤 공간 · 전환처럼 값이 클 때만 길게)
+  loftMidOc: 5, // 찬 선수가 자기 진영 열 loftMidOc 이상 · loftMidMax 미만 (미드필드) 이면 띄운 공 비용은 loftCostMid · 전환 보너스 (전환 · 수비 뒤 공간)
+  loftMidMax: 10, // 미드필드 띄운 공 상한 열 (공격 1/3 은 loftCost 그대로)
+  loftCostMid: 0.03, // 미드필드 띄운 공 고정 비용
+  loftCostFree: 0.08, // 비어 있는 짧은 패스가 있을 때 GK · 압박 없는 DF 의 띄운 공에 더하는 비용 (걷어내기만 하지 않게)
+  shortFreeP: 0.6, // "비어 있는 짧은 패스" = 받는 칸 shortFreeDist 칸 안에 쉬지 않는 상대 없음 + 성공 추정 이 값 이상 (GK 빼고)
+  shortFreeDist: 2, // 그 받는 칸 둘레 거리 (2 = 받고 바로 압박받지 않는다 — 1 이면 받자마자 뺏겨 GK → DF 가 되풀이됐다)
+  switchRows: 6, // 띄운 공이 행을 이만큼 이상 옮기고 떨어질 칸 둘레가 비면 전환
+  switchBonus: 0.04, // 전환 띄운 공 값에 더하는 값 (미드필드에서 찰 때만)
+  throughBall: 1, // 1 = 띄운 공은 FW · MF 의 2칸 앞 빈 칸 (수비 뒤 공간) 도 노린다 — 받는 선수가 떨어질 때까지 닿을 때만
+  throughFree: 2, // 수비 뒤 공간: 그 칸에서 이 거리 안에 쉬지 않는 상대가 없을 때만
   accFreeDist: 4, // 이 거리까지 패스 정확도 1
   accDropPerCell: 0.03, // 그 뒤 칸마다 깎이는 정확도 (× (accPassRef − 패스/1000))
   accPassRef: 1.6, // 정확도 깎임의 패스 능력치 기준
   accMin: 0.5, // 패스 정확도 하한
-  shotRangeBase: 2, // 슛 사거리 = 이 값 + 슛/shotRangeDiv (반올림) — 문서 안 3 + 슛/250 은 15칸 판에서 너무 멀어 줄였다
-  shotRangeDiv: 400, // 슛 사거리 능력치 나눗수
-  breakAllBar: 0.55, // shootTiming "breakAll" 일 때 박스 밖 슛을 고르는 최소 골 기대
-  midrangeBar: 0.2, // shootTiming "midrange" 일 때 박스 밖 슛 최소 골 기대
+  shotRangeBase: 3, // 슛 사거리 = 이 값 + 슛/shotRangeDiv (반올림) — 중거리 슛이 나오게 (기획 2026-10-10, 예전 2 + 슛/400)
+  shotRangeDiv: 350, // 슛 사거리 능력치 나눗수 (시즌 3 골잡이 819 → 5칸 · MF 440 → 4칸)
+  longShotDecay: 0.8, // 박스 밖 슛: 박스 바로 밖 (거리 3) 보다 한 칸 멀 때마다 골 확률에 곱하는 값 (헤더 · 필살 boxShot 빼고)
+  ultShotRangeBase: 2, // 켠 필살 슛이 터지는 거리 = 이 값 + 슛/ultShotRangeDiv (반올림) — 예전 슛 사거리 그대로 (보통 사거리가 늘어도 필살 슛은 그대로)
+  ultShotRangeDiv: 400, // 필살 슛 거리 능력치 나눗수 (시즌 3 골잡이 819 → 4칸)
+  breakAllBar: 0.12, // shootTiming "breakAll" 일 때 박스 밖 슛을 고르는 최소 골 기대 (× (1 − barShootScale · 슛/1000))
+  midrangeBar: 0.07, // shootTiming "midrange" 일 때 박스 밖 슛 최소 골 기대 (같은 배수)
+  barShootScale: 0.4, // 슛이 좋은 선수일수록 박스 밖 슛 기준을 낮추는 몫
+  crowdShotN: 2, // 슛한 선수와 골 사이 상대 필드 선수가 이만큼 이상이면 "박스가 붐빈다"
+  crowdShotBonus: 0.15, // 붐빌 때 박스 밖 슛 고르기 값에 더하는 비율 (기준 비교 전 · 막는 수비 깎임 대신 — 판정 확률은 그대로). 0.2 이상이면 슛 542 FW 의 4칸 슛 (골 0.08) 까지 기준을 넘어 박스 밖 슛이 절반이 된다 (2026-10-10 시뮬)
+  lookShotMult: 0.9, // 박스 밖 드리블 값: 한 칸 앞에서 쏠 슛 고르기 값 × 이 값 (위협값보다 크면 그것 — 사거리 끝에서 바로 쏘지 않게)
+  boxKeepMult: 0.6, // 박스 안에서 지키기 · 드리블의 위협값 배수 (박스 안에서 끌지 말고 슛하거나 내준다)
   shotBlockerEst: 0.92, // 슛 기대값에 막는 수비 1명당 곱 (판정 식과 별개 — AI 가 꺼리는 정도)
   crossHeaderEst: 0.9, // 크로스 기대값에서 받는 선수 헤더 골 확률에 곱하는 값 (막는 수비 · 빗나감 몫)
+  crossFromOc: 8, // 크로스 자리: 자기 진영 열 이 값 이상 (이른 크로스, 예전 9)
+  wideRowEdge: 2, // 크로스 자리: 행 0 ~ 이 값 · (12 − 이 값) ~ 12
+  crossRun: 1, // 1 = 크로스는 같은 편이 떨어질 때까지 뛰어 들어갈 수 있는 박스 칸 (옆 1칸) 도 노린다
   tackleCoef: 2.4, // 육각 태클 계수 (null = config.match.actionCoef.tackle 0.6 — 덮어쓰기에서 null 도 그대로 받는다). 문서 §4 · §2.2: 짝 배수를 빼고 겨루기가 수백 번이라 시뮬로 다시 맞춤
   interceptCoef: null, // 가로채기 계수 (null = config.match.actionCoef.intercept). 위와 같은 이유
   saveCoef: 2.8, // 육각 GK 선방 계수 (null = config.match.actionCoef.save 1.0). 박스에 닿는 횟수가 많아 시뮬로 맞춤 (대칭 판 = 홈 공격 박스 10 → 12칸이라 2 → 2.8)
   tacticBonus: 1.15, // 공격 전술 (pass · dribble) 이 그 선택 값에 곱하는 값
-  threatMax: 0.42, // 위협값 최대 (박스 안) — 골까지 거리로 줄어든다
-  threatDecay: 3.2, // 위협값이 박스 밖에서 e 배 줄어드는 거리 (칸)
+  threatMax: 0.3, // 위협값 최대 (박스 안) — 골까지 거리로 줄어든다 (예전 0.42 는 박스 안 끌기 · 짧은 패스가 슛보다 값져 허우적거렸다)
+  threatDecay: 2.8, // 위협값이 박스 밖에서 e 배 줄어드는 거리 (칸, 예전 3.2 — 박스 바로 밖에서 드리블이 중거리 슛을 늘 이겼다)
   threatSpacePenalty: 0.1, // 받는 칸 옆 상대 1명당 위협값 깎임
-  wideThreat: 0.3, // 측면 크로스 자리 (자기 진영 열 ≥ 9, 행 0 ~ 2 · 10 ~ 12) 의 최소 위협값
-  turnoverMult: 1.2, // 공을 잃었을 때 손해 = 상대 위협값 × 이 값
+  wideThreat: 0.2, // 측면 크로스 자리 (isWide — crossFromOc · wideRowEdge) 의 최소 위협값 (예전 0.3 — 측면에서 지키기가 크로스보다 값졌다)
+  turnoverMult: 1.2, // 공을 잃었을 때 손해 = 상대 위협값 × 이 값 (띄운 공은 떨어질 칸에서 잃는다)
   laneReachWeight: 0.5, // 패스 추정: 길에서 2칸 떨어진 상대 (이동 한 번이면 굴림) 를 세는 비율
   passCost: 0.012, // 패스 한 번의 고정 비용 (같은 값이면 공을 갖고 있게)
-  backPassPenalty: 0.03, // GK 백패스 추가 비용
+  backPassPenalty: 0.08, // GK 백패스 추가 비용 (정말 막혔을 때만 — 예전 0.03 은 GK ↔ DF 핑퐁)
+  recvPressCost: 0.5, // 받는 칸 옆 상대 1명당 "받자마자 잃을" 손해 (× 그 칸 상대 위협값 × turnoverMult) — 자기 골 앞 압박 속으로 주지 않게
+  returnPassOc: 6, // 공 가진 선수가 자기 진영 열 이 값 미만이면 방금 나에게 준 같은 편에게 되돌려주는 패스에 returnPassPenalty (수비 ↔ 수비 핑퐁 방지)
+  returnPassPenalty: 0.04, // 그 되돌려주는 패스의 추가 비용 (막혔으면 길게 · 앞으로 — GK 백패스 규칙을 필드 선수로 넓힌 것)
   holdPenalty: 0.03, // 지키기 연속 턴마다 깎는 값 (정체 방지)
   shiftBallK: 0.5, // 대형 열 이동 = shiftBallK·(공 열 − 7) + shiftAttack | shiftDefend
   shiftAttack: 1, // 공격 팀 대형 앞당김
@@ -129,20 +192,26 @@ export const HEX_DEFAULTS = Object.freeze({
   holdCols: { DF: 2, MF: 3, FW: 4 }, // 버티기 선호 (내려서기) 열
   startCols: { DF: 2, MF: 4, FW: 6 }, // 킥오프 시작 열
   attackColMax: 13, // 공격 팀 필드 선수 목표 열 상한 (자기 진영)
-  wideFromOc: 8, // 공이 이 열 (자기 진영) 이상이면 공격 MF 바깥 선수는 측면, FW 는 박스 쪽
-  wideRows: [2, 10], // 측면 MF 의 행 (위 · 아래)
+  wideFromOc: 6, // 공이 이 열 (자기 진영) 이상이면 공격 MF 바깥 선수는 측면, FW 는 박스 쪽 (예전 8)
+  wideRows: [1, 11], // 측면 MF 의 행 (위 · 아래, 예전 2 · 10)
   fwNarrow: 0.5, // 상대 진영에서 FW 행 간격 (시작 행 간격 대비)
+  postCols: [13, 13], // 공이 측면 크로스 자리에 있을 때 FW 가 뛰어 들어가는 가까운 · 먼 포스트 열 (자기 진영 — 행은 공 쪽 5 · 7, 먼 쪽 8 · 4: 둘 다 박스)
+  edgeColMF: 11, // 공격 MF 목표 열 상한 — 박스 바로 밖 (컷백 · 중거리 자리, 모두 박스로 몰리지 않게)
   defendColMin: 1, // 수비 팀 목표 열 하한 (자기 진영, 0 = 골라인)
+  defendLineMin: { DF: 1, MF: 3, FW: 5 }, // 수비 팀 줄별 목표 열 하한 — 공이 골 앞이어도 MF · FW 는 박스 밖에 줄을 지킨다 (모두 공으로 몰리지 않게)
   defendColMax: 9, // 수비 팀 목표 열 상한 (자기 진영) — 상대 골 앞까지 올라가 기다리지 않는다
   markRadius: 4, // 마크할 공격수가 자기 기본 자리에서 이 거리 안일 때만 따라간다
   pressLine: 3, // 공격 팀 자기 진영 열 이 값 미만 (자기 골 앞) 의 공격수는 마크하지 않고, 공 가진 선수 압박도 deepPressers 명까지만
   deepPressers: 0, // 그 깊은 곳 압박 인원
+  finalPressers: 2, // 성향 "balanced" 일 때 공 가진 상대가 자기 진영 열 ≥ 10 (자기 골 앞) 이면 압박 인원 (예전 코드 안 2 그대로 — 조정 자리만 뺐다)
   zonalDF: 1, // 1 = 수비 팀 DF 는 마크하지 않고 공 ↔ 골 선 위 자기 자리를 지킨다 (마크 · 패스길은 MF · FW)
   gkFarDist: 6, // 공이 자기 골에서 이 거리보다 멀면 GK 는 골라인 (oc 0) 에 선다
   gkDepthNear: 1.6, // 공이 가까울 때 GK 가 골 중심에서 공 쪽으로 나오는 거리 (칸)
   gkDepthFar: 1, // 공이 멀 때 GK 가 나오는 거리 (칸)
   chaseLoose: 2, // 흘러나온 공을 쫓는 한 팀 인원
   chaseFlight: 1, // 날아가는 공의 떨어질 칸을 쫓는 한 팀 인원 (받는 선수 빼고)
+  gkSaveHold: 1, // 막은 뒤 GK 가 공을 쥐고 (태클 없이) 기다리는 턴 수 — 양 팀이 자리를 잡은 뒤 배급 (선방 → 바로 롱킥 → 슛 되풀이 방지)
+  chaseFlightMinOc: 5, // 상대 팀은 패스한 팀 자기 진영 열 이 값 미만에 떨어지는 짧은 빌드업 패스는 쫓지 않는다 (자기 골 앞 GK ↔ DF 압박 우리 방지 — pressLine 과 같은 뜻)
   // 필살기 (H3, 문서 §3) — 게이지 시작 · 최대 · 합체기 배수는 config.match.ultimate. 아래 4개는 시뮬로 맞춘 [가정] (AI 양쪽 · 경기당 필살기 선수마다 1 ~ 2번)
   gaugeDuelWin: 10, // 겨루기 승 (태클 성공 · 태클 버팀 · 가로채기 · 굴림을 살아남은 패스 · 공중볼 · 선방 · 골) 게이지
   gaugeReceive: 3, // 패스 받기 게이지 (필살 패스면 그 필살기의 receiverGauge)
@@ -399,25 +468,48 @@ function aerialDef(K, defTeam, defender, crosser) {
   return stat(defender, "defense") * num(m.holdMult, 0.6) * styleMult(defender.style, crosser.style, m) * condOf(defTeam) * bonusD(defTeam)
     * U.defMult(K, defTeam.side, defender.id);
 }
-/** 슛 · 헤더 vs GK: 골 확률. blockers = 슛한 선수 앞쪽 3칸의 쉬지 않는 필드 수비 수 */
-function pShot(K, atkTeam, shooter, defTeam, gk, box, header, blockers) {
+/**
+ * 슛 · 헤더 vs GK: 골 확률. blockers = 슛한 선수 앞쪽 3칸의 쉬지 않는 필드 수비 수.
+ * d = 골까지 거리 — 박스 밖 슛 (헤더 · 필살 boxShot 빼고) 은 박스 바로 밖 (BOX_DIST + 1) 보다 한 칸 멀 때마다 골 확률 × longShotDecay
+ * (minP 로 자른 뒤에 곱한다 — 먼 슛은 하한 아래로도 내려간다). 필살 슛은 ultShotRange (예전 사거리) 안에서만 터진다.
+ */
+function pShot(K, atkTeam, shooter, defTeam, gk, box, header, blockers, d = 0) {
   const { m, cfg } = K;
   // 필살 슛 (shoot · headerMult · gkMult · boxShot) · 필살 세이브 (saveMult) · 팀 필살기 · 다음 겨루기 보너스
-  const um = U.shotMods(K, atkTeam.side, shooter.id, defTeam.side, gk.id, box, header);
+  const um = U.shotMods(K, atkTeam.side, shooter.id, defTeam.side, gk.id, box, header, ultFar(cfg, shooter, d, header));
   const base = header ? (stat(shooter, "shoot") + stat(shooter, "physical")) / 2 : stat(shooter, "shoot");
+  // 박스 밖에서도 박스 슛 취급 (boxShot) 인 필살 슛은 먼 슛 깎임도 없다 (문서 §14.2 — 예전 필살 슛 그대로)
+  const far = !header && !box && !um.boxShot ? Math.pow(cfg.longShotDecay, Math.max(0, d - G.BOX_DIST - 1)) : 1;
   const c = header ? coef(m, "header", 1.5) : box || um.boxShot ? coef(m, "shoot", 1.5) : coef(m, "midrangeShoot", 0.6);
   const att = base * c * Math.max(0, 1 + bonusOf(atkTeam, "shootPower")) * styleMult(shooter.style, gk.style, m) * condOf(atkTeam) * um.att;
   const def = stat(gk, "defense") * (cfg.saveCoef ?? coef(m, "save", 1)) * coverTerm(m, blockers) * (header ? num(m.oneTouchGk, 0.85) : 1)
     * styleMult(gk.style, shooter.style, m) * condOf(defTeam) * bonusD(defTeam) * um.def;
-  return prob(m, att, def);
+  return prob(m, att, def) * far;
 }
-/** 패스 정확도 (결정 4: 거리 제한 없음, 멀수록 · 패스가 낮을수록 떨어진다) */
-function passAccuracy(cfg, passer, d) {
+/** 패스 정확도 (결정 4: 거리 제한 없음, 멀수록 · 패스가 낮을수록 떨어진다). 띄운 공은 깎임 × loftAccMult */
+function passAccuracy(cfg, passer, d, lofted = false) {
   if (d <= cfg.accFreeDist) return 1;
-  return clamp(1 - (d - cfg.accFreeDist) * cfg.accDropPerCell * (cfg.accPassRef - stat(passer, "pass") / 1000), cfg.accMin, 1);
+  const drop = cfg.accDropPerCell * (lofted ? cfg.loftAccMult : 1);
+  return clamp(1 - (d - cfg.accFreeDist) * drop * (cfg.accPassRef - stat(passer, "pass") / 1000), cfg.accMin, 1);
+}
+/** 띄운 공인가 (크로스가 아니고 노린 칸까지 loftMin 칸 이상) */
+function isLofted(cfg, d, cross) {
+  return !cross && d >= cfg.loftMin;
+}
+/** 공이 다 날아갈 때까지 턴 수 (그 턴들 동안 받는 선수가 움직인다 — 떠나는 턴 포함) */
+function flightTurns(cfg, d, lofted) {
+  return Math.max(1, Math.ceil(d / Math.max(1, Math.round(lofted ? cfg.loftSpeed : cfg.passSpeed))));
 }
 function shotRange(cfg, p) {
   return Math.round(cfg.shotRangeBase + stat(p, "shoot") / cfg.shotRangeDiv);
+}
+/** 켠 필살 슛이 터지는 거리 = 예전 슛 사거리 (ultShotRangeBase + 슛/ultShotRangeDiv, 반올림 — 보통 사거리보다 길지 않다) */
+function ultShotRange(cfg, p) {
+  return Math.min(shotRange(cfg, p), Math.round(cfg.ultShotRangeBase + stat(p, "shoot") / cfg.ultShotRangeDiv));
+}
+/** 필살 슛 거리 밖인가 (헤더는 늘 안 — 크로스 헤더는 박스) */
+function ultFar(cfg, p, d, header) {
+  return !header && d > ultShotRange(cfg, p);
 }
 function moveRate(cfg, p, hasBall) {
   const s = hasBall ? stat(p, "dribble") : (stat(p, "dribble") + stat(p, "physical")) / 2;
@@ -434,7 +526,7 @@ function emptyStats() {
     skillsUsed: 0, ultimatesUsed: 0, combos: 0, gaanpaUsed: 0,
     // 육각 지표
     passes: 0, passesCompleted: 0, crosses: 0, interceptions: 0, tackles: 0, tacklesWon: 0,
-    dribblesPast: 0, saves: 0, headers: 0, looseWon: 0, holdTurns: 0, carrierTurns: 0,
+    dribblesPast: 0, saves: 0, headers: 0, looseWon: 0, holdTurns: 0, carrierTurns: 0, lofted: 0,
   };
 }
 
@@ -567,6 +659,7 @@ function gainPossession(state, side) {
   if (state.possessionSide !== side) {
     state.possessionSide = side;
     state.possessions += 1;
+    if (state.ball) state.ball.from = null; // 마지막으로 받은 패스 (GK 백패스 규칙) — 공이 넘어가면 지운다
   }
 }
 
@@ -796,9 +889,56 @@ function passEstimate(ctx, side, passer, cell, target) {
   return P;
 }
 
-function isWide(cell, side) {
+/**
+ * 띄운 공 성공 추정 (기획 2026-10-10): 정확도 × 떨어지는 칸 공중볼을 이길 확률. 땅 가로채기는 없다.
+ * 공중볼 상대 = 떨어질 칸 위 · 옆의 쉬지 않는 상대 (그대로) 또는 떨어질 때까지 닿을 수 있는 상대 (loftReachWeight 만큼) 중 가장 센 몫.
+ * 확실한 배급이면 정확도 1 (공중볼은 그대로 — 크로스와 같다).
+ */
+function loftEstimate(ctx, side, passer, cell, target) {
+  const st = ctx.state;
+  const { cfg } = ctx;
+  const opp = otherSide(side);
+  const d = dist(cell, target);
+  const acc = st.live[side][passer.id].sureDist ? 1 : passAccuracy(cfg, passer, d, true);
+  const reach = 1 + flightTurns(cfg, d, true);
+  const pm = U.passMods(ctx, side, passer.id, "pass");
+  let land = 1;
+  for (const oid of st.order[opp]) {
+    if (isResting(st, opp, oid, ctx.T)) continue;
+    const dd = dist(ctx.start[opp][oid], target);
+    if (dd > reach) continue;
+    const w = dd <= 1 ? 1 : cfg.loftReachWeight;
+    land = Math.min(land, 1 - w * (1 - pAerial(ctx, st[side], passer, st[opp], findPlayer(st[opp], oid), pm)));
+  }
+  return acc * land;
+}
+
+/** 같은 편 tid 가 turns 턴 안에 n 칸을 갈 수 있나 (이동률 박자 — 주사위 없음, 길이 막히는 것은 보지 않는다) */
+function canReach(ctx, side, tid, n, turns) {
+  if (n <= 0) return true;
+  const lv = ctx.state.live[side][tid];
+  return Math.floor(num(lv.moveAcc) + moveRate(ctx.cfg, findPlayer(ctx.state[side], tid), false) * turns + 1e-9) >= n;
+}
+
+/** 슛한 선수와 골 사이의 쉬지 않는 상대 필드 선수 수 (골에 더 가깝고, 그 선수 → 골 길에서 1칸 안쪽으로만 벗어난 칸) */
+function crowdBetween(ctx, side, cell) {
+  const st = ctx.state;
+  const opp = otherSide(side);
+  const dir = dirOf(side);
+  const d = dtg(cell, dir);
+  let n = 0;
+  for (const oid of st.order[opp]) {
+    if (st.roles[opp][oid] === "GK" || isResting(st, opp, oid, ctx.T)) continue;
+    const c = ctx.start[opp][oid];
+    if (dtg(c, dir) < d && dist(cell, c) + dtg(c, dir) <= d + 1) n++;
+  }
+  return n;
+}
+
+/** 측면 크로스 자리: 자기 진영 열 ≥ crossFromOc, 행 0 ~ wideRowEdge · (12 − wideRowEdge) ~ 12 */
+function isWide(cfg, cell, side) {
   const r = CR[cell][1];
-  return (r <= 2 || r >= 10) && ocOf(cell, side) >= 9;
+  return (r <= cfg.wideRowEdge || r >= G.ROWS - 1 - cfg.wideRowEdge) && ocOf(cell, side) >= cfg.crossFromOc;
 }
 
 function decide(ctx) {
@@ -818,8 +958,12 @@ function decide(ctx) {
   const tactics = team.tactics || {};
   const gkOpp = findPlayer(oppTeam, st.order[opp][0]);
   const cost = threat(cfg, cell, -dir) * cfg.turnoverMult;
+  // 칸 c 에서 공을 잃을 때 손해 (상대가 그 칸에서 갖는 위협) — 띄운 공은 떨어지는 칸에서 잃는다
+  const costAt = (c) => threat(cfg, c, -dir) * cfg.turnoverMult;
   // 측면 크로스 자리 (isWide) 는 골에서 멀어도 wideThreat 만큼은 위협으로 본다 — 크로스가 나오게
-  const threatAt = (c) => Math.max(threat(cfg, c, dir), isWide(c, side) ? cfg.wideThreat : 0) * Math.max(0, 1 - cfg.threatSpacePenalty * adjOpp(ctx, c, opp));
+  const threatAt = (c) => Math.max(threat(cfg, c, dir), isWide(cfg, c, side) ? cfg.wideThreat : 0) * Math.max(0, 1 - cfg.threatSpacePenalty * adjOpp(ctx, c, opp));
+  // 받자마자 압박에 잃을 손해 (받는 칸 옆 상대 수 × 그 칸 상대 위협) — 자기 골 앞에서 압박 속으로 주고받지 않게
+  const recvRisk = (c) => cfg.recvPressCost * adjOpp(ctx, c, opp) * costAt(c);
   const tmult = (v, on) => (on ? (v > 0 ? v * cfg.tacticBonus : v / cfg.tacticBonus) : v);
   st.stats[side].carrierTurns += 1;
 
@@ -832,56 +976,116 @@ function decide(ctx) {
   // 켠 필살기 행동을 이 턴에 고른다 (문서 §3): 슛 (거리 안 · minLine 3 은 박스) · 패스 (허용된 것 중 최고) · 드리블 (태클이 올 때)
   let forced = null;
 
-  // 슛
+  // 슛 — 박스 밖은 기준 (전술 · 슛 능력치) 을 넘을 때, 골 앞이 붐비면 고르기 값을 더 쳐준다
   const d = dtg(cell, dir);
-  if (!isGK && d <= shotRange(cfg, carrier)) {
-    const box = d <= G.BOX_DIST;
-    const blockers = shotBlockers(ctx, side, cell, ctx.occStart);
-    const p = pShot(ctx, team, carrier, oppTeam, gkOpp, box, false, blockers);
-    const est = p * Math.pow(cfg.shotBlockerEst, blockers);
-    const bar = box ? 0 : tactics.shootTiming === "midrange" ? cfg.midrangeBar : cfg.breakAllBar;
-    if (est >= bar) offer({ action: "shoot", value: est });
-    if (U.shotUltOf(ctx, side, id, box)) forced = { action: "shoot", value: est };
+  const inBoxNow = d <= G.BOX_DIST;
+  const bar = (tactics.shootTiming === "midrange" ? cfg.midrangeBar : cfg.breakAllBar) * Math.max(0, 1 - cfg.barShootScale * stat(carrier, "shoot") / 1000);
+  // 칸 c 에서 지금 쏘는 슛의 고르기 값 (사거리 · 기준 밖이면 0): 막는 수비 1명마다 × shotBlockerEst,
+  // 박스 밖이 붐비면 (사이 상대 ≥ crowdShotN) 그 수비를 막는 수비로 또 깎지 않고 × (1 + crowdShotBonus) — 기준 비교 전에
+  // (붐빌수록 멀리서 때린다. 기준은 그대로라 골 확률이 낮은 슛 (슛 542 FW 의 4칸 0.08 등) 은 붐벼도 고르지 않는다)
+  const shotValueAt = (c) => {
+    const dd = dtg(c, dir);
+    if (isGK || dd > shotRange(cfg, carrier)) return null;
+    const box = dd <= G.BOX_DIST;
+    const bl = shotBlockers(ctx, side, c, ctx.occStart);
+    const p = pShot(ctx, team, carrier, oppTeam, gkOpp, box, false, bl, dd);
+    const crowd = !box && crowdBetween(ctx, side, c) >= cfg.crowdShotN;
+    const v = crowd ? p * (1 + cfg.crowdShotBonus) : p * Math.pow(cfg.shotBlockerEst, bl);
+    return { v, ok: box || v >= bar };
+  };
+  const shotNow = shotValueAt(cell);
+  if (shotNow) {
+    if (shotNow.ok) offer({ action: "shoot", value: shotNow.v });
+    if (U.shotUltOf(ctx, side, id, inBoxNow, ultFar(cfg, carrier, d, false))) forced = { action: "shoot", value: shotNow.v };
   }
 
-  // 패스 · 크로스
+  // 패스 · 크로스 · 띄운 공
   const pressed = adjOpp(ctx, cell, opp) > 0;
-  const wide = isWide(cell, side);
+  const wide = isWide(cfg, cell, side);
+  // GK 백패스: 압박받을 때만, GK 가 방금 나에게 준 공이면 안 된다 (핑퐁 방지)
+  const fromGk = !!(b.from && b.from.side === side && b.from.to === id && st.roles[side][b.from.id] === "GK");
+  // 자기 진영 깊은 곳에서 방금 나에게 (패스로) 준 같은 편에게 되돌려주기는 비싸다 (핑퐁 방지 — 흘러나온 공을 주워도 같다)
+  const returnTo = b.from && b.from.side === side && ocOf(cell, side) < cfg.returnPassOc ? b.from.id : null;
+  // 띄운 공 · 수비 뒤 공간: 그 칸에서 throughFree 칸 안에 쉬지 않는 상대가 없다
+  const nearOpp = (c, r) => st.order[opp].some((oid) => !isResting(st, opp, oid, ctx.T) && dist(ctx.start[opp][oid], c) <= r);
+  const freeAround = (c) => !nearOpp(c, cfg.throughFree);
+  const ocNow = ocOf(cell, side);
+  const myRole = st.roles[side][id];
+  // 띄운 공 고정 비용: 자기 진영 열 loftMidOc ~ loftMidMax 미만 (미드필드) 이면 싸다 — 전환 · 수비 뒤 공간은 걷어내기보다 미드필드에서
+  // (공격 1/3 · 박스에서는 그대로 비싸다 — 박스 앞에서 옆으로 길게 돌리지 않고 슛 · 크로스 · 내주기)
+  const midLoft = ocNow >= cfg.loftMidOc && ocNow < cfg.loftMidMax;
+  const loftFix = cfg.passCost + (midLoft ? cfg.loftCostMid : cfg.loftCost);
+  // 비어 있는 짧은 패스 (받는 칸 shortFreeDist 칸 안에 상대 없음 · 성공 추정 ≥ shortFreeP, GK 빼고) 가 있나 — 있으면 GK · 압박 없는 DF 는 길게 차지 않는다
+  let shortFree = false;
+  const lofts = [];
   for (const tid of st.order[side]) {
     if (tid === id) continue;
     const tRole = st.roles[side][tid];
-    if (tRole === "GK" && (!pressed || isGK)) continue;
+    if (tRole === "GK" && (!pressed || isGK || fromGk)) continue;
     if (isResting(st, side, tid, ctx.T)) continue;
     const tm = findPlayer(team, tid);
     const tc = st.pos[side][tid];
     const targets = [tc];
     const lead = straight(tc, dir);
     if (lead >= 0 && !ctx.occStart[lead] && tRole !== "GK") targets.push(lead);
+    // 수비 뒤 공간 (띄운 공): FW · MF 의 2칸 앞 빈 칸 — 받는 선수가 떨어질 때까지 닿을 때만
+    if (cfg.throughBall && lead >= 0 && !ctx.occStart[lead] && (tRole === "FW" || tRole === "MF")) {
+      const lead2 = straight(lead, dir);
+      const d2 = lead2 >= 0 ? dist(cell, lead2) : 0;
+      if (lead2 >= 0 && !ctx.occStart[lead2] && d2 >= cfg.loftMin && canReach(ctx, side, tid, 2, flightTurns(cfg, d2, true)) && freeAround(lead2)) targets.push(lead2);
+    }
+    // 크로스: 떨어질 때까지 뛰어 들어갈 수 있는 박스 칸 (지금 칸 옆, 공격 방향 기준 순서)
+    if (wide && cfg.crossRun && tRole !== "GK") {
+      for (const nb of neiRel(tc, dir)) {
+        if (ctx.occStart[nb] || targets.includes(nb) || dtg(nb, dir) > G.BOX_DIST) continue;
+        if (canReach(ctx, side, tid, 1, flightTurns(cfg, dist(cell, nb), false))) targets.push(nb);
+      }
+    }
     for (const tgt of targets) {
       const cross = wide && tRole !== "GK" && dtg(tgt, dir) <= G.BOX_DIST;
+      const pd = dist(cell, tgt);
+      const lofted = isLofted(cfg, pd, cross);
+      // 띄운 공을 받는 선수가 뛰어가야 하는 칸 (앞 칸) 은 둘레가 비었을 때만 — 상대가 먼저 들어가 공이 흐르지 않게
+      if (lofted && tgt !== tc && !freeAround(tgt)) continue;
       let value;
       if (cross) {
-        const acc = passAccuracy(cfg, carrier, dist(cell, tgt));
+        const acc = passAccuracy(cfg, carrier, pd);
         const def = bestAerialDefender(ctx, tgt, opp, carrier, ctx.occStart);
         const pa = def ? pAerial(ctx, team, carrier, oppTeam, findPlayer(oppTeam, def), U.passMods(ctx, side, id, "cross")) : 1;
         const hp = dtg(tgt, dir) <= shotRange(cfg, tm) ? pShot(ctx, team, tm, oppTeam, gkOpp, true, true, 0) : 0;
         const P = acc * pa;
         value = P * Math.max(threatAt(tgt), hp * cfg.crossHeaderEst) - (1 - P) * cost - cfg.passCost;
+      } else if (lofted) {
+        const P = loftEstimate(ctx, side, carrier, cell, tgt);
+        value = P * (threatAt(tgt) - recvRisk(tgt)) - (1 - P) * costAt(tgt) - loftFix;
+        // 전환 (행 switchRows 이상 옆으로 · 떨어질 칸 둘레가 빔) 은 더 값지다
+        if (midLoft && Math.abs(CR[tgt][1] - CR[cell][1]) >= cfg.switchRows && freeAround(tgt)) value += cfg.switchBonus;
       } else {
         const P = passEstimate(ctx, side, carrier, cell, tgt);
-        value = P * threatAt(tgt) - (1 - P) * cost - cfg.passCost - (tRole === "GK" ? cfg.backPassPenalty : 0);
+        value = P * (threatAt(tgt) - recvRisk(tgt)) - (1 - P) * cost - cfg.passCost - (tRole === "GK" ? cfg.backPassPenalty : 0);
+        if (!cross && tRole !== "GK" && P >= cfg.shortFreeP && !nearOpp(tgt, cfg.shortFreeDist)) shortFree = true;
       }
-      offer({ action: cross ? "cross" : "pass", value: tmult(value, tactics.attack === "pass"), receiverId: tid, target: tgt });
+      if (tid === returnTo && tRole !== "GK") value -= cfg.returnPassPenalty;
+      const opt = { action: cross ? "cross" : "pass", value, receiverId: tid, target: tgt };
+      if (lofted) lofts.push(opt);
+      else offer(Object.assign(opt, { value: tmult(value, tactics.attack === "pass") }));
     }
   }
+  // 띄운 공은 짧은 패스를 다 본 뒤에: 비어 있는 짧은 패스가 있으면 GK · 압박 없는 DF 의 띄운 공은 loftCostFree 더 (걷어내기만 하지 않게)
+  const loftNeedless = shortFree && (isGK || (myRole === "DF" && !pressed));
+  for (const o of lofts) offer(Object.assign(o, { value: tmult(o.value - (loftNeedless ? cfg.loftCostFree : 0), tactics.attack === "pass") }));
 
   if (!isGK) {
+    // 박스 안에서 지키기 · 드리블은 덜 값지다 (끌지 말고 슛하거나 내준다)
+    const km = inBoxNow ? cfg.boxKeepMult : 1;
     // 드리블
     const dt = dribbleTarget(ctx, side, cell);
     if (dt >= 0) {
       const tk = tackleSetup(ctx, side, cell, "dribble", dt);
       const P = tk ? pKeep(ctx, team, carrier, oppTeam, findPlayer(oppTeam, tk.id), tk.helpers, "dribble") : 1;
-      const value = P * threatAt(dt) - (1 - P) * cost;
+      // 박스 밖에서는 한 칸 앞에서 쏠 슛 값 (× lookShotMult) 도 본다 — 사거리 끝에서 바로 쏘지 않고, 다가갈 수 있으면 다가간다
+      const ahead = !inBoxNow ? shotValueAt(dt) : null;
+      const value = P * Math.max(threatAt(dt) * km, ahead && ahead.ok ? ahead.v * cfg.lookShotMult : 0) - (1 - P) * cost;
       const opt = { action: "dribble", value: tmult(value, tactics.attack === "dribble"), target: dt, tackle: tk };
       offer(opt);
       if (tk && U.armedOf(ctx, side, id, "dribble")) forced = opt;
@@ -889,7 +1093,7 @@ function decide(ctx) {
     // 지키기
     const tk = tackleSetup(ctx, side, cell, "hold", -1);
     const P = tk ? pKeep(ctx, team, carrier, oppTeam, findPlayer(oppTeam, tk.id), tk.helpers, "hold") : 1;
-    offer({ action: "hold", value: P * threatAt(cell) - (1 - P) * cost - cfg.holdPenalty * b.holdStreak, tackle: tk });
+    offer({ action: "hold", value: P * threatAt(cell) * km - (1 - P) * cost - cfg.holdPenalty * b.holdStreak, tackle: tk });
   }
   // 필살 패스: 허용된 패스 (actions) 중 기대값 최고 — 합체기 짝에게 가는 패스는 × comboBonus ([구현 결정])
   const pu = U.armedOf(ctx, side, id, "pass");
@@ -899,6 +1103,9 @@ function decide(ctx) {
   }
   if (forced) best = forced;
   if (!best) best = { action: "hold", value: 0, tackle: null }; // GK 가 줄 곳이 없을 때 (모두 쉬는 중)
+  // 막은 뒤 GK 는 gkSaveHold 턴 공을 손에 쥐고 기다린다 (태클 없음) — 그동안 양 팀이 자리를 잡는다
+  // (바로 길게 차면 선방 → 역습 → 슛 → 선방이 되풀이됐다)
+  if (isGK && b.saveHold != null && ctx.T <= b.saveHold) best = { action: "hold", value: 0, tackle: null };
   if (decisionOverride) {
     const f = decisionOverride({ state: st, side, id, cell, turn: ctx.T });
     if (f && f.action) best = forcedOption(ctx, f, side, cell);
@@ -961,6 +1168,7 @@ function bestAerialDefender(ctx, cell, opp, crosser, occ) {
 
 /**
  * 패스 · 크로스 출발: 정확도 굴림 (거리 > accFreeDist 일 때만) → 빗나가면 노린 칸 이웃 중 하나.
+ * 노린 칸까지 loftMin 칸 이상인 (크로스 아닌) 패스는 띄운 공 (lofted — 땅 가로채기 없음 · loftSpeed · 떨어지는 칸 공중볼).
  * 필살 패스면 여기서 터진다 (컷인 → pass 이벤트). 확실한 배급 (세이브 뒤 GK) = 정확도 1 · 땅 가로채기 없음.
  */
 function launchPass(ctx, side, id, receiverId, intended, cross) {
@@ -971,7 +1179,8 @@ function launchPass(ctx, side, id, receiverId, intended, cross) {
   const lv = st.live[side][id];
   const sure = !!lv.sureDist;
   if (sure) lv.sureDist = false;
-  const acc = sure ? 1 : passAccuracy(ctx.cfg, passer, d);
+  const lofted = isLofted(ctx.cfg, d, cross);
+  const acc = sure ? 1 : passAccuracy(ctx.cfg, passer, d, lofted);
   let accurate = true;
   if (acc < 1) accurate = roll(ctx.rng, "accuracy", acc, { side, passerId: id, receiverId, target: intended });
   let target = intended;
@@ -985,10 +1194,12 @@ function launchPass(ctx, side, id, receiverId, intended, cross) {
   st.ball.holder = null;
   st.ball.loose = false;
   st.ball.cell = cell;
-  st.ball.flight = { side, passerId: id, receiverId, cross, path, at: 0, target, intendedTarget: intended, rolled: [], ult, bonus, sure };
+  st.ball.flight = { side, passerId: id, receiverId, cross, lofted, path, at: 0, target, intendedTarget: intended, rolled: [], ult, bonus, sure };
+  st.ball.from = { side, id, to: receiverId }; // 찬 선수 (받거나 같은 편이 흘러나온 공을 주워도 남는다 — 되돌려주기 · GK 백패스 규칙)
   st.stats[side].passes += 1;
   if (cross) st.stats[side].crosses += 1;
-  pushEvent(st, ctx.T, { type: "pass", side, from: id, to: receiverId, fromCell: cell, target, intended, cross, accurate });
+  if (lofted) st.stats[side].lofted += 1;
+  pushEvent(st, ctx.T, { type: "pass", side, from: id, to: receiverId, fromCell: cell, target, intended, cross, lofted, accurate });
 }
 
 /* ------------------------------------------------------------------ */
@@ -1092,7 +1303,10 @@ function computeTargets(ctx, plan) {
   }
   if (landing >= 0) {
     const n = b.flight ? cfg.chaseFlight : cfg.chaseLoose;
+    // 깊은 빌드업 패스 (패스한 팀 자기 진영 열 < chaseFlightMinOc) 는 그 팀만 쫓는다 — 상대는 대형 자리로 (띄운 공 · 크로스는 늘 다툰다)
+    const deep = !!(b.flight && !b.flight.lofted && !b.flight.cross && ocOf(landing, b.flight.side) < cfg.chaseFlightMinOc);
     for (const s of SIDES) {
+      if (deep && s !== b.flight.side) continue;
       const cands = st.order[s]
         .map((id, i) => ({ id, i, d: dist(pos[s][id], landing) }))
         .filter((x) => targets[s][x.id] === undefined && (st.roles[s][x.id] !== "GK" || ZONE[s][landing]) && !isResting(st, s, x.id, ctx.T));
@@ -1113,6 +1327,8 @@ function computeTargets(ctx, plan) {
   const defTactic = (st[def].tactics && st[def].tactics.defense) || "balanced";
   const slotsA = lineSlots(st, atk);
   const slotsD = lineSlots(st, def);
+  // 공 가진 공격 선수가 측면 크로스 자리 (FW 가 포스트로 뛰어 들어간다)
+  const ballCarrierWide = !!(b.holder && b.holder.side === atk && isWide(cfg, bc, atk));
   const anchor = (s, id, slots, attacking) => {
     const { role, idx, n } = slots[id];
     const ballOc = ocOf(bc, s);
@@ -1121,13 +1337,24 @@ function computeTargets(ctx, plan) {
     if (attacking) {
       const shift = cfg.shiftBallK * (ballOc - 7) + cfg.shiftAttack;
       let row = row0;
+      let colMax = cfg.attackColMax;
       // 상대 진영 (공 열 ≥ wideFromOc): 바깥 MF 는 측면 (크로스 자리) 으로 벌리고, FW 는 박스 쪽으로 좁힌다
       if (ballOc >= cfg.wideFromOc && role === "MF" && n >= 2 && row0 !== 6) row = row0 < 6 ? cfg.wideRows[0] : cfg.wideRows[1];
       if (ballOc >= cfg.wideFromOc && role === "FW") row = 6 + (row0 - 6) * cfg.fwNarrow;
-      return ownCell(clamp(cfg.baseCols[role] + shift, 1, cfg.attackColMax), row, s);
+      // MF 는 박스 바로 밖까지만 (컷백 · 중거리 자리) — 모두 박스로 몰리지 않게
+      if (role === "MF") colMax = Math.min(colMax, cfg.edgeColMF);
+      // 공이 측면 크로스 자리면 FW 는 가까운 · 먼 포스트로 뛰어 들어간다 (공 쪽 행의 FW 가 가까운 포스트)
+      if (role === "FW" && ballCarrierWide) {
+        const up = ballR < 6;
+        const near = n < 2 || (up ? row0 < 6 : row0 > 6) || (row0 === 6 && idx === 0);
+        return ownCell(near ? cfg.postCols[0] : cfg.postCols[1], near ? (up ? 5 : 7) : (up ? 8 : 4), s);
+      }
+      return ownCell(clamp(cfg.baseCols[role] + shift, 1, colMax), row, s);
     }
-    // 수비: 공 → 자기 골 가운데 (oc −1, 행 6) 선 위에 줄을 세우고, 대형 행 간격은 defendSpread 만큼 좁힌다
-    const col = defTactic === "hold" ? cfg.holdCols[role] : clamp(cfg.baseCols[role] + cfg.shiftBallK * (ballOc - 7) + cfg.shiftDefend, cfg.defendColMin, cfg.defendColMax);
+    // 수비: 공 → 자기 골 가운데 (oc −1, 행 6) 선 위에 줄을 세우고, 대형 행 간격은 defendSpread 만큼 좁힌다.
+    // 줄마다 하한 (defendLineMin) — 공이 골 앞이어도 MF · FW 는 박스 밖 줄을 지킨다 (모두 공으로 몰리지 않게)
+    const lineMin = Math.max(cfg.defendColMin, num(cfg.defendLineMin && cfg.defendLineMin[role], cfg.defendColMin));
+    const col = defTactic === "hold" ? cfg.holdCols[role] : clamp(cfg.baseCols[role] + cfg.shiftBallK * (ballOc - 7) + cfg.shiftDefend, lineMin, Math.max(lineMin, cfg.defendColMax));
     const lane = ballOc > col ? 6 + ((ballR - 6) * (col + 1)) / (ballOc + 1) : ballR;
     return ownCell(col, lane + (row0 - 6) * cfg.defendSpread, s);
   };
@@ -1137,7 +1364,7 @@ function computeTargets(ctx, plan) {
   const atkDir = dirOf(atk);
   if (b.holder) {
     let nPress = defTactic === "tackle" ? 2 : 1;
-    if (defTactic === "balanced" && ocOf(carrierCell, atk) >= 10) nPress = 2;
+    if (defTactic === "balanced" && ocOf(carrierCell, atk) >= 10) nPress = Math.max(nPress, Math.round(cfg.finalPressers)); // 자기 골 앞 압박 인원
     if (ocOf(carrierCell, atk) < cfg.pressLine) nPress = Math.min(nPress, cfg.deepPressers); // 상대 골 앞 빌드업은 덜 압박
     if (plan.tackle && plan.tackle.side === def) nPress = Math.max(0, nPress - 1); // 이번 턴 태클하는 수비도 압박 인원 (결정 19)
     const cands = st.order[def]
@@ -1386,8 +1613,8 @@ function resolveShot(ctx, side, id, header) {
   const box = d <= G.BOX_DIST;
   // 막는 수비: 슛은 턴 시작 칸 (공이 이동 전에 떠난다), 헤더는 지금 칸 (크로스가 이동 뒤에 도착 — [구현 결정])
   const blockers = shotBlockers(ctx, side, cell, header ? occupancy(st.pos) : ctx.occStart);
-  const um = U.shotMods(ctx, side, id, opp, gk.id, box, header);
-  const p = pShot(ctx, st[side], shooter, st[opp], gk, box, header, blockers);
+  const um = U.shotMods(ctx, side, id, opp, gk.id, box, header, ultFar(ctx.cfg, shooter, d, header));
+  const p = pShot(ctx, st[side], shooter, st[opp], gk, box, header, blockers, d);
   const goal = roll(ctx.rng, header ? "header" : "shot", p, { side, playerId: id, box, blockers });
   if (um.shot) U.fire(ctx, side, id);
   if (um.save) U.fire(ctx, opp, gk.id);
@@ -1415,14 +1642,15 @@ function resolveShot(ctx, side, id, header) {
     st.ball.holder = { side: opp, id: gk.id };
     st.ball.cell = st.pos[opp][gk.id];
     st.ball.holdStreak = 0;
+    st.ball.saveHold = T + Math.max(0, Math.round(ctx.cfg.gkSaveHold)); // 이 턴까지 GK 가 쥐고 기다린다 (decide)
     gainPossession(st, opp);
     pushEvent(st, T, { type: "save", side: opp, gkId: gk.id });
   }
 }
 
 /**
- * 공 비행 (결정 9 · 문서 §2.2-4): 이번 턴에 최대 passSpeed 칸. 그 칸들 위 · 옆의 쉬지 않는 상대가 (한 패스에 한 번씩)
- * 먼저 닿는 칸 → 칸 위 먼저 → 이동 순서로 굴린다. 크로스 · 확실한 배급은 땅 가로채기 없음.
+ * 공 비행 (결정 9 · 문서 §2.2-4): 이번 턴에 최대 passSpeed 칸 (띄운 공 loftSpeed 칸). 그 칸들 위 · 옆의 쉬지 않는 상대가 (한 패스에 한 번씩)
+ * 먼저 닿는 칸 → 칸 위 먼저 → 이동 순서로 굴린다. 크로스 · 띄운 공 · 확실한 배급은 땅 가로채기 없음.
  * 필살 패스: 굴림마다 attack (× 합체기 · 다음 겨루기), negateRead = 옆 수비 +10% 없음, extraLine = 첫 가로채기 성공 1번 무시 [가정].
  * 필살 수비를 켠 수비는 이 굴림에서 터진다.
  */
@@ -1430,10 +1658,10 @@ function advanceFlight(ctx) {
   const st = ctx.state;
   const { T, cfg } = ctx;
   const f = st.ball.flight;
-  const seg = f.path.slice(f.at, f.at + Math.max(1, Math.round(cfg.passSpeed)));
+  const seg = f.path.slice(f.at, f.at + Math.max(1, Math.round(f.lofted ? cfg.loftSpeed : cfg.passSpeed)));
   const opp = otherSide(f.side);
   const passer = findPlayer(st[f.side], f.passerId);
-  if (!f.cross && !f.sure) {
+  if (!f.cross && !f.lofted && !f.sure) {
     const touch = (c) => {
       for (let i = 0; i < seg.length; i++) {
         if (seg[i] === c) return i * 2;
@@ -1502,6 +1730,7 @@ function receive(ctx, side, id) {
   st.ball.holdStreak = 0;
   st.stats[side].passesCompleted += 1;
   gainPossession(st, side);
+  st.ball.from = f ? { side: f.side, id: f.passerId, to: id } : null; // GK 가 방금 준 공이면 GK 에게 돌려주지 않는다 (decide)
   pushEvent(st, ctx.T, { type: "receive", side, playerId: id, cell: st.ball.cell });
 }
 
@@ -1514,7 +1743,10 @@ function looseAt(ctx, cell) {
   pushEvent(st, ctx.T, { type: "loose", cell });
 }
 
-/** 도착 (문서 §2.2 패스): 같은 편 → 받음 (크로스는 공중볼 → 헤더), 상대 → 옆 빈 칸으로 튐, 빈 칸 → 흘러나온 공 */
+/**
+ * 도착 (문서 §2.2 패스): 같은 편 → 받음 (크로스 · 띄운 공은 공중볼 먼저, 크로스는 그다음 헤더), 상대 → 옆 빈 칸으로 튐, 빈 칸 → 흘러나온 공.
+ * 띄운 공의 공중볼에 진 것을 필살 패스 extraLine 이 1번 무시한다 (땅 가로채기 무시 1번과 같은 몫 — 기획 확인 [구현 결정]).
+ */
 function arrive(ctx) {
   const st = ctx.state;
   const { T, cfg } = ctx;
@@ -1523,7 +1755,7 @@ function arrive(ctx) {
   const o = occ[f.target];
   if (f.rolled.length) addDuelWin(ctx, f.side, f.passerId, !!f.ult); // 가로채기 굴림을 1번 이상 살아남은 패스 (필살 패스는 게이지 없음)
   if (o && o.side === f.side) {
-    if (f.cross) {
+    if (f.cross || f.lofted) {
       const opp = otherSide(f.side);
       const crosser = findPlayer(st[f.side], f.passerId);
       const defId = bestAerialDefender(ctx, f.target, opp, crosser, occ);
@@ -1531,9 +1763,17 @@ function arrive(ctx) {
         const defender = findPlayer(st[opp], defId);
         const defUlt = U.armedOf(ctx, opp, defId, "defense");
         const pa = pAerial(ctx, st[f.side], crosser, st[opp], defender, U.flightMods(ctx, f));
-        const win = roll(ctx.rng, "aerial", pa, { crosserId: f.passerId, receiverId: o.id, defenderId: defId });
+        let win = roll(ctx.rng, "aerial", pa, { crosserId: f.passerId, receiverId: o.id, defenderId: defId, lofted: !!f.lofted });
         if (defUlt) U.fire(ctx, opp, defId);
+        let ignored = false;
+        if (!win && f.lofted && f.ult && f.ult.extraLeft > 0) {
+          f.ult.extraLeft = 0; // 필살 패스 "가로채기 무시 1번" = 띄운 공은 떨어지는 칸 공중볼 1번
+          win = true;
+          ignored = true;
+        }
         const ev = pushEvent(st, T, { type: "aerial", side: f.side, attackerId: o.id, defenderId: defId, success: win, p: pa });
+        if (f.lofted) ev.lofted = true;
+        if (ignored) ev.extraLine = true;
         if (!win && f.ult) ev.reverseCutin = U.reverseCutin("passCut", opp, defId, flightUsed(f));
         if (!win) {
           addDuelWin(ctx, opp, defId);
@@ -1545,6 +1785,10 @@ function arrive(ctx) {
           return;
         }
         addDuelWin(ctx, f.side, f.passerId, !!f.ult);
+      }
+      if (f.lofted) {
+        receive(ctx, o.side, o.id);
+        return;
       }
       receive(ctx, o.side, o.id);
       const rp = findPlayer(st[o.side], o.id);
@@ -1600,7 +1844,8 @@ function afterTurn(ctx) {
       finishMatch(st, T);
       return;
     }
-    kickoff(st, otherSide(ctx.goal.side), T, cfg);
+    // 경기를 끝내는 골 (정규 · 추가시간 마지막) 뒤에는 킥오프를 하지 않는다 — 골든골 결승골과 같다
+    if (!goalEndsMatch(st, m, ctx.goal.side)) kickoff(st, otherSide(ctx.goal.side), T, cfg);
   }
   if (st.stage === "addedTime") {
     const t = st.addedTime.side;
@@ -1636,6 +1881,28 @@ function afterTurn(ctx) {
     initPenalties(st);
     pushEvent(st, T, { type: "penalties" });
   }
+}
+
+/**
+ * 이 턴의 골 (scorer) 뒤 아래 단계 판정이 경기를 끝내나 — 그렇다면 킥오프를 하지 않는다. afterTurn 의 판정과 같은 식
+ * (킥오프를 하면 골 먹은 쪽이 공을 갖는다: 정규 끝에 그 쪽이 정확히 lastAttackDeficit 골 뒤지면 추가시간, 동점 · goal / arena 면 골든골).
+ */
+function goalEndsMatch(st, m, scorer) {
+  const conceding = otherSide(scorer);
+  const diff = st.score.home - st.score.away;
+  const regulationFinishes = !(diff === 0 && st.kind !== "friendly");
+  if (st.stage === "regular") {
+    if (st.turn < st.stageEndTurn) return false;
+    const deficit = Math.round(num(m.lastAttackDeficit, 1));
+    if (!st.addedTime && deficit >= 1 && Math.abs(diff) === deficit && (diff < 0 ? "home" : "away") === conceding) return false;
+    return regulationFinishes;
+  }
+  if (st.stage === "addedTime") {
+    const t = st.addedTime.side;
+    if (scorer !== t && st.turn < st.stageEndTurn) return false; // 앞선 팀 골 — 킥오프로 뒤진 팀이 다시 공을 갖고 추가시간이 이어진다
+    return regulationFinishes;
+  }
+  return false;
 }
 
 /** 정규 (+ 추가시간) 끝: 동점 · goal / arena → 골든골, 아니면 종료 */
@@ -1817,14 +2084,14 @@ function ultSituation(state, data, side, id, u) {
     case "shot": {
       if (!holding) return { ok: false, reason: "공을 가지면" };
       const d = dtg(cell, dirOf(side));
-      if (state.roles[side][id] === "GK" || d > shotRange(cfg, findPlayer(state[side], id))) return { ok: false, reason: "슛 거리에서" };
+      if (state.roles[side][id] === "GK" || d > ultShotRange(cfg, findPlayer(state[side], id))) return { ok: false, reason: "슛 거리에서" };
       if (num(u.minLine, 2) >= 3 && d > G.BOX_DIST) return { ok: false, reason: "박스 안에서" };
       return { ok: true, reason: "" };
     }
     case "pass": {
       if (!holding) return { ok: false, reason: "공을 가지면" };
       const acts = (Array.isArray(u.actions) && u.actions.length ? u.actions : ["pass", "cross"]);
-      if (!acts.includes("pass") && !isWide(cell, side)) return { ok: false, reason: "크로스 자리에서" };
+      if (!acts.includes("pass") && !isWide(cfg, cell, side)) return { ok: false, reason: "크로스 자리에서" };
       return { ok: true, reason: "" };
     }
     case "dribble": {

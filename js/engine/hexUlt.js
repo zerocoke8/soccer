@@ -326,21 +326,24 @@ export function defMult(K, side, id) {
 /**
  * 슛에 터질 필살 슛 (켠 상태 + minLine 3 이면 박스 슛만) 또는 null.
  * minLine 은 육각에서 "박스 안 (골까지 거리 ≤ BOX_DIST)" 만 뜻한다 (2 = 제한 없음).
+ * far = 필살 슛 거리 (hexMatch ultShotRange — 예전 슛 사거리) 밖 → 터지지 않고 켠 채로 (보통 슛 사거리가 늘어도 필살 슛은 예전 거리에서).
  */
-export function shotUltOf(K, side, id, box) {
+export function shotUltOf(K, side, id, box, far = false) {
   const a = armedOf(K, side, id, "shot");
   if (!a) return null;
   if (num(a.u.minLine, 2) >= 3 && !box) return null;
+  if (far) return null;
   return a;
 }
 
 /**
  * 슛 · 헤더 겨루기 배수: { att, def, boxShot, shot, save } — shot/save = 터질 필살기 정보 (없으면 null).
  * att = shoot (× headerMult 헤더) × 합체기 × 다음 겨루기 × 팀, def = gkMult × saveMult × 팀,
- * boxShot = 박스 밖에서도 박스 계수 (문서 §10 "파이널 서드에서도 박스 슛 취급").
+ * boxShot = 박스 밖에서도 박스 계수 (문서 §10 "파이널 서드에서도 박스 슛 취급") — 먼 슛 깎임 (longShotDecay) 도 없다.
+ * far = shotUltOf 와 같다 (필살 슛 거리 밖이면 필살 슛 없음).
  */
-export function shotMods(K, side, shooterId, gkSide, gkId, box, header) {
-  const shot = shotUltOf(K, side, shooterId, box);
+export function shotMods(K, side, shooterId, gkSide, gkId, box, header, far = false) {
+  const shot = shotUltOf(K, side, shooterId, box, far);
   const save = armedOf(K, gkSide, gkId, "save");
   let att = teamMult(K, side) * nextBonusMult(K, side, shooterId);
   let def = teamMult(K, gkSide);

@@ -174,12 +174,30 @@ function assertScopedClasses(scr) {
 }
 const typesOfStep = (st) => HS.eventsOfTurn(st).map((e) => e.type);
 
+/**
+ * 시드 hf-0, hf-1, … 를 돌려 pred(이번 step 이벤트 종류, 상태) 가 처음 맞는 { seed, step } — 엔진 흐름을 조정해도
+ * (경기 흐름 2026-10-10 처럼) 시드 · step 번호를 손으로 고치지 않게. mount(seed, step − 1) 다음 step 이 그 장면.
+ */
+function findScene(pred, { minStep = 1 } = {}) {
+  for (let i = 0; i < 400; i++) {
+    const seed = `hf-${i}`;
+    const st = HM.createMatch({ data, seed, home: HOME, away: AWAY, kind: "goal" });
+    for (let n = 1; !st.finished && n < 2000; n++) {
+      const e0 = st.events.length;
+      HM.step(st, data);
+      if (n >= minStep && pred(st.events.slice(e0).map((e) => e.type), st)) return { seed, step: n };
+    }
+  }
+  throw new Error("findScene: 장면 없음");
+}
+
 test("골 연출: \"골!\" + 득점자 · 시계 멈춤 · 골 장면 동안 공은 골망 · 장면 뒤 킥오프 자리 · 그다음 턴", { skip: !JSDOM && "jsdom 미설치" }, async (t) => {
   setup(t);
-  const { st, scr } = mount("hf-0", 59);
-  await pump(950); // 시작 0.9 초 전체 화면 → step 60 = shot, goal, kickoff
-  assert.equal(dbg().steps, 60);
-  assert.deepEqual(typesOfStep(st).filter((x) => ["goal", "kickoff"].includes(x)), ["goal", "kickoff"], "시드 hf-0 step 60 = 골");
+  const sc = findScene((ty) => ty.includes("goal") && ty.includes("kickoff") && !ty.includes("end"), { minStep: 20 });
+  const { st, scr } = mount(sc.seed, sc.step - 1);
+  await pump(950); // 시작 0.9 초 전체 화면 → 다음 step = shot, goal, kickoff
+  assert.equal(dbg().steps, sc.step);
+  assert.deepEqual(typesOfStep(st).filter((x) => ["goal", "kickoff"].includes(x)), ["goal", "kickoff"], `시드 ${sc.seed} step ${sc.step} = 골`);
   const gEv = HS.eventsOfTurn(st).find((e) => e.type === "goal");
   const b = bannerOf(scr);
   assert.equal(b.text, "골!");
@@ -203,18 +221,19 @@ test("골 연출: \"골!\" + 득점자 · 시계 멈춤 · 골 장면 동안 공
     assert.ok(Math.abs(p.sx - q.sx) < 1e-9 && Math.abs(p.sy - q.sy) < 1e-9, `킥오프 자리 ${p.key}`);
   }
   await pump(450); // 2.0 초 = 다음 step
-  assert.equal(dbg().steps, 61, "골 연출 뒤 다음 턴");
+  assert.equal(dbg().steps, sc.step + 1, "골 연출 뒤 다음 턴");
   leave();
   await pump(32);
 });
 
 test("동점골 → 골든골 (한 step): \"골!\" 먼저, 골든골 배너는 골 장면 뒤 · 시계 '골든골 0:30'", { skip: !JSDOM && "jsdom 미설치" }, async (t) => {
   setup(t);
-  const { st, scr } = mount("hf-21", 304);
+  const sc = findScene((ty) => ty.includes("goal") && ty.includes("goldenGoal"));
+  const { st, scr } = mount(sc.seed, sc.step - 1);
   await pump(950);
-  assert.equal(dbg().steps, 305);
+  assert.equal(dbg().steps, sc.step);
   const types = typesOfStep(st);
-  assert.ok(types.includes("goal") && types.includes("goldenGoal"), `시드 hf-21 step 305 = 동점골 + 골든골 (${types})`);
+  assert.ok(types.includes("goal") && types.includes("goldenGoal"), `시드 ${sc.seed} step ${sc.step} = 동점골 + 골든골 (${types})`);
   let b = bannerOf(scr);
   assert.equal(b.text, "골!", "골 배너가 덮이지 않는다");
   assert.ok(!b.cls.includes("hx-stage"));
@@ -235,9 +254,10 @@ test("동점골 → 골든골 (한 step): \"골!\" 먼저, 골든골 배너는 �
 
 test("골든골 결승골: 킥오프 없음 → 골 장면 뒤에도 공은 골망, 그 뒤 결과", { skip: !JSDOM && "jsdom 미설치" }, async (t) => {
   setup(t);
-  const { st, scr } = mount("hf-5", 346);
+  const sc = findScene((ty, s) => ty.includes("goal") && ty.includes("end") && s.stage === "goldenGoal");
+  const { st, scr } = mount(sc.seed, sc.step - 1);
   await pump(950);
-  assert.equal(dbg().steps, 347);
+  assert.equal(dbg().steps, sc.step);
   assert.ok(st.finished && st.stage === "goldenGoal", "골든골로 끝");
   assert.deepEqual(typesOfStep(st).filter((x) => ["goal", "kickoff", "end"].includes(x)), ["goal", "end"], "킥오프 없음");
   const gEv = HS.eventsOfTurn(st).find((e) => e.type === "goal");
@@ -258,9 +278,10 @@ test("골든골 결승골: 킥오프 없음 → 골 장면 뒤에도 공은 골�
 test("추가시간 · 승부차기: 단계 배너 (hx-stage) · 시계 글자 · 승부차기 한 킥 ~0.9 초 · PK 점수", { skip: !JSDOM && "jsdom 미설치" }, async (t) => {
   setup(t);
   {
-    const { st, scr } = mount("hf-4", 299);
+    const sc = findScene((ty) => ty.includes("addedTime"));
+    const { st, scr } = mount(sc.seed, sc.step - 1);
     await pump(950);
-    assert.ok(typesOfStep(st).includes("addedTime"), "시드 hf-4 step 300 = 추가시간");
+    assert.ok(typesOfStep(st).includes("addedTime"), `시드 ${sc.seed} step ${sc.step} = 추가시간`);
     const b = bannerOf(scr);
     assert.equal(b.text, "추가시간");
     assert.deepEqual(b.cls, ["hx-banner", "hx-show", "hx-stage"]);
@@ -269,9 +290,10 @@ test("추가시간 · 승부차기: 단계 배너 (hx-stage) · 시계 글자 ·
     assertScopedClasses(scr);
   }
   {
-    const { st, scr } = mount("hf-64", 374);
+    const sc = findScene((ty) => ty.includes("penalties"));
+    const { st, scr } = mount(sc.seed, sc.step - 1);
     await pump(950);
-    assert.ok(typesOfStep(st).includes("penalties"), "시드 hf-64 step 375 = 승부차기");
+    assert.ok(typesOfStep(st).includes("penalties"), `시드 ${sc.seed} step ${sc.step} = 승부차기`);
     assert.equal(bannerOf(scr).text, "승부차기");
     assert.ok(bannerOf(scr).cls.includes("hx-stage"));
     assert.equal(scr.querySelector(".hx-clock").textContent, "승부차기");

@@ -569,7 +569,15 @@ test("화면: 턴 전 컷인 동안은 말풍선 없음 → 컷인 뒤 그 턴�
 
 test("화면: 역컷인 (그 턴 그림 뒤) 동안은 말풍선을 숨기고 시간을 멈춘다 → 끝나면 남은 시간만큼 다시", { skip }, async () => {
   setup();
-  const sc = findStep((evs, emotes) => emotes.length > 0 && evs.some((e) => e.reverseCutin) && !evs.some((e) => e.type === "cutin" || e.type === "combo"),
+  // 다음 step 이 또 턴 전 컷인이면 (그것도 말풍선을 멈춘다) 이 시험의 "끝나면 다시" 를 볼 수 없다 — 그런 장면은 뺀다
+  const cutinNext = (before) => {
+    const st = clone(before);
+    HM.step(st, data);
+    const n0 = st.events.length;
+    HM.step(st, data);
+    return st.events.slice(n0).some((e) => e.type === "cutin" || e.type === "combo");
+  };
+  const sc = findStep((evs, emotes, before) => emotes.length > 0 && evs.some((e) => e.reverseCutin) && !evs.some((e) => e.type === "cutin" || e.type === "combo") && !cutinNext(before),
     { init: (st) => { HM.setAutoBoth(st); fillGauges(st, ["home", "away"]); }, prefix: "emr", seeds: 60, maxSteps: 400 });
   assert.ok(sc, "역컷인 + 말풍선 장면 (턴 전 컷인 없음 — 지난 턴부터 날던 필살 패스 등)");
   const st = clone(sc.before);

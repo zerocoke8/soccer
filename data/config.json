@@ -67,6 +67,20 @@
     "skillPointsLoss": 15,
     "relicChanceOnWin": 0.3
   },
+  "practice": {
+    "label": "시즌 3 잘 키운 팀",
+    "teamwork": 100,
+    "stats": {
+      "ch_spirit_keeper": { "shoot": 141, "dribble": 191, "pass": 388, "defense": 902, "physical": 691 },
+      "ch_dwarf_wall": { "shoot": 163, "dribble": 196, "pass": 339, "defense": 890, "physical": 697 },
+      "ch_human_captain": { "shoot": 204, "dribble": 214, "pass": 351, "defense": 711, "physical": 493 },
+      "ch_elf_playmaker": { "shoot": 440, "dribble": 516, "pass": 839, "defense": 292, "physical": 324 },
+      "ch_human_runner": { "shoot": 336, "dribble": 521, "pass": 677, "defense": 315, "physical": 324 },
+      "ch_wolf_winger": { "shoot": 542, "dribble": 700, "pass": 369, "defense": 172, "physical": 339 },
+      "ch_giant_striker": { "shoot": 819, "dribble": 483, "pass": 333, "defense": 325, "physical": 492 }
+    },
+    "source": "tools/lesson_sim.mjs --runs 100 --seed s3 --final-stats top25 (5방침 × 100 = 500런, 런 끝 7명 5스탯 합 상위 25% = 125런 평균, 시즌 3 경계전 승 71%) · 2026-10-10"
+  },
   "goalMatch": { "possessions": [8, 10, 12], "skillPointsWin": 50, "skillPointsLoss": 25 },
   "condition": {
     "start": 2,

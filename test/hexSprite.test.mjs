@@ -235,7 +235,8 @@ test("동작: 태클 실패 다음 턴이 골 (골 → 킥오프 — 엔진이 r
 test("동작: 실제 경기 — 태클에 실패한 선수는 다음 턴 (골 턴 포함) 늘 fall", () => {
   let fails = 0;
   let goalTurns = 0;
-  for (let k = 0; k < 8; k++) {
+  // 표본 8판 — 태클 실패 다음 턴이 골인 경우가 없으면 (엔진 조정으로 흐름이 바뀌면) 찾을 때까지 판을 더 (최대 40)
+  for (let k = 0; k < 40 && (k < 8 || goalTurns < 1); k++) {
     const ms = create(`hex-sprite-fall-${k}`);
     let pending = []; // 지난 턴 실패한 태클러 key
     while (!ms.finished) {

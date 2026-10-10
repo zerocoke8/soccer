@@ -40,7 +40,8 @@ const id = (c, r) => G.cellId(c, r);
 const RESULT_KEYS = ["kind", "home", "away", "homeGoals", "awayGoals", "homeName", "awayName", "winner", "stats", "events",
   "possessionsPlayed", "turnsPlayed", "stage", "seed", "lastAttack"];
 const STAT_KEYS = ["shots", "duelsWon", "goals", "mvpId", "playerDuelWins", "playerGoals", "skillsUsed", "ultimatesUsed", "combos", "gaanpaUsed",
-  "passes", "passesCompleted", "crosses", "interceptions", "tackles", "tacklesWon", "dribblesPast", "saves", "headers", "looseWon", "holdTurns", "carrierTurns"];
+  "passes", "passesCompleted", "crosses", "interceptions", "tackles", "tacklesWon", "dribblesPast", "saves", "headers", "looseWon", "holdTurns", "carrierTurns",
+  "lofted"];
 
 /** 매 턴 규칙: 한 턴 1칸 (킥오프 턴 제외 — 태클 실패 턴 포함), 한 칸 한 명, 판 안, GK 구역, moveAcc 0 ~ 1 */
 function assertTurnRules(ms, prev, where) {
@@ -386,6 +387,8 @@ test("지키기 + 태클 실패: 둘 다 제자리, 수비는 그 자리에서 �
 test("가로채기: 그 턴에 공이 지난 칸 위 · 옆 수비만, 한 패스에 한 사람 한 번", () => {
   // p4 (2,6) → p7 (11,6): 길 (3..11, 6) 9칸 = 3턴. q2 (5,5) 는 1턴째 (5,6) · 2턴째 (6,6) 둘 다 옆 → 한 번만
   // q4 (12,6) 는 3턴째 칸 (11,6) 옆에만 닿는다 → 3턴째에만 굴린다 (남은 길 전체가 아니라 그 턴에 지난 칸만)
+  // 9칸 패스는 이제 띄운 공 (loftMin 6) 이라 땅볼 규칙을 보려고 loftMin 을 끈다 (띄운 공은 아래 따로)
+  const ground = { ...data, config: { ...cfg, hexMatch: { loftMin: 99 } } };
   const ms = scenario({ home: { p4: [2, 6], p7: [11, 6] }, away: { q2: [5, 5], q3: [8, 2], q4: [12, 6] }, ball: { side: "home", id: "p4" } });
   const rolls = [];
   withHooks({
@@ -395,8 +398,9 @@ test("가로채기: 그 턴에 공이 지난 칸 위 · 옆 수비만, 한 패�
     },
     decide: () => ({ action: "pass", receiverId: "p7", target: id(11, 6) }),
   }, () => {
-    for (let i = 0; i < 3 && !evs(ms, "receive").length && !evs(ms, "loose").length; i++) hex.step(ms, data);
+    for (let i = 0; i < 3 && !evs(ms, "receive").length && !evs(ms, "loose").length; i++) hex.step(ms, ground);
   });
+  assert.equal(evs(ms, "pass")[0].lofted, false);
   const pass = evs(ms, "pass")[0];
   assert.equal(pass.target, id(11, 6));
   const path = G.line(pass.fromCell, pass.target).slice(1);
@@ -700,21 +704,22 @@ test("슛 막는 수비: 슛한 선수 앞쪽 3칸의 턴 시작 칸 — GK · �
 });
 
 test("헤더를 막는 수비는 크로스가 도착한 뒤 (이동 뒤) 칸으로 센다 [구현 결정]", () => {
-  // p4 (11,2) → p6 (13,6) 크로스. q4 (12,8) 은 턴 시작엔 p6 앞쪽 3칸 밖, 그 턴 이동으로 앞쪽 3칸에 들어온다
+  // p4 (11,2) → p6 (13,6) 크로스. q5 (MF, 12,8) 는 턴 시작엔 p6 앞쪽 3칸 밖, 그 턴 이동 (p6 마크) 으로 앞쪽 3칸에 들어온다
+  // (예전 장면의 q4 는 이제 수비 MF 줄 하한 defendLineMin 으로 박스 밖에 남는다 — 같은 규칙을 다른 수비로 본다)
   const p6c = id(13, 6);
   const fr = G.frontCells(p6c, 1);
-  const ms = scenario({ home: { p4: [11, 2], p6: [13, 6] }, away: { q4: [12, 8] }, ball: { side: "home", id: "p4" }, moveAcc: 1 });
+  const ms = scenario({ home: { p4: [11, 2], p6: [13, 6] }, away: { q5: [12, 8] }, ball: { side: "home", id: "p4" }, moveAcc: 1 });
   let startIn = null;
   withHooks({ roll: (k) => (k === "aerial" ? true : k === "header" ? false : undefined), decide: firstTurn({ action: "cross", receiverId: "p6", target: p6c }) }, () => {
     for (let i = 0; i < 3 && !evs(ms, "shot").length; i++) {
-      startIn = fr.includes(ms.pos.away.q4);
+      startIn = fr.includes(ms.pos.away.q5);
       hex.step(ms, data);
     }
   });
   const shot = evs(ms, "shot")[0];
   assert.equal(shot.header, true);
   assert.equal(startIn, false, "헤더 턴 시작엔 앞쪽 3칸 밖");
-  assert.ok(fr.includes(ms.pos.away.q4), "이동 뒤엔 앞쪽 3칸 안");
+  assert.ok(fr.includes(ms.pos.away.q5), "이동 뒤엔 앞쪽 3칸 안");
   assert.equal(shot.blockers, 1);
 });
 

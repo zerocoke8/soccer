@@ -21,6 +21,8 @@ const evs = (ms, type) => ms.events.filter((e) => e.type === type);
 const MAX = cfg.match.ultimate.gaugeMax;
 const D = hex.HEX_DEFAULTS;
 const odds = (p) => p / (1 - p);
+/** 땅볼 규칙만 보는 data (띄운 공 끔 — 노린 칸 loftMin 이상 패스도 땅볼로) */
+const GROUND = { ...data, config: { ...cfg, hexMatch: { loftMin: 99 } } };
 const near = (a, b, msg) => assert.ok(Math.abs(a - b) < 1e-9 * Math.max(1, Math.abs(b)), `${msg}: ${a} ≠ ${b}`);
 
 /** 선수 스킬 바꾼 스냅샷 (연습 선수단 기준) */
@@ -197,6 +199,44 @@ test("필살 슛 (메테오): 켜면 슛 거리에서 그 턴에 슛을 고른�
   assert.deepEqual(shot.reverseCutin, { kind: "save", side: "away", playerId: "m_p1", text: "기적의 세이브!", skillId: "sk_meteor_shot", ultimateType: "shot", combo: false });
 });
 
+test("필살 슛 거리 (경기 흐름 2026-10-10): 켠 필살 슛은 예전 사거리 round(2 + 슛/400) 안에서만 — 밖 (보통 사거리 안) 에서 쏘면 안 터지고 켠 채로 · boxShot 은 먼 슛 깎임 없음", () => {
+  const p7 = SQ.home.players.find((p) => p.id === "p7");
+  const ultRange = Math.round(D.ultShotRangeBase + p7.stats.shoot / D.ultShotRangeDiv);
+  const range = Math.round(D.shotRangeBase + p7.stats.shoot / D.shotRangeDiv);
+  assert.deepEqual([p7.stats.shoot, ultRange, range], [819, 4, 5], "시즌 3 골잡이: 필살 4칸 · 보통 5칸");
+  const mk = (c) => {
+    const ms = scene({ home: { p7: [c, 6] }, ball: { side: "home", id: "p7" }, gauge: { "home:p7": MAX } });
+    live(ms, "home", "p7").armed = true;
+    return ms;
+  };
+  // 거리 5 (10,6): "지금!" 아님 · 쏴도 안 터짐 (켠 채로 · 게이지 그대로) · 골 확률 = 켜지 않은 슛과 같다 (먼 슛 깎임 × 0.8²)
+  const far = mk(10);
+  assert.equal(G.distToGoal(far.pos.home.p7, 1), 5);
+  const sf = hex.ultimateStatus(far, data, "home", "p7");
+  assert.deepEqual([sf.canNow, sf.reason.includes("슛 거리")], [false, true]);
+  const rf = stepWith(far, { roll: () => false, decide: { action: "shoot" } });
+  assert.equal(cutins(far).length, 0, "필살 슛 거리 밖이면 안 터진다");
+  assert.equal(live(far, "home", "p7").armed, true);
+  assert.equal(live(far, "home", "p7").gauge, MAX);
+  const plain = scene({ home: { p7: [10, 6] }, ball: { side: "home", id: "p7" } });
+  const rp = stepWith(plain, { roll: () => false, decide: { action: "shoot" } });
+  near(rf.find((x) => x.kind === "shot").p, rp.find((x) => x.kind === "shot").p, "보통 슛과 같은 확률");
+  // 거리 4 (11,6): "지금!" · 켠 필살기가 슛을 고르고 터진다 · boxShot 이라 거리 3 과 같은 확률 (먼 슛 깎임 없음)
+  const d4 = mk(11);
+  assert.equal(hex.ultimateStatus(d4, data, "home", "p7").canNow, true);
+  const r4 = stepWith(d4, { roll: () => false });
+  assert.equal(cutins(d4).length, 1);
+  assert.equal(evs(d4, "shot")[0].dist, 4);
+  const d3 = mk(12);
+  const r3 = stepWith(d3, { roll: () => false });
+  assert.equal(evs(d3, "shot")[0].dist, 3);
+  near(r4.find((x) => x.kind === "shot").p, r3.find((x) => x.kind === "shot").p, "boxShot: 거리 4 = 거리 3");
+  // 예전 사거리 덮어쓰기 (ultShotRangeBase 3 → 5칸) 면 거리 5 에서도 터진다
+  const wide = mk(10);
+  stepWith(wide, { roll: () => false, decide: { action: "shoot" }, d: { ...data, config: { ...cfg, hexMatch: { ultShotRangeBase: 3 } } } });
+  assert.equal(cutins(wide).length, 1);
+});
+
 test("필살 슛 minLine 3 (담금질 일격): 박스 밖에서는 슛을 고르지도 터지지도 않고 켠 채로 · 박스 안 슛에서 터진다", () => {
   const snap = withSkill(SQ.home, "p7", "sk_forge_finish");
   const ms = scene({ homeSnap: snap, home: { p7: [12, 6] }, ball: { side: "home", id: "p7" }, gauge: { "home:p7": MAX } });
@@ -242,6 +282,7 @@ test("필살 세이브: 늘 예약 — 슛이 올 때까지 켠 채로, 다음 �
   near(odds(rb.find((x) => x.kind === "shot").p) / odds(ra.find((x) => x.kind === "shot").p), 1 / 1.6, "saveMult 1.6");
   assert.equal(live(b, "home", "p1").sureDist, undefined, "만조의 장벽은 확실한 배급 없음");
   // 대지의 손바닥 (sureDistribution): 막은 뒤 GK 의 다음 패스 — 먼 패스도 정확도 굴림 없음 · 길 옆 수비도 가로채기 굴림 없음
+  // (먼 패스는 이제 띄운 공이라 땅 가로채기가 원래 없다 — 땅볼 규칙을 보려고 GROUND 로. 띄운 공은 hexFeel.test.mjs · 이 파일의 "띄운 공 + 필살 패스")
   const palm = withSkill(SQ.home, "p1", "sk_earth_palm");
   const c = mk(true, palm);
   stepWith(c, { roll: () => false, decide: { action: "shoot" } });
@@ -250,7 +291,7 @@ test("필살 세이브: 늘 예약 — 슛이 올 때까지 켠 채로, 다음 �
   c.pos.home.p7 = id(10, 6);
   c.pos.away.m_p6 = id(5, 5); // 길 바로 옆
   c.events = [];
-  const rc = stepWith(c, { roll: () => false, decide: { action: "pass", receiverId: "p7", target: id(10, 6) } });
+  const rc = stepWith(c, { roll: () => false, decide: { action: "pass", receiverId: "p7", target: id(10, 6) }, d: GROUND });
   assert.equal(rc.filter((x) => x.kind === "accuracy" || x.kind === "intercept").length, 0, "정확도 · 가로채기 굴림 없음");
   assert.equal(evs(c, "pass")[0].accurate, true);
   assert.equal(c.ball.flight.sure, true);
@@ -260,7 +301,7 @@ test("필살 세이브: 늘 예약 — 슛이 올 때까지 켠 채로, 다음 �
   stepWith(d0, { roll: () => false, decide: { action: "shoot" } });
   d0.pos.home.p7 = id(10, 6);
   d0.pos.away.m_p6 = id(5, 5);
-  const rd = stepWith(d0, { roll: () => true, decide: { action: "pass", receiverId: "p7", target: id(10, 6) } });
+  const rd = stepWith(d0, { roll: () => true, decide: { action: "pass", receiverId: "p7", target: id(10, 6) }, d: GROUND });
   assert.ok(rd.some((x) => x.kind === "accuracy") && rd.some((x) => x.kind === "intercept"));
 });
 
@@ -348,6 +389,53 @@ test("필살 패스 extraLine (심해 물길): 첫 가로채기 성공 1번은 �
   assert.equal(evs(cr, "pass")[0].cross, true);
   assert.equal(cutins(cr).length, 0);
   assert.equal(live(cr, "home", "p4").armed, true);
+});
+
+test("띄운 공 + 필살 패스 (기획 2026-10-10): attack 은 떨어지는 칸 공중볼에 곱하고 · extraLine 은 그 공중볼에 진 것을 1번 무시 · 확실한 배급은 정확도 1 (공중볼 그대로)", () => {
+  // p4 (2,6) → p7 (10,6) 8칸 = 띄운 공. 떨어지는 칸 옆 (11,6) 에 m_p5
+  const mk = (skill, armed) => {
+    const snap = withSkill(PASS_HOME, "p4", skill);
+    const ms = scene({ homeSnap: snap, awaySnap: PASS_AWAY, home: { p4: [2, 6], p7: [10, 6] }, away: { m_p5: [11, 6] }, ball: { side: "home", id: "p4" }, gauge: { "home:p4": MAX } });
+    live(ms, "home", "p4").armed = armed;
+    return ms;
+  };
+  const LOFT = { action: "pass", receiverId: "p7", target: id(10, 6) };
+  const flyAll = (ms, roll) => {
+    const out = stepWith(ms, { roll, decide: LOFT });
+    for (let i = 0; i < 3 && ms.ball.flight; i++) out.push(...stepWith(ms, { roll }));
+    return out;
+  };
+  // attack × 1.5 가 공중볼 확률에 닿는다 (가로채기 굴림은 없다)
+  const a = mk("sk_wind_thread", false);
+  const ra = flyAll(a, () => true);
+  const b = mk("sk_wind_thread", true);
+  const rb = flyAll(b, () => true);
+  assert.equal(evs(b, "pass")[0].lofted, true);
+  assert.equal(cutins(b).length, 1, "필살 패스 터짐");
+  assert.equal(rb.filter((x) => x.kind === "intercept").length, 0, "띄운 공은 땅 가로채기 없음");
+  const pa = ra.find((x) => x.kind === "aerial").p;
+  const pb = rb.find((x) => x.kind === "aerial").p;
+  near(odds(pb) / odds(pa), 1.5, "공중볼 attack 배수");
+  // extraLine (심해 물길): 공중볼에 져도 1번은 무시하고 받는다
+  const c = mk("sk_deep_current", true);
+  flyAll(c, (k) => (k === "aerial" ? false : true));
+  const aer = evs(c, "aerial")[0];
+  assert.equal(aer.success, true);
+  assert.equal(aer.extraLine, true, "진 공중볼 1번 무시");
+  assert.deepEqual(c.ball.holder, { side: "home", id: "p7" });
+  // 안 켰으면 진다
+  const d0 = mk("sk_deep_current", false);
+  flyAll(d0, (k) => (k === "aerial" ? false : true));
+  assert.equal(evs(d0, "aerial")[0].success, false);
+  assert.equal(d0.ball.holder.side, "away");
+  // 확실한 배급 (세이브 뒤 GK) 이 띄운 공이면 정확도 굴림 없음 · 떨어지는 칸 공중볼은 그대로
+  const g = scene({ home: { p7: [10, 6] }, away: { m_p5: [11, 6] }, ball: { side: "home", id: "p1" } });
+  live(g, "home", "p1").sureDist = true;
+  const rg = stepWith(g, { roll: () => true, decide: { action: "pass", receiverId: "p7", target: id(10, 6) } });
+  for (let i = 0; i < 3 && g.ball.flight; i++) rg.push(...stepWith(g, { roll: () => true }));
+  assert.equal(evs(g, "pass")[0].lofted, true);
+  assert.equal(rg.filter((x) => x.kind === "accuracy" || x.kind === "intercept").length, 0, "정확도 · 가로채기 굴림 없음");
+  assert.ok(rg.some((x) => x.kind === "aerial"), "공중볼은 그대로");
 });
 
 /* ------------------------------------------------------------------ */

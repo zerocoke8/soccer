@@ -18,6 +18,9 @@
 //   --unique-report: 고유 카드 (L40 모양) 표 — 카드 · 모양별 낸 수 / 런 · 손에 든 턴 / 런 · 직접 상승 / 장 · 실패 % · 비용 / 장 ·
 //                    감독 AI EV / 장 · 강화 % + 낼 수 없는 턴 비율 + 자리 옮기기 · 가로지르기 구역 분포 + 이어 주기 · 연결 · 크로스
 //                    받는 선수 포지션 분포. 직접 상승 = 카드를 낸 행동의 lastFx (턴 끝 앞까지) 상승 − 실패 손실 (U0 기준과 같은 방법).
+//   --final-stats [top25|goal3|all]: 시즌 3 끝 (런 끝) 선수단 표 — 고른 런의 캐릭터별 평균 최종 스탯 (5스탯, 기질 배수 전 원래 값) · 팀워크.
+//                    고르기는 모든 방침 칸의 런을 한데 모아서: top25 (기본) = 런 끝 7명 5스탯 합 상위 25 %, goal3 = 시즌 3 경계전을 이긴 런, all = 전부.
+//                    연습 경기 선수단 (data/config.json practice, 2026-10-10) 을 이 표로 만든다. --json 이면 finalStats 키.
 //   --special-rate r: 감독 AI 는 특별 표시 구역을 늘 고른다 (§14.14). r < 1 이면 레슨 주마다 확률 r 로만 특별을 고르고, 아니면
 //                     특별 표시가 없을 때의 감독 AI 선택 (7명 합이 가장 낮은 구역) 을 쓴다 — 일반 레슨 점수를 재려는 시뮬 쪽 옵션
 //                     (보정 시뮬은 0.7). 결정은 시뮬 전용 rng (seed · 주 번호) 라 같은 시드면 같은 결과.
@@ -48,6 +51,8 @@ const EVENT_FILES = ["lesson_ev_surprise", "lesson_ev_week", "lesson_ev_story", 
 const POLICIES = ["ace", "team", "counter", "press", "poss"];
 const STATS = ["shoot", "dribble", "pass", "defense", "physical"];
 const GRADES = ["S", "A", "B", "C", "D", "E", "F", "G"];
+/** --final-stats 고르기 규칙 */
+const FINAL_SELECT = ["top25", "goal3", "all"];
 /** 레슨 1회 시간 추정: 카드 · 벤치 · 턴 끝 행동 1번당 초 (가정) */
 const SEC_PER_ACTION = 6;
 /** 이벤트 1개 시간 어림 (초, §24.16 [가정]) */
@@ -80,7 +85,7 @@ export function loadData() {
 }
 
 export function parseArgs(argv) {
-  const out = { runs: 200, seed: "1", policy: "all", formation: null, match: true, json: false, specialRate: 1, slots: {}, uniqueReport: false, events: null, account: "fresh", legends: 0 };
+  const out = { runs: 200, seed: "1", policy: "all", formation: null, match: true, json: false, specialRate: 1, slots: {}, uniqueReport: false, events: null, account: "fresh", legends: 0, finalStats: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--runs") out.runs = Math.max(1, parseInt(argv[++i], 10) || 200);
@@ -95,6 +100,11 @@ export function parseArgs(argv) {
       if (!slot || !charId) throw new Error(`--slot 은 SLOT=charId 형식입니다: ${argv[i]}`);
       out.slots[slot] = charId;
     } else if (a === "--unique-report") out.uniqueReport = true;
+    else if (a === "--final-stats") {
+      // 다음 값이 고르기 규칙이면 받고, 아니면 기본 top25
+      const nx = argv[i + 1];
+      if (nx && FINAL_SELECT.includes(nx)) { out.finalStats = nx; i++; } else out.finalStats = "top25";
+    }
     else if (a === "--events") {
       out.events = String(argv[++i] || "");
       if (out.events !== "on" && out.events !== "off") throw new Error(`--events 는 on 또는 off 입니다: ${argv[i]}`);
@@ -110,7 +120,7 @@ export function parseArgs(argv) {
       out.legends = n;
     }
     else if (a === "--help" || a === "-h") {
-      console.log("usage: node tools/lesson_sim.mjs --runs N --seed S [--policy all|ace|team|counter|press|poss] [--formation 2-2-2] [--no-match] [--json] [--special-rate r] [--slot SLOT=charId]... [--unique-report] [--events on|off] [--account fresh|carry] [--legends 0-2]");
+      console.log("usage: node tools/lesson_sim.mjs --runs N --seed S [--policy all|ace|team|counter|press|poss] [--formation 2-2-2] [--no-match] [--json] [--special-rate r] [--slot SLOT=charId]... [--unique-report] [--events on|off] [--account fresh|carry] [--legends 0-2] [--final-stats top25|goal3|all]");
       process.exit(0);
     }
   }
@@ -379,6 +389,8 @@ export function simulateOne(data, { seed, policy, formation, slots = {}, playMat
     memoryEnd: state.deck.filter((e) => e.src === "memory").length,
     team: { ...fin.registeredTeam, memoryCard },
     players: state.players.map((p) => ({ id: p.id, name: p.name, position: p.position })),
+    // --final-stats: 런 끝 (시즌 3 끝) 캐릭터별 원래 스탯 (기질 배수 전)
+    finalStats: Object.fromEntries(state.players.map((p) => [p.charId, Object.fromEntries(STATS.map((k) => [k, Number(p.stats[k]) || 0]))])),
     spEnd: state.skillPoints,
     // 런 끝 선수당 습득 액티브 · 패시브 (§18.9)
     actives: state.players.reduce((a, p) => a + p.learnedSkillIds.filter((id) => (data.skills.find((k) => k.id === id) || {}).kind === "active").length, 0) / state.players.length,
@@ -668,7 +680,41 @@ export function summarize(data, args, policy) {
     legendDeckEnd: withLegends.length ? mean(withLegends.map((r) => r.deck)) : NaN,
     // §24.16 E5 레슨 깜짝: 런당 깜짝 · id 별 (런당) · 고른 선택지 1번 비율 · 계획된 레슨 비율 · 계획 중 뜬 비율 · 깜짝이 뜬 / 안 뜬 레슨의 점수 · 퍼펙트율
     ...surpriseSummary(rs),
+    // --final-stats: 런마다 고르기에 쓰는 줄 (main 이 방침 칸을 모아 finalStatsReport 로 묶고 지운다)
+    ...(args.finalStats ? { finals: rs.map((r) => ({ policy, sum: r.avgStat * r.players.length * STATS.length, teamwork: r.teamwork, goal3: !!r.goal[2], stats: r.finalStats })) } : {}),
   };
+}
+
+/**
+ * --final-stats: 모든 방침 칸의 런을 모아 규칙대로 고르고 캐릭터별 평균 최종 스탯 (반올림) · 평균 팀워크 (반올림) 를 낸다.
+ * top25 = 7명 5스탯 합 상위 25 % (같으면 앞 순서 — 정렬은 안정), goal3 = 시즌 3 경계전 승리, all = 전부.
+ * @param {object[]} finals  summarize().finals 를 이어 붙인 것
+ * @param {string} rule
+ */
+export function finalStatsReport(finals, rule = "top25") {
+  let sel = finals;
+  if (rule === "top25") sel = [...finals].sort((a, b) => b.sum - a.sum).slice(0, Math.max(1, Math.ceil(finals.length * 0.25)));
+  else if (rule === "goal3") sel = finals.filter((f) => f.goal3);
+  const charIds = sel.length ? Object.keys(sel[0].stats) : [];
+  const stats = Object.fromEntries(charIds.map((c) => [c, Object.fromEntries(STATS.map((k) => [k, Math.round(mean(sel.map((f) => f.stats[c][k])))]))]));
+  const byPolicy = {};
+  for (const f of sel) byPolicy[f.policy] = (byPolicy[f.policy] || 0) + 1;
+  return {
+    rule, runs: finals.length, selected: sel.length, byPolicy,
+    teamwork: Math.round(mean(sel.map((f) => f.teamwork))),
+    goal3Rate: sel.length ? sel.filter((f) => f.goal3).length / sel.length : NaN,
+    minSum: sel.length ? Math.min(...sel.map((f) => f.sum)) : NaN,
+    meanSum: mean(sel.map((f) => f.sum)),
+    stats,
+  };
+}
+
+function printFinalStats(data, rep) {
+  const nameOf = (id) => ((data.characters || []).find((c) => c.id === id) || {}).name || id;
+  console.log("");
+  console.log(`[시즌 3 끝 선수단] 규칙 ${rep.rule} · 런 ${rep.runs} 중 ${rep.selected} 고름 (방침 ${Object.entries(rep.byPolicy).map(([k, v]) => `${k} ${v}`).join(" · ")}) · 7명 합 평균 ${f0(rep.meanSum)} (최저 ${f0(rep.minSum)}) · 시즌 3 경계전 승 ${pc(rep.goal3Rate)} · 팀워크 ${rep.teamwork}`);
+  console.log(`  ${"캐릭터".padEnd(22)} ${STATS.map((k) => k.padStart(8)).join(" ")}    합`);
+  for (const [id, st] of Object.entries(rep.stats)) console.log(`  ${`${nameOf(id)} ${id}`.padEnd(22)} ${STATS.map((k) => String(st[k]).padStart(8)).join(" ")} ${String(STATS.reduce((a, k) => a + st[k], 0)).padStart(5)}`);
 }
 
 /** 레슨 깜짝 지표 (§24.16 — E5) */
@@ -903,10 +949,13 @@ export function main(argv = process.argv.slice(2)) {
   const view = { ...args, eventsOn: eventsOn(data), surpriseOn: switchOn(data, "surprise"), data };
   const policies = args.policy === "all" ? POLICIES : [args.policy];
   const sums = policies.map((p) => summarize(data, args, p));
-  if (args.json) console.log(JSON.stringify({ args, results: sums, ...(args.uniqueReport ? { unique: uniqueReport(data, sums) } : {}) }, null, 2));
+  const fin = args.finalStats ? finalStatsReport(sums.flatMap((s) => s.finals || []), args.finalStats) : null;
+  for (const s of sums) delete s.finals;
+  if (args.json) console.log(JSON.stringify({ args, results: sums, ...(args.uniqueReport ? { unique: uniqueReport(data, sums) } : {}), ...(fin ? { finalStats: fin } : {}) }, null, 2));
   else {
     printTable(sums, view);
     if (args.uniqueReport) printUniqueReport(data, sums, args);
+    if (fin) printFinalStats(data, fin);
   }
   return sums;
 }
