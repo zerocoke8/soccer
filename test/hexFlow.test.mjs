@@ -32,6 +32,8 @@ try {
 const data = loadData();
 const HOME = run.buildTeamSnapshot(run.createRun({ data, seed: "flow-home" }), data);
 const AWAY = run.buildOpponentSnapshot(data.opponents[0], data);
+/** 2골 선승을 끈 data (300턴 내내 — 결정 27 뒤로 300턴 동점 · 골든골 · 승부차기 장면이 드물어 그 장면 시험은 이 data 로 찾는다) */
+const FULL = { ...data, config: { ...data.config, hexMatch: { ...(data.config.hexMatch || {}), goalsToWin: 0 } } };
 const { RU, FL } = V25.V25;
 const W = 1244;
 const H = 528;
@@ -142,14 +144,16 @@ function leave() {
 }
 
 /** 셋업 (seed · kind) 의 경기를 steps 만큼 돌린 상태로 화면을 띄운다 */
-function mount(seed, steps, { kind = "goal", speed = 1 } = {}) {
+function mount(seed, steps, { kind = "goal", speed = 1, d = data } = {}) {
   leave();
   env.ctx.setup = { seed, home: HOME, away: AWAY, kind };
-  const st = HM.createMatch({ data, seed, home: HOME, away: AWAY, possessions: undefined, kind });
-  for (let i = 0; i < steps; i++) HM.step(st, data);
+  env.ctx.data = d;
+  const st = HM.createMatch({ data: d, seed, home: HOME, away: AWAY, possessions: undefined, kind });
+  for (let i = 0; i < steps; i++) HM.step(st, d);
   ST.store.hexMatch = st;
   ST.saveHexMatch({ version: ST.HEX_SAVE_VERSION, seed, steps });
   ST.store.matchUi.speed = speed;
+  ST.store.matchUi.moments = false; // H3.5 결정의 순간 끔 (이 시험은 완전 자동 흐름 — 장면 멈춤은 test/hexMomentUi.test.mjs)
   env.views.last = null;
   SCR.renderHexMatch(env.root, env.ctx);
   const scr = env.root.querySelector(".hex-screen");
@@ -178,13 +182,13 @@ const typesOfStep = (st) => HS.eventsOfTurn(st).map((e) => e.type);
  * 시드 hf-0, hf-1, … 를 돌려 pred(이번 step 이벤트 종류, 상태) 가 처음 맞는 { seed, step } — 엔진 흐름을 조정해도
  * (경기 흐름 2026-10-10 처럼) 시드 · step 번호를 손으로 고치지 않게. mount(seed, step − 1) 다음 step 이 그 장면.
  */
-function findScene(pred, { minStep = 1 } = {}) {
+function findScene(pred, { minStep = 1, d = data } = {}) {
   for (let i = 0; i < 400; i++) {
     const seed = `hf-${i}`;
-    const st = HM.createMatch({ data, seed, home: HOME, away: AWAY, kind: "goal" });
+    const st = HM.createMatch({ data: d, seed, home: HOME, away: AWAY, kind: "goal" });
     for (let n = 1; !st.finished && n < 2000; n++) {
       const e0 = st.events.length;
-      HM.step(st, data);
+      HM.step(st, d);
       if (n >= minStep && pred(st.events.slice(e0).map((e) => e.type), st)) return { seed, step: n };
     }
   }
@@ -228,8 +232,8 @@ test("골 연출: \"골!\" + 득점자 · 시계 멈춤 · 골 장면 동안 공
 
 test("동점골 → 골든골 (한 step): \"골!\" 먼저, 골든골 배너는 골 장면 뒤 · 시계 '골든골 0:30'", { skip: !JSDOM && "jsdom 미설치" }, async (t) => {
   setup(t);
-  const sc = findScene((ty) => ty.includes("goal") && ty.includes("goldenGoal"));
-  const { st, scr } = mount(sc.seed, sc.step - 1);
+  const sc = findScene((ty) => ty.includes("goal") && ty.includes("goldenGoal"), { d: FULL });
+  const { st, scr } = mount(sc.seed, sc.step - 1, { d: FULL });
   await pump(950);
   assert.equal(dbg().steps, sc.step);
   const types = typesOfStep(st);
@@ -254,8 +258,8 @@ test("동점골 → 골든골 (한 step): \"골!\" 먼저, 골든골 배너는 �
 
 test("골든골 결승골: 킥오프 없음 → 골 장면 뒤에도 공은 골망, 그 뒤 결과", { skip: !JSDOM && "jsdom 미설치" }, async (t) => {
   setup(t);
-  const sc = findScene((ty, s) => ty.includes("goal") && ty.includes("end") && s.stage === "goldenGoal");
-  const { st, scr } = mount(sc.seed, sc.step - 1);
+  const sc = findScene((ty, s) => ty.includes("goal") && ty.includes("end") && s.stage === "goldenGoal", { d: FULL });
+  const { st, scr } = mount(sc.seed, sc.step - 1, { d: FULL });
   await pump(950);
   assert.equal(dbg().steps, sc.step);
   assert.ok(st.finished && st.stage === "goldenGoal", "골든골로 끝");
@@ -290,8 +294,8 @@ test("추가시간 · 승부차기: 단계 배너 (hx-stage) · 시계 글자 ·
     assertScopedClasses(scr);
   }
   {
-    const sc = findScene((ty) => ty.includes("penalties"));
-    const { st, scr } = mount(sc.seed, sc.step - 1);
+    const sc = findScene((ty) => ty.includes("penalties"), { d: FULL });
+    const { st, scr } = mount(sc.seed, sc.step - 1, { d: FULL });
     await pump(950);
     assert.ok(typesOfStep(st).includes("penalties"), `시드 ${sc.seed} step ${sc.step} = 승부차기`);
     assert.equal(bannerOf(scr).text, "승부차기");
@@ -356,7 +360,7 @@ test("WebGL 문맥 잃음: 다시 만들기 · 버티면 횟수 0 · 연달아 4
   setup(t);
   const { views } = env;
   const c0 = views.calls;
-  const { st, scr } = mount("hf-0", 0, { kind: "friendly" });
+  const { st, scr } = mount("hf-0", 0, { kind: "friendly", d: FULL }); // 300턴 내내 (2골 선승으로 일찍 끝나면 "경기는 계속" 을 볼 수 없다)
   await pump(100);
   assert.equal(views.calls, c0 + 1);
   assert.equal(dbg().renderer, "webgl");

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // tools/hex_shot.mjs — 육각 경기 화면 (H1) 스크린샷 · 연기 시험 도구 (docs/HEX_AUTOBATTLE_PLAN.md §6.5). npm test 에는 넣지 않는다.
 //
-//   node tools/hex_shot.mjs <outDir> [--gpu] [--frames 4] [--gap 1500] [--sizes 1280x720,915x412] [--goal] [--practice] [--ult] [--seed h2-7] [--hunt-ms 90000]
+//   node tools/hex_shot.mjs <outDir> [--gpu] [--frames 4] [--gap 1500] [--sizes 1280x720,915x412] [--goal] [--practice] [--ult] [--moments] [--seed h2-7] [--hunt-ms 90000]
 //
 // 1) 내장 정적 서버 (tools/shot.mjs startServer) 로 프로젝트 루트를 띄운다.
 // 2) puppeteer-core + 로컬 Chrome (shot.mjs findBrowser) 을 headless 로 띄운다. --gpu 가 없으면 소프트웨어 WebGL
@@ -35,6 +35,13 @@
 //      시계 · 말풍선 애니메이션을 멈추고 찍는다 → <size>-emote-steal.png (태클 "!!") · -emote-win.png ("!") · -emote-lose.png ("💦"), 말풍선 둘레 확대 -zoom.
 //      검사: 경기장 (.hx-pitch) 안 · HUD (점수 머리 · 시계 · 필살기 띠 · 컨트롤 · 나가기) 와 안 겹침 · 글 있음. 이름표와 겹치면 NOTE (넓이 %).
 //      steal · lose 는 꼭 봐야 하고 (태클 · 가로채기는 흔하다), "!" 하나 (가로채기 · 선방 · 공중볼 · 흘러나온 공) 는 못 보면 NOTE.
+//    --moments (H3.5 결정의 순간 — 연습 경기로 간다, 동작 · 말풍선 사냥 대신): [결정 ON] (기본) 으로 돌며 장면이 열릴 때마다 카메라가 붙기를 기다려 찍는다
+//      → <size>-mom-<종류>.png (shot · danger · cross · counter · ult · combo) + 카드 띠 확대 -strip.png. 띠 검사: 카드 2 ~ 4장 · 화면 안 · 높이 ≥ 44 CSS px ·
+//      큰 % 글자 · 이름 · 둘째 줄 잘림 (NOTE) · '자동' 한 장 · 시계가 서 있는지. 고르기: 슛 찬스 = 중거리 슛 (없으면 슛), 크로스 = 크로스, 역습 = 롱볼 · 스루,
+//      수비 위기 = 패스길 막기 → 고른 뒤 그 턴 그림을 찍는다 (-mom-<종류>-go.png). 그 밖 · 두 번째부터는 '자동'.
+//      다음 단계: 우리 게이지를 채워 ★ 카드를 기다려 고르고 그 컷인 카드를 찍는다 (-mom-star.png · -mom-star-cut.png). 마지막에 [⏸ 개입] 한 번 (-mom-manual.png)
+//      → [결정 OFF] 로 끄고 (멈추지 않는지) 뒤 프레임 · ⏭ · 결과. 경기가 2골로 끝나면 새 시드로 다시 (--seed-N). 못 본 종류는 NOTE.
+//      스크린샷 도구의 다른 흐름 (--moments 없음) 은 ?moments=0 ([결정 OFF] — 예전처럼 멈추지 않고 흐른다).
 // 5) [⏭] → 결과 모달 캡처 (<size>-result.png) → [확인] → 런이 match phase 를 떠났는지 · store.hexMatch null · KEYS.hexMatch 비었는지 · 캔버스가 사라졌는지.
 //    --practice: [다시 하기] → 새 경기 (시드가 바뀌고 turn 0) → [⏭] → [확인] → 시작 화면 · store.practiceMatch null · 런 없음 · KEYS.hexMatch 비었는지 · 캔버스 정리.
 // 6) pageerror · console.error · 실패한 요청 · 400 이상 응답을 모아 요약을 찍는다. 하나라도 있거나 검사가 실패하면 exit 1.
@@ -62,6 +69,7 @@ function usage() {
     "  --goal             첫 골까지 4배속으로 돌려 골 장면도 찍는다 (<size>-goal-<n>.png)",
     "  --practice         런 대신 시작 화면 [⚽ 연습 경기] (실루엔 · 아델린 · 네리아가 양쪽) — 동작마다 멈춰 찍기 (<size>-act-<동작>.png)",
     "  --ult              연습 경기에서 필살기 띠 · 예약 · 컷인 (우리 · 상대 · 합체기 · 역컷인) 을 찍는다 (<size>-ult-*.png · -cut-*.png)",
+    "  --moments          연습 경기에서 결정의 순간 카드 띠 (종류마다) · 고른 수 · ★ 컷인 · ⏸ 개입을 찍는다 (<size>-mom-*.png)",
     "  --seed S           --practice 경기 시드 (기본 h2-7, random = 화면이 고른 시드)",
     "  --hunt-ms MS       --practice 동작 사냥 최대 시간 (화면 시계 기준, 기본 90000)",
     "  환경변수 CHROME_PATH 로 브라우저 실행 파일 지정",
@@ -69,7 +77,7 @@ function usage() {
 }
 
 export function parseArgs(argv) {
-  const o = { outDir: null, gpu: false, frames: 4, gap: 1500, sizes: ["1280x720", "915x412"], goal: false, practice: false, ult: false, seed: "h2-7", huntMs: 90000 };
+  const o = { outDir: null, gpu: false, frames: 4, gap: 1500, sizes: ["1280x720", "915x412"], goal: false, practice: false, ult: false, moments: false, seed: "h2-7", huntMs: 90000 };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const val = () => {
@@ -81,6 +89,7 @@ export function parseArgs(argv) {
     else if (a === "--goal") o.goal = true;
     else if (a === "--practice") o.practice = true;
     else if (a === "--ult") { o.ult = true; o.practice = true; }
+    else if (a === "--moments") { o.moments = true; o.practice = true; }
     else if (a === "--seed") o.seed = val();
     else if (a === "--hunt-ms") o.huntMs = Math.max(1000, Math.round(Number(val())) || 90000);
     else if (a === "--frames") o.frames = Math.max(1, Math.round(Number(val())) || 4);
@@ -547,6 +556,259 @@ async function huntEmotes(page, size, opts, out, pass, fail) {
   for (const n of notes) out.notes.push(n);
 }
 
+/* ---- --moments (H3.5 결정의 순간) ---- */
+
+/** 카드 띠 재기: 카드 수 · 상자 (CSS px) · 화면 안 · 글자 크기 · 잘림 · '자동' 수 · 머리표 */
+async function probeMoment(page) {
+  return page.evaluate(() => {
+    const m = document.querySelector(".hex-screen .hx-moment");
+    if (!m || m.hidden) return { error: "띠 없음" };
+    const rect = (el) => { const r = el.getBoundingClientRect(); return [Math.round(r.left), Math.round(r.top), Math.round(r.width * 10) / 10, Math.round(r.height * 10) / 10]; };
+    const inView = (el) => { const r = el.getBoundingClientRect(); return r.left >= -1 && r.top >= -1 && r.right <= innerWidth + 1 && r.bottom <= innerHeight + 1; };
+    const clip = (el) => !!el && !el.hidden && (el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1); // 말줄임 · 두 줄 넘침
+    const fs = (el) => (el ? Math.round(parseFloat(getComputedStyle(el).fontSize) * (el.getBoundingClientRect().height / Math.max(1, el.offsetHeight)) * 10) / 10 : null);
+    const cards = [...m.querySelectorAll(".hx-mc")].map((c) => ({
+      key: c.dataset.key, cls: c.className, rect: rect(c), inView: inView(c),
+      p: c.querySelector(".hx-mc-p")?.textContent || "", pl: c.querySelector(".hx-mc-pl")?.textContent || "",
+      lbl: c.querySelector(".hx-mc-lbl")?.textContent || "", af: c.querySelector(".hx-mc-af")?.textContent || "",
+      auto: c.classList.contains("hx-mc-auto"), star: c.classList.contains("hx-mc-star"), rcv: !!c.querySelector(".hx-mc-rcv"),
+      clip: { lbl: clip(c.querySelector(".hx-mc-lbl")), af: clip(c.querySelector(".hx-mc-af")), pl: clip(c.querySelector(".hx-mc-pl")) },
+      font: { p: fs(c.querySelector(".hx-mc-p")), lbl: fs(c.querySelector(".hx-mc-lbl")), af: fs(c.querySelector(".hx-mc-af")),
+        pl: fs(c.querySelector(".hx-mc-pl")), badge: fs(c.querySelector(".hx-mc-badge")) },
+    }));
+    const head = m.querySelector(".hx-mo-head");
+    const field = document.querySelector(".hex-screen .hx-field")?.getBoundingClientRect();
+    const ctl = document.querySelector(".hex-screen .hx-ctl")?.getBoundingClientRect();
+    const mr = m.getBoundingClientRect();
+    return {
+      rect: rect(m), cards, head: head ? { text: head.textContent.replace(/\s+/g, " ").trim(), rect: rect(head), inView: inView(head), clip: head.scrollWidth > head.clientWidth + 1 } : null,
+      belowField: field ? mr.top >= field.bottom - 1 : null, ctlClear: ctl ? ctl.right <= mr.left + 1 : null,
+      clock: document.querySelector(".hex-screen .hx-clock")?.textContent || "", ult: !!document.querySelector(".hex-screen .hx-ult")?.hidden,
+    };
+  });
+}
+
+/** --moments: 장면마다 찍고 고르기 · ★ 컷인 · ⏸ 개입 · [결정 OFF] (머리 주석 4 --moments) */
+async function momentFlow(page, size, opts, out, pass, fail) {
+  const shot = async (name, clip) => {
+    const file = path.join(opts.outDir, `${size}-${name}.png`);
+    await page.screenshot(clip ? { path: file, clip } : { path: file });
+    out.files.push(file);
+    return file;
+  };
+  const dbgM = () => page.evaluate(() => ({ m: window.__soccer.hexView?.moment, turn: window.__soccer.hexView?.turn, fin: !!window.__soccer.hexView?.finished, cam: window.__soccer.hexView?.cam, cut: window.__soccer.hexView?.ult?.cut }));
+  const fill = () => page.evaluate(() => {
+    const st = window.__soccer.store.practiceMatch;
+    for (const lv of Object.values(st?.live?.home || {})) if (typeof lv.gauge === "number" && !st.finished) lv.gauge = 100;
+  });
+  let restarts = 0;
+  const restart = async () => {
+    restarts += 1;
+    await page.evaluate((sd) => { const S = window.__soccer; S.store.practiceSeed = sd; S.store.practiceMatch = null; S.render(); }, `${opts.seed === "random" ? "mom" : opts.seed}-${restarts}`);
+    await page.waitForFunction(() => window.__soccer.hexView?.renderer === "webgl" && (window.__soccer.hexView?.turn ?? 1) === 0, { timeout: 15000 }).catch(() => {});
+  };
+  // 고르는 규칙 (페이지 안에서 함수로 — 문자열로 넘겨 new Function)
+  const PREF = {
+    shot: ["c => c.querySelector('.hx-mc-lbl')?.textContent.startsWith('중거리 슛')", "c => c.dataset.kind === 'shoot'"],
+    cross: ["c => c.dataset.kind === 'cross'", "c => c.querySelector('.hx-mc-lbl')?.textContent.startsWith('스루')"],
+    counter: ["c => c.dataset.kind === 'loft'"],
+    danger: ["c => c.dataset.key === 'block'"],
+    longball: ["c => c.dataset.kind === 'loft' && !c.classList.contains('hx-mc-auto') && !c.classList.contains('hx-mc-star')"],
+  };
+  const pickBy = (list) => page.evaluate((fns) => {
+    const cards = [...document.querySelectorAll(".hex-screen .hx-moment .hx-mc")];
+    let el = null;
+    // eslint-disable-next-line no-new-func
+    for (const f of fns) { const fn = new Function(`return (${f})`)(); el = cards.find((c) => fn(c)); if (el) break; }
+    el = el || cards.find((c) => c.classList.contains("hx-mc-auto")) || cards[0];
+    if (!el) return null;
+    const r = { key: el.dataset.key, kind: el.dataset.kind, lbl: el.querySelector(".hx-mc-lbl")?.textContent, p: el.querySelector(".hx-mc-p")?.textContent, auto: el.classList.contains("hx-mc-auto") };
+    el.querySelector(".hx-mc-pick").dispatchEvent(new PointerEvent("pointerenter")); // 밝힘 (화살표) — pointerenter 는 버블링하지 않는다
+    return r;
+  }, list || []);
+  const clickSel = () => page.evaluate(() => { const el = document.querySelector(".hex-screen .hx-moment .hx-mc.hx-mc-sel .hx-mc-pick"); if (el) el.click(); return !!el; });
+
+  // 2배속 (장면 사이를 빨리 — 장면에서는 배속과 상관없이 선다) · 가상 시간 2배
+  await page.evaluate((k) => { window.__soccer.store.matchUi.speed = 2; window.__soccer.store.matchUi.moments = true; window.__hexClock.scale = k; }, HUNT_SCALE);
+  const KINDS = ["shot", "danger", "cross", "counter", "ult", "combo"];
+  const seen = {};
+  const probes = [];
+  let phase = "kinds"; // kinds → star → manual → done
+  // 장면 종류를 다 봤나 — 2골 선승 (결정 27) 으로 경기가 짧아 역습 장면을 못 보고 다시 시작만 하다 끝나지 않게 3판을 넘겼으면 둘만 봐도 다음으로
+  const need = ["shot", "danger", "cross", "counter"];
+  const kindsDone = (virt) => need.every((k) => seen[k]) || ((virt - t0 > opts.huntMs * 0.8 || restarts >= 3) && need.filter((k) => seen[k]).length >= 2);
+  let starDone = null;
+  const t0 = await page.evaluate(() => window.__hexClock.virt);
+  for (let guard = 0; guard < 4000; guard++) {
+    const d = await dbgM();
+    const virt = await page.evaluate(() => window.__hexClock.virt);
+    if (virt - t0 > opts.huntMs * 2) { out.notes.push(`결정의 순간 사냥 시간 끝 (${phase})`); break; }
+    if (phase === "kinds" && kindsDone(virt)) phase = "star"; // 이미 본 종류 장면만 이어져도 (아래 continue) 다음 단계로
+    if (d.fin) {
+      if (restarts >= 15) { out.notes.push("다시 시작 15번 — 그만"); break; }
+      await restart();
+      continue;
+    }
+    const open = d.m?.open;
+    if (!open) {
+      if (phase === "star" && guard % 3 === 0) await fill();
+      await sleep(40);
+      continue;
+    }
+    // 장면이 열렸다: 카메라가 장면 틀 (moment.open.camT) 에 붙을 때까지 (최대 4 초). 디버그 값은 프레임마다라 방금 고른 장면이 남아 있을 수 있다 → 다시 읽는다
+    await sleep(200);
+    await page.waitForFunction(() => {
+      const v = window.__soccer.hexView;
+      const a = v?.cam;
+      const b = v?.moment?.open?.camT;
+      return !v?.moment?.open || (a && b && Math.abs(a.cx - b.cx) < 3 && Math.abs(a.cy - b.cy) < 3 && Math.abs(a.z - b.z) < 0.01);
+    }, { timeout: 4000, polling: 50 }).catch(() => out.notes.push(`${size} 장면 카메라가 4 초 안에 틀에 안 붙었다 (turn ${d.turn})`));
+    const d2 = await dbgM();
+    if (!d2.m?.open || d2.turn !== d.turn) continue;
+    const kind = open.kind;
+    const hasStar = open.cards.some((c) => c.star);
+    if (phase === "star" && hasStar) {
+      const pr = await probeMoment(page);
+      await page.evaluate((f) => { window.__hexClock.scale = f; }, FREEZE);
+      await sleep(120);
+      await shot("mom-star");
+      const st = await page.evaluate(() => {
+        const el = document.querySelector(".hex-screen .hx-moment .hx-mc.hx-mc-star");
+        if (!el) return null;
+        const r = { key: el.dataset.key, lbl: el.querySelector(".hx-mc-lbl").textContent, p: el.querySelector(".hx-mc-p").textContent, af: el.querySelector(".hx-mc-af").textContent };
+        el.querySelector(".hx-mc-pick").click();
+        return r;
+      });
+      if (!st) { await page.evaluate((k) => { window.__hexClock.scale = k; }, HUNT_SCALE); continue; }
+      // 컷인 카드가 30 % 쯤 올 때까지 (cutHunt 처럼 — 카드 애니메이션을 멈추고 찍는다)
+      await page.evaluate((k) => { window.__cutHunt = { on: true, want: ["own"], seen: {}, hit: null }; window.__hexClock.scale = k; }, 1);
+      const got = await page.waitForFunction(() => window.__cutHunt.hit, { timeout: 8000, polling: 16 }).then(() => true, () => false);
+      await sleep(120);
+      if (got) {
+        const file = await shot("mom-star-cut");
+        const hit = await page.evaluate(() => window.__cutHunt.hit);
+        out.frames.push({ file, hunt: true, turn: d.turn, act: `★ 카드 ${st.lbl} ${st.p} → 컷인 ${hit.text}` });
+        pass(`★ 카드 "${st.lbl}" ${st.p} (${st.af}) → 고름 → 우리 컷인 (${hit.cls})`);
+      } else fail(`★ 카드 "${st.lbl}" 를 골랐는데 컷인을 못 봤다`);
+      await page.evaluate((k) => {
+        for (const x of document.querySelector(".hex-screen .m-cutin")?.getAnimations({ subtree: true }) || []) x.play();
+        window.__cutHunt.on = false; window.__hexClock.scale = k;
+      }, HUNT_SCALE);
+      starDone = { ...st, kind, probe: pr };
+      phase = "manual";
+      // ⏸ 개입: [결정 OFF] 로 끄고 개입 한 번
+      await page.evaluate(() => { document.querySelector(".hex-screen .hx-int-btn")?.click(); });
+      continue;
+    }
+    if (phase === "manual") {
+      await page.evaluate((f) => { window.__hexClock.scale = f; }, FREEZE);
+      await sleep(120);
+      const file = await shot("mom-manual");
+      const pr = await probeMoment(page);
+      out.frames.push({ file, hunt: true, turn: d.turn, act: `⏸ 개입 장면 ${kind}${open.manual ? " (manual)" : ""}: ${pr.head?.text}` });
+      const iv = await page.evaluate(() => window.__soccer.store.matchUi.hexIntervene);
+      if (!iv) pass(`⏸ 개입 → 한 번 멈춤 (${kind}${open.manual ? " · 간격 밖" : ""}) "${pr.head?.text}" · 멈춘 뒤 꺼짐`);
+      else fail("⏸ 개입 뒤에도 켜져 있다");
+      await clickSel();
+      await page.evaluate((k) => { window.__hexClock.scale = k; }, HUNT_SCALE);
+      phase = "done";
+      break;
+    }
+    // 이미 찍은 종류라도 '자동' 이 아닌 띄운 공 (롱볼 · 전환 · 스루) 카드가 있으면 한 번 그것을 골라 찍는다 (longball — 고른 롱볼이 날아가는 그림)
+    const longOk = phase === "kinds" && seen[kind] && !seen.longball && kind !== "danger" && open.cards.some((c) => c.kind === "loft" && !c.auto && !c.star);
+    if ((seen[kind] && !longOk) || phase !== "kinds") { await clickSel(); await sleep(40); continue; }
+    const tag = longOk ? "longball" : kind;
+    // 처음 보는 종류: 고를 카드를 밝혀 (화살표) 멈추고 찍는다
+    const chosen = await pickBy(PREF[tag]);
+    await page.evaluate((f) => { window.__hexClock.scale = f; }, FREEZE);
+    await sleep(160);
+    const pr = await probeMoment(page);
+    const clk = (await probeMoment(page)).clock;
+    const file = await shot(`mom-${tag}`);
+    if (!pr.error) {
+      const [x, y, w, hh] = pr.rect;
+      const top = Math.max(0, (pr.head?.rect?.[1] ?? y) - 6);
+      await shot(`mom-${tag}-strip`, { x: Math.max(0, x - 6), y: top, width: w + 12, height: y + hh + 6 - top, scale: 2 });
+    }
+    const dd = await dbgM();
+    out.frames.push({ file, hunt: true, turn: d.turn, act: `장면 ${tag} "${pr.head?.text}" · cam z ${dd.cam?.z?.toFixed(2)} · 카드 ${pr.cards?.map((c) => `${c.lbl} ${c.p}${c.auto ? "(자동)" : ""}${c.star ? "★" : ""} [${c.af}]`).join(" | ")}` });
+    probes.push({ kind: tag, pr });
+    // 검사
+    if (pr.error) fail(`장면 ${tag}: ${pr.error}`);
+    else {
+      const bad = [];
+      if (pr.cards.length < 2 || pr.cards.length > 4) bad.push(`카드 ${pr.cards.length}장`);
+      if (pr.cards.some((c) => !c.inView)) bad.push("화면 밖 카드");
+      if (pr.cards.filter((c) => c.auto).length !== 1) bad.push(`'자동' ${pr.cards.filter((c) => c.auto).length}장`);
+      if (pr.cards.some((c) => c.rect[3] < 44)) bad.push(`카드 높이 ${Math.min(...pr.cards.map((c) => c.rect[3]))} CSS px`);
+      if (!pr.belowField) bad.push("띠가 경기장 위");
+      if (!pr.ctlClear) bad.push("컨트롤과 겹침");
+      if (!pr.ult) bad.push("필살기 띠가 보인다");
+      if (!pr.head?.inView) bad.push("머리표 화면 밖");
+      const clips = pr.cards.flatMap((c) => Object.entries(c.clip).filter(([, v]) => v).map(([k]) => `${c.key}.${k}`));
+      if (clips.length) out.notes.push(`${size} 장면 ${tag}: 글자 잘림 (말줄임) ${clips.join(", ")}`);
+      if (pr.head?.clip) out.notes.push(`${size} 장면 ${tag}: 머리표 잘림`);
+      const f = pr.cards[0]?.font || {};
+      // 작은 글자 (% 이름 · '자동' 꼬리표) 도 폰 바닥 9 CSS px (2026-10-10 리뷰 — 예전엔 p · lbl · af 만 쟀다)
+      const small = pr.cards.flatMap((c) => ["pl", "badge"].filter((k) => c.font[k] != null && c.font[k] > 0 && c.font[k] < 9).map((k) => `${c.key}.${k} ${c.font[k]}px`));
+      if (small.length) bad.push(`글자 9 CSS px 아래 ${small.join(", ")}`);
+      if (bad.length) fail(`장면 ${tag}: ${bad.join(" · ")}`);
+      else pass(`장면 ${tag} "${pr.head.text}" 카드 ${pr.cards.length}장 · ${pr.cards[0].rect[2]}×${pr.cards[0].rect[3]} CSS px · 글자 % ${f.p} / 이름 ${f.lbl} / 둘째 줄 ${f.af} / % 이름 ${f.pl} px · cam z ${dd.cam?.z?.toFixed(2)}`);
+    }
+    // 시계가 서 있나 (가상 시간 1 초 흘려도 같은 턴 · 같은 시계)
+    await page.evaluate(() => { window.__hexClock.scale = 1; });
+    await sleep(1000);
+    const after = await dbgM();
+    const clk2 = (await probeMoment(page)).clock;
+    if (after.turn === d.turn && clk2 === clk && after.m?.open) pass(`장면 ${tag}: 고를 때까지 시계 · 턴 멈춤 (${clk})`);
+    else fail(`장면 ${tag}: 시계가 흐른다 (${d.turn} → ${after.turn}, ${clk} → ${clk2})`);
+    seen[tag] = { chosen, file };
+    // 고름 → 그 턴 그림 (공이 떠난 뒤 — 1배속으로 그 턴의 ~65 %) 을 찍는다
+    const go = !!(PREF[tag] && chosen && !chosen.auto);
+    if (go) await page.evaluate(() => { window.__soccer.store.matchUi.speed = 1; });
+    await clickSel();
+    if (go) {
+      await page.waitForFunction((t) => (window.__soccer.hexView?.turn ?? 0) > t, { timeout: 4000, polling: 16 }, d.turn).catch(() => {});
+      // 공이 떠난 뒤 (그 턴의 ~55 % — 1배속 한 턴 400 ms) 에 멈춘다: 가상 시간으로 재고, 닿는 rAF 에서 바로 멈춘다
+      await page.evaluate((f) => new Promise((res) => {
+        const v0 = window.__hexClock.virt;
+        const tick = () => { if (window.__hexClock.virt - v0 >= 220) { window.__hexClock.scale = f; res(); } else requestAnimationFrame(tick); };
+        requestAnimationFrame(tick);
+      }), FREEZE);
+      await sleep(120);
+      const gf = await shot(`mom-${tag}-go`);
+      const evs = await page.evaluate((t) => (window.__soccer.store.practiceMatch?.events || []).filter((e) => e.turn === t + 1 && ["choice", "pass", "shot", "stance", "goal", "save", "tackle", "intercept", "aerial"].includes(e.type)).map((e) => `${e.type}${e.key ? `:${e.key}` : ""}${e.mode ? `:${e.mode}` : ""}${e.success != null ? (e.success ? "+" : "-") : ""}${e.lofted ? "(띄움)" : ""}${e.cross ? "(크로스)" : ""}`), d.turn);
+      out.frames.push({ file: gf, hunt: true, turn: d.turn + 1, act: `고름 ${chosen.lbl} ${chosen.p} → ${evs.join(" ")}` });
+      // 한 턴 뒤 (띄운 공 · 크로스는 여러 턴 난다)
+      await page.evaluate(() => { window.__hexClock.scale = 1; });
+      await sleep(400);
+      await page.evaluate((f) => { window.__hexClock.scale = f; }, FREEZE);
+      await sleep(120);
+      out.frames.push({ file: await shot(`mom-${tag}-go2`), hunt: true, turn: d.turn + 2, act: `고름 ${chosen.lbl} — 한 턴 뒤` });
+      if (evs.some((e) => e.startsWith("choice:") || e.startsWith("stance:"))) pass(`장면 ${tag}: "${chosen.lbl}" 고름 → 엔진 ${evs.join(" ")}`);
+      else fail(`장면 ${tag}: 고른 입력을 엔진이 안 받았다 (${evs.join(" ")})`);
+    }
+    await page.evaluate((k) => { window.__hexClock.scale = k; window.__soccer.store.matchUi.speed = 2; }, HUNT_SCALE);
+    if (kindsDone(virt)) phase = "star";
+  }
+  out.moments = Object.keys(seen);
+  const miss = [...KINDS, "longball"].filter((k) => !seen[k]);
+  if (["shot", "danger"].every((k) => seen[k])) pass(`장면 찍음: ${Object.keys(seen).join(" · ")}`);
+  else fail(`슈팅 찬스 · 수비 위기 장면을 못 봤다 (본 것 ${Object.keys(seen).join(" · ") || "없음"})`);
+  if (miss.length) out.notes.push(`못 본 장면 종류: ${miss.join(" · ")} (실패 아님)`);
+  if (!starDone) out.notes.push("★ 카드 장면을 못 봤다");
+  if (phase !== "done") out.notes.push(`⏸ 개입까지 못 갔다 (${phase})`);
+  // [결정 OFF]: 버튼으로 끄고 멈추지 않는지 (뒤 프레임 · ⏭ 를 위해서도)
+  const offBtn = await page.evaluate(() => { window.__soccer.store.matchUi.speed = 1; const b = document.querySelector(".hex-screen .hx-mom-btn"); b?.click(); return b?.textContent; });
+  await page.evaluate(() => { window.__hexClock.scale = 1; });
+  const a0 = await dbgM();
+  await sleep(2500);
+  const a1 = await dbgM();
+  if (offBtn === "결정 OFF" && !a1.m?.open && (a1.fin || a1.turn > a0.turn)) pass(`[결정 OFF] → 멈추지 않고 흐른다 (turn ${a0.turn} → ${a1.turn}, 연 장면 ${a1.m?.opened})`);
+  else fail(`[결정 OFF] 뒤: ${JSON.stringify({ offBtn, a0: a0.turn, a1: a1.turn, open: a1.m?.open })}`);
+  if (a1.fin) await restart();
+}
+
 /** 연습 경기 끝: [⏭] → 결과 → [다시 하기] → 새 경기 → [⏭] → [확인] → 시작 화면 */
 async function finishPractice(page, size, opts, out, pass, fail) {
   const skip = () => page.evaluate(() => { const b = document.querySelector(".hex-screen .skip-btn"); if (!b || b.disabled) return false; b.click(); return true; });
@@ -697,8 +959,12 @@ async function runSize(browser, baseUrl, size, opts) {
     page.on("response", (r) => { if (r.status() >= 400) out.errors.push(`HTTP ${r.status()}: ${r.url()}`); });
     await page.setViewport(viewport);
     if (opts.practice) await installClock(page);
-    await page.goto(`${baseUrl}/index.html?hex=1&auto=1`, { waitUntil: "load" });
-    if (opts.practice) {
+    // --moments 가 아니면 [결정 OFF] (예전처럼 멈추지 않고 흐른다 — 사냥 · 프레임 · 골 흐름이 장면에서 서지 않게)
+    await page.goto(`${baseUrl}/index.html?hex=1&auto=1${opts.moments ? "" : "&moments=0"}`, { waitUntil: "load" });
+    if (opts.moments) {
+      await enterPractice(page, out, pass, fail, opts.seed);
+      await momentFlow(page, size, opts, out, pass, fail);
+    } else if (opts.practice) {
       await enterPractice(page, out, pass, fail, opts.seed);
       await huntActs(page, size, opts, out, pass, opts.ult ? ACT_TURN_CAP.ult : ACT_TURN_CAP.plain);
       if (opts.ult) await ultFlow(page, size, opts, out, pass, fail);

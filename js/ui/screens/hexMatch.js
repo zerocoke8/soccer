@@ -88,6 +88,16 @@
 //   - 한 선수 머리 위에는 하나 — 다음 턴 말풍선이 같은 선수에게 뜨면 지난 것을 바로 지운다.
 //   - 움직이는 스프라이트가 낮은 자세 (frame act tackle · fall) 면 선 키 머리 점에서 EMOTE_LOW × 키만큼 내린다 (뜬 말풍선이 옆 선수 것처럼 읽혀서 — 2026-10-10 스크린샷), 자세가 바뀌면 부드럽게.
 
+// 결정의 순간 (H3.5 — 문서 결정 26 · 27, SPEC §3):
+//   - 엔진이 턴 끝에 정한 사람 쪽 장면 (state.moment — 슈팅 찬스 · 크로스 · 역습 · 수비 위기 · 필살기 · 합체기) 이 있고 [결정 ON] (store.matchUi.moments,
+//     기본 켬) 이면: 그 턴 그림 (컷인 → 골 장면 → 역컷인 뒤) 이 끝난 턴 경계에서 멈춘다 — 시계 · 턴이 서고 (제한 시간 없음 — 고를 때까지 기다린다),
+//     카메라가 장면 쪽으로 (공 가진 선수 · 받는 선수 · 붙은 수비 · 슈팅 찬스면 상대 GK 틀, MOMENT_ZMIN ~ MOMENT_Z), 필살기 띠 자리를 카드 띠 .hx-moment 가 대신한다.
+//   - 카드 = HM.momentView (엔진 순수 미리보기) 그대로: 큰 % · 둘째 줄 "성공하면 …" · '자동' (AI 가 하려던 수) · ★ 금색 (필살기) · 받는 선수 ▾ (상위 3 돌리기) ·
+//     수비 위기는 압박 / 패스길 막기 / 물러서기 + 상대 성향 칩. 카드를 누르면 그 카드의 input 을 다음 step 에 넣고 (재생 기록 choose · defend · arm 줄) 이어간다.
+//   - 밝힌 카드 (처음 = '자동', 마우스 · 포커스 · ▾ 로 바뀜) 의 화살표 · 끝 고리를 캔버스에 (frame.aim — hexScene.momentAim, 글자 없음).
+//   - [결정 OFF] = 멈추지 않는다 (H3 그대로 — 합체기 대기는 예전 T.comboHold 알림). [⏸ 개입] (store.matchUi.hexIntervene) = 다음 우리 공 가진 선수 ·
+//     공 앞 수비 장면에서 한 번 멈춘다 (HM.peekMoment manual — 10초 간격 · 횟수 상관없음, 멈추면 꺼진다). ⏭ = 카드를 고르지 않고 (= '자동') simulateAuto.
+
 // 엔진 판 확인 (2026-10-10 기획자 폰 "HM.ultimateList is not a function" — 배포 직후 새 화면 모듈 + 캐시의 옛 엔진 모듈, 루트 sw.js 머리 주석):
 //   - 띄울 때 hexEngineCompat(HM) 로 이 화면이 쓰는 엔진 API (createMatch · step · ultimateList · ultimateStatus 함수, HEX_MATCH_VERSION ≥ HEX_ENGINE_EXPECT) 를 본다.
 //   - 필살기 API 만 안 맞으면: 필살기 띠를 숨기고 (엔진을 부르지 않는다 — 턴마다 토스트 나던 것) 띠 자리에 작은 안내 .hx-stale
@@ -109,6 +119,26 @@
 //    step 전 그림에 멈춘다 (컷인이 끝나 onEvents 가 돌 때 풀린다 — H3 리뷰 H3S-1 · H3S-2 · F1).
 //  - 사람 쪽 합체기 대기: 다음 step 전에 경기를 멈추고 (시계 · 턴, 배속과 상관없이 최대 T.comboHold) "합체기!" 알림 — 그 버튼을 누르거나
 //    (켬 → 바로 다음 step) 시간이 지나거나 ⏭ 이면 이어간다. 같은 대기 (선수 · 대기 끝 턴) 에 한 번만 (H3 리뷰 H3S-3).
+//    H3.5: [결정 ON] 이면 엔진의 합체기 장면 (★ 카드) 이 대신한다 — 장면으로 물은 대기는 이 알림을 다시 띄우지 않는다.
+// [구현 결정] (H3.5 — 결정의 순간 화면):
+//  - 카드 띠는 필살기 띠 자리 (컨트롤 오른쪽 아래, 높이 96 — 915×412 에서 ≈ 55 CSS px) 를 대신하고 장면 이름 · 고르는 선수 · 상대 성향은 그 위 작은 머리표.
+//  - 밝힌 카드 = 처음 '자동' 카드 → 마우스 올림 · 포커스 · ▾ 돌림이 바꾼다 (손가락은 누르면 바로 고른다 — 화살표는 '자동' 또는 ▾ 로 고른 받는 선수).
+//  - '자동' 카드를 골라도 입력 줄을 남긴다 (사람이 고른 것 — 엔진은 AI 와 같은 수를 둔다). '아끼기' (팀 필살기 장면) · 수비 위기의 '자동' 은 입력 없음
+//    (고른 자세는 상대 공격 동안 이어지는데 '자동' 은 AI 규칙 그대로 — 엔진 stanceHold).
+//  - ★ 가 아닌 카드 ('아끼기' 포함) 를 고르면 장면 전에 띠에서 눌러 둔 그 선수 (· ★ 선수) 의 켜기 · 끄기 줄을 지운다 — 장면이 그 선수 입력의 유일한 출처.
+//  - 장면 동안 고르는 선수 · 밝힌 카드의 받는 선수 머리 위에 HTML 이름표 (.hx-mo-tag — 띠가 숨어 얼굴 ↔ 이름 짝이 없다, 거울 경기는 얼굴도 같다).
+//  - 다른 카드의 ▾ 첫 누름은 그 카드를 밝히기만 (보이던 받는 선수 그대로), 그다음 누름부터 받는 선수를 돌린다.
+//  - 경기가 끝나면 ⏸ 개입을 끈다 (연습 경기 [다시 하기] · 다음 경기로 새지 않게 — app 의 연습 경로도 끈다).
+//  - 규칙 판 2 경기 (판 1 · 2 재생 기록 · rules 없는 옛 엔진 상태) 는 [결정 —] (꺼짐 · 못 누름), 저장에 rules: 2 (엔진 rulesOf 와 같이 "3 미만").
+//  - ★ 카드의 켜기 (arm) 는 그 step 의 필살기 입력 줄에 더한다 (같은 선수의 줄은 ★ 쪽이 이긴다).
+//  - 이름 줄 ("롱볼 → 도르비나") 이 카드 폭을 넘치면 받는 선수를 둘째 줄 앞으로 옮긴다 (★ 카드와 같은 꼴 — 말줄임 대신).
+//  - 물러서기 카드의 % 는 "슛이면 실점" (낮을수록 좋다) 이라 붉은 글자 (hx-mc-risk) — 다른 카드 % (높을수록 좋다) 와 헷갈리지 않게.
+//  - 장면 동안 배속 · ⏭ · [결정 OFF] 는 된다. 장면 중 [결정 OFF] = '자동' 으로 이어간다 (⏸ 개입 장면은 그대로).
+//  - 장면이 열린 채 다시 그리면 (재생 기록으로 되살림) 같은 장면을 다시 연다 — 엔진 state.moment 는 재생이 그대로 만든다.
+//  - 장면 카메라는 평소 결정 틀 (Z_FOLLOW 1.4 아래로는 안 감) 보다 더 물러날 수 있다 (MOMENT_ZMIN 1.15): 멈춘 그림이라 노린 칸 · 골이 다 보이는 게 먼저
+//    (2026-10-10 스크린샷 — 슈팅 찬스에 골이 화면 밖, 스루 칸이 카드 띠 밑).
+//  - 슈팅 찬스 · 슛 카드를 밝히면 상대 GK 를 꼭 넣는다 (노린 골이 보이게), 수비 위기는 우리 GK 를 보이면 넣는다.
+//  - 팀 필살기 장면은 쓰는 선수도 꼭 넣는다 (예전: 보이면 — 머리표의 선수가 화면 밖이었다).
 
 import { h, openModal, closeOverlays } from '../dom.js';
 import { saveHexMatch, loadHexMatch, HEX_SAVE_VERSION, hexTickMs } from '../store.js';
@@ -155,6 +185,12 @@ const EMOTE_TEXT = Object.freeze({ win: '!', steal: '!!', lose: '💦' });
 /** 낮은 자세 (움직이는 스프라이트의 태클 슬라이딩 · 넘어짐) 에서 말풍선을 내리는 몫 (선 키 figure.fh 기준 — 시트에서 잰 머리 높이 ≈ 65 · 75 %) · 따라가는 시간 상수 (ms) */
 const EMOTE_LOW = Object.freeze({ tackle: 0.33, fall: 0.25 });
 const EMOTE_LOW_TAU = 90;
+/** 결정의 순간 (H3.5): 카메라 최대 배율 · 장면 이름 */
+const MOMENT_Z = 1.9;
+const MOMENT_ZMIN = 1.15; // 장면은 멈춘 그림이라 틀 (공 가진 선수 · 노린 칸 · 골) 이 다 들어가는 게 확대보다 먼저 — 평소 따라가기 (1.4) 보다 더 물러날 수 있다
+const MOMENT_TITLE = Object.freeze({
+  shot: '슈팅 찬스', cross: '크로스 · 스루 찬스', counter: '역습', danger: '수비 위기', ult: '필살기 찬스', combo: '합체기 찬스', attack: '개입',
+});
 /** 역컷인 글 (엔진 이벤트 reverseCutin.text 가 먼저 — 없을 때) */
 const REVERSE_FALLBACK = Object.freeze({ save: '기적의 세이브!', block: '철벽 블록!', passCut: '필살 패스 차단!' });
 
@@ -180,8 +216,8 @@ export function setHexEmotesForTest(fn) {
   emotesOfTest = typeof fn === 'function' ? fn : null;
 }
 
-/** 이 화면이 기대하는 육각 엔진 상태 판 (js/engine/hexMatch.js HEX_MATCH_VERSION — 판 2 = H3 필살기) */
-export const HEX_ENGINE_EXPECT = 2;
+/** 이 화면이 기대하는 육각 엔진 상태 판 (js/engine/hexMatch.js HEX_MATCH_VERSION — 판 2 = H3 필살기, 판 3 = H3.5 결정의 순간 · 입력 choose · defend) */
+export const HEX_ENGINE_EXPECT = 3;
 /** 엔진 판이 안 맞을 때 안내 글 (필살기 띠 자리 · 대체 판) */
 export const STALE_MSG = '새 버전으로 바뀌는 중이에요 — 잠시 뒤 새로고침해 주세요';
 
@@ -232,24 +268,44 @@ function onceSafe(base) {
 const isHexState = (s, HM) => !!(s && typeof s === 'object' && s.engine === 'hex' && s.version === HM.HEX_MATCH_VERSION);
 
 /**
- * 재생 기록 (판 2 — 문서 §6.4) 을 새 경기 상태에 다시 돌린다: i 번째 step 에 inputs 의 [i, side, playerId, op] 들을 넣은 순서대로,
- * steps 만큼 (끝나면 멈춤), skipped 면 그 뒤 simulateAuto (양쪽 AI). 화면 · 시험 · 도구가 같은 함수를 쓴다.
+ * 재생 기록 한 step 의 입력 줄들 [[i, side, playerId, op, payload?], …] → HM.step 입력 { ultimates?, choice?, defend? } (판 3):
+ * arm · disarm = 필살기 (넣은 순서대로), choose = 결정의 순간 선택지 (payload = key), defend = 수비 자세 (payload = mode). 한 step 에
+ * choose · defend 가 여럿이면 마지막 것.
+ * @returns {{ ultimates?: object[], choice?: object, defend?: object } | null}
+ */
+export function hexStepInput(rows) {
+  if (!Array.isArray(rows) || !rows.length) return null;
+  const out = {};
+  for (const x of rows) {
+    if (!Array.isArray(x)) continue;
+    const [, side, playerId, op, payload] = x;
+    const pid = String(playerId);
+    if (op === 'arm' || op === 'disarm') (out.ultimates || (out.ultimates = [])).push({ side, playerId: pid, op });
+    else if (op === 'choose') out.choice = { side, playerId: pid, key: payload };
+    else if (op === 'defend') out.defend = { side, playerId: pid, mode: payload };
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+/**
+ * 재생 기록 (판 3 — 문서 §6.4) 을 새 경기 상태에 다시 돌린다: i 번째 step 에 inputs 의 [i, side, playerId, op, payload?] 들을 넣은 순서대로
+ * (hexStepInput), steps 만큼 (끝나면 멈춤), skipped 면 그 뒤 simulateAuto (양쪽 AI). 화면 · 시험 · 도구가 같은 함수를 쓴다.
+ * 판 1 · 2 재생 기록 (loadHexMatch 가 rules: 2 를 붙인다) 은 st 를 createMatch({ …, rules: 2 }) 로 만들어 넘긴다.
  * @param {object} HM 육각 엔진 (js/engine/hexMatch.js)
  * @param {object} st createMatch 결과 (turn 0)
  * @param {object} data
- * @param {{ steps: number, inputs?: Array<[number, string, string, string]>, skipped?: boolean }} save
+ * @param {{ steps: number, inputs?: Array<Array<number|string>>, skipped?: boolean }} save
  * @returns {object} st
  */
 export function hexReplay(HM, st, data, save) {
   const at = new Map();
   for (const x of Array.isArray(save?.inputs) ? save.inputs : []) {
     if (!Array.isArray(x)) continue;
-    const [i, side, playerId, op] = x;
-    if (!at.has(i)) at.set(i, []);
-    at.get(i).push({ side, playerId: String(playerId), op });
+    if (!at.has(x[0])) at.set(x[0], []);
+    at.get(x[0]).push(x);
   }
   const n = Number.isInteger(save?.steps) ? save.steps : 0;
-  for (let i = 0; i < n && !st.finished; i++) HM.step(st, data, at.has(i) ? { ultimates: at.get(i) } : null);
+  for (let i = 0; i < n && !st.finished; i++) HM.step(st, data, hexStepInput(at.get(i)));
   if (save?.skipped && !st.finished) HM.simulateAuto(st, data);
   return st;
 }
@@ -292,8 +348,12 @@ export function renderHexMatch(root, ctx) {
   const stale = !ultApi || !sceneOk; // 판이 섞임 → 띠 자리에 새로고침 안내
   /** HM.ultimateList (엔진이 안 맞으면 부르지 않는다 — null) */
   const ultListOf = (side) => (ultApi ? safe(() => HM.ultimateList(state, data, side)) : null);
-  const create = () => HM.createMatch({
+  // 결정의 순간 API (판 3 — 엔진이 안 맞으면 장면 없이 H3 처럼 흐른다)
+  const momOk = ultApi && typeof HM.momentView === 'function' && typeof HM.peekMoment === 'function';
+  // rules 2 = 판 1 · 2 재생 기록 (H3 규칙 — 2골 선승 · 수비 자세 없음) 을 같은 경기로 되살릴 때 (store.loadHexMatch 가 붙인다)
+  const create = (rules) => HM.createMatch({
     data, seed: setup.seed, home: setup.home, away: setup.away, possessions: setup.possessions, kind: setup.kind,
+    ...(rules === 2 ? { rules: 2 } : {}),
   });
   let state = null;
   let steps = 0;
@@ -310,7 +370,7 @@ export function renderHexMatch(root, ctx) {
   } else {
     const sv = loadSave();
     if (sv && sv.seed === setup.seed) {
-      state = safe(() => hexReplay(HM, create(), data, sv)) || null;
+      state = safe(() => hexReplay(HM, create(sv.rules), data, sv)) || null;
       if (state) { steps = sv.steps; skipped = !!sv.skipped; inputs = sv.inputs.slice(); }
     }
     if (!state) {
@@ -329,9 +389,13 @@ export function renderHexMatch(root, ctx) {
     STEPS.set(state, steps);
     INPUTS.set(state, inputs);
     if (skipped) SKIPPED.add(state);
-    writeSave(skipped
+    const sv = skipped
       ? { version: HEX_SAVE_VERSION, seed: state.seed, steps, inputs: inputs.slice(), skipped: true }
-      : { version: HEX_SAVE_VERSION, seed: state.seed, steps, inputs: inputs.slice() });
+      : { version: HEX_SAVE_VERSION, seed: state.seed, steps, inputs: inputs.slice() };
+    // 판 1 · 2 재생 기록에서 이어 온 경기 · rules 가 없는 상태 (캐시의 옛 H3 엔진이 만든 경기) — 엔진 rulesOf 와 같이 "3 미만 = 2" 로 남겨
+    // 다음에도 같은 규칙으로 되살린다 (2026-10-10 리뷰: rules 없는 상태를 판 3 으로 되살려 다른 경기가 됐다)
+    if (!(Number(state.rules) >= 3)) sv.rules = 2;
+    writeSave(sv);
   };
 
   const gen = ++HEX_GEN;
@@ -346,7 +410,9 @@ export function renderHexMatch(root, ctx) {
   const screen = h('div', { class: ['screen', 'match-screen', 'hex-screen'], dataset: { screen: 'match' } });
   const canvasHost = h('div', { class: 'hx-canvas', 'aria-hidden': 'true' });
   const nameEl = h('div', { class: 'hx-name', hidden: true });
-  const field = h('div', { class: 'hx-field' }, nameEl);
+  // 결정의 순간 이름표 (고르는 선수 · 밝힌 카드의 받는 선수 — 카드가 이름으로 부르는 선수를 경기장에서 찾게, HTML 글자)
+  const momTagEls = [0, 1].map(() => h('div', { class: 'hx-name hx-mo-tag', hidden: true }));
+  const field = h('div', { class: 'hx-field' }, nameEl, ...momTagEls);
   const fallbackEl = h('div', { class: 'hx-fallback', hidden: true }, FALLBACK_MSG);
   const noteEl = h('div', { class: 'hx-note', hidden: true }, '다시 그리는 중…');
   const pitch = h('div', { class: 'hx-pitch' }, canvasHost, field, fallbackEl, noteEl);
@@ -358,11 +424,18 @@ export function renderHexMatch(root, ctx) {
   const clockEl = h('div', { class: 'hx-clock', 'aria-live': 'off' }, S.clockText(state, clockCfg));
   const speedBtn = h('button', { class: 'btn speed-btn', type: 'button', onclick: () => cycleSpeed() });
   const skipBtn = h('button', { class: 'btn skip-btn', type: 'button', title: '결과까지 스킵', 'aria-label': '결과까지 스킵', onclick: () => skip() }, '⏭');
-  const ctl = h('div', { class: 'hx-ctl' }, speedBtn, skipBtn);
+  // 결정의 순간 (H3.5): [결정 ON/OFF] · [⏸ 개입] — 컨트롤 둘째 줄
+  const momBtn = h('button', { class: 'btn hx-mom-btn', type: 'button', onclick: () => toggleMoments(), hidden: !momOk });
+  const intBtn = h('button', { class: 'btn hx-int-btn', type: 'button', onclick: () => toggleIntervene(), hidden: !momOk }, '⏸ 개입');
+  const ctl = h('div', { class: 'hx-ctl' }, speedBtn, skipBtn, momBtn, intBtn);
   const bannerEl = h('div', { class: 'hx-banner', 'aria-live': 'polite' }, h('b', { class: 'hx-banner-txt' }), h('span', { class: 'hx-banner-sub' }));
   const ultBar = h('div', { class: 'hx-ult', role: 'group', 'aria-label': '필살기', hidden: stale });
   const cutLayer = h('div', { class: 'm-cutin', 'aria-live': 'polite' });
-  screen.append(pitch, hud, clockEl, ctl, bannerEl, ultBar);
+  // 결정의 순간 카드 띠 (필살기 띠 자리 — 장면 동안만): 머리표 (장면 이름 · 고르는 선수 · 상대 성향) + 카드 2 ~ 4장
+  const momHead = h('div', { class: 'hx-mo-head' });
+  const momCards = h('div', { class: 'hx-mo-cards' });
+  const momEl = h('div', { class: 'hx-moment', role: 'group', 'aria-label': '결정의 순간', hidden: true }, momHead, momCards);
+  screen.append(pitch, hud, clockEl, ctl, bannerEl, ultBar, momEl);
   // 엔진 판이 안 맞으면 띠 자리에 작은 안내 + [새로고침] (막지 않는다 — 경기는 필살기 없이 그대로)
   if (stale) {
     screen.append(h('div', { class: 'hx-stale', role: 'status' },
@@ -599,6 +672,217 @@ export function renderHexMatch(root, ctx) {
     const list = [...queued].map(([playerId, op]) => ({ side: humanSide, playerId, op }));
     queued.clear();
     return list;
+  }
+
+  /* ---- 결정의 순간 (H3.5 — 머리 주석) ---- */
+  let mom = null; // 열린 장면 { mo, view, sel: 밝힌 카드 번호, rcv: 카드마다 ▾ 번호, manual, turn, els: 카드 DOM, camKey, cam, aimKey, aim }
+  let momPick = null; // 고른 카드 → 다음 step 입력 { turn, input, key, kind } (그 턴에는 장면을 다시 열지 않는다)
+  let momCount = 0; // 이 화면에서 연 장면 수 (디버그)
+  // 규칙 판 2 (판 1 · 2 재생 기록 · 옛 엔진 상태) 경기는 엔진이 장면을 정하지 않는다 — [결정 ON/OFF] 는 꺼 두고 (⏸ 개입은 공격 장면만 — 엔진 peekMoment)
+  const legacyRules = !(Number(state.rules) >= 3);
+  const momentsOn = () => momOk && !legacyRules && ui.moments !== false;
+  /** 지금 턴 경계에서 열 장면 (state.moment — [결정 ON] 또는 ⏸ 개입, 아니면 ⏸ 개입의 peekMoment manual) | null */
+  function findMoment() {
+    if (!momOk || skipped || broken || state.finished || state.stage === 'penalties' || hold || cutCur) return null;
+    if (momPick && momPick.turn === state.turn) return null;
+    if (state.moment && (momentsOn() || ui.hexIntervene)) return state.moment;
+    if (ui.hexIntervene) return safe(() => HM.peekMoment(state, data, { manual: true })) || null;
+    return null;
+  }
+  /** 턴 경계: 장면이 있으면 연다 (true = 이번 step 을 미룬다) */
+  function openMoment() {
+    const mo = findMoment();
+    if (!mo) return false;
+    const v = safe(() => HM.momentView(state, data, mo));
+    if (!v || !Array.isArray(v.cards) || !v.cards.length) return false;
+    if (ui.hexIntervene) ui.hexIntervene = false; // 한 번 멈췄다 (장면이 무엇이든)
+    const autoI = v.cards.findIndex((c) => c.auto);
+    mom = { mo, view: v, sel: autoI >= 0 ? autoI : 0, rcv: v.cards.map(() => 0), manual: !!mo.manual, turn: state.turn, els: [], camKey: '', cam: null, aimKey: '', aim: null };
+    momCount += 1;
+    // 이 장면이 물은 합체기 대기는 예전 알림 (comboHold) 을 다시 띄우지 않는다
+    const pid = v.carrier && v.carrier.side === humanSide ? v.carrier.id : null;
+    const until = pid != null ? state.live?.[humanSide]?.[pid]?.combo?.until : null;
+    if (until != null) comboAsked.add(`${pid}:${until}`);
+    endComboWait();
+    buildMoment();
+    clockEl.classList.add('hx-hold');
+    drawCtl();
+    return true;
+  }
+  /** 카드 i (▾ 로 돌린 받는 선수 갈래면 그 값을 넣은 카드) */
+  function momCard(i) {
+    const c = mom?.view?.cards?.[i];
+    if (!c) return null;
+    const ri = mom.rcv[i] || 0;
+    const r = Array.isArray(c.receivers) && c.receivers.length > 1 ? c.receivers[ri] : null;
+    return r ? { ...c, ...r, kind: c.kind, star: c.star } : c;
+  }
+  const pctText = (p) => (Number.isFinite(p) ? `${Math.round(p * 100)}%` : '');
+  /** 카드 DOM 하나 다시 그리기 (▾ · 밝힘) */
+  function fillMomCard(i) {
+    const el = mom.els[i];
+    const c = momCard(i);
+    const base = mom.view.cards[i];
+    const n = Array.isArray(base.receivers) ? base.receivers.length : 0;
+    el.wrap.className = ['hx-mc', `hx-mc-${base.kind}`, c.auto ? 'hx-mc-auto' : '', c.star ? 'hx-mc-star' : '',
+      ['press', 'block', 'drop'].includes(base.kind) ? 'hx-mc-def' : '', base.kind === 'drop' ? 'hx-mc-risk' : '',
+      i === mom.sel ? 'hx-mc-sel' : '', n > 1 ? 'hx-mc-has-rcv' : ''].filter(Boolean).join(' ');
+    el.wrap.dataset.key = c.key;
+    el.wrap.dataset.kind = base.kind;
+    const pc = pctText(c.p);
+    el.p.textContent = pc;
+    el.p.hidden = !pc;
+    el.pl.textContent = [c.pLabel, c.estimate ? '추정' : ''].filter(Boolean).join(' '); // '성공 추정' · '가로채기 추정' (한두 줄)
+    el.pl.hidden = !el.pl.textContent;
+    el.num.hidden = !pc && !el.pl.textContent; // 숫자가 없는 카드 (팀 필살기 · 아끼기) 는 글만
+    // ★ 카드는 필살기 이름이 길어 받는 선수를 둘째 줄 앞으로 ("→ 그레타 · 공 돌리기") — 보통 카드도 이름 줄이 넘치면 (폰 4장) 같은 꼴로
+    let split = !!c.star;
+    el.lbl.textContent = c.receiverName && !split ? `${c.label} → ${c.receiverName}` : c.label;
+    if (c.receiverName && !split && el.lbl.scrollWidth > el.lbl.clientWidth + 1) { split = true; el.lbl.textContent = c.label; }
+    el.af.textContent = c.receiverName && split ? `→ ${c.receiverName}${c.after ? ` · ${c.after}` : ''}` : c.after || '';
+    el.badge.hidden = !c.auto;
+    if (el.rcvBtn) {
+      el.rcvN.textContent = `${(mom.rcv[i] || 0) + 1}/${n}`;
+      el.rcvBtn.setAttribute('aria-label', `받는 선수 바꾸기 (${(mom.rcv[i] || 0) + 1}/${n})`);
+    }
+    const desc = [c.receiverName ? `${c.label} → ${c.receiverName}` : c.label, pc ? `${c.pLabel || ''} ${pc}${c.estimate ? ' (추정)' : ''}`.trim() : '', c.after, c.auto ? '자동' : ''].filter(Boolean).join(' · ');
+    el.pick.title = desc;
+    el.pick.setAttribute('aria-label', desc);
+  }
+  /** 카드 띠 그리기 (장면을 열 때) */
+  function buildMoment() {
+    const v = mom.view;
+    const who = nameOf(v.side, v.playerId) || v.name || '';
+    const title = v.kind === 'shot' && v.cards.some((c) => c.after === 'GK 와 1:1') ? 'GK 와 1:1' : MOMENT_TITLE[v.kind] ?? '결정의 순간';
+    momHead.replaceChildren(...[
+      h('b', { class: 'hx-mo-title' }, `${mom.manual ? '⏸ ' : ''}${title}`),
+      who ? h('span', { class: 'hx-mo-who' }, who) : null,
+      v.tendency && v.carrier ? h('span', { class: ['hx-mo-chip', `hx-tend-${v.tendency.type}`] }, `상대 ${v.carrier.name} · ${v.tendency.label}`) : null,
+      h('span', { class: 'hx-mo-wait' }, '고를 때까지 멈춤')].filter(Boolean));
+    momHead.className = ['hx-mo-head', `hx-mo-${v.kind}`].join(' ');
+    momCards.replaceChildren();
+    momCards.dataset.n = String(v.cards.length);
+    mom.els = v.cards.map((c, i) => {
+      const p = h('span', { class: 'hx-mc-p' });
+      const pl = h('span', { class: 'hx-mc-pl' });
+      const lbl = h('span', { class: 'hx-mc-lbl' });
+      const af = h('span', { class: 'hx-mc-af' });
+      const badge = h('span', { class: 'hx-mc-badge' }, '자동');
+      const num = h('span', { class: 'hx-mc-num' }, p, pl);
+      const pick = h('button', {
+        class: 'hx-mc-pick', type: 'button', onclick: () => pickMoment(i),
+        onpointerenter: () => selMoment(i), onfocus: () => selMoment(i),
+      }, num, h('span', { class: 'hx-mc-txt' }, lbl, af), badge);
+      const rcvN = h('small', { class: 'hx-mc-rn' });
+      const rcvBtn = Array.isArray(c.receivers) && c.receivers.length > 1
+        ? h('button', { class: 'hx-mc-rcv', type: 'button', onclick: () => cycleReceiver(i) }, h('b', {}, '▾'), rcvN) : null;
+      const wrap = h('div', { class: 'hx-mc', role: 'group' }, pick, rcvBtn);
+      momCards.append(wrap);
+      return { wrap, pick, num, p, pl, lbl, af, badge, rcvBtn, rcvN };
+    });
+    momEl.hidden = false; // 먼저 보여야 이름 줄 넘침을 잴 수 있다 (fillMomCard)
+    ultBar.hidden = true;
+    mom.els.forEach((_, i) => fillMomCard(i));
+  }
+  function selMoment(i) {
+    if (!mom || i === mom.sel || !mom.view.cards[i]) return;
+    const prev = mom.sel;
+    mom.sel = i;
+    fillMomCard(prev);
+    fillMomCard(i);
+  }
+  function cycleReceiver(i) {
+    if (!mom) return;
+    const n = mom.view.cards[i]?.receivers?.length || 0;
+    if (n <= 1) return;
+    const prev = mom.sel;
+    // 다른 카드의 ▾ 첫 누름은 그 카드를 밝히기만 (보이던 받는 선수 그대로 — 화살표 · 이름표가 먼저 그 선수를 가리킨다), 그다음부터 돌린다
+    if (prev === i) mom.rcv[i] = ((mom.rcv[i] || 0) + 1) % n;
+    mom.sel = i;
+    if (prev !== i) fillMomCard(prev);
+    fillMomCard(i);
+  }
+  /** 카드를 골랐다 → 다음 step 입력 (턴 경계에서 이미 기다리는 중이라 다음 프레임에 step) */
+  function pickMoment(i) {
+    if (!alive() || !mom) return;
+    const c = momCard(i);
+    if (!c) return;
+    momPick = { turn: state.turn, input: c.input || null, key: c.key, kind: mom.view.kind };
+    // 장면이 그 선수 입력의 유일한 출처: ★ 가 아닌 카드 ('아끼기' · 보통 카드) 를 고르면 장면 전에 띠에서 눌러 둔 그 선수 · ★ 선수의 켜기 · 끄기 줄을 지운다
+    // (띠는 장면 동안 숨어 보이지 않는다 — 2026-10-10 리뷰: '아끼기' 를 골랐는데 필살기가 터졌다). ★ 를 고르면 doStep 이 ★ 쪽 줄로 바꾼다
+    if (!c.star) {
+      for (const pid of [mom.view.playerId, ...mom.view.cards.filter((x) => x.star).map((x) => x.playerId)]) queued.delete(pid);
+    }
+    closeMoment();
+  }
+  function closeMoment() {
+    mom = null;
+    momEl.hidden = true;
+    momCards.replaceChildren();
+    ultBar.hidden = stale;
+    clockEl.classList.remove('hx-hold');
+    drawCtl();
+  }
+  /** [결정 ON/OFF] — 장면 중 OFF 면 '자동' 으로 이어간다 (⏸ 개입 장면은 그대로) */
+  function toggleMoments() {
+    if (!momOk || legacyRules) return;
+    ui.moments = !momentsOn();
+    if (!ui.moments && mom && !mom.manual) {
+      momPick = { turn: state.turn, input: null, key: null, kind: mom.view.kind };
+      closeMoment();
+    }
+    drawCtl();
+  }
+  /** [⏸ 개입] — 다음 우리 장면에서 한 번 멈춤 (다시 누르면 취소) */
+  function toggleIntervene() {
+    if (!momOk || state.finished || skipped || broken) return;
+    ui.hexIntervene = !ui.hexIntervene;
+    drawCtl();
+  }
+  function drawCtl() {
+    const on = momentsOn();
+    momBtn.textContent = legacyRules ? '결정 —' : on ? '결정 ON' : '결정 OFF';
+    momBtn.classList.toggle('active', on);
+    momBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    momBtn.disabled = legacyRules;
+    momBtn.title = legacyRules ? '이전 판 기록에서 이어 온 경기 — 결정의 순간 없음 (⏸ 개입은 공격 장면만)'
+      : on ? '결정의 순간: 중요한 장면에서 멈추고 카드를 고른다 — 누르면 끔 (완전 자동)' : '결정의 순간 꺼짐 (완전 자동) — 누르면 켬';
+    const iv = !!ui.hexIntervene;
+    intBtn.classList.toggle('active', iv);
+    intBtn.setAttribute('aria-pressed', iv ? 'true' : 'false');
+    intBtn.title = iv ? '다음 우리 장면에서 한 번 멈춤 — 누르면 취소' : '다음 우리 공 · 수비 장면에서 한 번 멈춘다';
+    intBtn.disabled = !!(state.finished || skipped || broken);
+  }
+  /** 장면 카메라 목표 (공 가진 선수 · 받는 선수 · 붙은 수비 · 노린 칸 틀 — 최대 MOMENT_Z) */
+  function momentCam(frame) {
+    const key = `${mom.sel}|${mom.rcv.join(',')}`;
+    if (mom.camKey === key && mom.cam) return mom.cam;
+    const f = S.momentFocus(state, mom.view, momCard(mom.sel));
+    const boxes = [];
+    for (const x of f.players) {
+      const p = frame.players.find((q) => q.key === `${x.side}:${x.id}`);
+      if (!p) continue;
+      boxes.push({ l: p.sx - p.figure.hw, r: p.sx + p.figure.hw, t: p.sy - p.figure.fh, b: p.sy + 12, core: !!x.core, opt: !!x.opt, key: p.key });
+    }
+    for (const cell of f.cells) {
+      const u = S.cellPlane(cell);
+      const pr = V.projectPlane(u.u, u.v, W, H);
+      boxes.push({ l: pr.sx - 20, r: pr.sx + 20, t: pr.sy - 20, b: pr.sy + 12 });
+    }
+    if (!boxes.length) return null;
+    const t = V.cameraTarget({ phase: 'decide', W, H, boxes, world, zMin: MOMENT_ZMIN });
+    mom.cam = V.clampCamera({ ...t, z: Math.min(MOMENT_Z, t.z) }, W, H, world);
+    mom.camKey = key;
+    return mom.cam;
+  }
+  /** 밝힌 카드의 화살표 (frame.aim) */
+  function momentAim() {
+    const key = `${mom.sel}|${mom.rcv.join(',')}`;
+    if (mom.aimKey !== key) {
+      mom.aimKey = key;
+      mom.aim = safe(() => S.momentAim(state, mom.view, momCard(mom.sel), W, H)) || null;
+    }
+    return mom.aim;
   }
 
   /* ---- 컷인 (H3 — 문서 §3 · §5.2, 예전 screens/match.js cutSeq · cutCard) ---- */
@@ -866,12 +1150,26 @@ export function renderHexMatch(root, ctx) {
     endComboWait();
     // 필살기 입력 (턴 경계 — 문서 §2.2-1): 이 step 의 번호 (0 부터) 와 함께 재생 기록에 남긴다
     const list = takeInput();
+    // 결정의 순간에 고른 카드 (H3.5): ★ 카드의 켜기는 필살기 줄에 (같은 선수 줄은 ★ 쪽이), choice · defend 는 그대로
+    const pick = momPick && momPick.turn === state.turn && ultPlaying() ? momPick.input : null;
+    momPick = null;
+    for (const u of Array.isArray(pick?.ultimates) ? pick.ultimates : []) {
+      const i = list.findIndex((x) => String(x.playerId) === String(u.playerId));
+      if (i >= 0) list.splice(i, 1);
+      list.push({ side: u.side, playerId: u.playerId, op: u.op });
+    }
+    const input = {};
+    if (list.length) input.ultimates = list;
+    if (pick?.choice) input.choice = { ...pick.choice };
+    if (pick?.defend) input.defend = { ...pick.defend };
     const idx = steps;
     const hadCut = state.events.some((e) => e.type === 'cutin');
     const hadRev = state.events.some((e) => e.reverseCutin);
-    const r = safe(() => HM.step(state, data, list.length ? { ultimates: list } : null));
+    const r = safe(() => HM.step(state, data, Object.keys(input).length ? input : null));
     if (r === undefined) { prevSnap = null; broken = true; return false; } // 엔진 오류: 더 돌리지 않는다 (⏭ · 처음으로는 그대로)
     for (const x of list) inputs.push([idx, x.side, String(x.playerId), x.op]);
+    if (input.choice) inputs.push([idx, input.choice.side, String(input.choice.playerId), 'choose', String(input.choice.key)]);
+    if (input.defend) inputs.push([idx, input.defend.side, String(input.defend.playerId), 'defend', input.defend.mode]);
     steps += 1;
     persist();
     const emotesFn = emotesOfTest || (sceneOk ? S.emotesOf : null); // 옛 hexScene.js 가 섞이면 말풍선 없이
@@ -913,7 +1211,9 @@ export function renderHexMatch(root, ctx) {
           kickoff: evs.some((x) => x.type === 'kickoff'), // 골든골 결승골은 킥오프 없이 끝난다 → 공은 골망에 그대로
         };
         wait = goal.until - tm;
-        banner('골!', `${nameOf(e.side, e.playerId)} · ${e.score ? `${e.score.home} : ${e.score.away}` : S.scoreText(state)}`, `hx-goal hx-${e.side}`, T.goalBanner / sp + tm);
+        // 2골 선승 (결정 27) 으로 끝나는 골이면 아랫줄에 그 까닭 — 시계 자리는 이미 "경기 종료"
+        const won = evs.some((x) => x.type === 'end' && x.reason === 'goals') ? ' · 2골 선승' : '';
+        banner('골!', `${nameOf(e.side, e.playerId)} · ${e.score ? `${e.score.home} : ${e.score.away}` : S.scoreText(state)}${won}`, `hx-goal hx-${e.side}`, T.goalBanner / sp + tm);
       } else if (e.type === 'goldenGoal') {
         stageBanner('골든골', '먼저 넣는 쪽이 이긴다');
       } else if (e.type === 'addedTime') {
@@ -926,11 +1226,21 @@ export function renderHexMatch(root, ctx) {
       }
     }
     if (state.finished && endLeft < 0) endLeft = T.end / sp + (goal ? goal.until : turnMs());
+    if (state.finished) endIntervene();
+  }
+  /** 경기가 끝났다: ⏸ 개입 끄기 (다음 연습 경기로 새지 않게 — 2026-10-10 리뷰) · 버튼 끔 */
+  function endIntervene() {
+    ui.hexIntervene = false;
+    drawCtl();
   }
 
   function skip() {
     if (!alive()) return;
     queued.clear();
+    // ⏭ = 장면 카드를 고르지 않고 ('자동' 과 같다) 양쪽 AI 로 끝까지
+    momPick = null;
+    if (mom) closeMoment();
+    ui.hexIntervene = false;
     clearCuts(); // ⏭ 은 컷인을 닫는다
     turnEmotes = [];
     clearEmotes(); // ⏭ 뒤에는 말풍선 없음
@@ -948,12 +1258,14 @@ export function renderHexMatch(root, ctx) {
     startHold = false;
     endLeft = 0;
     drawHud();
+    drawCtl();
     if (r !== undefined) showResult();
   }
 
   /* ---- 결과 ---- */
   function showResult() {
     if (resultShown || !alive() || !state.finished) return;
+    endIntervene();
     const result = safe(() => HM.getResult(state));
     if (!result) return;
     resultShown = true;
@@ -1013,7 +1325,8 @@ export function renderHexMatch(root, ctx) {
       skip: skipped, finished: state.finished, goal: inGoal,
       kickoff: !!frame.kickoff || state.stage === 'penalties', start: startHold,
     });
-    const target = V.cameraTarget({ phase, W, H, speed: sp, ball: frame.focus, attackRight: frame.attackRight, world });
+    const target = (mom && phase !== 'full' && momentCam(frame))
+      || V.cameraTarget({ phase, W, H, speed: sp, ball: frame.focus, attackRight: frame.attackRight, world });
     const k = 1 - Math.exp(-dt / T.camTau);
     const z = Math.abs(target.z - cam.z) < 0.001 ? target.z : cam.z + (target.z - cam.z) * k;
     const next = { cx: cam.cx + (target.cx - cam.cx) * k, cy: cam.cy + (target.cy - cam.cy) * k, z };
@@ -1037,6 +1350,34 @@ export function renderHexMatch(root, ctx) {
     const pt = S.camPoint(S.headPoint(p), cam, W, H);
     nameEl.style.transform = `translate(${Math.round(pt.x * 10) / 10}px, ${Math.round(pt.y * 10) / 10}px) translate(-50%, -100%)`;
     if (nameEl.hidden) nameEl.hidden = false;
+  }
+
+  /** 결정의 순간 이름표: 고르는 선수 (수비 위기의 우리 수비 · 필살기 선수) · 밝힌 카드의 받는 선수 (패스길 막기 = 상대 받는 선수). 공 가진 선수는 위 이름표 */
+  function drawMomTags(frame) {
+    const want = [];
+    if (mom && view && !state.finished) {
+      const v = mom.view;
+      const c = momCard(mom.sel);
+      want.push({ side: v.side, id: v.playerId });
+      if (c && c.receiverId != null) want.push({ side: c.receiverSide || v.side, id: c.receiverId });
+    }
+    momTagEls.forEach((el, i) => {
+      const w = want[i];
+      const key = w ? `${w.side}:${w.id}` : null;
+      const p = key && key !== frame.carrierKey ? frame.players.find((x) => x.key === key) : null;
+      if (!p) {
+        if (!el.hidden) el.hidden = true;
+        return;
+      }
+      if (el.dataset.key !== key) {
+        el.dataset.key = key;
+        el.textContent = p.name;
+        el.className = `hx-name hx-mo-tag hx-${p.side}`;
+      }
+      const pt = S.camPoint(S.headPoint(p), cam, W, H);
+      el.style.transform = `translate(${Math.round(pt.x * 10) / 10}px, ${Math.round(pt.y * 10) / 10}px) translate(-50%, -100%)`;
+      if (el.hidden) el.hidden = false;
+    });
   }
 
   /* ---- 감정 말풍선 (공을 뺏은 · 뺏긴 선수 — 머리 주석) ---- */
@@ -1206,6 +1547,8 @@ export function renderHexMatch(root, ctx) {
     if (playPost()) return;
     const tm = turnMs();
     if (acc >= tm + wait) {
+      // 결정의 순간 (H3.5): 장면이 열려 있으면 고를 때까지 (제한 없음) 이 턴 경계에 선다 — 컷인 · 골 장면 · 역컷인은 이미 끝났다
+      if (mom || openMoment()) { acc = tm + wait; return; }
       // 사람 쪽 합체기 대기: 누를 틈 (시계 · 턴 멈춤, 배속과 상관없이 최대 T.comboHold) — 누르면 tapUlt 가 풀고 다음 프레임에 step
       if (comboWait || startComboWait()) {
         comboWait.left -= dt;
@@ -1262,12 +1605,14 @@ export function renderHexMatch(root, ctx) {
     }
     drawUlt(); // 필살기 버튼 (턴 · 단계 · 입력 줄이 바뀔 때만) — 준비 고리 (readySet) 를 frame 보다 먼저
     const frame = currentFrame();
+    if (mom) frame.aim = momentAim(); // 결정의 순간: 밝힌 카드의 화살표 (캔버스 — 글자 없음)
     if (!hold) camStep(frame, dt || 16); // 턴 전 컷인 동안 카메라는 step 전 자리 (골 턴의 전체 화면으로 미리 빠지지 않게)
     drawHud();
     drawName(frame);
+    drawMomTags(frame);
     drawEmotes(frame, dt);
     if (view) {
-      const sig = `${frame.turn}|${frame.alpha.toFixed(3)}|${goal && goal.kickoff && acc >= goal.scene ? 'k' : ''}|${cam.cx.toFixed(1)}|${cam.cy.toFixed(1)}|${cam.z.toFixed(3)}|${[...readySet].join(',')}`;
+      const sig = `${frame.turn}|${frame.alpha.toFixed(3)}|${goal && goal.kickoff && acc >= goal.scene ? 'k' : ''}|${cam.cx.toFixed(1)}|${cam.cy.toFixed(1)}|${cam.z.toFixed(3)}|${[...readySet].join(',')}|${frame.aim?.key ?? ''}`;
       if (sig !== drawSig || view.dirty || view.animating) {
         drawSig = sig;
         try {
@@ -1284,6 +1629,7 @@ export function renderHexMatch(root, ctx) {
       frames, speed: speedOf(), cam: { ...cam }, score: { ...state.score }, resultShown, tex: texStats,
       sprites: view && typeof view.playing === 'function' ? view.playing() : null,
       ult: ultDebug(),
+      moment: momentDebug(),
       emotes: emotes.map((m) => ({ key: m.key, side: m.side, id: m.id, kind: m.kind, text: m.text, left: Math.round(m.left), dur: Math.round(m.dur), x: m.x, y: m.y, drop: Math.round((m.drop || 0) * 10) / 10, lift: m.lift, paused: m.el.classList.contains('hx-paused') })),
     };
     rafId = raf(loop);
@@ -1298,13 +1644,28 @@ export function renderHexMatch(root, ctx) {
     };
   }
 
+  /** 디버그 (HEX_DEBUG.moment — 시험 · tools/hex_shot.mjs --moments): 열린 장면 · 카드 · 밝힘 · 고른 것 · 켜기 상태 */
+  function momentDebug() {
+    return {
+      on: momentsOn(), intervene: !!ui.hexIntervene, opened: momCount, engine: state.moment ? { kind: state.moment.kind, playerId: state.moment.playerId } : null,
+      open: mom ? {
+        kind: mom.view.kind, playerId: mom.view.playerId, manual: mom.manual, turn: mom.turn, sel: mom.sel,
+        cards: mom.view.cards.map((c, i) => ({ key: momCard(i).key, kind: c.kind, label: momCard(i).label, p: momCard(i).p, auto: !!momCard(i).auto, star: !!c.star })),
+        aim: mom.aim ? { kind: mom.aim.kind, tone: mom.aim.tone } : null,
+        camT: mom.cam ? { ...mom.cam } : null, carrier: mom.view.carrier ? { side: mom.view.carrier.side, id: mom.view.carrier.id } : null,
+      } : null,
+      pick: momPick ? { key: momPick.key, kind: momPick.kind } : null,
+    };
+  }
+
   /* ---- 시작 ---- */
   drawSpeed();
+  drawCtl();
   drawHud();
   buildUltBar();
   drawUlt(true);
   safe(preloadCutArt);
-  HEX_DEBUG = { renderer: 'pending', fps: 0, turn: state.turn, steps, stage: state.stage, finished: !!state.finished, frames: 0, speed: speedOf(), cam: { ...cam }, score: { ...state.score }, resultShown, ult: ultDebug() };
+  HEX_DEBUG = { renderer: 'pending', fps: 0, turn: state.turn, steps, stage: state.stage, finished: !!state.finished, frames: 0, speed: speedOf(), cam: { ...cam }, score: { ...state.score }, resultShown, ult: ultDebug(), moment: momentDebug() };
   makeView();
   rafId = raf(loop);
   if (state.finished) showResult();

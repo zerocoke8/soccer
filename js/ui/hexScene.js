@@ -698,3 +698,109 @@ function peakLift(a, b, W, H) {
 function arcAt(a, b, t, W, H) {
   return 4 * t * (1 - t) * peakLift(a, b, W, H);
 }
+
+/* ------------------------------------------------------------------ */
+/* 결정의 순간 (H3.5 — 결정 26): 카메라 틀 · 고른 카드 화살표 (순수)          */
+/* ------------------------------------------------------------------ */
+
+/** 카드 → 공을 보낼 · 갈 칸 (pass · loft · cross · dribble 의 target, ★ 카드는 choiceKey 의 칸) — 없으면 null */
+function cardCell(card) {
+  if (!card) return null;
+  if (G.isCell(card.target)) return card.target;
+  const k = typeof card.choiceKey === 'string' ? card.choiceKey : '';
+  const last = Number(k.split(':').pop());
+  return k && k !== 'shoot' && k !== 'hold' && G.isCell(last) ? last : null;
+}
+/** 카드가 슛인가 (★ 필살 슛 카드도 — choiceKey 'shoot') */
+const cardShoots = (card) => !!card && (card.kind === 'shoot' || card.choiceKey === 'shoot');
+
+/**
+ * 결정의 순간 카메라 틀에 넣을 것 (화면이 frame.players 상자 · 칸 점으로 V.cameraTarget 'decide' 에 넘긴다).
+ * 공 가진 선수 · 고르는 선수 = core (팀 필살기 장면은 공 가진 선수 (공이 나는 중이면 떨어질 칸) 만 core, 쓰는 선수는 꼭 넣을 것), 고른 카드의 받는 선수 · 노린 칸 · 공 가진 선수 옆 (1칸) 의 상대 = 꼭 넣을 것,
+ * 슈팅 찬스 · 슛 카드 = 상대 GK (노린 골) 꼭, 수비 위기 = 우리 GK opt,
+ * 다른 카드의 받는 선수 = 보이면 넣을 것 (opt).
+ * @param {object} state 엔진 상태
+ * @param {object} view HM.momentView 결과
+ * @param {object|null} card 지금 고른 (밝힌) 카드 (받는 선수 ▾ 를 돌린 것이면 그 갈래 값을 넣은 카드)
+ * @returns {{ players: Array<{ side, id, core?: true, opt?: true }>, cells: number[] }}
+ */
+export function momentFocus(state, view, card = null) {
+  const out = { players: [], cells: [] };
+  if (!state || !view) return out;
+  const seen = new Set();
+  const add = (side, id, mark = {}) => {
+    if (side == null || id == null) return;
+    const k = `${side}:${id}`;
+    if (seen.has(k)) return;
+    seen.add(k);
+    out.players.push({ side, id: String(id), ...mark });
+  };
+  const c = view.carrier;
+  if (c) add(c.side, c.id, { core: true });
+  else if (state.ball?.holder) add(state.ball.holder.side, state.ball.holder.id, { core: true }); // 팀 필살기 장면 — 공 쪽이 틀 (쓰는 선수도 꼭 — 아래)
+  else if (G.isCell(state.ball?.flight?.target ?? state.ball?.cell)) out.cells.push(state.ball.flight?.target ?? state.ball.cell); // 공이 나는 중 — 떨어질 칸
+  add(view.side, view.playerId, c ? { core: true } : {}); // 팀 필살기 장면: 쓰는 선수도 꼭 (머리표 "필살기 찬스 아델린" 인데 화면에 없던 것 — 2026-10-10 스크린샷)
+  const rcvSide = c ? c.side : view.side;
+  if (card?.receiverId != null) add(rcvSide, card.receiverId);
+  const cell = cardCell(card);
+  if (cell != null) out.cells.push(cell);
+  // 골문 (GK) — 슈팅 찬스 · 슛 카드는 노린 골이 보여야 한다 (꼭), 수비 위기는 우리 골이 보이면 넣는다 (opt)
+  const gkOf = (side) => Object.entries(state.roles?.[side] || {}).find(([, r]) => r === 'GK')?.[0];
+  if (c && (view.kind === 'shot' || cardShoots(card))) add(otherSide(c.side), gkOf(otherSide(c.side)));
+  else if (c && view.kind === 'danger') add(view.side, gkOf(view.side), { opt: true });
+  // 공 가진 선수 옆 (1칸) 의 상대 — 태클 · 압박 하는 선수
+  if (c && G.isCell(c.cell)) {
+    const opp = otherSide(c.side);
+    for (const [id, pc] of Object.entries(state.pos?.[opp] || {})) if (G.isCell(pc) && G.distance(pc, c.cell) <= 1) add(opp, id);
+  }
+  for (const x of view.cards || []) {
+    for (const r of Array.isArray(x.receivers) ? x.receivers : x.receiverId != null ? [x] : []) add(rcvSide, r.receiverId, { opt: true });
+  }
+  return out;
+}
+
+/**
+ * 고른 카드의 화살표 (Pixi 가 땅에 그린다 — 글자 없음, 숫자는 HTML 카드): 필드 화면 px (카메라 전) 의 시작 · 끝 · 호 높이.
+ *   공격: 슛 = 공 가진 선수 → 노린 골문 가운데, 패스 · 띄운 공 · 크로스 = → 노린 칸 (띄운 공 · 크로스는 호), 드리블 = → 갈 칸. 지키기 · 팀 필살기 = 없음.
+ *   수비: 압박 = 고르는 수비 → 공 가진 상대, 패스길 막기 = 공 가진 상대 → 받을 상대 (막는 표시 — 가운데 X), 물러서기 = 고르는 수비 → 우리 골 쪽 짧게.
+ *   tone = 'star' (★ 카드 — 금색) · 'def' (수비 자세) · 'atk'.
+ * @returns {{ kind: string, tone: 'atk'|'def'|'star', from: { sx, sy }, to: { sx, sy }, lift: number, block?: true, key: string } | null}
+ */
+export function momentAim(state, view, card, W, H) {
+  if (!state || !view || !card || !view.carrier) return null;
+  const c = view.carrier;
+  const posOf = (side, id) => state.pos?.[side]?.[id];
+  const pt = (p) => { const r = V.projectPlane(p.u, p.v, W, H); return { sx: r.sx, sy: r.sy }; };
+  const at = (side, id) => (G.isCell(posOf(side, id)) ? cellPlane(posOf(side, id)) : null);
+  const tone = card.star ? 'star' : ['press', 'block', 'drop'].includes(card.kind) ? 'def' : 'atk';
+  const mk = (kind, a, b, extra = {}) => (a && b ? {
+    kind, tone, from: pt(a), to: pt(b), lift: extra.lofted ? peakLift(a, b, W, H) : 0, ...(extra.block ? { block: true } : {}),
+    key: `${kind}|${tone}|${a.u.toFixed(1)},${a.v.toFixed(1)}|${b.u.toFixed(1)},${b.v.toFixed(1)}`,
+  } : null);
+  const goalOf = (side) => {
+    const lo = crPlane(0, G.GOAL_ROWS[0]).v;
+    const hi = crPlane(0, G.GOAL_ROWS[G.GOAL_ROWS.length - 1]).v;
+    return { u: attackRightOf(side) ? RU + FL : RU, v: (lo + hi) / 2 };
+  };
+  if (tone === 'def' || (card.star && card.input?.defend)) {
+    const me = at(view.side, view.playerId);
+    const carrier = at(c.side, c.id);
+    if (card.kind === 'press') return mk('press', me, carrier);
+    if (card.kind === 'block') {
+      const r = card.receiverId != null ? at(c.side, card.receiverId) : null;
+      return r ? mk('block', carrier, r, { block: true }) : null;
+    }
+    if (card.kind === 'drop' && me) {
+      const g = goalOf(c.side); // 공 가진 상대가 노리는 골 = 우리 골
+      const k = Math.min(1, (HEX_PX * 1.6) / Math.max(1, Math.hypot(g.u - me.u, g.v - me.v)));
+      return mk('drop', me, { u: me.u + (g.u - me.u) * k, v: me.v + (g.v - me.v) * k });
+    }
+    return null;
+  }
+  const from = at(c.side, c.id);
+  if (cardShoots(card)) return mk('shoot', from, goalOf(c.side));
+  const cell = cardCell(card);
+  if (cell == null) return null;
+  const lofted = card.kind === 'loft' || card.kind === 'cross';
+  return mk(card.kind === 'dribble' ? 'dribble' : lofted ? card.kind : 'pass', from, cellPlane(cell), { lofted });
+}

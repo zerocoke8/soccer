@@ -242,6 +242,7 @@ function leavePractice() {
   store.practiceMatch = null;
   store.practiceSeed = null;
   store.matchUi.resultShown = false;
+  store.matchUi.hexIntervene = false; // ⏸ 개입이 다음 경기로 새지 않게 (연습 경로는 resetMatchUi 를 부르지 않는다 — [결정 ON/OFF] · 배속은 그대로)
   store.screen = 'start';
 }
 
@@ -513,6 +514,7 @@ const actions = {
     store.practiceSeed = newPracticeSeed();
     store.practiceMatch = null;
     store.matchUi.resultShown = false;
+    store.matchUi.hexIntervene = false; // 새 경기 — 지난 경기의 ⏸ 개입을 끈다 ([다시 하기] 도 여기로)
     store.screen = 'practice';
     render();
   },

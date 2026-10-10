@@ -2,9 +2,10 @@
  * hexMatch.js — 육각 타일 오토배틀 경기 엔진 (HEX_AUTOBATTLE_PLAN §1 · §2 · §3 · §4.2 · §6.3, H0 · H3)
  *
  * API (예전 match.js 와 같은 이름 · 같은 뜻): createMatch, step, simulateAuto, isFinished, getResult
- *  (+ HEX_DEFAULTS, 필살기 화면용 ultimateStatus · ultimateList · setAutoBoth, 시험용 setHexRollForTest · setHexDecisionForTest)
- * 불러오는 것: ./rng.js · ./hexGrid.js · ./hexUlt.js (필살기 — 그 안에서 ./skills.js) 만. match.js · ai.js 는 (직접이든 간접이든)
- * 불러오지 않는다.
+ *  (+ HEX_DEFAULTS, 필살기 화면용 ultimateStatus · ultimateList · setAutoBoth, 시험용 setHexRollForTest · setHexDecisionForTest,
+ *   H3.5 결정의 순간: momentView · peekMoment · peekOptions · scheduleMoment · STANCES · HEX_RULES)
+ * 불러오는 것: ./rng.js · ./hexGrid.js · ./hexUlt.js (필살기 — 그 안에서 ./skills.js) · ./hexMoment.js (결정의 순간 — ./hexUlt.js 만) 만.
+ * match.js · ai.js 는 (직접이든 간접이든) 불러오지 않는다.
  *
  * 진행 규약:
  *  - createMatch 는 홈 킥오프를 준비한 상태 (turn 0) 를 돌려준다. step 한 번 = 한 턴 (승부차기 단계에서는 한 킥).
@@ -19,7 +20,7 @@
  *    그 팀의 공격 방향 기준 순서 (hexGrid relDirs · neighborsRel · line(…, dir) · 자기 진영 훑기 순서) 를 쓴다.
  *    → 한 장면과 그 거울 장면 (두 팀 자리 · 공 · 먼저 움직이는 팀을 맞바꾼 것) 은 같은 주사위로 정확히 거울상으로 흘러간다 (시험으로 확인).
  *    남은 정해진 홈 몫: 경기 시작 킥오프 · 홀수 턴 홈 먼저 이동 · 승부차기 홈 선축 (아래 · 예전 규칙).
- *  - 시계: 정규 300턴. 300턴이 끝날 때 정확히 lastAttackDeficit(1)골 뒤진 팀이 공을 갖고 있으면 (가진 선수 · 그 팀 패스 비행 중)
+ *  - 시계: 정규 300턴 (한 팀이 2골에 닿으면 그 자리에서 끝 — 결정 27, goalsToWin). 300턴이 끝날 때 정확히 lastAttackDeficit(1)골 뒤진 팀이 공을 갖고 있으면 (가진 선수 · 그 팀 패스 비행 중)
  *    추가시간 (결정 20, 최대 25턴, 한 번만) — 그 팀이 공을 잃거나 슛이 끝나면 정규로 돌아가 다시 판정.
  *    동점이고 goal / arena 면 골든골 75턴 (킥오프 없이 그대로 이어서, 첫 골로 끝) → 그래도 같으면 승부차기 (예전 규칙 그대로).
  *    친선은 무승부로 끝날 수 있다.
@@ -103,15 +104,41 @@
  *  - 수비 팀 줄별 목표 열 하한 defendLineMin (DF 1 · MF 3 · FW 5) — 공이 골 앞이어도 MF · FW 는 박스 밖에 줄을 지킨다.
  *  - 경기를 끝내는 골 (정규 · 추가시간 마지막) 뒤에는 킥오프를 하지 않는다 (골든골 결승골과 같다 — goalEndsMatch).
  *
+ * [구현 결정] (H3.5 — 결정 26 결정의 순간 · 결정 27 2골 선승, 장면 판단 · 카드는 hexMoment.js 맨 위 주석):
+ *  - 상태 판 3: state.rules (3 = 2골 선승 · 수비 자세 · 장면, 2 = H3 그대로 — createMatch({ rules: 2 }) 는 판 1 · 2 재생 기록을 같은 경기로
+ *    되살릴 때만) · state.moment · state.momentClock · state.stanceHold. 판 2 규칙에서는 장면을 정하지 않고 2골에도 끝나지 않는다.
+ *    판 2 는 choice 입력만 받는다 (defend 는 조용히 무시 — 수비 자세가 없다. ⏸ 개입도 수비 장면을 열지 않는다 — hexMoment.peekMoment).
+ *  - decide() = carrierOptions (순수 선택지 목록 — 선택지마다 key · value · p) + choice 입력 + 시험용 덮어쓰기 + commitPlan (상태 변경).
+ *    나누기 전후 같은 시드 = 같은 JSON (120판 매 step 상태 해시로 확인). AI 선택 (best) 은 예전과 같고, 사거리 안이지만 AI 기준 밖 슛은
+ *    ai: false 로 목록에만 든다 (사람만 고른다 — 결정 26 중거리 슛).
+ *  - choice 는 그 턴 공 가진 선수 · 그 key 가 선택지에 있을 때만 (GK 선방 뒤 쥐는 턴은 받지 않는다). 받으면 choice 이벤트 { key, auto }.
+ *  - 수비 자세: 공 가진 쪽은 상대 자세를 모르고 고른다 — 선택지를 정한 뒤에 태클하지 않는 수비 (noTackle) 를 켠다. 그 수비가 태클 당사자였으면
+ *    태클 정하기를 다시 (다른 앞쪽 수비 · 없으면 태클 없음). 자세는 한 턴 한 쪽 한 명 (입력이 있으면 입력, 아니면 수비 위기의 AI 규칙) — stance 이벤트.
+ *    패스길 막기 · 물러서기 수비는 압박 · 마크 대신 그 목표 칸 (stanceCell) 으로 1칸. 압박 = H3 그대로. 목표 칸은 decide 가 공이 떠나기 전에
+ *    정한다 (ctx.stanceTarget — 패스 턴에도 그 자리로 가서 가로채기 굴림이 난다).
+ *  - 입력으로 고른 자세는 그 상대 공격 동안 stanceHoldTurns(5) 턴 이어진다 (state.stanceHold — stance 이벤트 by "hold").
+ *    막던 팀이 공을 갖거나 · 슛 · 골 · 킥오프 · 그 수비가 넘어지면 끝 (endStanceHold). '자동' 카드는 입력이 아니라서 이어지지 않는다.
+ *    AI 규칙 자세는 늘 그 턴만 (입력이 없으면 이어가기가 없다 — ⏭ · 시뮬 · 아웃게임 자동 진행은 그대로 양쪽 AI 규칙).
+ *  - 수비 위기 = 공 가진 상대 (GK 아님) 가 골까지 dangerDist 안 + 앞쪽 3칸에 태클할 수 있는 수비 (막는 수비 = 태클 정하기 순서, 지키기 기준).
+ *    AI 자세 규칙은 aiStance 주석. 입력이 없으면 사람 쪽도 이 규칙 (⏭ · 시뮬 · 자동과 같은 경기 — '자동' 카드).
+ *    사람 쪽 수비 장면 (멈춤) 은 그중 momentDangerDist(5) 안 + 공 가진 상대의 AI 선택이 슛이 아닐 때만 (hexMoment detectDanger).
+ *  - 2골 선승: 정규 · 추가시간 골 뒤 한 팀이 goalsToWin 골이면 그 턴에 끝 (킥오프 없음, end 이벤트 reason "goals", 추가시간이면 reason "goal" 로 닫음).
+ *    300턴 동점 · 골든골 · 승부차기 · 추가시간 시작 규칙은 그대로.
+ *  - 장면은 턴 끝 (afterTurn 뒤) 에 다음 턴 판으로 정한다 (hexMoment.scheduleMoment — 주사위 · 경기 상태를 바꾸지 않고 moment · momentClock 만).
+ *    step 첫머리에서 state.moment 를 지운다. AI 쪽 · simulateAuto 도 그대로 정해 둔다 (⏭ 뒤 · 재생 · 시뮬이 같은 장면을 본다 — 경기는 같다).
+ *
  * 순수 로직. 난수는 state.rngState 로만 (step 마다 createRngFromState → 사용 → getState 저장). 상태는 JSON 만 담는다.
  */
 
 import { createRng, createRngFromState } from "./rng.js";
 import * as G from "./hexGrid.js";
 import * as U from "./hexUlt.js";
+import * as M from "./hexMoment.js";
 
-/** 상태 판 (2 = H3 필살기 — aiSides · teamUlt · 게이지) */
-export const HEX_MATCH_VERSION = 2;
+/** 상태 판 (2 = H3 필살기 — aiSides · teamUlt · 게이지, 3 = H3.5 결정의 순간 — rules · moment · momentClock · choice / defend 입력 · 수비 자세) */
+export const HEX_MATCH_VERSION = 3;
+/** 규칙 판 (createMatch rules — 3 = 결정 26 · 27: 2골 선승 · 수비 자세 AI 규칙 · 결정의 순간. 2 = H3 그대로 (판 2 재생 기록을 같은 경기로 되살릴 때)) */
+export const HEX_RULES = 3;
 /** 정규 시간 턴 수 (2:00 = 300턴 × 0.4초, 결정 17) */
 export const TURNS_REGULAR = 300;
 /** 골든골 턴 수 (0:30, 결정 10) */
@@ -221,6 +248,16 @@ export const HEX_DEFAULTS = Object.freeze({
   nextBonusTurns: 3, // 필살 패스 nextDuelBonus 가 받은 선수의 다음 겨루기에 남는 턴 [가정]
   comboReadyTurns: 3, // 필살 패스를 받은 합체기 짝이 합체기를 쓸 수 있는 턴 (공을 잃으면 끝) [가정]
   aiUltLastTurns: 50, // AI 가 준비된 필살기를 모두 켜는 정규 시간 마지막 턴 수 (50턴 = 20초, 골든골 · 추가시간은 내내)
+  // 경기 길이 (결정 27) · 결정의 순간 (결정 26, H3.5 — hexMoment.js) · 수비 자세 (결정 26 ④)
+  goalsToWin: 2, // 한 팀이 이 골에 닿으면 (골 장면 뒤 킥오프 없이) 경기 끝 — 정규 · 추가시간 (골든골은 원래 첫 골). 0 = 끔 (300턴까지)
+  dangerDist: 7, // 수비 위기: 공 가진 상대 (GK 아님) 가 우리 골까지 이 거리 안 + 우리 수비가 그 앞쪽 3칸 (태클할 수 있음)
+  aiStance: 1, // 1 = 수비 위기마다 수비 자세 AI 규칙 (양 팀 — 입력이 없으면 사람 쪽도), 0 = 늘 압박 (H3 그대로 — 시뮬 비교용)
+  stanceKeepP: 0.6, // AI 규칙: 드리블형 상대에게 공을 지킬 확률이 이 값 이상이면 (태클이 질 것 같으면) 물러서기
+  stanceHoldTurns: 5, // 입력으로 고른 자세가 이어지는 턴 (그 상대 공격 동안 — 공이 넘어오거나 · 슛 · 골이면 끝, 5턴 = 2초). 1 = 그 턴만
+  momentDangerDist: 5, // 수비 위기 "장면" (사람 쪽 멈춤) 은 이 거리 안 (AI 자세 규칙은 dangerDist 그대로) — 하프라인 근처는 멈추지 않는다
+  momentGap: 25, // 결정의 순간 사이 최소 턴 (25턴 = 경기 시계 10초, 결정 26 — 합체기 · ⏸ 개입은 세지 않는다)
+  momentShotMinP: 0.1, // 슈팅 찬스: 지금 슛 골 확률이 이 값 이상 (AI 가 안 쏘는 중거리도 — 이보다 낮으면 "찬스" 가 아니다)
+  momentAltMinP: 0.4, // 슈팅 찬스 · 역습: 슛 말고 바로 성공할 확률이 이 값 이상인 다른 선택지 (패스 · 드리블) 가 있어야 "고를 거리"
 });
 
 const SIDES = ["home", "away"];
@@ -583,20 +620,23 @@ function slotOrder(team, roles) {
 
 /**
  * @param {{ data: object, seed: string|number, home: object, away: object, possessions?: number,
- *           kind?: "goal"|"friendly"|"arena", humanSide?: "home"|"away" }} args  possessions 는 받기만 하고 무시 (결정 17)
+ *           kind?: "goal"|"friendly"|"arena", humanSide?: "home"|"away", rules?: 2|3 }} args  possessions 는 받기만 하고 무시 (결정 17).
+ *   rules = 규칙 판 (HEX_RULES 3 — 2골 선승 · 수비 자세 · 결정의 순간. 2 = H3 그대로: 판 2 재생 기록을 같은 경기로 되살릴 때)
  * @returns {object} 홈 킥오프가 준비된 경기 상태 (turn 0)
  */
-export function createMatch({ data, seed, home, away, possessions, kind = "friendly", humanSide = "home" }) { // eslint-disable-line no-unused-vars
+export function createMatch({ data, seed, home, away, possessions, kind = "friendly", humanSide = "home", rules = HEX_RULES }) { // eslint-disable-line no-unused-vars
   matchCfg(data);
   const cfg = hexCfg(data);
   if (seed === undefined || seed === null) throw new Error("hexMatch: seed 가 필요합니다");
   if (!KINDS.includes(kind)) throw new Error(`hexMatch: kind 가 잘못됨: ${kind}`);
   if (humanSide !== "home" && humanSide !== "away") throw new Error(`hexMatch: humanSide 가 잘못됨: ${humanSide}`);
+  if (rules !== 2 && rules !== 3) throw new Error(`hexMatch: rules 가 잘못됨: ${rules}`);
   const teams = { home: initTeam(home, "home"), away: initTeam(away, "away") };
   const roles = { home: teamRoles(teams.home), away: teamRoles(teams.away) };
   const state = {
     version: HEX_MATCH_VERSION,
     engine: "hex",
+    rules,
     seed,
     rngState: createRng(seed).getState(),
     kind,
@@ -621,6 +661,12 @@ export function createMatch({ data, seed, home, away, possessions, kind = "frien
     addedTime: null,
     finished: false,
     result: null,
+    // 결정의 순간 (hexMoment.js): 다음 턴 사람 쪽 장면 { kind, side, playerId, turn, options: null } | null ·
+    // 스케줄러 기록 { last: 마지막 장면 턴 (10초 간격), ult: 준비된 채 이미 물어본 필살기 선수, combo: 이미 물어본 합체기 대기 }
+    moment: null,
+    momentClock: { last: null, ult: [], combo: null },
+    // 입력으로 고른 수비 자세 이어가기 { side, id, mode, until } | null (applyStance — 규칙 판 3)
+    stanceHold: null,
   };
   kickoff(state, "home", 0, cfg);
   // 필살기 (H3): 게이지 (필살기 선수만) · 팀 필살기 자리 · AI 쪽 = 사람이 아닌 쪽 (문서 §3 "안 누르면 안 쓴다")
@@ -730,8 +776,15 @@ function movementOrder(state, T) {
 }
 
 /**
- * 한 턴 진행. input = { ultimates: [{ side, playerId, op: "arm" | "disarm" }] } — 필살기 켜기 · 끄기, 이 턴 시작에 순서대로 적용
- * (문서 §2.2-1 · §6.4: 같은 시드 + 같은 입력 = 같은 경기). 안 되는 입력 (게이지 부족 · 이미 켬 …) 은 조용히 무시.
+ * 한 턴 진행. input = { ultimates: [{ side, playerId, op: "arm" | "disarm" }], choice: { side, playerId, key }, defend: { side, playerId, mode } }
+ * — 모두 이 턴 시작에 적용 (문서 §2.2-1 · §6.4: 같은 시드 + 같은 입력 = 같은 경기). 안 되는 입력 (게이지 부족 · 이미 켬 · 공 가진 선수가
+ * 바뀜 · 선택지에 없는 key …) 은 조용히 무시.
+ *  - ultimates: 필살기 켜기 · 끄기 (넣은 순서대로).
+ *  - choice (결정의 순간, 결정 26): 이 턴 공 가진 선수의 선택지 하나 (carrierOptions 의 key — momentView 카드의 input). 한 턴만.
+ *  - defend (결정 26 ④): 공 가진 상대를 막는 우리 수비 한 명의 자세 — "press" (지금 그대로: 태클할 수 있으면 태클) ·
+ *    "block" (태클하지 않고 가장 위험한 패스길에 선다) · "drop" (태클하지 않고 골 쪽으로 한 칸 — 슛 막는 수비로 남는다). 한 턴만.
+ *    입력이 없으면 수비 위기에서 AI 규칙 (aiStance — 양 팀).
+ * 턴이 끝나면 다음 턴 사람 쪽 결정의 순간을 정한다 (state.moment — hexMoment.scheduleMoment).
  * 승부차기 단계에서는 한 번에 한 킥 (필살기 · 게이지 없음 — 입력 무시).
  * @returns {object} state (제자리 변경)
  */
@@ -739,28 +792,22 @@ export function step(state, data, input = null) {
   if (!state || state.finished) return state;
   const m = matchCfg(data);
   const cfg = hexCfg(data);
+  if (state.moment) state.moment = null; // 이 턴의 장면은 이 step 의 입력으로 끝났다
   if (state.stage === "penalties") {
     penaltyKick(state, m);
     return state;
   }
   const T = state.turn + 1;
+  const evStart = state.events.length;
   const rng = createRngFromState(state.rngState);
-  const ctx = {
-    state, data, m, cfg, rng, T,
-    uc: U.ultCfg(data),
-    fired: {}, // 이번 턴 필살기를 쓴 선수 ("side:id") — 그 턴 게이지 없음
-    start: { home: Object.assign({}, state.pos.home), away: Object.assign({}, state.pos.away) },
-    order: movementOrder(state, T),
-    goal: null,
-    shotBy: null,
-  };
-  ctx.occStart = occupancy(ctx.start);
-  ctx.orderIdx = {};
-  ctx.order.forEach((o, i) => { ctx.orderIdx[o.side + ":" + o.id] = i; });
-  // (1) 입력 — 필살기 켜기 · 끄기 → AI 규칙 (팀 필살기는 여기서 터진다)
+  const ctx = turnCtx(state, data, m, cfg, T);
+  ctx.rng = rng;
+  // (1) 입력 — 필살기 켜기 · 끄기 → AI 규칙 (팀 필살기는 여기서 터진다) → 수비 자세 (입력 · AI 규칙)
   U.beginTurn(ctx, input);
+  const st3 = rulesOf(state) >= 3;
+  if (st3) applyStance(ctx, input);
   // (2) 공 가진 선수의 선택
-  const plan = decide(ctx);
+  const plan = decide(ctx, input);
   // (3) 이동
   moveAll(ctx, plan);
   // (4) 겨루기
@@ -776,7 +823,40 @@ export function step(state, data, input = null) {
   state.rngState = rng.getState();
   state.turn = T;
   afterTurn(ctx);
+  if (st3) endStanceHold(state, state.events.slice(evStart));
+  // 다음 턴 사람 쪽 결정의 순간 (주사위 없음 · 턴 시작 칸 — 화면이 다음 step 전에 멈춘다)
+  if (st3) M.scheduleMoment(ENGINE, state, data, state.events.slice(evStart));
   return state;
+}
+
+/** 규칙 판 (판 2 상태 · rules 없는 상태 = 2) */
+function rulesOf(state) {
+  return state && state.rules >= 3 ? 3 : 2;
+}
+
+/** 한 턴 문맥 (턴 시작 칸 · 이동 순서). rng 는 step 만 붙인다 — 엿보기 (peekCtx) 는 주사위를 굴리지 않는다 */
+function turnCtx(state, data, m, cfg, T) {
+  const ctx = {
+    state, data, m, cfg, rng: null, T,
+    uc: U.ultCfg(data),
+    fired: {}, // 이번 턴 필살기를 쓴 선수 ("side:id") — 그 턴 게이지 없음
+    start: { home: Object.assign({}, state.pos.home), away: Object.assign({}, state.pos.away) },
+    order: movementOrder(state, T),
+    goal: null,
+    shotBy: null,
+    stance: null, // 이번 턴 수비 자세 { side, id, mode, by } (applyStance)
+    noTackle: null, // 이번 턴 태클하지 않는 수비 ("side:id" — 패스길 막기 · 물러서기, decide 가 선택지를 정한 뒤 켠다)
+    stanceTarget: null, // 그 수비의 목표 칸 (stanceCell — decide 가 공이 떠나기 전에 턴 시작 칸으로 정한다)
+  };
+  ctx.occStart = occupancy(ctx.start);
+  ctx.orderIdx = {};
+  ctx.order.forEach((o, i) => { ctx.orderIdx[o.side + ":" + o.id] = i; });
+  return ctx;
+}
+
+/** 다음 턴 (state.turn + 1) 을 엿보는 문맥 (순수 — 상태 · 주사위를 바꾸지 않는 계산만: carrierOptions · dangerOf · 확률 식) */
+function peekCtx(state, data) {
+  return turnCtx(state, data, matchCfg(data), hexCfg(data), state.turn + 1);
 }
 
 /* ------------------------------------------------------------------ */
@@ -824,6 +904,7 @@ function tacklers(ctx, side, cell, action) {
     const o = ctx.occStart[c];
     if (!o || o.side !== opp || isResting(st, opp, o.id, ctx.T)) continue;
     if (st.roles[opp][o.id] === "GK" && action !== "hold" && !ZONE[opp][cell]) continue;
+    if (ctx.noTackle && ctx.noTackle.has(opp + ":" + o.id)) continue; // 수비 자세 패스길 막기 · 물러서기 (이 턴 태클 없음)
     cands.push({ id: o.id, cell: c });
   }
   return cands;
@@ -865,6 +946,190 @@ function wedgeSetup(ctx, side, cell, action) {
   cands.sort((a, b) => ctx.orderIdx[opp + ":" + a.id] - ctx.orderIdx[opp + ":" + b.id]);
   const t = cands[0];
   return { side: opp, id: t.id, cell: t.cell, helpers: tackleHelpers(ctx, opp, cell, t.id) };
+}
+
+/* ------------------------------------------------------------------ */
+/* 수비 자세 (결정 26 ④ — 압박 · 패스길 막기 · 물러서기, 양 팀)               */
+/* ------------------------------------------------------------------ */
+
+/** 수비 자세 이름 (step input.defend.mode) */
+export const STANCES = Object.freeze(["press", "block", "drop"]);
+
+/**
+ * 수비 위기 (순수, 턴 시작 칸): 공 가진 상대 (GK 아님) 가 defSide 골까지 dangerDist 칸 안이고, defSide 의 쉬지 않는 수비가 그 앞쪽 3칸에 있다
+ * (이 턴 태클할 수 있다). 막는 수비 = 태클 정하기 순서 (필살 수비를 켠 수비 → 정면 칸 → 이동 순서, 지키기 기준).
+ * @returns {{ atk, carrierId, cell, d, defSide, defId, helpers } | null}
+ */
+function dangerOf(ctx, defSide) {
+  const st = ctx.state;
+  const h = st.ball.holder;
+  if (!h || h.side === defSide || st.roles[h.side][h.id] === "GK") return null;
+  const atk = h.side;
+  const cell = st.pos[atk][h.id];
+  const d = dtg(cell, dirOf(atk));
+  if (d > ctx.cfg.dangerDist) return null;
+  const tk = tackleSetup(ctx, atk, cell, "hold", -1);
+  if (!tk) return null;
+  return { atk, carrierId: h.id, cell, d, defSide, defId: tk.id, helpers: tk.helpers };
+}
+
+/**
+ * 공 가진 선수의 성향 (수비 자세 AI 규칙 · 결정의 순간 칩 — 실제 선택이 아니라 능력치 + 공격 전술):
+ * 슛 사거리 안이고 슛이 드리블 · 패스 이상 → "shoot", 드리블 (× 전술 dribble 이면 tacticBonus) ≥ 패스 (× 전술 pass) → "dribble", 아니면 "pass".
+ */
+function tendencyOf(cfg, team, carrier, d) {
+  const tac = (team.tactics && team.tactics.attack) || "";
+  const sh = stat(carrier, "shoot");
+  const dr = stat(carrier, "dribble") * (tac === "dribble" ? cfg.tacticBonus : 1);
+  const pa = stat(carrier, "pass") * (tac === "pass" ? cfg.tacticBonus : 1);
+  if (d <= shotRange(cfg, carrier) && sh >= dr && sh >= pa) return "shoot";
+  return dr >= pa ? "dribble" : "pass";
+}
+
+/** 막는 수비 말고 공 가진 상대보다 골 쪽에 선 쉬지 않는 필드 수비 수 (턴 시작 칸) */
+function coverCount(ctx, dg) {
+  const st = ctx.state;
+  const atkDir = dirOf(dg.atk);
+  let n = 0;
+  for (const id of st.order[dg.defSide]) {
+    if (id === dg.defId || st.roles[dg.defSide][id] === "GK" || isResting(st, dg.defSide, id, ctx.T)) continue;
+    if (dtg(ctx.start[dg.defSide][id], atkDir) < dg.d) n++;
+  }
+  return n;
+}
+
+/**
+ * 수비 자세 AI 규칙 (결정 26 ④ "상대 AI 도 같은 상황에서 수비 자세를 규칙으로 고른다" — 결정적, 주사위 없음):
+ *  0. 막는 수비가 필살 수비를 켰다 → 압박 (그 태클에서 터진다)
+ *  1. 공 가진 상대가 패스형 (tendencyOf "pass") → 패스길 막기 (block)
+ *  2. 막는 수비 뒤에 골 쪽 동료가 없다 (마지막 수비 — coverCount 0) → 물러서기 (drop: 뛰어들었다 뚫리면 바로 1:1)
+ *  3. 드리블형인데 태클이 질 것 같다 (상대가 드리블로 공을 지킬 확률 ≥ stanceKeepP) → 물러서기
+ *  4. 그 밖 (드리블형 · 슈터, 뒤에 동료가 있음) → 압박 (press — H3 그대로)
+ * cfg.aiStance 0 이면 늘 압박.
+ */
+function aiStance(ctx, dg) {
+  const st = ctx.state;
+  const { cfg } = ctx;
+  if (!cfg.aiStance) return "press";
+  if (U.armedOf(ctx, dg.defSide, dg.defId, "defense")) return "press"; // 0. 필살 수비를 켠 수비는 늘 압박 (그 태클에서 터진다 — 결정 8)
+  const team = st[dg.atk];
+  const carrier = findPlayer(team, dg.carrierId);
+  const t = tendencyOf(cfg, team, carrier, dg.d);
+  if (t === "pass") return "block";
+  if (coverCount(ctx, dg) === 0) return "drop";
+  if (t === "dribble") {
+    const pk = pKeep(ctx, team, carrier, st[dg.defSide], findPlayer(st[dg.defSide], dg.defId), dg.helpers, "dribble");
+    if (pk >= cfg.stanceKeepP) return "drop";
+  }
+  return "press";
+}
+
+/**
+ * 이 턴 수비 자세 (step — 필살기 입력 · AI 규칙 뒤, 공 가진 선수의 선택 전). 공 가진 상대를 막는 쪽 한 명:
+ * input.defend (그 쪽 · 쉬지 않는 선수 · 알맞은 mode 일 때 — 수비 위기가 아니어도: ⏸ 개입) → 아니면 수비 위기의 AI 규칙.
+ * stance 이벤트 { side, playerId, mode, by: "input" | "ai" } 를 남긴다.
+ */
+function applyStance(ctx, input) {
+  const st = ctx.state;
+  const h = st.ball.holder;
+  if (!h) return;
+  const def = otherSide(h.side);
+  const dfi = input && input.defend;
+  let stance = null;
+  if (dfi && dfi.side === def && STANCES.includes(dfi.mode) && dfi.playerId != null) {
+    const pid = String(dfi.playerId);
+    if (st.pos[def][pid] != null && !isResting(st, def, pid, ctx.T)) stance = { side: def, id: pid, mode: dfi.mode, by: "input" };
+  }
+  // 고른 자세는 그 상대 공격 동안 이어진다 (stanceHoldTurns — 그 수비가 넘어지면 끝). 끝내기는 step 의 endStanceHold
+  const hold = st.stanceHold;
+  if (stance) {
+    const n = Math.max(1, Math.round(num(ctx.cfg.stanceHoldTurns, 1)));
+    st.stanceHold = n > 1 ? { side: def, id: stance.id, mode: stance.mode, until: ctx.T + n - 1 } : null;
+  } else if (hold) {
+    if (hold.side === def && ctx.T <= hold.until && st.pos[def][hold.id] != null && !isResting(st, def, hold.id, ctx.T)) {
+      stance = { side: def, id: hold.id, mode: hold.mode, by: "hold" };
+    } else st.stanceHold = null;
+  }
+  if (!stance) {
+    const dg = dangerOf(ctx, def);
+    if (dg) stance = { side: def, id: dg.defId, mode: aiStance(ctx, dg), by: "ai" };
+  }
+  if (!stance) return;
+  ctx.stance = stance;
+  pushEvent(st, ctx.T, { type: "stance", side: def, playerId: stance.id, mode: stance.mode, by: stance.by });
+}
+
+/** 고른 자세 이어가기 끝 (턴 끝): 막던 팀이 공을 가졌다 (가진 선수 · 그 팀 패스 비행) · 슛 · 골 · 킥오프 · 끝난 경기 · 시간이 다 됨 */
+function endStanceHold(st, evs) {
+  const hold = st.stanceHold;
+  if (!hold) return;
+  const b = st.ball;
+  const won = (b.holder && b.holder.side === hold.side) || (b.flight && b.flight.side === hold.side);
+  if (won || st.finished || st.stage === "penalties" || st.turn >= hold.until || evs.some((e) => e.type === "shot" || e.type === "goal" || e.type === "kickoff")) {
+    st.stanceHold = null;
+  }
+}
+
+/** 패스길 막기의 받는 선수: 공 가진 선수 말고 쉬지 않는 필드 공격수 중 골에 가장 가까운 (위협값 최고 — 동률 = 포메이션 칸 순서) */
+function laneReceiver(ctx, atk, carrierId) {
+  const st = ctx.state;
+  const dir = dirOf(atk);
+  let best = null;
+  let bs = Infinity;
+  for (const id of st.order[atk]) {
+    if (id === carrierId || st.roles[atk][id] === "GK" || isResting(st, atk, id, ctx.T)) continue;
+    const d = dtg(ctx.start[atk][id], dir);
+    if (d < bs) {
+      bs = d;
+      best = id;
+    }
+  }
+  return best;
+}
+
+/**
+ * 수비 자세의 목표 칸 (턴 시작 칸 기준):
+ *  - block: 공 가진 선수 → 가장 위험한 받는 선수 (laneReceiver) 직선의 가운데 칸 중 그 수비에게 가장 가까운 칸 (같으면 공 쪽) —
+ *    공이 지나가면 가로채기 굴림이 저절로 (advanceFlight). 가운데 칸이 없으면 (바로 옆 동료) 그 받는 선수 칸 쪽으로.
+ *  - drop: 골 쪽 이웃 (우리 골까지 거리가 줄어드는 빈 칸) 중 공 가진 선수 → 골 최단 길에 가장 가까운 칸 (같으면 골에 가까운 칸) — 없으면 제자리.
+ */
+function stanceCell(ctx, sx) {
+  const st = ctx.state;
+  const h = st.ball.holder;
+  const atk = h.side;
+  const atkDir = dirOf(atk);
+  const cc = ctx.start[atk][h.id];
+  const cur = ctx.start[sx.side][sx.id];
+  if (sx.mode === "block") {
+    const rid = laneReceiver(ctx, atk, h.id);
+    if (!rid) return cur;
+    const rc = ctx.start[atk][rid];
+    const ln = lineIds(cc, rc, atkDir);
+    let best = -1;
+    let bs = Infinity;
+    for (let i = 1; i < ln.length - 1; i++) {
+      const s = dist(cur, ln[i]);
+      if (s < bs) {
+        bs = s;
+        best = ln[i];
+      }
+    }
+    return best >= 0 ? best : rc;
+  }
+  // drop
+  const gk = st.roles[sx.side][sx.id] === "GK";
+  let best = cur;
+  let bs = Infinity;
+  for (const nb of neiRel(cur, dirOf(sx.side))) {
+    if (ctx.occStart[nb] || dtg(nb, atkDir) >= dtg(cur, atkDir)) continue;
+    if (gk && !ZONE[sx.side][nb]) continue;
+    const s = (dist(cc, nb) + dtg(nb, atkDir)) * 10 + dtg(nb, atkDir);
+    if (s < bs) {
+      bs = s;
+      best = nb;
+    }
+  }
+  return best;
 }
 
 /** 패스 성공 추정: 정확도 × Π(가로채기 굴림을 살아남을 확률) — 지금 칸 기준. 확실한 배급이면 1 */
@@ -941,13 +1206,18 @@ function isWide(cfg, cell, side) {
   return (r <= cfg.wideRowEdge || r >= G.ROWS - 1 - cfg.wideRowEdge) && ocOf(cell, side) >= cfg.crossFromOc;
 }
 
-function decide(ctx) {
+/**
+ * 공 가진 선수의 선택지 (순수 — 주사위 · 상태 변경 없음, 턴 시작 칸 기준). decide() 와 결정의 순간 (hexMoment · momentView) 이 같이 쓴다.
+ * 선택지마다 key (choice 입력이 고르는 이름 — 'shoot' · 'pass:<받는 id>:<칸>' · 'loft:<받는 id>:<칸>' · 'cross:<받는 id>:<칸>' ·
+ * 'dribble:<칸>' · 'hold'), value (AI 기대값), p (바로 성공할 확률 — 슛 = 골, 패스 · 띄운 공 · 크로스 = 추정, 드리블 · 지키기 = 공 지킴).
+ * 사거리 안이지만 AI 기준 밖인 슛 (결정 26 "중거리 슛도 고를 수 있게") 은 ai: false 로 넣는다 — AI 의 best 고르기에는 끼지 않는다.
+ * @returns {{ side, id, cell, opts: object[], best: object, locked: boolean }} best = AI 의 선택 (켠 필살기 행동 · GK 선방 뒤 쥐기 포함,
+ *  시험용 덮어쓰기 · choice 입력 빼고). locked = GK 가 선방한 공을 쥐는 턴 (choice 를 받지 않는다)
+ */
+function carrierOptions(ctx, side, id) {
   const st = ctx.state;
   const b = st.ball;
-  if (!b.holder) return { action: null };
-  const { m, cfg } = ctx;
-  const side = b.holder.side;
-  const id = b.holder.id;
+  const { cfg } = ctx;
   const opp = otherSide(side);
   const dir = dirOf(side);
   const team = st[side];
@@ -965,12 +1235,12 @@ function decide(ctx) {
   // 받자마자 압박에 잃을 손해 (받는 칸 옆 상대 수 × 그 칸 상대 위협) — 자기 골 앞에서 압박 속으로 주고받지 않게
   const recvRisk = (c) => cfg.recvPressCost * adjOpp(ctx, c, opp) * costAt(c);
   const tmult = (v, on) => (on ? (v > 0 ? v * cfg.tacticBonus : v / cfg.tacticBonus) : v);
-  st.stats[side].carrierTurns += 1;
 
   let best = null;
   const opts = [];
   const offer = (opt) => {
     opts.push(opt);
+    if (opt.ai === false) return; // 사람만 고를 수 있는 선택지 (AI 기준 밖 중거리 슛)
     if (!best || opt.value > best.value) best = opt;
   };
   // 켠 필살기 행동을 이 턴에 고른다 (문서 §3): 슛 (거리 안 · minLine 3 은 박스) · 패스 (허용된 것 중 최고) · 드리블 (태클이 올 때)
@@ -991,12 +1261,13 @@ function decide(ctx) {
     const p = pShot(ctx, team, carrier, oppTeam, gkOpp, box, false, bl, dd);
     const crowd = !box && crowdBetween(ctx, side, c) >= cfg.crowdShotN;
     const v = crowd ? p * (1 + cfg.crowdShotBonus) : p * Math.pow(cfg.shotBlockerEst, bl);
-    return { v, ok: box || v >= bar };
+    return { v, ok: box || v >= bar, p };
   };
   const shotNow = shotValueAt(cell);
   if (shotNow) {
-    if (shotNow.ok) offer({ action: "shoot", value: shotNow.v });
-    if (U.shotUltOf(ctx, side, id, inBoxNow, ultFar(cfg, carrier, d, false))) forced = { action: "shoot", value: shotNow.v };
+    // AI 기준 밖이어도 사거리 안이면 사람은 고를 수 있다 (결정 26 — ai: false)
+    offer(shotNow.ok ? { key: "shoot", action: "shoot", value: shotNow.v, p: shotNow.p } : { key: "shoot", action: "shoot", value: shotNow.v, p: shotNow.p, ai: false });
+    if (U.shotUltOf(ctx, side, id, inBoxNow, ultFar(cfg, carrier, d, false))) forced = { key: "shoot", action: "shoot", value: shotNow.v, p: shotNow.p };
   }
 
   // 패스 · 크로스 · 띄운 공
@@ -1048,25 +1319,29 @@ function decide(ctx) {
       // 띄운 공을 받는 선수가 뛰어가야 하는 칸 (앞 칸) 은 둘레가 비었을 때만 — 상대가 먼저 들어가 공이 흐르지 않게
       if (lofted && tgt !== tc && !freeAround(tgt)) continue;
       let value;
+      let P;
+      let hp = 0;
       if (cross) {
         const acc = passAccuracy(cfg, carrier, pd);
         const def = bestAerialDefender(ctx, tgt, opp, carrier, ctx.occStart);
         const pa = def ? pAerial(ctx, team, carrier, oppTeam, findPlayer(oppTeam, def), U.passMods(ctx, side, id, "cross")) : 1;
-        const hp = dtg(tgt, dir) <= shotRange(cfg, tm) ? pShot(ctx, team, tm, oppTeam, gkOpp, true, true, 0) : 0;
-        const P = acc * pa;
+        hp = dtg(tgt, dir) <= shotRange(cfg, tm) ? pShot(ctx, team, tm, oppTeam, gkOpp, true, true, 0) : 0;
+        P = acc * pa;
         value = P * Math.max(threatAt(tgt), hp * cfg.crossHeaderEst) - (1 - P) * cost - cfg.passCost;
       } else if (lofted) {
-        const P = loftEstimate(ctx, side, carrier, cell, tgt);
+        P = loftEstimate(ctx, side, carrier, cell, tgt);
         value = P * (threatAt(tgt) - recvRisk(tgt)) - (1 - P) * costAt(tgt) - loftFix;
         // 전환 (행 switchRows 이상 옆으로 · 떨어질 칸 둘레가 빔) 은 더 값지다
         if (midLoft && Math.abs(CR[tgt][1] - CR[cell][1]) >= cfg.switchRows && freeAround(tgt)) value += cfg.switchBonus;
       } else {
-        const P = passEstimate(ctx, side, carrier, cell, tgt);
+        P = passEstimate(ctx, side, carrier, cell, tgt);
         value = P * (threatAt(tgt) - recvRisk(tgt)) - (1 - P) * cost - cfg.passCost - (tRole === "GK" ? cfg.backPassPenalty : 0);
         if (!cross && tRole !== "GK" && P >= cfg.shortFreeP && !nearOpp(tgt, cfg.shortFreeDist)) shortFree = true;
       }
       if (tid === returnTo && tRole !== "GK") value -= cfg.returnPassPenalty;
-      const opt = { action: cross ? "cross" : "pass", value, receiverId: tid, target: tgt };
+      const kind = cross ? "cross" : lofted ? "loft" : "pass";
+      const opt = { key: `${kind}:${tid}:${tgt}`, action: cross ? "cross" : "pass", value, p: P, receiverId: tid, target: tgt, lofted };
+      if (cross) opt.hp = hp;
       if (lofted) lofts.push(opt);
       else offer(Object.assign(opt, { value: tmult(value, tactics.attack === "pass") }));
     }
@@ -1086,32 +1361,77 @@ function decide(ctx) {
       // 박스 밖에서는 한 칸 앞에서 쏠 슛 값 (× lookShotMult) 도 본다 — 사거리 끝에서 바로 쏘지 않고, 다가갈 수 있으면 다가간다
       const ahead = !inBoxNow ? shotValueAt(dt) : null;
       const value = P * Math.max(threatAt(dt) * km, ahead && ahead.ok ? ahead.v * cfg.lookShotMult : 0) - (1 - P) * cost;
-      const opt = { action: "dribble", value: tmult(value, tactics.attack === "dribble"), target: dt, tackle: tk };
+      const opt = { key: `dribble:${dt}`, action: "dribble", value: tmult(value, tactics.attack === "dribble"), p: P, target: dt, tackle: tk };
       offer(opt);
       if (tk && U.armedOf(ctx, side, id, "dribble")) forced = opt;
     }
     // 지키기
     const tk = tackleSetup(ctx, side, cell, "hold", -1);
     const P = tk ? pKeep(ctx, team, carrier, oppTeam, findPlayer(oppTeam, tk.id), tk.helpers, "hold") : 1;
-    offer({ action: "hold", value: P * threatAt(cell) * km - (1 - P) * cost - cfg.holdPenalty * b.holdStreak, tackle: tk });
+    offer({ key: "hold", action: "hold", value: P * threatAt(cell) * km - (1 - P) * cost - cfg.holdPenalty * b.holdStreak, p: P, tackle: tk });
   }
   // 필살 패스: 허용된 패스 (actions) 중 기대값 최고 — 합체기 짝에게 가는 패스는 × comboBonus ([구현 결정])
   const pu = U.armedOf(ctx, side, id, "pass");
   if (pu) {
     const score = (o) => (o.value > 0 && U.comboName(ctx.data, pu.skill.id, (U.ultSkillOf(ctx.data, findPlayer(team, o.receiverId)) || {}).id) ? o.value * ctx.uc.comboBonus : o.value);
-    forced = bestOf(opts.filter((o) => U.passUltOf(ctx, side, id, o.action)), score) || forced;
+    forced = bestOf(opts.filter((o) => o.ai !== false && U.passUltOf(ctx, side, id, o.action)), score) || forced;
   }
   if (forced) best = forced;
-  if (!best) best = { action: "hold", value: 0, tackle: null }; // GK 가 줄 곳이 없을 때 (모두 쉬는 중)
+  if (!best) best = { key: "hold", action: "hold", value: 0, p: 1, tackle: null }; // GK 가 줄 곳이 없을 때 (모두 쉬는 중)
   // 막은 뒤 GK 는 gkSaveHold 턴 공을 손에 쥐고 기다린다 (태클 없음) — 그동안 양 팀이 자리를 잡는다
   // (바로 길게 차면 선방 → 역습 → 슛 → 선방이 되풀이됐다)
-  if (isGK && b.saveHold != null && ctx.T <= b.saveHold) best = { action: "hold", value: 0, tackle: null };
-  if (decisionOverride) {
-    const f = decisionOverride({ state: st, side, id, cell, turn: ctx.T });
-    if (f && f.action) best = forcedOption(ctx, f, side, cell);
-  }
+  const locked = !!(isGK && b.saveHold != null && ctx.T <= b.saveHold);
+  if (locked) best = { key: "hold", action: "hold", value: 0, p: 1, tackle: null };
+  return { side, id, cell, opts, best, locked };
+}
 
+/** choice 입력 (결정의 순간): 이 턴 공 가진 선수와 같고 key 가 선택지에 있을 때만 그 선택지 (아니면 null — 조용히 무시) */
+function chosenOption(co, input) {
+  const ch = input && input.choice;
+  if (!ch || co.locked || ch.side !== co.side || ch.playerId == null || String(ch.playerId) !== co.id || typeof ch.key !== "string") return null;
+  return co.opts.find((o) => o.key === ch.key) || null;
+}
+
+/**
+ * (2) 공 가진 선수의 선택: carrierOptions 의 AI 선택 → choice 입력 (결정의 순간 — 그 턴 한 번) → 시험용 덮어쓰기 → commitPlan.
+ */
+function decide(ctx, input = null) {
+  const st = ctx.state;
+  const b = st.ball;
+  if (!b.holder) return { action: null };
+  const side = b.holder.side;
+  const id = b.holder.id;
+  const co = carrierOptions(ctx, side, id);
+  st.stats[side].carrierTurns += 1;
+  // 수비 자세는 공 가진 선수가 고른 뒤에 켠다 (공 가진 쪽은 상대 자세를 모르고 고른다 — 옛 GDD "상대 선택은 턴 시작에 정해지고 우리 것에 반응하지 않는다")
+  // 패스길 막기 · 물러서기 자리 (stanceCell) 도 여기서 — 공이 떠나기 전 (commitPlan 의 launchPass 가 ball.holder 를 비운다).
+  // 패스 턴에도 그 자리로 가야 가로채기 굴림이 저절로 난다 (2026-10-10 리뷰: 패스 턴엔 압박과 같은 칸이었다)
+  if (ctx.stance && ctx.stance.mode !== "press") {
+    ctx.noTackle = new Set([ctx.stance.side + ":" + ctx.stance.id]);
+    ctx.stanceTarget = stanceCell(ctx, ctx.stance);
+  }
+  let best = co.best;
+  const chosen = chosenOption(co, input);
+  if (chosen) {
+    pushEvent(st, ctx.T, { type: "choice", side, playerId: id, key: chosen.key, auto: chosen.key === co.best.key });
+    best = chosen;
+  }
+  if (decisionOverride) {
+    const f = decisionOverride({ state: st, side, id, cell: co.cell, turn: ctx.T });
+    if (f && f.action) best = forcedOption(ctx, f, side, co.cell);
+  }
+  return commitPlan(ctx, side, id, co.cell, best);
+}
+
+/** 고른 선택지를 이 턴 계획으로 (산맥 쐐기 태클 · 지키기 연속 · 패스 출발) — 상태를 바꾸는 쪽 */
+function commitPlan(ctx, side, id, cell, best) {
+  const st = ctx.state;
+  const b = st.ball;
   const plan = { side, id, action: best.action, target: best.target ?? -1, tackle: best.tackle || null, receiverId: best.receiverId, wedge: false };
+  // 수비 자세 (결정 26 ④): 이 턴 태클하지 않는 수비 (패스길 막기 · 물러서기) 가 태클 당사자면 다른 앞쪽 수비로 다시 정한다 (없으면 태클 없음)
+  if (plan.tackle && ctx.noTackle && ctx.noTackle.has(plan.tackle.side + ":" + plan.tackle.id)) {
+    plan.tackle = plan.action === "dribble" || plan.action === "hold" ? tackleSetup(ctx, side, cell, plan.action, plan.target) : null;
+  }
   // 산맥 쐐기: 패스 · 슛 턴에도 공이 떠나기 전에 태클 (문서 §4.2 · 결정 18)
   if (plan.action === "pass" || plan.action === "cross" || plan.action === "shoot") {
     const wt = wedgeSetup(ctx, side, cell, plan.action);
@@ -1290,6 +1610,12 @@ function computeTargets(ctx, plan) {
   // 쉬는 선수 (넘어짐): 칸만 차지 — 자기 칸이 목표 (압박 · 마크 · 쫓기 자리를 차지하지 않는다, 문서 §2.2-3)
   for (const s of SIDES) {
     for (const id of st.order[s]) if (targets[s][id] === undefined && isResting(st, s, id, ctx.T)) fix(s, id, pos[s][id]);
+  }
+  // 수비 자세 (결정 26 ④): 패스길 막기 · 물러서기 수비는 압박 · 마크 대신 그 자리로 (압박 = 지금 그대로)
+  // (자리는 decide 가 공이 떠나기 전에 정해 둔다 — ctx.stanceTarget. 공 가진 선수가 이 턴 패스해도 그 자리로)
+  const sx = ctx.stance;
+  if (sx && sx.mode !== "press" && ctx.stanceTarget != null && targets[sx.side][sx.id] === undefined) {
+    set(sx.side, sx.id, ctx.stanceTarget, st.roles[sx.side][sx.id] === "GK");
   }
   // 받는 선수 (노린 칸) · 공 쫓기
   const landing = b.flight ? b.flight.target : b.loose ? b.cell : -1;
@@ -1844,6 +2170,16 @@ function afterTurn(ctx) {
       finishMatch(st, T);
       return;
     }
+    // 2골 선승 (결정 27): 정규 · 추가시간에 한 팀이 goalsToWin 골에 닿으면 그 골 장면 뒤 킥오프 없이 끝 (추가시간이면 그 기록을 닫는다)
+    if (reachedGoals(st, cfg)) {
+      if (st.stage === "addedTime") {
+        st.addedTime.endTurn = st.turn;
+        st.addedTime.reason = "goal";
+        st.stage = "regular";
+      }
+      finishMatch(st, T, "goals");
+      return;
+    }
     // 경기를 끝내는 골 (정규 · 추가시간 마지막) 뒤에는 킥오프를 하지 않는다 — 골든골 결승골과 같다
     if (!goalEndsMatch(st, m, ctx.goal.side)) kickoff(st, otherSide(ctx.goal.side), T, cfg);
   }
@@ -1903,6 +2239,12 @@ function goalEndsMatch(st, m, scorer) {
     return regulationFinishes;
   }
   return false;
+}
+
+/** 2골 선승 (결정 27): 규칙 판 3 · goalsToWin > 0 이고 한 팀이 그 골에 닿았다 */
+function reachedGoals(st, cfg) {
+  const g = Math.round(num(cfg.goalsToWin, 0));
+  return rulesOf(st) >= 3 && g > 0 && (st.score.home >= g || st.score.away >= g);
 }
 
 /** 정규 (+ 추가시간) 끝: 동점 · goal / arena → 골든골, 아니면 종료 */
@@ -2033,9 +2375,10 @@ function buildResult(state, provisional) {
   return result;
 }
 
-function finishMatch(state, turn) {
+/** 경기 끝. reason = "goals" 면 2골 선승 (결정 27 — end 이벤트에만 싣는다, 결과 모양은 그대로) */
+function finishMatch(state, turn, reason = null) {
   state.finished = true;
-  pushEvent(state, turn, { type: "end", winner: winnerOf(state) });
+  pushEvent(state, turn, reason ? { type: "end", winner: winnerOf(state), reason } : { type: "end", winner: winnerOf(state) });
   state.result = buildResult(state, false);
   for (const side of SIDES) state.stats[side].mvpId = state.result.stats[side].mvpId;
 }
@@ -2128,6 +2471,55 @@ export function ultimateStatus(state, data, side, playerId) {
 /** 한 팀 7명의 필살기 상태 (포메이션 칸 순서 — 필살기가 없는 선수도 has: false 로). 항목마다 playerId */
 export function ultimateList(state, data, side) {
   return U.ultimateList(state, data, side, ultSituation);
+}
+
+/* ------------------------------------------------------------------ */
+/* 결정의 순간 (H3.5 — hexMoment.js 에 엔진 안쪽을 넘기는 감싼 함수)           */
+/* ------------------------------------------------------------------ */
+
+/** side 의 id 가 cell 에서 지금 슛하면 골 확률 (순수 — 막는 수비는 턴 시작 칸, 사거리 밖 · GK 면 null). 카드의 "성공하면 슛 n%" */
+function shotChanceAt(K, side, id, cell) {
+  const st = K.state;
+  const p = findPlayer(st[side], id);
+  if (!p || st.roles[side][id] === "GK") return null;
+  const d = dtg(cell, dirOf(side));
+  if (d > shotRange(K.cfg, p)) return null;
+  const opp = otherSide(side);
+  return pShot(K, st[side], p, st[opp], findPlayer(st[opp], st.order[opp][0]), d <= G.BOX_DIST, false, shotBlockers(K, side, cell, K.occStart), d);
+}
+
+/** hexMoment.js 가 쓰는 엔진 안쪽 (모두 순수 — 상태 · 주사위를 바꾸지 않는다) */
+const ENGINE = Object.freeze({
+  peekCtx, carrierOptions, dangerOf, aiStance, tendencyOf, laneReceiver, ultSituation, tackleHelpers, tacklers,
+  pKeep, pPass, shotChanceAt, shotBlockers, crowdBetween, dtg, ocOf, dirOf, CR, BOX_DIST: G.BOX_DIST,
+});
+
+/**
+ * 결정의 순간 카드 (순수 미리보기 — hexMoment.momentView). moment 를 주지 않으면 state.moment.
+ * @returns {object|null} { kind, side, playerId, name, turn, cards, autoKey, carrier, tendency? }
+ */
+export function momentView(state, data, moment = null) {
+  return M.momentView(ENGINE, state, data, moment);
+}
+
+/** 다음 step 전 장면 (순수 — opts.manual = ⏸ 개입: 간격 없이 다음 우리 공 가진 선수 · 수비의 결정, 상태에 남기지 않는다) */
+export function peekMoment(state, data, opts = {}) {
+  return M.peekMoment(ENGINE, state, data, opts);
+}
+
+/**
+ * 턴 경계 스케줄러를 지금 판에 돌린다 (step 이 턴 끝마다 부르는 것과 같다 — state.moment · momentClock 을 바꾼다). turnEvents = 방금 턴의 이벤트.
+ * 시험 · 도구용 (손으로 놓은 장면의 장면 판단). 규칙 판 2 는 아무것도 안 한다.
+ * @returns {object|null} state.moment
+ */
+export function scheduleMoment(state, data, turnEvents = []) {
+  if (rulesOf(state) < 3) return null;
+  return M.scheduleMoment(ENGINE, state, data, turnEvents);
+}
+
+/** 이 턴 공 가진 선수의 선택지 (순수 — 복제본에서 input 의 필살기 켜기 · AI 켜기 뒤). choice key 목록 · AI 선택 (best) */
+export function peekOptions(state, data, input = null) {
+  return M.peekOptions(ENGINE, state, data, input);
 }
 
 /** @returns {boolean} */

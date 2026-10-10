@@ -23,6 +23,8 @@ const D = hex.HEX_DEFAULTS;
 const odds = (p) => p / (1 - p);
 /** 땅볼 규칙만 보는 data (띄운 공 끔 — 노린 칸 loftMin 이상 패스도 땅볼로) */
 const GROUND = { ...data, config: { ...cfg, hexMatch: { loftMin: 99 } } };
+/** 300턴 내내 뛰는 data (2골 선승 끔 — 결정 27 전 길이: 필살기 쓰는 횟수 · 입력 기록을 넉넉히 보려고) */
+const FULL = { ...data, config: { ...cfg, hexMatch: { goalsToWin: 0 } } };
 const near = (a, b, msg) => assert.ok(Math.abs(a - b) < 1e-9 * Math.max(1, Math.abs(b)), `${msg}: ${a} ≠ ${b}`);
 
 /** 선수 스킬 바꾼 스냅샷 (연습 선수단 기준) */
@@ -93,7 +95,7 @@ const cutins = (ms) => evs(ms, "cutin");
 
 test("게이지: 필살기 선수만 gaugeStart · armed false, AI 쪽 = 사람이 아닌 쪽, 팀 필살기 자리 · 필살기 없는 스냅샷은 게이지 없음", () => {
   const ms = hex.createMatch({ data, seed: 1, home: SQ.home, away: SQ.away, kind: "friendly" });
-  assert.equal(ms.version, 2);
+  assert.equal(ms.version, hex.HEX_MATCH_VERSION);
   for (const side of ["home", "away"]) {
     for (const pid of ms.order[side]) {
       assert.equal(live(ms, side, pid).gauge, cfg.match.ultimate.gaugeStart);
@@ -927,8 +929,8 @@ test("AI 규칙: 사람 쪽은 저절로 안 켠다 · 슛 · 드리블 · 세�
 test("simulateAuto = 양쪽 AI: 연습 선수단 경기에서 양쪽 다 필살기를 쓰고, 기록 = 컷인 수 · 합체기 = combo 이벤트 · 사람 쪽만 두면 사람 쪽은 0", () => {
   const kinds = new Set();
   for (let i = 0; i < 6; i++) {
-    const ms = hex.createMatch({ data, seed: `ult-auto-${i}`, home: SQ.home, away: SQ.away, kind: "goal" });
-    hex.simulateAuto(ms, data);
+    const ms = hex.createMatch({ data: FULL, seed: `ult-auto-${i}`, home: SQ.home, away: SQ.away, kind: "goal" });
+    hex.simulateAuto(ms, FULL);
     assert.deepEqual(ms.aiSides, ["home", "away"]);
     for (const side of ["home", "away"]) {
       const n = cutins(ms).filter((e) => e.side === side).length;
@@ -943,8 +945,8 @@ test("simulateAuto = 양쪽 AI: 연습 선수단 경기에서 양쪽 다 필살�
   for (const t of ["shot", "pass", "save", "defense", "team"]) assert.ok(kinds.has(t), `유형 ${t} 가 나왔다`);
   assert.ok(kinds.has("rev-save") || kinds.has("rev-passCut") || kinds.has("rev-block"), "역컷인이 나왔다");
   // 사람 쪽 (홈) 은 아무것도 안 누르면 0
-  const ms = hex.createMatch({ data, seed: "ult-human", home: SQ.home, away: SQ.away, kind: "friendly" });
-  while (!ms.finished) hex.step(ms, data);
+  const ms = hex.createMatch({ data: FULL, seed: "ult-human", home: SQ.home, away: SQ.away, kind: "friendly" });
+  while (!ms.finished) hex.step(ms, FULL);
   assert.equal(ms.stats.home.ultimatesUsed, 0);
   assert.ok(ms.stats.away.ultimatesUsed > 0);
 });
@@ -995,26 +997,26 @@ test("ultimateStatus / ultimateList: 포메이션 순서 7명 · 이름 · 유�
 
 /** 사람 쪽 (홈) 이 "준비되면 바로 누름" 으로 경기를 돌리며 입력 기록 [stepIndex, side, playerId, op] 을 남긴다 */
 function playWithPresses(seed) {
-  const ms = hex.createMatch({ data, seed, home: SQ.home, away: SQ.away, kind: "goal" });
+  const ms = hex.createMatch({ data: FULL, seed, home: SQ.home, away: SQ.away, kind: "goal" });
   const log = [];
   let k = 0;
   while (!ms.finished) {
     const ups = [];
-    for (const st of hex.ultimateList(ms, data, "home")) {
+    for (const st of hex.ultimateList(ms, FULL, "home")) {
       if (st.has && !st.armed && (st.ready || st.comboReady) && ms.stage !== "penalties") ups.push({ side: "home", playerId: st.playerId, op: "arm" });
     }
     if (k === 40) ups.push({ side: "home", playerId: "p5", op: "disarm" }); // 끄기도 섞는다 (안 켰으면 무시)
     for (const u of ups) log.push([k, u.side, u.playerId, u.op]);
-    hex.step(ms, data, ups.length ? { ultimates: ups } : null);
+    hex.step(ms, FULL, ups.length ? { ultimates: ups } : null);
     k++;
   }
   return { ms, log, steps: k };
 }
 function replay(seed, log, steps) {
-  const ms = hex.createMatch({ data, seed, home: SQ.home, away: SQ.away, kind: "goal" });
+  const ms = hex.createMatch({ data: FULL, seed, home: SQ.home, away: SQ.away, kind: "goal" });
   for (let i = 0; i < steps && !ms.finished; i++) {
     const ups = log.filter((x) => x[0] === i).map(([, side, playerId, op]) => ({ side, playerId, op }));
-    hex.step(ms, data, ups.length ? { ultimates: ups } : null);
+    hex.step(ms, FULL, ups.length ? { ultimates: ups } : null);
   }
   return ms;
 }
@@ -1031,7 +1033,7 @@ test("결정성: 같은 시드 + 같은 입력 = 같은 JSON · 입력 기록을
   const resumed = JSON.parse(JSON.stringify(half));
   for (let i = Math.floor(a.steps / 2); i < a.steps && !resumed.finished; i++) {
     const ups = a.log.filter((x) => x[0] === i).map(([, side, playerId, op]) => ({ side, playerId, op }));
-    hex.step(resumed, data, ups.length ? { ultimates: ups } : null);
+    hex.step(resumed, FULL, ups.length ? { ultimates: ups } : null);
   }
   assert.equal(JSON.stringify(resumed), JSON.stringify(a.ms));
   // 입력 없이 = 다른 경기

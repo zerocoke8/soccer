@@ -323,6 +323,7 @@ function mount(setup, st, { speed = 1 } = {}) {
   env.ctx.matchMode = { label: "연습 경기", getSetup: () => setup, stateKey: "practiceMatch", save: null, onFinish: () => {}, exits: [] };
   ST.store.practiceMatch = st;
   ST.store.matchUi.speed = speed;
+  ST.store.matchUi.moments = false; // H3.5 결정의 순간 끔 (이 시험은 완전 자동 흐름 — 장면 멈춤은 test/hexMomentUi.test.mjs)
   SCR.renderHexMatch(env.root, env.ctx);
   assert.ok(scrOf(), "육각 화면");
   return scrOf();
@@ -604,7 +605,8 @@ test("화면: 골 턴 — 지난 턴 말풍선도 '골!' 배너와 함께 지운
   setup();
   // 말풍선이 난 step 바로 다음 step 이 골
   let sc = null;
-  for (let k = 0; k < 30 && !sc; k++) {
+  // H3.5: 2골 선승 (결정 27) 으로 경기가 짧아져 이 장면이 드물다 — 시드를 더 본다 (처음 나오는 시드 31)
+  for (let k = 0; k < 120 && !sc; k++) {
     const su = setupOf(`emg-${k}`);
     const st = createFrom(su);
     let prevHad = null;

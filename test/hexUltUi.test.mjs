@@ -145,6 +145,7 @@ function mount(setup, st, n, { speed = 1, practice = false, inputs = [] } = {}) 
   ST.store[practice ? "practiceMatch" : "hexMatch"] = st;
   if (!practice) ST.saveHexMatch({ version: ST.HEX_SAVE_VERSION, seed: setup.seed, steps: n, inputs });
   ST.store.matchUi.speed = speed;
+  ST.store.matchUi.moments = false; // H3.5 결정의 순간 끔 (H3 필살기 띠 · 합체기 대기 알림 = [결정 OFF] 흐름 — 장면 멈춤은 test/hexMomentUi.test.mjs)
   env.calls.length = 0;
   SCR.renderHexMatch(env.root, env.ctx);
   assert.ok(scrOf(), "육각 화면");
@@ -212,7 +213,7 @@ test("필살기 띠: 7칸 (포메이션 순서 · 이름 · 유형 · 등급 클
   const saved = JSON.parse(env.window.localStorage.getItem(ST.KEYS.hexMatch));
   assert.deepEqual(saved.inputs, [[idx, "home", team, "arm"]], "재생 기록 inputs = [stepIndex, side, playerId, op]");
   assert.equal(saved.steps, idx + 1);
-  assert.equal(saved.version, 2);
+  assert.equal(saved.version, ST.HEX_SAVE_VERSION); // 판 3 (H3.5)
   // 팀 필살기는 켜는 턴에 바로 → 우리 컷인 (R) — "상대" 없음
   const cut = st2.events.filter((e) => e.type === "cutin" && e.side === "home" && e.turn === st2.turn);
   assert.equal(cut.length, 1);

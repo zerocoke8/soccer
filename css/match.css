@@ -907,6 +907,8 @@
 }
 .match-screen.hex-screen .hx-name.hx-home { box-shadow: inset 0 -2px 0 var(--home); }
 .match-screen.hex-screen .hx-name.hx-away { box-shadow: inset 0 -2px 0 var(--away); }
+/* 결정의 순간 이름표 (고르는 선수 · 밝힌 카드의 받는 선수 — screens/hexMatch.js drawMomTags): 폰 9 CSS px 넘게, 흰 테두리 */
+.match-screen.hex-screen .hx-name.hx-mo-tag { font-size: 16px; line-height: 20px; border-color: #fff; }
 /* 감정 말풍선 (공을 뺏은 · 뺏긴 선수 머리 위 — screens/hexMatch.js drawEmotes): .hx-emote = 자리 (JS translate — 꼬리 끝이 머리 점),
    .hx-emote-b = 흰 말풍선 + 아래 꼬리 (::after). win = 금색 "!" (태클로 뺏으면 "!!" — .hx-emote-steal), lose = "💦".
    팝 (0 → 1.15 → 1, 길이의 20 %) · 유지 · 끝 28 % 페이드 = 한 애니메이션 (--hx-emo = 길이 ms). .hx-paused = 컷인 동안 숨기고 멈춤. 필터 없음 (box-shadow 만) */
@@ -960,13 +962,21 @@
 }
 .match-screen.hex-screen .hx-clock.hx-low { color: #ffb45c; border-color: rgba(255, 159, 67, .7); }
 .match-screen.hex-screen .hx-clock.hx-golden { color: var(--gold); border-color: var(--gold); font-size: 18px; }
-/* 컨트롤: 왼쪽 아래 [배속] [⏭] */
-.match-screen.hex-screen .hx-ctl { position: absolute; z-index: 5; left: calc(var(--pad) + 8px); bottom: 10px; display: flex; gap: 6px; }
+/* 컨트롤: 왼쪽 아래 2 × 2 — [배속] [⏭] / [결정 ON·OFF] [⏸ 개입] (H3.5 — 둘째 줄, 결정의 순간 API 가 없으면 숨김 → 한 줄) */
+.match-screen.hex-screen .hx-ctl {
+  position: absolute; z-index: 5; left: calc(var(--pad) + 8px); bottom: 10px; width: 122px;
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; align-content: end;
+}
 .match-screen.hex-screen .hx-ctl .btn {
-  min-height: 0; min-width: 56px; height: 36px; padding: 2px 12px; font-size: 14px; font-weight: 800; white-space: nowrap; border-radius: 10px;
+  min-height: 0; min-width: 0; height: 36px; padding: 2px 4px; font-size: 14px; font-weight: 800; white-space: nowrap; border-radius: 10px;
   background: rgba(21, 27, 38, .94); box-shadow: 0 3px 10px rgba(0, 0, 0, .3); font-variant-numeric: tabular-nums;
 }
 .match-screen.hex-screen .hx-ctl .btn.active { background: rgba(30, 58, 92, .95); }
+.match-screen.hex-screen .hx-ctl .hx-mom-btn, .match-screen.hex-screen .hx-ctl .hx-int-btn { font-size: 13px; letter-spacing: -.02em; }
+.match-screen.hex-screen .hx-ctl .hx-mom-btn.active { background: rgba(110, 86, 20, .96); color: var(--gold); }
+.match-screen.hex-screen .hx-ctl .hx-int-btn.active { background: rgba(122, 40, 100, .96); color: #fff; box-shadow: 0 0 0 2px var(--ult), 0 3px 10px rgba(0, 0, 0, .3); }
+/* 시계: 결정의 순간 동안 (멈춤) 금색 테 */
+.match-screen.hex-screen .hx-clock.hx-hold { border-color: var(--gold); color: var(--gold); }
 /* 필살기 버튼 7개 (H3 — 문서 §3 · 결정 8, screens/hexMatch.js buildUltBar · drawUlt): 아래 띠 (스테이지 y 612 ~ 714) 의 컨트롤 오른쪽
    x 140 ~ 1262 를 7칸으로 (칸 ≈ 155 × 76 — 915×412 폰에서 ≈ 89 × 43 CSS px: 손가락 칸 44 px 가까이 · 글자 ≥ 9 CSS px). 칸 = 얼굴 원 · 선수 이름 · 상태 한 줄 · 아래 게이지 막대 (--g 0 ~ 1).
    상태 클래스: hx-ready (게이지 가득 — 분홍 테 숨쉬기) · hx-now (지금 쓰면 그 턴에 터짐) · hx-armed (예약 — 채운 분홍) · hx-combo (합체기 대기 — 금색) ·
@@ -1025,6 +1035,73 @@
 @media (prefers-reduced-motion: reduce) {
   .match-screen.hex-screen .hx-ult-btn.hx-ready { animation: none !important; box-shadow: 0 0 10px rgba(255, 122, 217, .7); }
   .match-screen.hex-screen .hx-ult-btn.hx-combo.hx-ready { box-shadow: 0 0 10px rgba(255, 209, 102, .7); }
+}
+/* 결정의 순간 카드 띠 (H3.5 — 결정 26, screens/hexMatch.js buildMoment · fillMomCard): 필살기 띠 자리 (컨트롤 오른쪽 아래, 스테이지 y 616 ~ 712)
+   를 장면 동안 대신한다. 카드 = 높이 96 (915×412 폰 ≈ 55 CSS px — 손가락 칸 44 px 넘게), 큰 % 34px (≈ 19 CSS px) · 이름 20px · 둘째 줄 17px (≈ 9.7 CSS px).
+   .hx-mc-pick = 카드 전체 버튼 (누르면 고름), .hx-mc-rcv = 오른쪽 세로 칸 ▾ (받는 선수 상위 3 돌리기 — 버튼 안 버튼이 안 되어 옆 칸).
+   상태: hx-mc-auto ('자동' — 왼쪽 위 꼬리표) · hx-mc-star (★ 필살기 — 금색) · hx-mc-def (수비 자세 — 하늘색) · hx-mc-sel (밝힌 카드 — 캔버스 화살표와 같은 카드).
+   머리표 .hx-mo-head = 띠 위 작은 줄 (장면 이름 · 고르는 선수 · 상대 성향 칩 · "고를 때까지 멈춤"). 필터 · 배경 흐림 없음 */
+.match-screen.hex-screen .hx-moment {
+  position: absolute; z-index: 6; left: 140px; right: calc(var(--pad) + var(--fx)); bottom: 8px; height: 96px; pointer-events: none;
+}
+.match-screen.hex-screen .hx-mo-head {
+  position: absolute; left: 0; bottom: calc(100% + 6px); max-width: 100%; display: flex; align-items: center; gap: 8px; white-space: nowrap; overflow: hidden;
+  padding: 3px 12px; border-radius: 12px; background: rgba(12, 18, 26, .9); border: 1px solid var(--gold); box-shadow: 0 3px 10px rgba(0, 0, 0, .35);
+  font-size: 17px; line-height: 24px; font-weight: 800; color: var(--text);
+}
+.match-screen.hex-screen .hx-mo-head.hx-mo-danger { border-color: #7fd3ff; }
+.match-screen.hex-screen .hx-mo-title { color: var(--gold); font-weight: 900; }
+.match-screen.hex-screen .hx-mo-head.hx-mo-danger .hx-mo-title { color: #7fd3ff; }
+.match-screen.hex-screen .hx-mo-who { color: #fff; }
+.match-screen.hex-screen .hx-mo-chip { padding: 0 8px; border-radius: 8px; background: rgba(255, 93, 93, .22); color: #ffb0b0; font-size: 16px; }
+.match-screen.hex-screen .hx-mo-wait { color: var(--muted); font-size: 16px; font-weight: 700; }
+.match-screen.hex-screen .hx-mo-cards { position: absolute; inset: 0; display: flex; gap: 8px; }
+.match-screen.hex-screen .hx-mc {
+  position: relative; flex: 1 1 0; min-width: 0; max-width: 340px; height: 96px; display: flex; pointer-events: auto;
+  border: 2px solid rgba(255, 255, 255, .28); border-radius: 12px; background: rgba(21, 27, 38, .96); box-shadow: 0 3px 10px rgba(0, 0, 0, .35);
+}
+.match-screen.hex-screen .hx-mc-pick {
+  position: relative; flex: 1 1 auto; min-width: 0; min-height: 0; height: 100%; margin: 0; padding: 6px 8px 6px 10px;
+  display: flex; align-items: center; gap: 8px; text-align: left; color: var(--text); cursor: pointer;
+  border: 0; border-radius: 10px; background: transparent; font: inherit; -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+}
+.match-screen.hex-screen .hx-mc-num { flex: none; width: 74px; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; }
+.match-screen.hex-screen .hx-mc-p { font-size: 31px; line-height: 34px; font-weight: 900; color: #fff; font-variant-numeric: tabular-nums; letter-spacing: -.03em; }
+/* % 이름 (골 · 성공 추정 · 뺏기 · 가로채기 추정 · 슛 실점) 은 짧게 두 줄까지 — 16px (915×412 폰 ≈ 9.2 CSS px, 띠 글자 바닥 9 CSS px).
+   조건 (드리블하면 · 슛이면) 은 둘째 줄 (성공하면 …) 에. 둘째 줄은 두 줄까지 감는다 (카드 폭 ≈ 157 CSS px 폰에서 잘리지 않게) */
+.match-screen.hex-screen .hx-mc-pl {
+  max-width: 100%; font-size: 16px; line-height: 18px; font-weight: 800; color: var(--muted); word-break: keep-all; overflow: hidden;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+}
+/* 물러서기 = "슛이면 실점" % (낮을수록 좋다) — 붉은 글자 */
+.match-screen.hex-screen .hx-mc.hx-mc-risk .hx-mc-p { color: #ff9a9a; }
+.match-screen.hex-screen .hx-mc-txt { min-width: 0; flex: 1 1 auto; display: flex; flex-direction: column; gap: 2px; }
+.match-screen.hex-screen .hx-mc-lbl { font-size: 19px; line-height: 24px; font-weight: 900; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -.02em; }
+.match-screen.hex-screen .hx-mc-af {
+  font-size: 17px; line-height: 20px; font-weight: 700; color: #cfe3ff; word-break: keep-all; overflow: hidden;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+}
+.match-screen.hex-screen .hx-mc-badge {
+  position: absolute; left: 10px; top: -12px; padding: 0 8px; border-radius: 8px; background: #2d3a52; border: 1px solid #8aa4cc;
+  font-size: 16px; line-height: 20px; font-weight: 900; color: #fff;
+}
+.match-screen.hex-screen .hx-mc-rcv {
+  flex: none; width: 40px; min-width: 0; min-height: 0; height: 100%; margin: 0; padding: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  border: 0; border-left: 1px solid rgba(255, 255, 255, .16); border-radius: 0 10px 10px 0; background: rgba(255, 255, 255, .06); color: var(--text); cursor: pointer;
+  font: inherit; -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+}
+.match-screen.hex-screen .hx-mc-rcv > b { font-size: 22px; line-height: 22px; }
+.match-screen.hex-screen .hx-mc-rn { font-size: 16px; line-height: 18px; font-weight: 800; color: var(--muted); font-variant-numeric: tabular-nums; }
+.match-screen.hex-screen .hx-mc.hx-mc-sel { border-color: #fff; box-shadow: 0 0 0 2px rgba(255, 255, 255, .35), 0 3px 10px rgba(0, 0, 0, .35); }
+.match-screen.hex-screen .hx-mc.hx-mc-def .hx-mc-af { color: #bfe8ff; }
+.match-screen.hex-screen .hx-mc.hx-mc-def.hx-mc-sel { border-color: #7fd3ff; }
+.match-screen.hex-screen .hx-mc.hx-mc-star { border-color: var(--gold); background: rgba(58, 44, 8, .97); box-shadow: 0 0 12px rgba(255, 209, 102, .55); }
+.match-screen.hex-screen .hx-mc.hx-mc-star .hx-mc-lbl, .match-screen.hex-screen .hx-mc.hx-mc-star .hx-mc-p { color: var(--gold); }
+.match-screen.hex-screen .hx-mc.hx-mc-star .hx-mc-af { color: #ffe9b0; }
+.match-screen.hex-screen .hx-mc.hx-mc-star.hx-mc-sel { box-shadow: 0 0 0 2px var(--gold), 0 0 16px rgba(255, 209, 102, .7); }
+.match-screen.hex-screen .hx-mc-pick:focus-visible, .match-screen.hex-screen .hx-mc-rcv:focus-visible { outline: 2px solid #fff; outline-offset: -3px; }
+@media (hover: hover) {
+  .match-screen.hex-screen .hx-mc-pick:hover { background: rgba(255, 255, 255, .06); }
 }
 /* 알림 (골 · 골든골 · 추가시간 · 승부차기): 필드 가운데 위쪽 큰 글자 */
 .match-screen.hex-screen .hx-banner {

@@ -51,6 +51,11 @@
 //  - view.spriteKind(charId) = 그 캐릭터를 지금 스프라이트로 그리는가 ('anim' | 'static' | null — 아직 안 왔거나 실패 = 스탠디). 화면이 이름표 높이에 쓴다.
 //  - view.animating = 지난 draw 에 아직 재생 중인 스프라이트가 있었다 → 화면이 그림이 멈춰 있어도 다시 그린다.
 //  - 메모리: hexPixiMemory() = 모든 view 에서 살아 있는 소스 텍스처 수 · 바이트 (w · h · 4, 종류별), view.stats() 는 그 view 것만.
+//
+// 결정의 순간 (H3.5 — 결정 26): frame.aim (hexScene.momentAim — 화면이 고른 카드에 맞춰 넣는다) = 땅 위 화살표 하나 + 끝 고리 (글자 없음 — 숫자는 HTML 카드).
+//  - 층 aim = shadows 와 actors 사이 (선수가 화살표 위에 선다). 처음 aim 이 올 때 만든다 (aim 이 없는 경기 · 시험 가짜 Pixi 는 건드리지 않는다).
+//  - 띄운 공 · 크로스 = 호 (4t(1 − t) · lift, 16 점), 패스길 막기 = 가운데 X, 색: 공격 흰색 · ★ 금색 · 수비 하늘색. 바깥 어두운 테 (필터 없음).
+//  - 같은 aim (key) 이면 다시 그리지 않는다. aim 이 없어지면 숨긴다.
 
 import * as V from './view25.js';
 import { FIELD_RECT, quadScreen, gridCells, LOOP_ACTS } from './hexScene.js';
@@ -452,6 +457,56 @@ async function buildView(PIXI, app, host, { W, H, width, origin, data, onContext
     const actors = new Container();
     actors.sortableChildren = true;
     world.addChild(actors);
+    // 결정의 순간 화살표 (H3.5 — 머리 주석): 처음 frame.aim 이 올 때 shadows 와 actors 사이에 만든다
+    let aimG = null;
+    let aimKey = '';
+    const AIM_COLOR = { atk: 0xffffff, star: GOLD, def: 0x7fd3ff };
+    function drawAim(aim) {
+      const key = aim && aim.key ? aim.key : '';
+      if (key === aimKey) return;
+      aimKey = key;
+      if (!aim) { if (aimG) aimG.visible = false; return; }
+      if (aimG) { world.removeChild(aimG); aimG.destroy(); }
+      aimG = new Graphics();
+      world.addChildAt(aimG, world.getChildIndex(actors));
+      const col = AIM_COLOR[aim.tone] ?? 0xffffff;
+      const pts = [];
+      const n = aim.lift > 0 ? 16 : 1;
+      for (let i = 0; i <= n; i++) {
+        const t = i / n;
+        pts.push([aim.from.sx + (aim.to.sx - aim.from.sx) * t, aim.from.sy + (aim.to.sy - aim.from.sy) * t - 4 * t * (1 - t) * (aim.lift || 0)]);
+      }
+      // 화살촉: 끝 두 점의 방향
+      const [x1, y1] = pts[pts.length - 1];
+      const [x0, y0] = pts[pts.length - 2];
+      const len = Math.max(1e-6, Math.hypot(x1 - x0, y1 - y0));
+      const ux = (x1 - x0) / len;
+      const uy = (y1 - y0) / len;
+      const head = 13;
+      const tip = [x1 - ux * 4, y1 - uy * 4];
+      const base = [tip[0] - ux * head, tip[1] - uy * head];
+      const tri = [tip[0], tip[1], base[0] - uy * 7, base[1] + ux * 7, base[0] + uy * 7, base[1] - ux * 7];
+      const line = (w, c, a) => {
+        aimG.moveTo(pts[0][0], pts[0][1]);
+        for (let i = 1; i < pts.length - 1; i++) aimG.lineTo(pts[i][0], pts[i][1]);
+        aimG.lineTo(base[0], base[1]);
+        aimG.stroke({ width: w, color: c, alpha: a, cap: 'round', join: 'round' });
+      };
+      aimG.ellipse(x1, y1, 17, 7).stroke({ width: 5, color: 0x000000, alpha: 0.35 });
+      aimG.ellipse(x1, y1, 17, 7).stroke({ width: 2.5, color: col, alpha: 0.95 });
+      line(7, 0x000000, 0.35);
+      line(3.5, col, 0.95);
+      aimG.poly(tri, true).fill({ color: col, alpha: 0.95 }).stroke({ width: 1.5, color: 0x000000, alpha: 0.4 });
+      if (aim.block) {
+        const xm = (aim.from.sx + aim.to.sx) / 2; // 패스길 막기는 땅볼 길 (호 없음) — 가운데
+        const ym = (aim.from.sy + aim.to.sy) / 2;
+        for (const [w, c, a] of [[7, 0x000000, 0.4], [3.5, 0xff6b6b, 1]]) {
+          aimG.moveTo(xm - 9, ym - 9).lineTo(xm + 9, ym + 9).stroke({ width: w, color: c, alpha: a, cap: 'round' });
+          aimG.moveTo(xm + 9, ym - 9).lineTo(xm - 9, ym + 9).stroke({ width: w, color: c, alpha: a, cap: 'round' });
+        }
+      }
+      aimG.visible = true;
+    }
     const drawGoalLayer = (g, part) => {
       for (const poly of part.nets) g.poly(poly.flat(), true).fill({ color: 0xffffff, alpha: 0.13 }).stroke({ width: 1, color: 0xffffff, alpha: 0.55 });
       for (const [a, b] of part.grid) g.moveTo(a[0], a[1]).lineTo(b[0], b[1]);
@@ -743,6 +798,7 @@ async function buildView(PIXI, app, host, { W, H, width, origin, data, onContext
         }
       }
       for (const [key, n] of nodes) if (!seen.has(key)) n.node.visible = false;
+      if (frame.aim || aimG) drawAim(frame.aim || null);
       const b = frame.ball;
       if (b) {
         ballShadow.position.set(b.shadow.sx, b.shadow.sy);

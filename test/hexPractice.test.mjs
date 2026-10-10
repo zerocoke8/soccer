@@ -220,7 +220,9 @@ test("jsdom: [⚽ 연습 경기] — 회상 아래 버튼 · 육각 화면 · �
   S.render(); // 끝난 연습을 다시 그려도 결과 모달 하나 (skipped 는 메모리에 남는다)
   assert.equal(doc.querySelectorAll("#modal-root .score-big").length, 1);
   const seed1 = S.store.practiceSeed;
+  S.store.matchUi.hexIntervene = true; // 남은 ⏸ 개입 (경기 중 눌러 두고 장면 전에 끝난 경우 — 2026-10-10 리뷰)
   modalBtn("다시 하기").click();
+  assert.equal(S.store.matchUi.hexIntervene, false, "[다시 하기] = 새 경기 — ⏸ 개입이 새지 않는다");
   const pm2 = S.store.practiceMatch;
   assert.ok(pm2 && pm2 !== pm, "새 경기");
   assert.notEqual(pm2.seed, seed1, "새 시드");
@@ -232,7 +234,9 @@ test("jsdom: [⚽ 연습 경기] — 회상 아래 버튼 · 육각 화면 · �
   // ---- ⏭ → [확인] = 시작 화면 ----
   doc.querySelector(".hex-screen .skip-btn").click();
   await until(() => modalBtn("확인"));
+  S.store.matchUi.hexIntervene = true;
   modalBtn("확인").click();
+  assert.equal(S.store.matchUi.hexIntervene, false, "[확인] (나가기) 도 ⏸ 개입을 끈다");
   assert.equal(S.store.screen, "start");
   assert.equal(S.store.practiceMatch, null, "연습 상태 비움");
   assert.ok(doc.querySelector(".start-screen"), "시작 화면");

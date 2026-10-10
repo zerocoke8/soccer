@@ -45,14 +45,15 @@ test("hexEngineCompat: 지금 엔진 = 모두 맞음 · 옛 엔진 (필살기 AP
   const old = SCR.hexEngineCompat(oldEngine());
   assert.equal(old.step, true);
   assert.equal(old.ult, false);
-  assert.deepEqual(old.missing, ["ultimateList", "ultimateStatus", "HEX_MATCH_VERSION 1 < 2"]);
+  assert.deepEqual(old.missing, ["ultimateList", "ultimateStatus", "HEX_MATCH_VERSION 1 < 3"]); // H3.5: 화면이 기대하는 판 3
   // 판만 낮다 · API 만 없다 → 필살기 끔
   assert.equal(SCR.hexEngineCompat({ ...HM, HEX_MATCH_VERSION: 1 }).ult, false);
   const noList = { ...HM };
   delete noList.ultimateList;
   assert.equal(SCR.hexEngineCompat(noList).ult, false);
   // 판이 더 높으면 (화면이 옛것) 받아 준다 — 새 엔진은 옛 API 를 지킨다
-  assert.equal(SCR.hexEngineCompat({ ...HM, HEX_MATCH_VERSION: 3 }).ult, true);
+  assert.equal(SCR.hexEngineCompat({ ...HM, HEX_MATCH_VERSION: 4 }).ult, true);
+  assert.equal(SCR.hexEngineCompat({ ...HM, HEX_MATCH_VERSION: 2 }).ult, false, "H3 엔진 (판 2) + H3.5 화면 = 필살기 띠 끔 (결정의 순간 API 없음)");
   const noStep = { ...HM };
   delete noStep.step;
   assert.deepEqual(SCR.hexEngineCompat(noStep), { step: false, ult: false, missing: ["step"] });
@@ -112,6 +113,7 @@ function mount(engine, seed) {
   env.ctx.matchMode = { label: "연습 경기", getSetup: () => su, stateKey: "practiceMatch", save: null, onFinish: () => {} };
   ST.store.practiceMatch = null;
   ST.store.matchUi.speed = 1;
+  ST.store.matchUi.moments = false; // H3.5 결정의 순간 끔 (완전 자동 흐름 — 장면 멈춤은 test/hexMomentUi.test.mjs)
   SCR.renderHexMatch(env.root, env.ctx);
   return env.root.querySelector(".hex-screen");
 }
@@ -209,4 +211,43 @@ test("장면 모듈 판 확인: emotesOf 가 없는 옛 hexScene 은 맞지 않�
   assert.equal(hexSceneCompat(S), true);
   assert.equal(hexSceneCompat({ frameAt() {}, clockText() {} }), false); // H2 판처럼 emotesOf 가 없다
   assert.equal(hexSceneCompat(null), false);
+});
+
+test("옛 엔진 상태 (rules 없음 — 캐시의 H3 엔진이 만든 런 경기): 저장에 rules: 2 (엔진 rulesOf 와 같이 '3 미만') → 지금 엔진으로 되살려도 같은 경기", { skip }, async () => {
+  setup();
+  const old = oldEngine();
+  // H3 엔진 상태에는 rules 가 없다 (엔진 rulesOf = 2 로 돈다)
+  old.createMatch = (o) => {
+    const s = HM.createMatch({ ...o, rules: 2 });
+    delete s.rules;
+    return s;
+  };
+  env.root.replaceChildren();
+  const su = PR.practiceSetup(LR, data, "stale-rules");
+  env.ctx.setup = su;
+  env.ctx.hexMatch = old;
+  env.ctx.matchMode = undefined; // 런 경기 (재생 기록 저장)
+  ST.store.hexMatch = null;
+  ST.saveHexMatch(null);
+  ST.store.matchUi.speed = 4;
+  ST.store.matchUi.moments = false;
+  SCR.renderHexMatch(env.root, env.ctx);
+  await pump(900 / 4 + 100 * 30);
+  const st = ST.store.hexMatch;
+  assert.equal(st.rules, undefined, "옛 엔진 상태");
+  assert.ok(st.turn >= 10, `경기가 돈다 (${st.turn})`);
+  const sv = ST.loadHexMatch();
+  assert.equal(sv.rules, 2, "저장 rules: 2 (예전: 없어서 판 3 으로 되살렸다)");
+  const want = JSON.parse(JSON.stringify(st));
+  // 새로고침 → 지금 엔진
+  env.root.replaceChildren();
+  ST.store.hexMatch = null;
+  env.ctx.hexMatch = HM;
+  SCR.renderHexMatch(env.root, env.ctx);
+  const back = ST.store.hexMatch;
+  assert.equal(back.rules, 2);
+  delete back.rules;
+  assert.equal(JSON.stringify({ ...back, events: back.events.length }), JSON.stringify({ ...want, events: want.events.length }), "같은 경기");
+  env.root.replaceChildren();
+  ST.saveHexMatch(null);
 });

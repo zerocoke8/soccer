@@ -108,13 +108,15 @@ const firstTurn = (choice) => {
   };
 };
 
-test("hexMatch.js 는 rng.js · hexGrid.js · hexUlt.js (→ skills.js) 만 불러온다 (match.js · ai.js 없음, 간접도)", () => {
+test("hexMatch.js 는 rng.js · hexGrid.js · hexUlt.js (→ skills.js) · hexMoment.js (→ hexUlt.js) 만 불러온다 (match.js · ai.js 없음, 간접도)", () => {
   const read = (f) => fs.readFileSync(fileURLToPath(new URL(`../js/engine/${f}`, import.meta.url)), "utf8");
   const importsOf = (f) => [...read(f).matchAll(/^\s*import[^;]*?from\s+"([^"]+)"/gm)].map((m) => m[1]).sort();
-  assert.deepEqual(importsOf("hexMatch.js"), ["./hexGrid.js", "./hexUlt.js", "./rng.js"]);
+  // H3.5: 결정의 순간 모듈 hexMoment.js (hexUlt.js 만 불러온다 — 엔진 안쪽은 hexMatch 가 넘긴다, 모듈 고리 없음)
+  assert.deepEqual(importsOf("hexMatch.js"), ["./hexGrid.js", "./hexMoment.js", "./hexUlt.js", "./rng.js"]);
   assert.deepEqual(importsOf("hexUlt.js"), ["./hexGrid.js", "./skills.js"]);
+  assert.deepEqual(importsOf("hexMoment.js"), ["./hexUlt.js"]);
   for (const f of ["skills.js", "hexGrid.js", "rng.js"]) assert.deepEqual(importsOf(f), [], `${f} 는 아무것도 불러오지 않는다`);
-  for (const f of ["hexMatch.js", "hexUlt.js"]) assert.ok(!/Math\.random|Date\.now|new Date/.test(read(f)), `${f}: Math.random · Date 금지`);
+  for (const f of ["hexMatch.js", "hexUlt.js", "hexMoment.js"]) assert.ok(!/Math\.random|Date\.now|new Date/.test(read(f)), `${f}: Math.random · Date 금지`);
 });
 
 test("실제 스냅샷 (런 · 레슨 런 · 도전) 으로 만들어 끝까지: 결과 모양 그대로, possessions 는 무시", () => {
@@ -236,32 +238,53 @@ test("결정성: 같은 시드 = 같은 JSON, 매 step clone 해도 같은 결�
   assert.notDeepEqual(d.events, a.events);
 });
 
-test("시계: 친선은 300턴 (+ 규칙이 켜질 때만 추가시간) 에 끝나고 무승부도 된다 · 골/아레나는 무승부 없음 · 골든골 · 승부차기 · 단계 이벤트", () => {
+test("시계: 친선은 2골 선승 (결정 27) 이 아니면 300턴 (+ 규칙이 켜질 때만 추가시간) 에 끝나고 무승부도 된다 · 골/아레나는 무승부 없음 · 골든골 · 승부차기 · 단계 이벤트", () => {
   let draws = 0;
+  let early = 0;
   for (let i = 0; i < 30; i++) {
     const ms = hex.simulateAuto(hex.createMatch({ data, seed: `fr-${i}`, home: HOME, away: mirror(HOME), kind: "friendly" }), data);
     const r = hex.getResult(ms);
+    const end = ms.events.find((e) => e.type === "end");
     assert.equal(r.stage, "regular");
     assert.ok(!r.penalties);
     assert.ok(!ms.events.some((e) => e.type === "goldenGoal"));
-    if (ms.addedTime) {
+    if (end.reason === "goals") {
+      // 2골 선승: 한 팀이 2골에 닿은 그 턴에 끝 (킥오프 없음) — 300턴 전 (또는 추가시간 안)
+      early++;
+      assert.equal(Math.max(r.homeGoals, r.awayGoals), 2);
+      assert.equal(evs(ms, "goal").at(-1).turn, r.turnsPlayed, "마지막 골 턴에 끝");
+      assert.ok(!ms.events.some((e) => e.type === "kickoff" && e.turn === r.turnsPlayed), "끝내는 골 뒤 킥오프 없음");
+      assert.ok(r.turnsPlayed <= (ms.addedTime ? 325 : 300));
+    } else if (ms.addedTime) {
       assert.ok(r.turnsPlayed > 300 && r.turnsPlayed <= 325, `추가시간 턴 ${r.turnsPlayed}`);
       assert.equal(evs(ms, "addedTime").length, 1);
       assert.deepEqual(r.lastAttack, { side: ms.addedTime.side, stage: "regular", turn: 300 });
     } else {
       assert.equal(r.turnsPlayed, 300);
       assert.equal(r.lastAttack, null);
+      assert.ok(Math.max(r.homeGoals, r.awayGoals) < 2, "300턴까지 가면 2골에 닿은 팀이 없다");
     }
     if (r.winner === "draw") draws++;
   }
   assert.ok(draws > 0, "친선 무승부가 나온다");
+  assert.ok(early > 0, "2골 선승으로 일찍 끝난 경기가 있다");
   let golden = 0;
   let pens = 0;
   let goldenWins = 0;
+  // 골든골 · 승부차기 규칙은 결정 27 과 상관없다 — 2골 선승이면 300턴 동점 (0:0 · 1:1) 이 드물어 승부차기가 240판에 안 나올 수 있어
+  // 2골 선승을 끈 data (300턴 내내) 로 본다. 2골 선승 경기도 무승부 없이 끝나는지는 앞 30판 (기본 data) 에서.
+  const full = { ...data, config: { ...cfg, hexMatch: { goalsToWin: 0 } } };
+  for (let i = 0; i < 30; i++) {
+    const kind = i % 2 ? "arena" : "goal";
+    const ms = hex.simulateAuto(hex.createMatch({ data, seed: `gm2-${i}`, home: HOME, away: mirror(HOME), kind }), data);
+    const r = hex.getResult(ms);
+    assert.notEqual(r.winner, "draw", `${kind} ${i} 무승부 (2골 선승)`);
+    if (ms.events.some((e) => e.type === "goldenGoal")) assert.ok(r.turnsPlayed > 300, "골든골은 300턴 동점 뒤에만");
+  }
   // 최소 60판, 골든골 승 · 승부차기가 아직 안 나왔으면 240판까지 더 본다 (승부차기는 미러 판의 약 3% — 표본 운에 기대지 않게)
   for (let i = 0; i < 240 && (i < 60 || !pens || !goldenWins); i++) {
     const kind = i % 2 ? "arena" : "goal";
-    const ms = hex.simulateAuto(hex.createMatch({ data, seed: `gm-${i}`, home: HOME, away: mirror(HOME), kind }), data);
+    const ms = hex.simulateAuto(hex.createMatch({ data: full, seed: `gm-${i}`, home: HOME, away: mirror(HOME), kind }), full);
     const r = hex.getResult(ms);
     assert.notEqual(r.winner, "draw", `${kind} ${i} 무승부`);
     const types = ms.events.map((e) => e.type);
@@ -642,13 +665,14 @@ test("태클 실패 · 가던 칸이 태클한 수비 말고 다른 사람에게
   assert.equal(ms.live.away[t[0].tacklerId].restUntil, T + 1);
   assert.equal(ms.live.away.q1.restUntil, -1, "GK 는 넘어지지 않는다");
   assert.equal(ms.stats.home.dribblesPast, 0);
-  // 지키기는 GK 도 태클 (늘)
+  // 지키기는 GK 도 태클 (늘). H3.5: 혼자 남은 GK 는 수비 자세 AI 규칙이면 물러서기 (마지막 수비) — 태클 규칙을 보려고 압박을 입력으로 정한다
+  const press = { defend: { side: "away", playerId: "q1", mode: "press" } };
   const hold = scenario({ home: { p6: [12, 6] }, away: { q1: [13, 6] }, ball: { side: "home", id: "p6" } });
-  withHooks({ roll: (k) => (k === "tackle" ? true : undefined), decide: firstTurn({ action: "hold" }) }, () => hex.step(hold, data));
+  withHooks({ roll: (k) => (k === "tackle" ? true : undefined), decide: firstTurn({ action: "hold" }) }, () => hex.step(hold, data, press));
   assert.equal(evs(hold, "tackle")[0].tacklerId, "q1");
   // 미끄러질 칸이 구역 안 (13,5) 이면 드리블에도 GK 태클
   const inZone = scenario({ home: { p6: [13, 5] }, away: { q1: [14, 6] }, ball: { side: "home", id: "p6" } });
-  withHooks({ roll: (k) => (k === "tackle" ? true : undefined), decide: firstTurn({ action: "dribble", target: id(14, 6) }) }, () => hex.step(inZone, data));
+  withHooks({ roll: (k) => (k === "tackle" ? true : undefined), decide: firstTurn({ action: "dribble", target: id(14, 6) }) }, () => hex.step(inZone, data, press));
   assert.equal(evs(inZone, "tackle")[0].tacklerId, "q1");
 });
 
@@ -911,6 +935,7 @@ function viewOf(ms, flip, dt) {
     events: ms.events.map((e) => {
       const o = { ...e, turn: e.turn + dt };
       if (o.side) o.side = swapSide(o.side);
+      if (o.winner === "home" || o.winner === "away") o.winner = swapSide(o.winner); // 2골 선승 (결정 27) 으로 200턴 안에 끝나는 경기의 end 이벤트
       if (o.reverseCutin) o.reverseCutin = { ...o.reverseCutin, side: swapSide(o.reverseCutin.side) };
       for (const k of EVENT_CELL_KEYS) if (typeof o[k] === "number") o[k] = m(o[k]);
       if (o.score) o.score = { [swapSide("home")]: o.score.home, [swapSide("away")]: o.score.away };

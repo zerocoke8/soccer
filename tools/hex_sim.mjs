@@ -20,6 +20,12 @@
 //   띄운 패스 · 크로스 · 헤더 · 슛 박스 안 / 밖 · 평균 슛 거리 · 박스 밖 골 비율 · GK ↔ DF 핑퐁 (자기 1/3 안) · GK 백패스 ·
 //   박스 붐빔 (공이 공격 1/3 일 때 공격받는 골 3칸 안 양 팀 인원) · 박스 안 공 가진 턴 중 슛 안 한 턴 · 박스 안 태클 · 포제션당 턴.
 //   엔진 동작은 바꾸지 않는다 (이벤트 · 턴 시작 상태만 읽는다 — 주사위 · 상태를 건드리지 않음).
+// [경기 길이 · 결정의 순간] 표 (H3.5 — 결정 26 · 27): 경기 턴 · 2골 선승 비율 · 장면 (사람 = 홈) 종류별 경기당 수 · 수비 자세 쓰임 (편 · 자세 · AI/입력).
+//   본 경기 (양쪽 AI) 에서 그대로 센다 (장면은 경기를 바꾸지 않는다). --moments : 같은 셋업을 "결정 ON 플레이어" 정책으로 한 번 더 —
+//   홈 = 장면마다 ★ 카드가 있으면 ★, 없으면 '자동' 카드 (그 밖에는 필살기를 누르지 않는다), 원정 = AI. 장면 수 · ★ · 1배속 실제 시간
+//   (턴 × 0.4초 + 골 장면 1.6초 + 컷인 (SSR 1.4 · SR 1.1 · R 0.8 · 합체기 3.4) + 시작 · 끝 1.7초 + 장면마다 고민 3초).
+//   --oracle N : 그 정책 경기의 장면마다 카드별로 N 번 굴려 (같은 주사위 묶음 — 카드끼리 같은 난수) 이 공격 · 수비 끝 (공을 잃음 · 골 · 25턴) 까지
+//   골 확률 (수비 장면 = 실점 확률) — '자동' 카드 vs 최선 카드 (짝수 번 굴림으로 고르고 홀수 번으로 잼 — 고른 쪽 치우침 없이).
 // 숫자는 보고만 한다 (밸런스는 나중에 한 번에 — 문서 §6.5).
 import fs from "node:fs";
 import * as run from "../js/engine/run.js";
@@ -29,6 +35,7 @@ import * as G from "../js/engine/hexGrid.js";
 import * as U from "../js/engine/hexUlt.js";
 import * as lessonRun from "../js/engine/lessonRun.js";
 import { practiceSetup } from "../js/ui/practice.js";
+import { createRng } from "../js/engine/rng.js";
 import { loadData, applyConfigOverrides, table, isEntry } from "./sim.mjs";
 
 const STATS = ["shoot", "dribble", "pass", "defense", "physical"];
@@ -38,7 +45,7 @@ export const HOME_GROWTH = 1.8;
 export const HOME_TEAMWORK = 50;
 
 export function parseArgs(argv) {
-  const out = { matches: 300, seed: 1, json: false, sets: [], old: false, mirror: false, noUlt: false, compare: false, practice: false, growth: HOME_GROWTH };
+  const out = { matches: 300, seed: 1, json: false, sets: [], old: false, mirror: false, noUlt: false, compare: false, practice: false, growth: HOME_GROWTH, moments: false, oracle: 0 };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--matches") out.matches = Math.max(1, parseInt(argv[++i], 10) || 300);
@@ -50,12 +57,17 @@ export function parseArgs(argv) {
     else if (a === "--noult") out.noUlt = true;
     else if (a === "--compare") out.compare = true;
     else if (a === "--practice") out.practice = true;
+    else if (a === "--moments") out.moments = true;
+    else if (a === "--oracle") {
+      out.moments = true;
+      out.oracle = Math.max(2, parseInt(argv[++i], 10) || 40);
+    }
     else if (a === "--growth") {
       const g = Number(argv[++i]);
       out.growth = Number.isFinite(g) && g > 0 ? g : HOME_GROWTH;
     }
     else if (a === "--help" || a === "-h") {
-      console.log("usage: node tools/hex_sim.mjs --matches N --seed S [--json] [--set a.b=v ...] [--old] [--mirror] [--practice] [--growth X] [--noult] [--compare]");
+      console.log("usage: node tools/hex_sim.mjs --matches N --seed S [--json] [--set a.b=v ...] [--old] [--mirror] [--practice] [--growth X] [--noult] [--compare] [--moments] [--oracle N]");
       process.exit(0);
     }
   }
@@ -348,7 +360,13 @@ export function checkRules(ms, prevPos, kickoffTurn) {
 }
 
 function newAcc() {
-  return { n: 0, sum: {}, ms: 0, maxTurnsBeforePk: 0, violations: 0, violationSamples: [], old: { n: 0, sum: {} }, base: { n: 0, sum: {} }, ult: newUltAcc(), flow: newFlowAcc() };
+  return { n: 0, sum: {}, ms: 0, maxTurnsBeforePk: 0, violations: 0, violationSamples: [], old: { n: 0, sum: {} }, base: { n: 0, sum: {} }, ult: newUltAcc(), flow: newFlowAcc(),
+    mom: newMomAcc(), pol: null };
+}
+/** 장면 · 수비 자세 · 경기 길이 집계 */
+export function newMomAcc() {
+  return { n: 0, kinds: {}, total: 0, stance: { home: {}, away: {} }, stanceBy: { ai: 0, input: 0 }, goalsEnd: 0, turns: 0, turnsHist: {},
+    realSec: 0, clockSec: 0, star: 0, gaps: 0, gapSum: 0, oracle: { n: {}, auto: {}, best: {}, bestKind: {} } };
 }
 function newUltAcc() {
   return { holders: { home: 0, away: 0 }, uses: { home: 0, away: 0 }, byType: {}, bySkill: {}, combos: 0, reverse: {}, zeroHolders: 0, holderMatches: 0, hist: {} };
@@ -444,6 +462,7 @@ function playHex(data, su, noUlt, acc, i) {
     const stage = ms.stage;
     const pre = acc && stage !== "penalties" ? flowPre(ms) : null; // 흐름 지표: 턴 시작 상태 (읽기만)
     hex.step(ms, data);
+    if (acc && ms.moment) addMoment(acc.mom, ms.moment.kind); // 장면 (사람 = 홈) — 경기는 바꾸지 않는다
     if (stage === "penalties" || !acc) continue;
     flowPost(acc.flow, pre, ms.events.slice(evN));
     const kick = ms.events.slice(evN).some((e) => e.type === "kickoff");
@@ -454,6 +473,121 @@ function playHex(data, su, noUlt, acc, i) {
     }
     acc.maxTurnsBeforePk = Math.max(acc.maxTurnsBeforePk, ms.turn); // 승부차기로 넘어가는 턴도 센다 (그 턴은 실제로 뛴 턴)
   }
+  return ms;
+}
+
+function addMoment(ma, kind) {
+  ma.kinds[kind] = (ma.kinds[kind] || 0) + 1;
+  ma.total += 1;
+}
+
+/** 컷인 · 골 장면 · 시작/끝 · 장면 고민 시간을 더한 1배속 실제 시간 (초) — 화면 숫자 (screens/hexMatch.js · 예전 컷인 길이) 의 대략 */
+export const REAL_TIME = Object.freeze({ turn: 0.4, goal: 1.6, startEnd: 1.7, think: 3, cut: Object.freeze({ SSR: 1.4, SR: 1.1, R: 0.8 }), combo: 3.4, cutDefault: 1.1 });
+export function realSeconds(ms, moments) {
+  let s = ms.turn * REAL_TIME.turn + REAL_TIME.startEnd + moments * REAL_TIME.think;
+  for (const e of ms.events) {
+    if (e.type === "goal") s += REAL_TIME.goal;
+    else if (e.type === "cutin") s += e.combo ? REAL_TIME.combo : REAL_TIME.cut[e.tier] ?? REAL_TIME.cutDefault;
+  }
+  return s;
+}
+
+/** 한 판의 경기 길이 · 2골 선승 · 수비 자세 (이벤트만 읽는다) */
+function addLengthStance(ma, ms) {
+  ma.n += 1;
+  ma.turns += ms.turn;
+  const b = ms.turn <= 100 ? "≤100" : ms.turn <= 200 ? "101-200" : ms.turn < 300 ? "201-299" : ms.turn === 300 ? "300" : ">300";
+  ma.turnsHist[b] = (ma.turnsHist[b] || 0) + 1;
+  const end = ms.events.find((e) => e.type === "end");
+  if (end && end.reason === "goals") ma.goalsEnd += 1;
+  for (const e of ms.events) {
+    if (e.type !== "stance") continue;
+    ma.stance[e.side][e.mode] = (ma.stance[e.side][e.mode] || 0) + 1;
+    ma.stanceBy[e.by] = (ma.stanceBy[e.by] || 0) + 1;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* 결정 ON 플레이어 정책 · 카드 굴려 보기 (--moments · --oracle)              */
+/* ------------------------------------------------------------------ */
+
+/** 굴려 보기 한 번: 카드 입력으로 한 step, 그다음 입력 없이 이 공격 (수비 장면은 상대 공격) 이 끝날 때까지. 1 = attackSide 골 */
+function rollout(base, data, input, rngSeed, attackSide, maxTurns = 25) {
+  const st = JSON.parse(JSON.stringify(base, (k, v) => (k === "events" ? undefined : v)));
+  st.events = [];
+  st.rngState = createRng(rngSeed).getState();
+  const g0 = st.score[attackSide];
+  for (let t = 0; t < maxTurns && !st.finished && st.stage !== "penalties"; t++) {
+    hex.step(st, data, t === 0 ? input : null);
+    if (st.score[attackSide] > g0) return 1;
+    if (st.events.some((e) => e.type === "kickoff" || e.type === "goal")) return 0;
+    const b = st.ball;
+    if ((b.holder && b.holder.side !== attackSide) || (b.flight && b.flight.side !== attackSide)) return 0;
+  }
+  return 0;
+}
+
+/** 장면 하나의 카드들을 N 번씩 굴려 '자동' vs 최선 (짝수 번으로 고르고 홀수 번으로 잼) */
+function oracleMoment(oa, ms, data, view, n, tag) {
+  const cards = view.cards;
+  if (cards.length < 2) return;
+  const attack = !!(view.carrier && view.carrier.side === view.side);
+  const danger = !!(view.carrier && view.carrier.side !== view.side);
+  if (!attack && !danger) return; // 팀 필살기 장면
+  const side = view.carrier.side;
+  const mean = (a) => a.reduce((x, y) => x + y, 0) / (a.length || 1);
+  const sc = cards.map((c) => {
+    const even = [];
+    const odd = [];
+    for (let k = 0; k < n; k++) (k % 2 ? odd : even).push(rollout(ms, data, c.input, `${tag}:${k}`, side));
+    return { c, even: mean(even), odd: mean(odd) };
+  });
+  // 공격 = 골 확률 높을수록, 수비 = 실점 확률 낮을수록 좋다
+  const better = (a, b) => (attack ? a > b : a < b);
+  const auto = sc.find((x) => x.c.auto) || sc[0];
+  let pick = auto; // 같으면 '자동' (굴림이 가르지 못하면 바꿀 까닭이 없다)
+  for (const x of sc) if (better(x.even, pick.even)) pick = x;
+  for (const key of [view.kind, attack ? "all-attack" : "all-danger"]) {
+    oa.n[key] = (oa.n[key] || 0) + 1;
+    oa.auto[key] = (oa.auto[key] || 0) + auto.odd;
+    oa.best[key] = (oa.best[key] || 0) + pick.odd;
+    const bk = oa.bestKind[key] || (oa.bestKind[key] = {});
+    const kk = pick.c.star ? "★" : pick.c.kind;
+    bk[kk] = (bk[kk] || 0) + 1;
+  }
+}
+
+/** "결정 ON 플레이어": 홈 = 장면마다 ★ 카드 (있으면) · 아니면 '자동', 그 밖에는 필살기를 누르지 않는다. 원정 = AI */
+function playPolicy(data, su, ma, oracleN, i) {
+  const ms = hex.createMatch({ data, seed: su.seed, home: su.home, away: su.away, possessions: su.possessions, kind: su.kind });
+  let moments = 0;
+  let last = null;
+  let guard = 0;
+  while (!ms.finished) {
+    if (++guard > 5000) throw new Error(`hex_sim: 정책 경기 ${i} 가 끝나지 않습니다`);
+    let input = null;
+    if (ms.moment) {
+      const view = hex.momentView(ms, data);
+      moments += 1;
+      addMoment(ma, ms.moment.kind);
+      if (last != null) {
+        ma.gaps += 1;
+        ma.gapSum += ms.moment.turn - last;
+      }
+      last = ms.moment.turn;
+      if (view && view.cards.length) {
+        if (oracleN) oracleMoment(ma.oracle, ms, data, view, oracleN, `oracle:${su.seed}:${ms.turn}`);
+        const star = view.cards.find((c) => c.star);
+        const card = star || view.cards.find((c) => c.auto) || view.cards[0];
+        if (star) ma.star += 1;
+        input = card.input;
+      }
+    }
+    hex.step(ms, data, input);
+  }
+  addLengthStance(ma, ms);
+  ma.realSec += realSeconds(ms, moments);
+  ma.clockSec += ms.turn * REAL_TIME.turn;
   return ms;
 }
 
@@ -489,6 +623,14 @@ export function runHexSim(data, args) {
     for (const [k, v] of Object.entries(hexMatchMetrics(ms))) add(acc.sum, k, v);
     addUltMetrics(acc.ult, ms, data);
     addFlowEvents(acc.flow, ms);
+    addLengthStance(acc.mom, ms);
+    acc.mom.realSec += realSeconds(ms, 0);
+    acc.mom.clockSec += ms.turn * REAL_TIME.turn;
+    if (args.moments) {
+      if (!acc.pol) acc.pol = Object.assign(newMomAcc(), { sum: {} });
+      const pm = playPolicy(data, su, acc.pol, args.oracle || 0, i);
+      for (const [k, v] of Object.entries(hexMatchMetrics(pm))) add(acc.pol.sum, k, v);
+    }
     if (args.compare && !args.noUlt) {
       const bm = playHex(data, su, true, null, i);
       acc.base.n += 1;
@@ -563,6 +705,11 @@ function summarize(acc, args, ms) {
     violationSamples: acc.violationSamples,
     ult: summarizeUlt(acc.ult, n),
     flow: summarizeFlow(acc.flow, n),
+    moments: summarizeMom(acc.mom),
+    policy: acc.pol ? Object.assign(summarizeMom(acc.pol), {
+      goals: (acc.pol.sum.goals || 0) / (acc.pol.n || 1), homeWin: (acc.pol.sum.homeWin || 0) / (acc.pol.n || 1),
+      draw: (acc.pol.sum.draw || 0) / (acc.pol.n || 1), awayWin: (acc.pol.sum.awayWin || 0) / (acc.pol.n || 1),
+    }) : null,
   };
   if (acc.base.n) {
     const b = acc.base.sum;
@@ -592,6 +739,37 @@ function summarize(acc, args, ms) {
     };
   }
   return out;
+}
+
+/** 장면 · 길이 · 수비 자세 집계 → 경기당 · 비율 */
+export function summarizeMom(ma) {
+  const n = ma.n || 1;
+  const per = (x) => x / n;
+  const stance = {};
+  for (const s of ["home", "away"]) {
+    const t = Object.values(ma.stance[s]).reduce((a, b) => a + b, 0);
+    stance[s] = { perMatch: t / n, press: (ma.stance[s].press || 0) / n, block: (ma.stance[s].block || 0) / n, drop: (ma.stance[s].drop || 0) / n };
+  }
+  const oracle = {};
+  for (const k of Object.keys(ma.oracle.n)) {
+    const m = ma.oracle.n[k];
+    oracle[k] = { n: m, auto: ma.oracle.auto[k] / m, best: ma.oracle.best[k] / m, bestKind: ma.oracle.bestKind[k] };
+  }
+  return {
+    matches: ma.n,
+    turns: per(ma.turns),
+    turnsHist: Object.fromEntries(Object.entries(ma.turnsHist).map(([k, v]) => [k, v / n])),
+    goalsEndShare: per(ma.goalsEnd),
+    clockSec: per(ma.clockSec),
+    realSec: per(ma.realSec),
+    moments: per(ma.total),
+    momentKinds: Object.fromEntries(Object.entries(ma.kinds).map(([k, v]) => [k, v / n])),
+    meanGap: ma.gaps ? ma.gapSum / ma.gaps : 0,
+    star: per(ma.star),
+    stance,
+    stanceBy: { ai: per(ma.stanceBy.ai || 0), input: per(ma.stanceBy.input || 0), hold: per(ma.stanceBy.hold || 0) },
+    oracle,
+  };
 }
 
 /** 필살기 집계 → 경기당 · 선수당 숫자 */
@@ -656,6 +834,43 @@ export function printFlow(f) {
   ]));
 }
 
+const sec = (x) => `${Math.floor(x / 60)}:${String(Math.round(x % 60)).padStart(2, "0")}`;
+/** [경기 길이 · 결정의 순간] 표 (+ --oracle 이면 [자동 vs 최선 카드]) */
+export function printMoments(s) {
+  const m = s.moments;
+  if (!m) return;
+  const p = s.policy;
+  const kinds = ["shot", "danger", "ult", "cross", "counter", "combo"];
+  const kindTxt = (mk) => kinds.map((k) => `${k} ${fmt(mk[k] || 0)}`).join(" · ");
+  const hist = (mm) => ["≤100", "101-200", "201-299", "300", ">300"].map((k) => `${k} ${pct(mm.turnsHist[k] || 0)}`).join(" · ");
+  const st = (x) => `${fmt(x.perMatch)} (${fmt(x.press)} · ${fmt(x.block)} · ${fmt(x.drop)})`;
+  console.log("\n[경기 길이 · 결정의 순간]  (결정 27 = 2골 선승 / 결정 26 = 장면 (사람 = 홈) · 수비 자세 (양 팀))");
+  const rows = [
+    ["지표", "본 경기 (양쪽 AI)", p ? "결정 ON 정책 (홈 ★ 아니면 자동 · 원정 AI)" : ""],
+    ["턴/경기 · 경기 시계 (1배속)", `${fmt(m.turns, 1)} · ${sec(m.clockSec)}`, p ? `${fmt(p.turns, 1)} · ${sec(p.clockSec)}` : ""],
+    ["턴 분포", hist(m), p ? hist(p) : ""],
+    ["2골 선승으로 끝난 비율", pct(m.goalsEndShare), p ? pct(p.goalsEndShare) : ""],
+    ["실제 시간 1배속 (골 · 컷인 · 시작/끝 + 장면마다 3초)", sec(m.realSec), p ? sec(p.realSec) : ""],
+    ["장면/경기", fmt(m.moments), p ? fmt(p.moments) : ""],
+    ["  종류별", kindTxt(m.momentKinds), p ? kindTxt(p.momentKinds) : ""],
+    ["장면 사이 평균 턴 · ★ 카드 고름/경기", "", p ? `${fmt(p.meanGap, 1)} · ${fmt(p.star)}` : ""],
+    ["수비 자세/경기 홈 (압박 · 막기 · 물러서기)", st(m.stance.home), p ? st(p.stance.home) : ""],
+    ["수비 자세/경기 원정 (압박 · 막기 · 물러서기)", st(m.stance.away), p ? st(p.stance.away) : ""],
+  ];
+  if (p) rows.push(["골/경기 · 홈 승 / 무 / 패", "", `${fmt(p.goals)} · ${pct(p.homeWin)} / ${pct(p.draw)} / ${pct(p.awayWin)}`]);
+  console.log(table(rows));
+  const o = p && p.oracle;
+  if (o && Object.keys(o).length) {
+    console.log("\n[자동 vs 최선 카드]  (장면마다 카드별 굴려 보기 — 공격 = 이 공격의 골 확률, 수비 = 이 상대 공격의 실점 확률 (낮을수록 좋음). 최선 = 짝수 번으로 고르고 홀수 번으로 잼)");
+    const order = ["all-attack", "shot", "cross", "counter", "combo", "ult", "attack", "all-danger", "danger"].filter((k) => o[k]);
+    console.log(table([
+      ["장면", "수", "자동", "최선 카드", "최선이 된 카드"],
+      ...order.map((k) => [k, String(o[k].n), pct(o[k].auto), pct(o[k].best),
+        Object.entries(o[k].bestKind).sort((a, b) => b[1] - a[1]).map(([kk, v]) => `${kk} ${pct(v / o[k].n)}`).join(" · ")]),
+    ]));
+  }
+}
+
 export function printHexSummary(s) {
   console.log(`hex_sim: ${s.matches} matches, seed ${s.seed}, ${s.ms} ms (${fmt(s.msPerMatch, 1)} ms/경기)`);
   if (s.sets.length) console.log(`overrides: ${s.sets.join(" ")}`);
@@ -687,6 +902,7 @@ export function printHexSummary(s) {
   ];
   console.log(table(rows));
   if (s.violationSamples.length) console.log("위반 예: " + s.violationSamples.join(" / "));
+  printMoments(s);
   printFlow(s.flow);
   if (s.mirror) {
     console.log("\n[좌우 치우침]  (같은 팀끼리 — 홈 = 오른쪽 골 공격 · 원정 = 왼쪽 골 공격. 홈 킥오프 · 승부차기 홈 선축은 정해진 규칙)");

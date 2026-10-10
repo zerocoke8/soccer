@@ -416,9 +416,9 @@ export function figureBox(x, y, W, H, sprite = null) {
  * 상자 표시: core = 꼭 보여야 하는 듀얼 둘 (틀이 Z_FOLLOW 에서도 안 들어가면 가운데를 core 쪽으로 당긴다), opt = 보이면 넣는 것
  * (커버 수비 · 다른 받는 선수 후보 — 나머지로 정한 창에 걸리면 틀에 더한다), 그 밖 = 넣어야 하는 것 (고른 받는 선수 · 외치는 선수).
  */
-function decideFrame(boxes, W, H) {
+function decideFrame(boxes, W, H, zMin = CAM.Z_FOLLOW) {
   const { PAD_X: mx, PAD_T: mt, PAD_B: mb } = CAM;
-  const zFor = (u) => Math.min(CAM.Z_DECIDE, Math.max(CAM.Z_FOLLOW,
+  const zFor = (u) => Math.min(CAM.Z_DECIDE, Math.max(zMin,
     Math.min((W - 2 * mx) / Math.max(1, u.r - u.l), (H - mt - mb) / Math.max(1, u.b - u.t))));
   const centre = (u, z) => ({ cx: (u.l + u.r) / 2, cy: (u.t - mt / z + u.b + mb / z) / 2 });
   const need = boxes.filter((b) => !b.opt);
@@ -447,13 +447,13 @@ function decideFrame(boxes, W, H) {
  * 카메라 목표 (§5 표) → { cx, cy, z } (clampCamera 까지 한 값).
  *   'full'   : z 1 · 전체
  *   'follow' : z = followZoom(speed) (1.4 · 4배속 1.2), 가운데 = 공 (필드 %) + 공격 방향 앞쪽 LEAD (필드 길이 %), 땅 점보다 LIFT · s 위
- *   'decide' : boxes (figureBox · core · opt) 를 여백과 함께 넣는 z (Z_FOLLOW ~ Z_DECIDE) · 가운데 (decideFrame)
+ *   'decide' : boxes (figureBox · core · opt) 를 여백과 함께 넣는 z (Z_FOLLOW ~ Z_DECIDE — zMin 을 주면 그 값 (1 ~ Z_FOLLOW) 까지) · 가운데 (decideFrame)
  *   'action' : z = current.z (지금), 가운데 = 공이 갈 곳 to (필드 %) 의 땅 점보다 LIFT · s 위
  * 필요한 값이 없으면 (공 · 상자 · 갈 곳) 전체.
  * @param {{ phase?: string, W: number, H: number, speed?: number, ball?: {x,y}|null, attackRight?: boolean,
  *   boxes?: Array<{l,r,t,b,core?,opt?}>, to?: {x,y}|null, current?: {cx,cy,z}|null, world?: object|null }} o
  */
-export function cameraTarget({ phase = 'full', W, H, speed = 1, ball = null, attackRight = true, boxes = [], to = null, current = null, world = null } = {}) {
+export function cameraTarget({ phase = 'full', W, H, speed = 1, ball = null, attackRight = true, boxes = [], to = null, current = null, world = null, zMin = CAM.Z_FOLLOW } = {}) {
   const wr = world || worldRect(W, H);
   if (phase === 'follow' && ball && Number.isFinite(Number(ball.x)) && Number.isFinite(Number(ball.y))) {
     const p = project(Number(ball.x), Number(ball.y) + (attackRight ? 1 : -1) * CAM.LEAD, W, H);
@@ -463,6 +463,6 @@ export function cameraTarget({ phase = 'full', W, H, speed = 1, ball = null, att
     const p = project(Number(to.x), Number(to.y), W, H);
     return clampCamera({ cx: p.sx, cy: p.sy - CAM.LIFT * p.s, z: Number(current?.z) || 1 }, W, H, wr);
   }
-  if (phase === 'decide' && Array.isArray(boxes) && boxes.length) return clampCamera(decideFrame(boxes, W, H), W, H, wr);
+  if (phase === 'decide' && Array.isArray(boxes) && boxes.length) return clampCamera(decideFrame(boxes, W, H, Math.max(1, Math.min(CAM.Z_FOLLOW, Number(zMin) || CAM.Z_FOLLOW))), W, H, wr);
   return clampCamera({ cx: W / 2, cy: H / 2, z: 1 }, W, H, wr);
 }

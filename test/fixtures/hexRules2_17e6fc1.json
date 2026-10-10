@@ -1,0 +1,319 @@
+{
+ "engine": "17e6fc1 js/engine/hexMatch.js (H3)",
+ "cases": [
+  {
+   "setupSeed": "fixture-fx-a",
+   "seed": "fx-a",
+   "kind": "goal",
+   "steps": 308,
+   "inputs": [
+    [
+     69,
+     "home",
+     "p6",
+     "arm"
+    ],
+    [
+     114,
+     "home",
+     "p3",
+     "arm"
+    ],
+    [
+     117,
+     "home",
+     "p5",
+     "arm"
+    ],
+    [
+     135,
+     "home",
+     "p1",
+     "arm"
+    ],
+    [
+     138,
+     "home",
+     "p4",
+     "arm"
+    ],
+    [
+     138,
+     "home",
+     "p7",
+     "arm"
+    ],
+    [
+     153,
+     "home",
+     "p2",
+     "arm"
+    ],
+    [
+     231,
+     "home",
+     "p6",
+     "arm"
+    ],
+    [
+     294,
+     "home",
+     "p3",
+     "arm"
+    ]
+   ],
+   "expect": {
+    "turn": 308,
+    "stage": "goldenGoal",
+    "score": {
+     "home": 2,
+     "away": 1
+    },
+    "penalties": null,
+    "winner": "home",
+    "events": 336,
+    "eventsHash": "7ea58ab76da62de9",
+    "posHash": "744781a82f296477",
+    "statsHash": "350d66659879d22a",
+    "ultimatesUsed": 9
+   }
+  },
+  {
+   "setupSeed": "fixture-fx-b",
+   "seed": "fx-b",
+   "kind": "friendly",
+   "steps": 302,
+   "inputs": [
+    [
+     105,
+     "home",
+     "p1",
+     "arm"
+    ],
+    [
+     130,
+     "home",
+     "p2",
+     "arm"
+    ],
+    [
+     140,
+     "home",
+     "p3",
+     "arm"
+    ],
+    [
+     145,
+     "home",
+     "p4",
+     "arm"
+    ],
+    [
+     160,
+     "home",
+     "p6",
+     "arm"
+    ],
+    [
+     170,
+     "home",
+     "p7",
+     "arm"
+    ],
+    [
+     175,
+     "home",
+     "p7",
+     "arm"
+    ],
+    [
+     200,
+     "home",
+     "p5",
+     "arm"
+    ],
+    [
+     250,
+     "home",
+     "p3",
+     "arm"
+    ]
+   ],
+   "expect": {
+    "turn": 302,
+    "stage": "regular",
+    "score": {
+     "home": 1,
+     "away": 2
+    },
+    "penalties": null,
+    "winner": "away",
+    "events": 320,
+    "eventsHash": "a665ce4aef5995b9",
+    "posHash": "ef07ac6978d39293",
+    "statsHash": "325f8e52bd497cfd",
+    "ultimatesUsed": 8
+   }
+  },
+  {
+   "setupSeed": "fixture-fx-c",
+   "seed": "fx-c",
+   "kind": "goal",
+   "steps": 300,
+   "inputs": [
+    [
+     90,
+     "home",
+     "p2",
+     "arm"
+    ],
+    [
+     93,
+     "home",
+     "p1",
+     "arm"
+    ],
+    [
+     141,
+     "home",
+     "p6",
+     "arm"
+    ],
+    [
+     147,
+     "home",
+     "p3",
+     "arm"
+    ],
+    [
+     152,
+     "home",
+     "p5",
+     "arm"
+    ],
+    [
+     157,
+     "home",
+     "p4",
+     "arm"
+    ],
+    [
+     191,
+     "home",
+     "p7",
+     "arm"
+    ],
+    [
+     230,
+     "home",
+     "p2",
+     "arm"
+    ],
+    [
+     265,
+     "home",
+     "p1",
+     "arm"
+    ],
+    [
+     275,
+     "home",
+     "p6",
+     "arm"
+    ]
+   ],
+   "expect": {
+    "turn": 300,
+    "stage": "regular",
+    "score": {
+     "home": 4,
+     "away": 0
+    },
+    "penalties": null,
+    "winner": "home",
+    "events": 302,
+    "eventsHash": "5a1aafa2729984ff",
+    "posHash": "27098279acc12dbc",
+    "statsHash": "8a0aaee24f57a4cf",
+    "ultimatesUsed": 8
+   }
+  },
+  {
+   "setupSeed": "fixture-fx-d",
+   "seed": "fx-d",
+   "kind": "arena",
+   "steps": 300,
+   "inputs": [
+    [
+     42,
+     "home",
+     "p4",
+     "arm"
+    ],
+    [
+     77,
+     "home",
+     "p6",
+     "arm"
+    ],
+    [
+     105,
+     "home",
+     "p2",
+     "arm"
+    ],
+    [
+     154,
+     "home",
+     "p7",
+     "arm"
+    ],
+    [
+     168,
+     "home",
+     "p1",
+     "arm"
+    ],
+    [
+     175,
+     "home",
+     "p3",
+     "arm"
+    ],
+    [
+     175,
+     "home",
+     "p4",
+     "arm"
+    ],
+    [
+     196,
+     "home",
+     "p5",
+     "arm"
+    ],
+    [
+     238,
+     "home",
+     "p6",
+     "arm"
+    ]
+   ],
+   "expect": {
+    "turn": 300,
+    "stage": "regular",
+    "score": {
+     "home": 4,
+     "away": 2
+    },
+    "penalties": null,
+    "winner": "home",
+    "events": 310,
+    "eventsHash": "08770e6c2ccd6687",
+    "posHash": "07e16ac9d13104e8",
+    "statsHash": "224e01ec0fd7edf0",
+    "ultimatesUsed": 9
+   }
+  }
+ ]
+}

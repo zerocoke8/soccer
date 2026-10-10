@@ -75,7 +75,7 @@ test("육각 경기 한 턴 길이: 기본 400ms · ?tick=300 ~ 500 만 받는�
 test("육각 경기 저장 키: KEYS.hexMatch 도 'soccer-hex.' 앞머리 · 저장/읽기 · clearRunSaves 가 함께 지운다", async () => {
   const hx = await storeAt("/soccer/hex/", "", "hexkeys");
   assert.equal(hx.KEYS.hexMatch, "soccer-hex.hexMatch");
-  assert.equal(hx.HEX_SAVE_VERSION, 2, "판 2 = H3 필살기 입력 기록");
+  assert.equal(hx.HEX_SAVE_VERSION, 3, "판 3 = H3.5 결정의 순간 입력 (choose · defend) 도 기록");
   assert.equal(hx.store.hexMatch, null);
   const ls = await storeAt("/soccer/lesson/", "", "hexkeyslesson");
   assert.equal(ls.KEYS.hexMatch, "soccer-lesson.hexMatch");
@@ -89,18 +89,30 @@ test("육각 경기 저장 키: KEYS.hexMatch 도 'soccer-hex.' 앞머리 · 저
   });
   try {
     assert.equal(hx.loadHexMatch(), null);
-    const save = { version: hx.HEX_SAVE_VERSION, seed: "s1", steps: 37, inputs: [[3, "home", "p7", "arm"], [9, "home", "p7", "disarm"]] };
+    const save = { version: hx.HEX_SAVE_VERSION, seed: "s1", steps: 37, inputs: [[3, "home", "p7", "arm"], [9, "home", "p7", "disarm"],
+      [12, "home", "p7", "choose", "loft:p6:120"], [20, "home", "p2", "defend", "block"]] };
     hx.saveHexMatch(save);
     assert.deepEqual(hx.loadHexMatch(), save);
-    // 판 1 (H1 · H2 — 입력 없음) · inputs 없는 판 2 → inputs: [] 판 2 모양
+    // 판 1 (H1 · H2 — 입력 없음) · inputs 없는 판 2 → inputs: [] · 판 1 · 2 는 rules: 2 (그때 규칙으로 되살린다 — H3.5)
     mem.set(hx.KEYS.hexMatch, JSON.stringify({ version: 1, seed: "s1", steps: 12, skipped: true }));
-    assert.deepEqual(hx.loadHexMatch(), { version: 2, seed: "s1", steps: 12, skipped: true, inputs: [] }, "판 1 = 입력 없음");
+    assert.deepEqual(hx.loadHexMatch(), { version: 3, seed: "s1", steps: 12, skipped: true, inputs: [], rules: 2 }, "판 1 = 입력 없음");
     mem.set(hx.KEYS.hexMatch, JSON.stringify({ version: 2, seed: "s1", steps: 4 }));
-    assert.deepEqual(hx.loadHexMatch(), { version: 2, seed: "s1", steps: 4, inputs: [] }, "inputs 없음 = 입력 없음");
-    for (const bad of [[[-1, "home", "p1", "arm"]], [[1.5, "home", "p1", "arm"]], [[1, "both", "p1", "arm"]], [[1, "home", "", "arm"]], [[1, "home", "p1", "fire"]], [[1, "home", "p1"]], "x"]) {
+    assert.deepEqual(hx.loadHexMatch(), { version: 3, seed: "s1", steps: 4, inputs: [], rules: 2 }, "inputs 없음 = 입력 없음");
+    mem.set(hx.KEYS.hexMatch, JSON.stringify({ version: 2, seed: "s1", steps: 9, inputs: [[3, "home", "p7", "arm"]] }));
+    assert.deepEqual(hx.loadHexMatch(), { version: 3, seed: "s1", steps: 9, inputs: [[3, "home", "p7", "arm"]], rules: 2 }, "판 2 필살기 입력 그대로");
+    mem.set(hx.KEYS.hexMatch, JSON.stringify({ version: 3, seed: "s1", steps: 9, inputs: [], rules: 2 }));
+    assert.deepEqual(hx.loadHexMatch(), { version: 3, seed: "s1", steps: 9, inputs: [], rules: 2 }, "판 2 에서 이어 온 판 3 기록 (rules 2) 그대로");
+    for (const bad of [[[-1, "home", "p1", "arm"]], [[1.5, "home", "p1", "arm"]], [[1, "both", "p1", "arm"]], [[1, "home", "", "arm"]], [[1, "home", "p1", "fire"]], [[1, "home", "p1"]], "x",
+      [[1, "home", "p1", "choose", "shoot"]]]) {
       mem.set(hx.KEYS.hexMatch, JSON.stringify({ version: 2, seed: "s1", steps: 4, inputs: bad }));
-      assert.equal(hx.loadHexMatch(), null, `입력 모양이 틀리면 없음: ${JSON.stringify(bad)}`);
+      assert.equal(hx.loadHexMatch(), null, `판 2 입력 모양이 틀리면 없음 (choose 는 판 3 만): ${JSON.stringify(bad)}`);
     }
+    for (const bad of [[[1, "home", "p1", "choose"]], [[1, "home", "p1", "choose", ""]], [[1, "home", "p1", "defend", "tackle"]], [[1, "home", "p1", "arm", "x"]]]) {
+      mem.set(hx.KEYS.hexMatch, JSON.stringify({ version: 3, seed: "s1", steps: 4, inputs: bad }));
+      assert.equal(hx.loadHexMatch(), null, `판 3 입력 모양이 틀리면 없음: ${JSON.stringify(bad)}`);
+    }
+    mem.set(hx.KEYS.hexMatch, JSON.stringify({ version: 3, seed: "s1", steps: 4, inputs: [], rules: 7 }));
+    assert.equal(hx.loadHexMatch(), null, "rules 가 틀리면 없음");
     mem.set(hx.KEYS.hexMatch, JSON.stringify({ version: 99, seed: "s1", steps: 3 }));
     assert.equal(hx.loadHexMatch(), null, "버전이 다르면 없음");
     mem.set(hx.KEYS.hexMatch, JSON.stringify({ version: 1, seed: "s1", steps: -1 }));

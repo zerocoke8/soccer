@@ -35,10 +35,16 @@ export const LESSON_RUN_SAVE_VERSIONS = [1, 2, 3, 4, 5];
 export function isLessonRunSave(s) {
   return !!s && typeof s === 'object' && s.kind === LESSON_RUN_KIND && LESSON_RUN_SAVE_VERSIONS.includes(s.version) && typeof s.phase === 'string';
 }
-/** KEYS.hexMatch 저장 형식 버전 (육각 경기 재생 기록 — saveHexMatch · loadHexMatch). 2 = H3 필살기 입력 기록 inputs (1 은 inputs: [] 로 읽는다) */
-export const HEX_SAVE_VERSION = 2;
-/** 육각 재생 기록의 필살기 입력 op */
-const HEX_INPUT_OPS = ['arm', 'disarm'];
+/**
+ * KEYS.hexMatch 저장 형식 버전 (육각 경기 재생 기록 — saveHexMatch · loadHexMatch). 2 = H3 필살기 입력 기록 inputs (1 은 inputs: [] 로 읽는다),
+ * 3 = H3.5 결정의 순간 입력 'choose' · 'defend' (판 1 · 2 는 rules: 2 를 붙여 읽는다 — 엔진 규칙 판 2 (2골 선승 · 수비 자세 없음) 로 되살려야 같은 경기)
+ */
+export const HEX_SAVE_VERSION = 3;
+/** 육각 재생 기록의 입력 op (판 3 — arm · disarm = 필살기, choose = 결정의 순간 선택지 key, defend = 수비 자세) · 판 2 는 앞의 둘만 */
+const HEX_INPUT_OPS = ['arm', 'disarm', 'choose', 'defend'];
+const HEX_INPUT_OPS_V2 = ['arm', 'disarm'];
+/** defend 입력의 자세 (엔진 hexMatch.STANCES 와 같다) */
+const HEX_STANCES = ['press', 'block', 'drop'];
 /** KEYS.challengeMatch 저장 형식 버전 */
 export const CHALLENGE_MATCH_VERSION = 1;
 /** 등록 팀 저장 개수 상한 (addTeam — 넘친 오래된 팀은 지운다) */
@@ -49,6 +55,7 @@ export const TEAMS_CAP = 50;
 // 배치 흔들림 (§11 — J1): ?jitter=0 → 끔, ?jitter=1 → 켬 (평면에서도). 없으면 2.5D 모드를 따른다 (isLayoutJitter).
 // 육각 경기 화면 (docs/HEX_AUTOBATTLE_PLAN.md §6.2 — H1): ?hex=0 → 끔 (옛 턴제 화면), ?hex=1 → 켬. 없으면 육각 시험판 (/hex/) 만 켬.
 //   ?tick=300 ~ 500 (정수, ms) → 육각 경기 한 턴 길이 (1배속 기준). 범위 밖이면 무시 (기본 400 — hexTickMs).
+//   ?moments=0 → 육각 경기 결정의 순간 끔 (결정 26 [결정 OFF] — 스크린샷 도구 · 완전 자동으로 볼 때), ?moments=1 → 켬 (기본).
 function urlMatchPrefs() {
   try {
     const search = globalThis.location && typeof globalThis.location.search === 'string' ? globalThis.location.search : '';
@@ -72,6 +79,9 @@ function urlMatchPrefs() {
     const tk = q.get('tick');
     const tickMs = tk != null && /^\d+$/.test(tk) ? Number(tk) : NaN;
     if (Number.isInteger(tickMs) && tickMs >= 300 && tickMs <= 500) out.tick = tickMs;
+    const mo = q.get('moments');
+    if (mo === '0' || mo === 'false' || mo === 'off') out.moments = false;
+    else if (mo === '1' || mo === 'true' || mo === 'on') out.moments = true;
     return out;
   } catch (_) {
     return {};
@@ -158,6 +168,8 @@ export const store = {
     busy: false,        // 비트 연출 중 (읽기 전용 표시: 테스트·도구용)
     resultShown: false,
     logOpen: false,     // 로그 서랍 열림 — 한 경기 안에서는 경기 화면을 다시 그려도 유지, 새 경기(resetMatchUi)는 닫힌 채 시작
+    moments: URL_PREFS.moments ?? true, // 육각 경기 결정의 순간 [결정 ON/OFF] (결정 26 — 기본 ON). 경기 · 다시 그리기를 넘어 남는다 (resetMatchUi 가 지우지 않는다)
+    hexIntervene: false, // 육각 경기 [⏸ 개입] — 다음 우리 선택 · 수비 장면에서 한 번 멈춤 (멈추면 꺼진다 — 경기가 끝나도 · 새 경기 resetMatchUi · 연습 경기 열기 · 나가기도 끈다)
   },
   // 레슨 화면 (phase lesson · reward 배경, LESSON_PROTO_PLAN §6.2). 메모리만 — 레슨 상태 자체는 store.run.lesson (호출마다 저장)
   lessonUi: {
@@ -209,29 +221,42 @@ export function saveMatch(state) { return lsSet(KEYS.match, state ?? null); }
 export function loadMatch() { return lsGet(KEYS.match); }
 export function clearRunSaves() { lsSet(KEYS.run, null); lsSet(KEYS.match, null); lsSet(KEYS.hexMatch, null); }
 /**
- * 육각 경기 재생 기록 쓰기 (KEYS.hexMatch). null = 지운다. 모양 = { version: HEX_SAVE_VERSION, seed, steps, inputs, skipped? } (화면이 만든다)
- *   inputs = [[stepIndex, side, playerId, op], …] — stepIndex 번째 (0 부터) step 에 넣은 필살기 입력 (op 'arm' | 'disarm', 넣은 순서대로)
- * @param {{ version: number, seed: string|number, steps: number, inputs?: Array<[number, string, string, string]>, skipped?: boolean } | null} save
+ * 육각 경기 재생 기록 쓰기 (KEYS.hexMatch). null = 지운다. 모양 = { version: HEX_SAVE_VERSION, seed, steps, inputs, skipped?, rules? } (화면이 만든다)
+ *   inputs = [[stepIndex, side, playerId, op, payload?], …] — stepIndex 번째 (0 부터) step 에 넣은 입력 (넣은 순서대로):
+ *   op 'arm' | 'disarm' (필살기 — payload 없음) · 'choose' (결정의 순간 — payload = 선택지 key) · 'defend' (수비 자세 — payload = 'press' | 'block' | 'drop').
+ *   rules = 2 면 엔진 규칙 판 2 로 만든 경기 (판 1 · 2 재생 기록을 이어 하는 중) — 없으면 지금 규칙 (3).
+ * @param {{ version: number, seed: string|number, steps: number, inputs?: Array<Array<number|string>>, skipped?: boolean, rules?: number } | null} save
  */
 export function saveHexMatch(save) { return lsSet(KEYS.hexMatch, save ?? null); }
-/** 재생 기록 입력 한 줄이 맞는 모양인가 ([0 이상 정수, 'home'|'away', 선수 id, 'arm'|'disarm']) */
-function isHexInput(x) {
-  return Array.isArray(x) && x.length === 4 && Number.isInteger(x[0]) && x[0] >= 0 && (x[1] === 'home' || x[1] === 'away')
-    && (typeof x[2] === 'string' || typeof x[2] === 'number') && String(x[2]) !== '' && HEX_INPUT_OPS.includes(x[3]);
+/**
+ * 재생 기록 입력 한 줄이 맞는 모양인가: [0 이상 정수, 'home'|'away', 선수 id, op] (arm · disarm) 또는 [… , 'choose', key 문자열] ·
+ * [… , 'defend', 자세]. 판 2 (v2) 는 arm · disarm 만.
+ */
+function isHexInput(x, v2 = false) {
+  if (!Array.isArray(x) || !Number.isInteger(x[0]) || x[0] < 0 || (x[1] !== 'home' && x[1] !== 'away')) return false;
+  if (!(typeof x[2] === 'string' || typeof x[2] === 'number') || String(x[2]) === '') return false;
+  if (!(v2 ? HEX_INPUT_OPS_V2 : HEX_INPUT_OPS).includes(x[3])) return false;
+  if (x[3] === 'choose') return x.length === 5 && typeof x[4] === 'string' && x[4] !== '';
+  if (x[3] === 'defend') return x.length === 5 && HEX_STANCES.includes(x[4]);
+  return x.length === 4;
 }
 /**
- * 육각 경기 재생 기록 (없거나 모양 · 버전이 틀리면 null — seed 확인은 화면이 셋업과 맞춰 본다).
- * 판 1 (H1 · H2 — 입력 없음) · inputs 가 없는 판 2 는 inputs: [] 로 읽어 판 2 모양으로 돌려준다.
- * 입력 한 줄이라도 모양이 틀리면 null (다른 경기가 되살아나지 않게).
- * @returns {{ version: number, seed: string|number, steps: number, inputs: Array<[number, string, string, string]>, skipped?: boolean } | null}
+ * 육각 경기 재생 기록 (없거나 모양 · 버전이 틀리면 null — seed 확인은 화면이 셋업과 맞춰 본다). 판 3 모양으로 돌려준다.
+ * 판 1 (H1 · H2 — 입력 없음) · inputs 가 없는 판 2 는 inputs: [] 로 읽는다. 판 1 · 2 는 rules: 2 를 붙인다 (그때 규칙 그대로 되살린다 —
+ * 2골 선승 · 수비 자세가 없던 경기). 입력 한 줄이라도 모양이 틀리면 null (다른 경기가 되살아나지 않게).
+ * @returns {{ version: number, seed: string|number, steps: number, inputs: Array<Array<number|string>>, skipped?: boolean, rules?: number } | null}
  */
 export function loadHexMatch() {
   const s = lsGet(KEYS.hexMatch);
-  if (!s || typeof s !== 'object' || Array.isArray(s) || (s.version !== HEX_SAVE_VERSION && s.version !== 1)) return null;
+  if (!s || typeof s !== 'object' || Array.isArray(s) || ![1, 2, HEX_SAVE_VERSION].includes(s.version)) return null;
   if (!Number.isInteger(s.steps) || s.steps < 0 || s.seed == null) return null;
-  if (s.version === 1 || s.inputs === undefined) return { ...s, version: HEX_SAVE_VERSION, inputs: [] };
-  if (!Array.isArray(s.inputs) || !s.inputs.every(isHexInput)) return null;
-  return s;
+  const old = s.version < HEX_SAVE_VERSION;
+  if (!old && s.rules !== undefined && s.rules !== 2 && s.rules !== 3) return null;
+  const out = { ...s, version: HEX_SAVE_VERSION };
+  if (old) out.rules = 2;
+  if (s.version === 1 || s.inputs === undefined) return { ...out, inputs: [] };
+  if (!Array.isArray(s.inputs) || !s.inputs.every((x) => isHexInput(x, s.version === 2))) return null;
+  return out;
 }
 
 /**
@@ -311,6 +336,7 @@ export function resetMatchUi() {
   ui.lastDecision = null;
   ui.resultShown = false;
   ui.logOpen = false;
+  ui.hexIntervene = false;
 }
 
 /** 레슨 화면 상태 초기화 (새 레슨 · 레슨 밖으로 나갈 때). gen 은 올려서 옛 연출 루프를 멈춘다 */
